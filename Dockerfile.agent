@@ -1,0 +1,78 @@
+# ============================================================================
+# Dockerfile.agent — context-library development environment
+# ============================================================================
+# Builds the ENVIRONMENT (tools + dependencies), NOT the source code.
+# Source code is mounted at runtime by the orchestrator.
+# ============================================================================
+
+# ============================================================================
+# Stage 1: Base Environment Setup
+# ============================================================================
+FROM clauditoreum-orchestrator:latest
+
+# Base image provides: Claude CLI, Git CLI, GitHub CLI, Python 3.11,
+# essential build tools, procps
+
+USER root
+
+# ============================================================================
+# Stage 2: Install Project-Specific System Dependencies
+# ============================================================================
+# sentence-transformers / PyTorch may need additional system libs
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# ============================================================================
+# Stage 3: Pre-install Python Dependencies
+# ============================================================================
+WORKDIR /workspace/context-library
+
+# Copy only the dependency manifest
+COPY pyproject.toml ./
+
+# Install main + dev dependencies from pyproject.toml
+# We use pip to install the declared dependencies without the package itself
+# since source code is mounted at runtime
+RUN pip install --no-cache-dir \
+    "lancedb>=0.29" \
+    "sentence-transformers>=5.0" \
+    "mistune>=3.0" \
+    "pydantic>=2.0" \
+    "ruff" \
+    "mypy" \
+    "pytest" \
+    "hatchling"
+
+# ============================================================================
+# Stage 4: Ownership and Permissions
+# ============================================================================
+# Python packages are installed in system paths (/usr/local), no chown needed.
+# Source code ownership is handled by the runtime mount.
+
+# ============================================================================
+# Stage 5: Switch to Runtime User
+# ============================================================================
+USER orchestrator
+
+# ============================================================================
+# Stage 6: Verification (MANDATORY)
+# ============================================================================
+# Verify critical CLIs from base image
+RUN claude --version && \
+    git --version && \
+    gh --version
+
+# Verify Python and key packages
+RUN python3 --version && \
+    pip --version && \
+    python3 -c "import lancedb; print('lancedb OK')" && \
+    python3 -c "import mistune; print('mistune OK')" && \
+    python3 -c "import pydantic; print('pydantic OK')"
+
+# ============================================================================
+# Default command
+# ============================================================================
+CMD ["/bin/bash"]
