@@ -6,7 +6,7 @@ A retrieval-augmented generation system that tracks, versions, and diffs source 
 
 ### Normalize → Diff → Chunk → Embed → Store
 
-Traditional RAG pipelines treat ingestion as a one-shot operation. Chronicle adds a **diff stage** between normalization and chunking so that re-ingested sources only produce new chunk versions when content actually changes. All source content is normalized to markdown before comparison, giving a stable (if imperfect) surface for detecting meaningful changes. Trivial differences like whitespace are filtered out; the goal is paragraph-level and list-level change detection, not character-perfect diffs.
+Traditional RAG pipelines treat ingestion as a one-shot operation. Context Library adds a **diff stage** between normalization and chunking so that re-ingested sources only produce new chunk versions when content actually changes. All source content is normalized to markdown before comparison, giving a stable (if imperfect) surface for detecting meaningful changes. Trivial differences like whitespace are filtered out; the goal is paragraph-level and list-level change detection, not character-perfect diffs.
 
 ### Content-Addressed Versioning
 
@@ -110,7 +110,7 @@ This supports queries like:
 ## Project Structure
 
 ```
-chronicle/
+context library/
 ├── core/
 │   ├── pipeline.py          # Orchestrates fetch → normalize → diff → chunk → embed → store
 │   ├── differ.py            # Markdown diff engine, hash comparison, change detection
