@@ -1,12 +1,12 @@
 # Persistence Design
 
-How Chronicle stores, links, and maintains data across its dual-storage architecture.
+How Context Library stores, links, and maintains data across its dual-storage architecture.
 
 ---
 
 ## Storage Architecture
 
-Chronicle uses two storage engines with distinct responsibilities:
+Context Library uses two storage engines with distinct responsibilities:
 
 **SQLite** is the source of truth. It holds all canonical data: source versions, chunk records, lineage metadata, adapter configurations, and domain-specific metadata. Every structured or relational query — version diffs, provenance tracing, source history, state transitions — runs against SQLite.
 
@@ -136,7 +136,7 @@ Example of what `domain_metadata` contains per domain:
     "created_at": "2025-03-01T09:00:00Z",
     "modified_at": "2025-03-01T14:00:00Z",
     "source_app": "obsidian",
-    "tags": ["project-chronicle", "architecture"],
+    "tags": ["project-context-library", "architecture"],
     "title": "Persistence design notes",
     "is_handwritten_origin": false
 }
@@ -158,7 +158,7 @@ Example of what `domain_metadata` contains per domain:
 ```json
 {
     "task_id": "task_789",
-    "project": "chronicle",
+    "project": "context-library",
     "workstream": "persistence",
     "state": "in_progress",
     "previous_state": "open",
@@ -367,10 +367,10 @@ This is an offline operation that doesn't affect SQLite writes. New chunks arriv
 On disk, the data directory looks like:
 
 ```
-~/.chronicle/
-├── chronicle.db              -- SQLite database (source of truth)
-├── chronicle.db-wal          -- SQLite write-ahead log
-├── chronicle.db-shm          -- SQLite shared memory
+~/.context-library/
+├── context_library.db        -- SQLite database (source of truth)
+├── context_library.db-wal    -- SQLite write-ahead log
+├── context_library.db-shm    -- SQLite shared memory
 ├── vectors/                  -- LanceDB data directory
 │   └── chunk_vectors.lance/  -- Lance format files
 └── backups/                  -- SQLite backups (periodic)

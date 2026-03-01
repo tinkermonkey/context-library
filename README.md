@@ -160,7 +160,10 @@ context library/
 
 > **Status:** Architecture phase — not yet implemented.
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed data flow and class diagrams.
+See the design documentation for detailed information:
+- [Architecture](./documentation/Architecture.md) — System design and component structure
+- [Persistence Design](./documentation/persistence-design.md) — Dual-storage architecture and data consistency
+- [Chunking Strategy](./documentation/chunking-strategy.md) — Content-aware chunking for each domain
 
 ---
 
