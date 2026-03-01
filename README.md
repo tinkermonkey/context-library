@@ -1,4 +1,4 @@
-# Chronicle — Versioned RAG with Source Lineage
+# Context Library — Versioned RAG with Source Lineage
 
 A retrieval-augmented generation system that tracks, versions, and diffs source documents across heterogeneous inputs. Every chunk in the vector store carries full provenance back to its origin, and content changes are detected via hash-based comparison of normalized markdown.
 
