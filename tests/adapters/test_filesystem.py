@@ -1,9 +1,7 @@
 """Tests for the FilesystemAdapter."""
 
-import pytest
 from pathlib import Path
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from datetime import datetime
 
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.storage.models import Domain, NormalizedContent, StructuralHints
