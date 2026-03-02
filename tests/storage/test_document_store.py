@@ -13,7 +13,6 @@ import pytest
 
 from src.context_library.storage.models import Domain
 from src.context_library.storage.schema import (
-    SchemaConfigError,
     apply_schema_and_validate_pragmas,
     validate_pragmas,
 )
@@ -499,7 +498,7 @@ class TestSchemaInitialization:
 
             # Get the inserted timestamp
             cursor.execute("SELECT updated_at FROM adapters WHERE adapter_id = 'adapter1'")
-            first_ts = cursor.fetchone()[0]
+            cursor.fetchone()[0]
 
             # Directly set updated_at to a different value
             # Since NEW.updated_at != OLD.updated_at, the WHEN clause is FALSE and trigger does not fire
