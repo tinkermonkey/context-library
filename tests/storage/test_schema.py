@@ -2,7 +2,6 @@
 
 import sqlite3
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +17,7 @@ class TestApplySchemaAndValidatePragmas:
 
     def test_successful_schema_application(self) -> None:
         """Successful schema application with PRAGMA validation."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             # Create an in-memory database
             conn = sqlite3.connect(":memory:")
             # Apply schema and validate
@@ -34,8 +33,6 @@ class TestApplySchemaAndValidatePragmas:
 
     def test_missing_schema_file_raises_schema_config_error(self, monkeypatch) -> None:
         """Missing schema.sql file raises SchemaConfigError, not FileNotFoundError."""
-        import builtins
-        original_open = builtins.open
 
         def mock_open(*args, **kwargs):
             raise FileNotFoundError("No such file or directory")
