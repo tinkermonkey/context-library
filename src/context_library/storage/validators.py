@@ -9,18 +9,24 @@ from math import isfinite
 EMBEDDING_DIM = 384
 
 
-def validate_embedding_dimension(value: Sequence[float]) -> None:
+def validate_embedding_dimension(
+    value: Sequence[float], expected_dim: int = EMBEDDING_DIM
+) -> None:
     """Validate that embedding vector has correct dimension and no NaN/infinity values.
+
+    Supports runtime flexibility for different embedding models by accepting an optional
+    expected_dim parameter. Defaults to EMBEDDING_DIM (384) for the standard model.
 
     Args:
         value: The embedding vector to validate
+        expected_dim: Expected embedding dimension (defaults to EMBEDDING_DIM = 384)
 
     Raises:
         ValueError: If dimension is incorrect or contains NaN/infinity values
     """
-    if len(value) != EMBEDDING_DIM:
+    if len(value) != expected_dim:
         raise ValueError(
-            f"Embedding dimension mismatch: expected {EMBEDDING_DIM}, got {len(value)}"
+            f"Embedding dimension mismatch: expected {expected_dim}, got {len(value)}"
         )
 
     for i, val in enumerate(value):
