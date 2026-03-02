@@ -19,5 +19,14 @@ spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
 dev = ["ruff", "mypy", "pytest"]
 
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "lancedb.*"
+ignore_missing_imports = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/context_library"]
