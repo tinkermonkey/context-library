@@ -22,6 +22,12 @@ class DocumentStore:
     - Sync state with LanceDB vector store
     """
 
+    # Placeholder for embedding_model_id in Phase 1.
+    # The chunks table does not currently store embedding_model_id from lineage;
+    # this is tracked as future work in Phase 2+.
+    # See: https://github.com/tinkermonkey/context-library/issues/40
+    _EMBEDDING_MODEL_PLACEHOLDER = "unspecified"
+
     def __init__(self, db_path: str | Path) -> None:
         """Initialize the document store and set up the SQLite database.
 
@@ -43,9 +49,6 @@ class DocumentStore:
         # Enable WAL mode for better concurrency
         self.conn.execute("PRAGMA journal_mode=WAL")
 
-        # Enable foreign key constraints
-        self.conn.execute("PRAGMA foreign_keys=ON")
-
         # Set synchronous mode to NORMAL for better performance
         self.conn.execute("PRAGMA synchronous=NORMAL")
 
@@ -57,8 +60,20 @@ class DocumentStore:
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
 
-        # Verify schema version
+        # Re-enable foreign key constraints after executescript
+        # (executescript can reset connection state)
+        self.conn.execute("PRAGMA foreign_keys=ON")
+
+        # Verify foreign keys are enforced
         cursor = self.conn.cursor()
+        cursor.execute("PRAGMA foreign_keys")
+        foreign_keys_enabled = cursor.fetchone()[0]
+        if foreign_keys_enabled != 1:
+            raise RuntimeError(
+                "Failed to enable foreign key constraints"
+            )
+
+        # Verify schema version
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
         if version != 1:
@@ -152,7 +167,7 @@ class DocumentStore:
             prev_version_id: Not used in this implementation; for compatibility.
 
         Returns:
-            The newly created source_version row ID (rowid).
+            The SQLite rowid of the newly created source_version row.
 
         Raises:
             sqlite3.IntegrityError: If source_id or adapter_id don't exist.
@@ -160,7 +175,8 @@ class DocumentStore:
         chunk_hashes_json = json.dumps(chunk_hashes)
 
         with self.conn:
-            self.conn.execute(
+            cursor = self.conn.cursor()
+            cursor.execute(
                 """
                 INSERT INTO source_versions
                 (source_id, version, markdown, chunk_hashes, adapter_id,
@@ -178,6 +194,9 @@ class DocumentStore:
                 ),
             )
 
+            # Capture the rowid of the inserted row
+            source_version_id = cursor.lastrowid
+
             # Update sources.current_version
             self.conn.execute(
                 """
@@ -186,8 +205,7 @@ class DocumentStore:
                 (version, source_id),
             )
 
-            # Return the version number (primary key for this source)
-            return version
+            return source_version_id
 
     def write_chunks(
         self,
@@ -217,6 +235,9 @@ class DocumentStore:
                     f"No lineage record found for chunk_hash={chunk.chunk_hash}"
                 )
 
+        # Generate timestamp once for the entire batch
+        batch_timestamp = datetime.now(timezone.utc).isoformat()
+
         with self.conn:
             for chunk in chunks:
                 domain_metadata_json = (
@@ -245,7 +266,7 @@ class DocumentStore:
                         chunk.context_header,
                         lineage.domain.value,
                         lineage.adapter_id,
-                        datetime.now(timezone.utc).isoformat(),
+                        batch_timestamp,
                         lineage.normalizer_version,
                         domain_metadata_json,
                         chunk.chunk_type,
@@ -493,6 +514,12 @@ class DocumentStore:
 
         Returns:
             LineageRecord with provenance information, or None if not found.
+
+        Note:
+            The embedding_model_id field is set to a placeholder in Phase 1,
+            as the chunks table does not yet store this value. The original
+            embedding_model_id from write_chunks is not persisted. This is
+            tracked for future phases (https://github.com/tinkermonkey/context-library/issues/40).
         """
         cursor = self.conn.cursor()
         cursor.execute(
@@ -510,8 +537,6 @@ class DocumentStore:
         if not row:
             return None
 
-        # Note: embedding_model_id is not stored in chunks table in Phase 1
-        # For now, we'll use a placeholder
         return LineageRecord(
             chunk_hash=row["chunk_hash"],
             source_id=row["source_id"],
@@ -519,7 +544,7 @@ class DocumentStore:
             adapter_id=row["adapter_id"],
             domain=Domain(row["domain"]),
             normalizer_version=row["normalizer_version"],
-            embedding_model_id="unknown",
+            embedding_model_id=self._EMBEDDING_MODEL_PLACEHOLDER,
         )
 
     def get_adapter(self, adapter_id: str) -> Optional[AdapterConfig]:
