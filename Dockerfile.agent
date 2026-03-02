@@ -34,11 +34,8 @@ WORKDIR /workspace/context-library
 COPY pyproject.toml ./
 
 # Install dependencies from pyproject.toml
-# Install the package in editable mode with all dev dependencies
 # Source code is mounted at runtime, so we only install the deps
-RUN pip install --no-cache-dir \
-    -e ".[dev]" \
-    hatchling
+RUN pip install --no-cache-dir ".[dev]"
 
 # ============================================================================
 # Stage 4: Ownership and Permissions
