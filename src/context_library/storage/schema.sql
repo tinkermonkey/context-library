@@ -90,3 +90,11 @@ WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
 END;
+
+CREATE TABLE IF NOT EXISTS lancedb_sync_log (
+    chunk_hash      TEXT PRIMARY KEY,
+    synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
