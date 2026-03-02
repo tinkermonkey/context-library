@@ -7,6 +7,7 @@ import pytest
 from context_library.storage.schema import (
     SchemaConfigError,
     apply_schema_and_validate_pragmas,
+    configure_connection,
     validate_pragmas,
 )
 
@@ -161,3 +162,85 @@ class TestValidatePragmas:
             assert "foreign_keys" in str(exc_info.value)
         finally:
             conn_wrapper._conn.close()
+
+
+class TestConfigureConnection:
+    """Tests for configure_connection() - session-level PRAGMA configuration."""
+
+    def test_configure_connection_sets_journal_mode(self) -> None:
+        """configure_connection sets PRAGMA journal_mode=WAL."""
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+
+        # Before configuration, journal_mode should be default (delete)
+        # After configuration, should be WAL (or memory for :memory: databases)
+        configure_connection(conn)
+
+        cursor.execute("PRAGMA journal_mode")
+        result = cursor.fetchone()
+        assert result[0] in ("wal", "memory")
+        conn.close()
+
+    def test_configure_connection_sets_synchronous(self) -> None:
+        """configure_connection sets PRAGMA synchronous=NORMAL (1)."""
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+
+        configure_connection(conn)
+
+        cursor.execute("PRAGMA synchronous")
+        result = cursor.fetchone()
+        assert result[0] == 1  # NORMAL = 1
+        conn.close()
+
+    def test_configure_connection_raises_on_sqlite_operational_error(self) -> None:
+        """configure_connection wraps sqlite3.OperationalError in SchemaConfigError."""
+
+        class MockConnection:
+            """Mock connection that raises OperationalError on PRAGMA execution."""
+
+            def cursor(self):
+                return MockCursor()
+
+            def __getattr__(self, name):
+                # Delegate other attributes to a real connection
+                return getattr(sqlite3.connect(":memory:"), name)
+
+        class MockCursor:
+            """Mock cursor that raises OperationalError on execute."""
+
+            def execute(self, *args, **kwargs):
+                raise sqlite3.OperationalError("simulated PRAGMA failure")
+
+            def __getattr__(self, name):
+                # Delegate other attributes to a real cursor
+                return getattr(
+                    sqlite3.connect(":memory:").cursor(), name
+                )
+
+        conn = MockConnection()
+
+        with pytest.raises(SchemaConfigError) as exc_info:
+            configure_connection(conn)
+
+        assert "Failed to configure connection PRAGMAs" in str(exc_info.value)
+        assert "simulated PRAGMA failure" in str(exc_info.value)
+
+    def test_configure_connection_with_file_based_database(self, tmp_path) -> None:
+        """configure_connection works with file-based databases and sets WAL mode."""
+        db_path = tmp_path / "test.db"
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
+        configure_connection(conn)
+
+        # For file-based databases, WAL mode should be set
+        cursor.execute("PRAGMA journal_mode")
+        result = cursor.fetchone()
+        assert result[0] == "wal"
+
+        cursor.execute("PRAGMA synchronous")
+        result = cursor.fetchone()
+        assert result[0] == 1  # NORMAL = 1
+
+        conn.close()

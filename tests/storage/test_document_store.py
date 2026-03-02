@@ -17,6 +17,7 @@ from context_library.storage.models import Domain
 from context_library.storage.schema import (
     SchemaConfigError,
     apply_schema_and_validate_pragmas,
+    configure_connection,
     validate_pragmas,
 )
 
@@ -187,6 +188,9 @@ class TestSchemaInitialization:
         cursor = conn.cursor()
 
         try:
+            # Configure connection-time PRAGMAs (journal_mode, synchronous)
+            configure_connection(conn)
+
             cursor.executescript(schema_content)
             conn.commit()
 
