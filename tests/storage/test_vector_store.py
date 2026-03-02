@@ -2,29 +2,27 @@
 
 import pytest
 
+# Use importorskip to gracefully handle missing lancedb dependency
+pytest.importorskip("lancedb", minversion=None)
+
+from context_library.storage.vector_store import (
+    EMBEDDING_DIM,
+    validate_embedding_dimension,
+)
+from context_library.storage.models import Domain
+
 
 class TestValidateEmbeddingDimension:
     """Tests for embedding dimension validation."""
 
     def test_valid_dimension(self) -> None:
         """Valid embedding dimension passes without raising."""
-        # Import here to avoid module-level LanceModel import error
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         valid_embedding = [0.1] * EMBEDDING_DIM
         # Should not raise
         validate_embedding_dimension(valid_embedding)
 
     def test_invalid_dimension_too_short(self) -> None:
         """Embedding shorter than expected dimension raises ValueError."""
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         short_embedding = [0.1] * (EMBEDDING_DIM - 1)
         with pytest.raises(ValueError) as exc_info:
             validate_embedding_dimension(short_embedding)
@@ -33,11 +31,6 @@ class TestValidateEmbeddingDimension:
 
     def test_invalid_dimension_too_long(self) -> None:
         """Embedding longer than expected dimension raises ValueError."""
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         long_embedding = [0.1] * (EMBEDDING_DIM + 1)
         with pytest.raises(ValueError) as exc_info:
             validate_embedding_dimension(long_embedding)
@@ -46,10 +39,6 @@ class TestValidateEmbeddingDimension:
 
     def test_error_message_content(self) -> None:
         """Error message includes helpful guidance."""
-        from context_library.storage.vector_store import (
-            validate_embedding_dimension,
-        )
-
         wrong_embedding = [0.5] * 100
         with pytest.raises(ValueError) as exc_info:
             validate_embedding_dimension(wrong_embedding)
@@ -59,10 +48,6 @@ class TestValidateEmbeddingDimension:
 
     def test_none_input_raises_clear_error(self) -> None:
         """None input produces clear ValueError, not TypeError."""
-        from context_library.storage.vector_store import (
-            validate_embedding_dimension,
-        )
-
         with pytest.raises(ValueError) as exc_info:
             validate_embedding_dimension(None)  # type: ignore[arg-type]
         error_msg = str(exc_info.value)
@@ -71,10 +56,6 @@ class TestValidateEmbeddingDimension:
 
     def test_non_list_input_raises_type_error(self) -> None:
         """Non-list input raises TypeError with helpful message."""
-        from context_library.storage.vector_store import (
-            validate_embedding_dimension,
-        )
-
         with pytest.raises(TypeError) as exc_info:
             validate_embedding_dimension("not a list")  # type: ignore[arg-type]
         error_msg = str(exc_info.value)
@@ -83,11 +64,6 @@ class TestValidateEmbeddingDimension:
 
     def test_non_numeric_elements_raise_error(self) -> None:
         """Embedding with non-numeric elements raises ValueError."""
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         # List with strings instead of floats
         bad_embedding = ["0.1"] * EMBEDDING_DIM
         with pytest.raises(ValueError) as exc_info:
@@ -99,11 +75,6 @@ class TestValidateEmbeddingDimension:
 
     def test_mixed_numeric_and_non_numeric_elements_raise_error(self) -> None:
         """Embedding with mixed numeric and non-numeric elements raises ValueError."""
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         mixed_embedding = [0.1] * (EMBEDDING_DIM - 1) + ["not_a_number"]
         with pytest.raises(ValueError) as exc_info:
             validate_embedding_dimension(mixed_embedding)  # type: ignore[arg-type]
@@ -113,11 +84,6 @@ class TestValidateEmbeddingDimension:
 
     def test_tuple_input_is_accepted(self) -> None:
         """Tuple input is accepted as valid (list-like)."""
-        from context_library.storage.vector_store import (
-            EMBEDDING_DIM,
-            validate_embedding_dimension,
-        )
-
         tuple_embedding = tuple([0.1] * EMBEDDING_DIM)
         # Should not raise
         validate_embedding_dimension(tuple_embedding)  # type: ignore[arg-type]
@@ -128,8 +94,6 @@ class TestDomain:
 
     def test_domain_members_exist(self) -> None:
         """All expected domain members are defined."""
-        from context_library.storage.models import Domain
-
         assert hasattr(Domain, "MESSAGES")
         assert hasattr(Domain, "NOTES")
         assert hasattr(Domain, "EVENTS")
@@ -137,8 +101,6 @@ class TestDomain:
 
     def test_domain_values(self) -> None:
         """Domain enum values are correct."""
-        from context_library.storage.models import Domain
-
         assert Domain.MESSAGES.value == "messages"
         assert Domain.NOTES.value == "notes"
         assert Domain.EVENTS.value == "events"
@@ -146,7 +108,5 @@ class TestDomain:
 
     def test_domain_is_string_enum(self) -> None:
         """Domain members are string-like for metadata storage."""
-        from context_library.storage.models import Domain
-
         assert isinstance(Domain.MESSAGES, str)
         assert isinstance(Domain.NOTES, str)
