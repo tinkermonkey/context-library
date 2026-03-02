@@ -100,4 +100,3 @@ WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
 END;
-

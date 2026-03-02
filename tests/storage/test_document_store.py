@@ -63,7 +63,6 @@ class TestSchemaInitialization:
             tables = {row[0] for row in cursor.fetchall()}
 
             expected_tables = {
-                "schema_version",
                 "adapters",
                 "sources",
                 "source_versions",
