@@ -9,8 +9,9 @@ This module contains:
 import hashlib
 import re
 from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict
 
 
 class Domain(str, Enum):
@@ -23,6 +24,29 @@ class Domain(str, Enum):
     NOTES = "notes"
     EVENTS = "events"
     TASKS = "tasks"
+
+
+def _validate_sha256_hex(value: str) -> str:
+    """Validate that a string is a valid SHA-256 hex hash (64 lowercase hex chars).
+
+    Args:
+        value: The string to validate
+
+    Returns:
+        The validated string if valid
+
+    Raises:
+        ValueError: If the string is not a valid SHA-256 hex hash
+    """
+    if not re.match(r"^[a-f0-9]{64}$", value):
+        raise ValueError(
+            f"chunk_hash must be a valid SHA-256 hex string (64 chars), got: {value}"
+        )
+    return value
+
+
+# Type alias for SHA-256 hashes with validation
+Sha256Hash = Annotated[str, AfterValidator(_validate_sha256_hex)]
 
 
 class StructuralHints(BaseModel):
@@ -67,22 +91,12 @@ class Chunk(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    chunk_hash: str
+    chunk_hash: Sha256Hash
     content: str
     context_header: str | None = None
     chunk_index: int
     chunk_type: str = "standard"
     domain_metadata: dict[str, object] | None = None
-
-    @field_validator("chunk_hash")
-    @classmethod
-    def validate_chunk_hash_format(cls, value: str) -> str:
-        """Validate that chunk_hash is a 64-character lowercase hex string (SHA-256)."""
-        if not re.match(r"^[a-f0-9]{64}$", value):
-            raise ValueError(
-                f"chunk_hash must be a valid SHA-256 hex string (64 chars), got: {value}"
-            )
-        return value
 
 
 class LineageRecord(BaseModel):
@@ -93,23 +107,13 @@ class LineageRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    chunk_hash: str
+    chunk_hash: Sha256Hash
     source_id: str
     source_version_id: int
     adapter_id: str
     domain: Domain
     normalizer_version: str
     embedding_model_id: str
-
-    @field_validator("chunk_hash")
-    @classmethod
-    def validate_chunk_hash_format(cls, value: str) -> str:
-        """Validate that chunk_hash is a 64-character lowercase hex string (SHA-256)."""
-        if not re.match(r"^[a-f0-9]{64}$", value):
-            raise ValueError(
-                f"chunk_hash must be a valid SHA-256 hex string (64 chars), got: {value}"
-            )
-        return value
 
 
 class SourceVersion(BaseModel):

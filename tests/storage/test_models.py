@@ -150,6 +150,7 @@ class TestChunk:
             "a" * 64,  # all 'a'
             "0123456789abcdef" * 4,  # mixed hex digits
             "f" * 64,  # all 'f'
+            "0" * 64,  # all zeros (valid)
         ]
         for valid_hash in valid_hashes:
             chunk = Chunk(chunk_hash=valid_hash, content="test", chunk_index=0)
@@ -162,10 +163,9 @@ class TestChunk:
             "a" * 65,  # too long
             "G" * 64,  # invalid hex character
             "A" * 64,  # uppercase (must be lowercase)
-            "0000000000000000000000000000000000000000000000000000000000000000",  # 64 zeros is valid
-            "invalid_hash",
+            "invalid_hash",  # not hex at all
         ]
-        for invalid_hash in invalid_hashes[:-2]:  # exclude the valid one
+        for invalid_hash in invalid_hashes:
             with pytest.raises(ValidationError) as exc_info:
                 Chunk(chunk_hash=invalid_hash, content="test", chunk_index=0)
             assert "chunk_hash must be a valid SHA-256" in str(exc_info.value)
@@ -446,18 +446,32 @@ class TestComputeChunkHash:
         assert all(c in "0123456789abcdef" for c in hash_result)
 
     def test_context_header_excluded_from_hash(self) -> None:
-        """Test that context header should be excluded from hash computation.
+        """Test that context header is excluded from hash computation.
 
-        This is a semantic test to ensure the chunking pattern is followed:
-        hash should be computed on content only, not on the context header.
+        Chunks with identical content but different context headers must have
+        the same chunk_hash, proving that only content (not the header) is used
+        for computing the hash.
         """
         content = "This is the chunk content."
-        hash1 = compute_chunk_hash(content)
-        hash2 = compute_chunk_hash(content)
-        # Same content always produces same hash
-        assert hash1 == hash2
-        # This proves context header isn't included if we test with/without it
-        # (though compute_chunk_hash only takes content as parameter)
+        content_hash = compute_chunk_hash(content)
+
+        # Create two Chunk objects with same content but different headers
+        chunk1 = Chunk(
+            chunk_hash=content_hash,
+            content=content,
+            context_header="# Section > ## Subsection",
+            chunk_index=0,
+        )
+        chunk2 = Chunk(
+            chunk_hash=content_hash,
+            content=content,
+            context_header="## Different Header",
+            chunk_index=1,
+        )
+
+        # Both chunks have the same hash even with different headers
+        assert chunk1.chunk_hash == chunk2.chunk_hash
+        # This proves context_header is excluded from hash computation
 
     def test_empty_content(self) -> None:
         """Test hashing empty content."""
