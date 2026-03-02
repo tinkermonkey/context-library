@@ -38,9 +38,9 @@ def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
     try:
         with open(schema_path, "r") as f:
             schema_content = f.read()
-    except FileNotFoundError as e:
+    except OSError as e:
         raise SchemaConfigError(
-            f"Schema file not found at {schema_path}"
+            f"Failed to read schema file at {schema_path}: {e}"
         ) from e
 
     cursor = conn.cursor()

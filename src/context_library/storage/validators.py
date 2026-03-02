@@ -73,4 +73,4 @@ def validate_iso8601_timestamp(timestamp: str) -> None:
         raise ValueError(
             f"Timestamp '{timestamp}' is not a valid ISO 8601 format. "
             f"Expected formats like '2025-03-02T10:30:45' or '2025-03-02T10:30:45Z'."
-        )
+        ) from None
