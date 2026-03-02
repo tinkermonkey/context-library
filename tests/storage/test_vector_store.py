@@ -1,6 +1,7 @@
 """Tests for the vector store."""
 
 import pytest
+from pydantic import ValidationError
 
 from context_library.storage.validators import (
     EMBEDDING_DIM,
@@ -8,6 +9,7 @@ from context_library.storage.validators import (
     validate_iso8601_timestamp,
 )
 from context_library.storage.models import Domain
+from context_library.storage.vector_store import ChunkVector
 
 
 class TestValidateEmbeddingDimension:
@@ -196,3 +198,206 @@ class TestValidateISO8601Timestamp:
         error_msg = str(exc_info.value)
         assert "must be a string" in error_msg
         assert "NoneType" in error_msg
+
+
+class TestChunkVectorConstruction:
+    """Tests for ChunkVector model instantiation and field validation."""
+
+    def test_valid_chunk_vector_construction(self) -> None:
+        """ChunkVector with all valid fields constructs successfully."""
+        chunk_vector = ChunkVector(
+            chunk_hash="abc123def456",
+            content="Sample chunk content",
+            vector=[0.1] * EMBEDDING_DIM,
+            domain=Domain.NOTES,
+            source_id="source_1",
+            source_version=1,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        assert chunk_vector.chunk_hash == "abc123def456"
+        assert chunk_vector.content == "Sample chunk content"
+        assert len(chunk_vector.vector) == EMBEDDING_DIM
+        assert chunk_vector.domain == Domain.NOTES
+        assert chunk_vector.source_id == "source_1"
+        assert chunk_vector.source_version == 1
+        assert chunk_vector.created_at == "2025-03-02T10:30:45Z"
+
+    def test_chunk_vector_with_all_domains(self) -> None:
+        """ChunkVector accepts all Domain enum values."""
+        for domain in Domain:
+            chunk_vector = ChunkVector(
+                chunk_hash=f"hash_{domain.value}",
+                content="test content",
+                vector=[0.1] * EMBEDDING_DIM,
+                domain=domain,
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+            assert chunk_vector.domain == domain
+
+    def test_chunk_vector_domain_string_coercion(self) -> None:
+        """ChunkVector accepts Domain enum string values and coerces them."""
+        chunk_vector = ChunkVector(
+            chunk_hash="abc123",
+            content="test content",
+            vector=[0.1] * EMBEDDING_DIM,
+            domain="notes",  # type: ignore[arg-type]  # string value
+            source_id="source_1",
+            source_version=1,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        assert chunk_vector.domain == Domain.NOTES
+
+    def test_chunk_vector_rejects_invalid_domain(self) -> None:
+        """ChunkVector rejects invalid domain values."""
+        with pytest.raises(ValidationError):
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=[0.1] * EMBEDDING_DIM,
+                domain="invalid_domain",  # type: ignore[arg-type]
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+
+    def test_chunk_vector_vector_dimension_validation(self) -> None:
+        """ChunkVector rejects vectors with incorrect dimension."""
+        with pytest.raises(ValidationError) as exc_info:
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=[0.1] * (EMBEDDING_DIM - 1),  # too short
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+        assert "Embedding dimension mismatch" in str(exc_info.value)
+
+    def test_chunk_vector_rejects_nan_values_in_vector(self) -> None:
+        """ChunkVector rejects vectors containing NaN values."""
+        nan_vector = [0.1] * (EMBEDDING_DIM - 1) + [float("nan")]
+        with pytest.raises(ValidationError) as exc_info:
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=nan_vector,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+        error_msg = str(exc_info.value)
+        assert "finite number" in error_msg
+        assert "corrupt vector calculations" in error_msg
+
+    def test_chunk_vector_rejects_positive_infinity_in_vector(self) -> None:
+        """ChunkVector rejects vectors containing positive infinity values."""
+        inf_vector = [0.1] * (EMBEDDING_DIM - 1) + [float("inf")]
+        with pytest.raises(ValidationError) as exc_info:
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=inf_vector,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+        assert "finite number" in str(exc_info.value)
+
+    def test_chunk_vector_rejects_negative_infinity_in_vector(self) -> None:
+        """ChunkVector rejects vectors containing negative infinity values."""
+        neg_inf_vector = [0.1] * (EMBEDDING_DIM - 1) + [float("-inf")]
+        with pytest.raises(ValidationError) as exc_info:
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=neg_inf_vector,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at="2025-03-02T10:30:45Z",
+            )
+        assert "finite number" in str(exc_info.value)
+
+    def test_chunk_vector_created_at_field_validation(self) -> None:
+        """ChunkVector validates created_at field with ISO 8601 format."""
+        with pytest.raises(ValidationError) as exc_info:
+            ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=[0.1] * EMBEDDING_DIM,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at="03/02/2025",  # invalid format
+            )
+        assert "not a valid ISO 8601 format" in str(exc_info.value)
+
+    def test_chunk_vector_accepts_various_iso8601_formats(self) -> None:
+        """ChunkVector accepts various valid ISO 8601 timestamp formats."""
+        valid_timestamps = [
+            "2025-03-02T10:30:45",
+            "2025-03-02T10:30:45.123456",
+            "2025-03-02T10:30:45Z",
+            "2025-03-02T10:30:45+00:00",
+            "2025-03-02T10:30:45-05:00",
+        ]
+        for timestamp in valid_timestamps:
+            chunk_vector = ChunkVector(
+                chunk_hash="abc123",
+                content="test content",
+                vector=[0.1] * EMBEDDING_DIM,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                source_version=1,
+                created_at=timestamp,
+            )
+            assert chunk_vector.created_at == timestamp
+
+    def test_chunk_vector_requires_all_fields(self) -> None:
+        """ChunkVector requires all fields to be provided."""
+        with pytest.raises(ValidationError):
+            ChunkVector(  # type: ignore[call-arg]
+                chunk_hash="abc123",
+                content="test content",
+                vector=[0.1] * EMBEDDING_DIM,
+                domain=Domain.NOTES,
+                source_id="source_1",
+                # missing source_version
+                created_at="2025-03-02T10:30:45Z",
+            )
+
+    def test_chunk_vector_accepts_integer_source_version(self) -> None:
+        """ChunkVector accepts integer source_version."""
+        chunk_vector = ChunkVector(
+            chunk_hash="abc123",
+            content="test content",
+            vector=[0.1] * EMBEDDING_DIM,
+            domain=Domain.NOTES,
+            source_id="source_1",
+            source_version=5,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        assert chunk_vector.source_version == 5
+
+    def test_chunk_vector_all_fields_accessible(self) -> None:
+        """All ChunkVector fields are accessible after construction."""
+        chunk_vector = ChunkVector(
+            chunk_hash="test_hash",
+            content="test content",
+            vector=[0.2] * EMBEDDING_DIM,
+            domain=Domain.EVENTS,
+            source_id="test_source",
+            source_version=3,
+            created_at="2025-03-02T15:45:00Z",
+        )
+        assert chunk_vector.chunk_hash == "test_hash"
+        assert chunk_vector.content == "test content"
+        assert chunk_vector.domain == Domain.EVENTS
+        assert chunk_vector.source_id == "test_source"
+        assert chunk_vector.source_version == 3
+        assert chunk_vector.created_at == "2025-03-02T15:45:00Z"
