@@ -19,30 +19,6 @@ from src.context_library.storage.schema import (
 )
 
 
-@pytest.fixture
-def schema_path():
-    """Return the path to the schema.sql file."""
-    return Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-
-
-@pytest.fixture
-def schema_content(schema_path):
-    """Load and return the schema.sql file content."""
-    with open(schema_path, "r") as f:
-        return f.read()
-
-
-@pytest.fixture
-def memory_db_with_schema(schema_content):
-    """Create an in-memory SQLite database with schema applied via executescript."""
-    conn = sqlite3.connect(":memory:")
-    cursor = conn.cursor()
-    cursor.executescript(schema_content)
-    conn.commit()
-    yield conn
-    conn.close()
-
-
 class TestSchemaInitialization:
     """Tests for document store schema initialization via schema.sql."""
 

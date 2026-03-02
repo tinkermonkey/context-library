@@ -44,35 +44,20 @@ def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
 
 
 def _apply_pragmas(cursor: sqlite3.Cursor) -> None:
-    """Apply critical PRAGMAs via individual execute() calls with verification.
+    """Apply critical PRAGMAs via individual execute() calls.
+
+    Applies PRAGMAs without inline verification; verification is delegated to
+    validate_pragmas() which is called after schema application in
+    apply_schema_and_validate_pragmas().
 
     Raises:
-        SchemaConfigError: If PRAGMA application or verification fails
+        sqlite3.Error: If PRAGMA application fails
     """
-    # Apply and verify foreign_keys=ON
+    # Apply critical PRAGMAs individually
     cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA foreign_keys")
-    if cursor.fetchone()[0] != 1:
-        raise SchemaConfigError("Failed to enable PRAGMA foreign_keys")
-
-    # Apply and verify synchronous=NORMAL
     cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.execute("PRAGMA synchronous")
-    if cursor.fetchone()[0] != 1:
-        raise SchemaConfigError("Failed to set PRAGMA synchronous=NORMAL")
-
-    # Apply and verify user_version=1
     cursor.execute("PRAGMA user_version=1")
-    cursor.execute("PRAGMA user_version")
-    if cursor.fetchone()[0] < 1:
-        raise SchemaConfigError("Failed to set PRAGMA user_version>=1")
-
-    # Apply and verify journal_mode (WAL or memory for in-memory databases)
     cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA journal_mode")
-    mode = cursor.fetchone()[0]
-    if mode not in ("wal", "memory"):
-        raise SchemaConfigError(f"Failed to set journal_mode to WAL; got {mode!r}")
 
 
 def validate_pragmas(conn: sqlite3.Connection) -> None:
