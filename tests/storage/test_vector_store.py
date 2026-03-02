@@ -57,6 +57,71 @@ class TestValidateEmbeddingDimension:
         assert "embedding model configuration" in error_msg
         assert "EMBEDDING_DIM" in error_msg
 
+    def test_none_input_raises_clear_error(self) -> None:
+        """None input produces clear ValueError, not TypeError."""
+        from context_library.storage.vector_store import (
+            validate_embedding_dimension,
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            validate_embedding_dimension(None)  # type: ignore[arg-type]
+        error_msg = str(exc_info.value)
+        assert "cannot be None" in error_msg
+        assert "Expected a list" in error_msg
+
+    def test_non_list_input_raises_type_error(self) -> None:
+        """Non-list input raises TypeError with helpful message."""
+        from context_library.storage.vector_store import (
+            validate_embedding_dimension,
+        )
+
+        with pytest.raises(TypeError) as exc_info:
+            validate_embedding_dimension("not a list")  # type: ignore[arg-type]
+        error_msg = str(exc_info.value)
+        assert "must be a list or tuple" in error_msg
+        assert "str" in error_msg
+
+    def test_non_numeric_elements_raise_error(self) -> None:
+        """Embedding with non-numeric elements raises ValueError."""
+        from context_library.storage.vector_store import (
+            EMBEDDING_DIM,
+            validate_embedding_dimension,
+        )
+
+        # List with strings instead of floats
+        bad_embedding = ["0.1"] * EMBEDDING_DIM
+        with pytest.raises(ValueError) as exc_info:
+            validate_embedding_dimension(bad_embedding)  # type: ignore[arg-type]
+        error_msg = str(exc_info.value)
+        assert "index 0" in error_msg
+        assert "str" in error_msg
+        assert "numeric type" in error_msg
+
+    def test_mixed_numeric_and_non_numeric_elements_raise_error(self) -> None:
+        """Embedding with mixed numeric and non-numeric elements raises ValueError."""
+        from context_library.storage.vector_store import (
+            EMBEDDING_DIM,
+            validate_embedding_dimension,
+        )
+
+        mixed_embedding = [0.1] * (EMBEDDING_DIM - 1) + ["not_a_number"]
+        with pytest.raises(ValueError) as exc_info:
+            validate_embedding_dimension(mixed_embedding)  # type: ignore[arg-type]
+        error_msg = str(exc_info.value)
+        assert f"index {EMBEDDING_DIM - 1}" in error_msg
+        assert "str" in error_msg
+
+    def test_tuple_input_is_accepted(self) -> None:
+        """Tuple input is accepted as valid (list-like)."""
+        from context_library.storage.vector_store import (
+            EMBEDDING_DIM,
+            validate_embedding_dimension,
+        )
+
+        tuple_embedding = tuple([0.1] * EMBEDDING_DIM)
+        # Should not raise
+        validate_embedding_dimension(tuple_embedding)  # type: ignore[arg-type]
+
 
 class TestDomain:
     """Tests for the Domain enum."""
