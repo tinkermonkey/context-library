@@ -2,9 +2,6 @@
 
 import pytest
 
-# Use importorskip to gracefully handle missing lancedb dependency
-pytest.importorskip("lancedb", minversion=None)
-
 from context_library.storage.vector_store import (
     EMBEDDING_DIM,
     validate_embedding_dimension,
