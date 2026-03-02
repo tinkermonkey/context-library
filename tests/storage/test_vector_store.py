@@ -1,17 +1,6 @@
-"""Tests for the vector store.
-
-NOTE: These tests are skipped until issue #10 is resolved (Vector type hint syntax).
-The vector_store module has a module-level type hint error that prevents any imports.
-Once Vector[EMBEDDING_DIM] syntax is fixed, add tests for: chunk_hash, content, vector,
-domain, source_id, source_version, and created_at field types and defaults.
-"""
+"""Tests for the vector store."""
 
 import pytest
-
-
-pytestmark = pytest.mark.skip(
-    reason="Blocked by issue #10: lancedb.pydantic.Vector[n] syntax error on Python 3.11"
-)
 
 
 class TestValidateEmbeddingDimension:
@@ -74,7 +63,7 @@ class TestDomain:
 
     def test_domain_members_exist(self) -> None:
         """All expected domain members are defined."""
-        from context_library.storage.vector_store import Domain
+        from context_library.storage.models import Domain
 
         assert hasattr(Domain, "MESSAGES")
         assert hasattr(Domain, "NOTES")
@@ -83,7 +72,7 @@ class TestDomain:
 
     def test_domain_values(self) -> None:
         """Domain enum values are correct."""
-        from context_library.storage.vector_store import Domain
+        from context_library.storage.models import Domain
 
         assert Domain.MESSAGES.value == "messages"
         assert Domain.NOTES.value == "notes"
@@ -92,7 +81,7 @@ class TestDomain:
 
     def test_domain_is_string_enum(self) -> None:
         """Domain members are string-like for metadata storage."""
-        from context_library.storage.vector_store import Domain
+        from context_library.storage.models import Domain
 
         assert isinstance(Domain.MESSAGES, str)
         assert isinstance(Domain.NOTES, str)

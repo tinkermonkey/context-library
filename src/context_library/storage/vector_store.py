@@ -1,10 +1,10 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
-from datetime import datetime
-from enum import Enum
 from pathlib import Path
 
 from lancedb.pydantic import LanceModel, Vector  # type: ignore[import-untyped]
+
+from context_library.storage.models import Domain
 
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2; change here when swapping embedding model
@@ -26,15 +26,6 @@ def validate_embedding_dimension(embedding: list[float]) -> None:
         )
 
 
-class Domain(str, Enum):
-    """Fixed set of domain types for vector metadata."""
-
-    MESSAGES = "messages"
-    NOTES = "notes"
-    EVENTS = "events"
-    TASKS = "tasks"
-
-
 class ChunkVector(LanceModel):
     """Schema for the LanceDB chunk_vectors table.
 
@@ -48,4 +39,4 @@ class ChunkVector(LanceModel):
     domain: Domain        # supports filtered vector search by domain
     source_id: str        # supports filtered vector search by source
     source_version: int   # supports filtered vector search by version
-    created_at: datetime  # ISO 8601 timestamp
+    created_at: str       # ISO 8601 timestamp
