@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from context_library.storage.models import Domain
-from context_library.storage.vector_store import (
+from context_library.storage.schema import (
     SchemaConfigError,
     apply_schema_and_validate_pragmas,
     validate_pragmas,
