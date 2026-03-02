@@ -324,7 +324,6 @@ class NotesDomain(BaseDomain):
         # while table_body wraps cells in table_row nodes.
         children = block.get("children", [])
         lines = []
-        separator_added = False
 
         for section in children:
             section_type = section.get("type")
@@ -342,7 +341,6 @@ class NotesDomain(BaseDomain):
                     # Add separator line after header
                     separator = "| " + " | ".join(["---"] * len(cells)) + " |"
                     lines.append(separator)
-                    separator_added = True
 
             elif section_type == "table_body":
                 # table_body children are table_row nodes
