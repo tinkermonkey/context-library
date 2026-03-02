@@ -1,8 +1,11 @@
-"""SQLite schema initialization and PRAGMA validation.
+"""SQLite schema initialization and PRAGMA configuration.
 
-This module handles SQLite schema bootstrap and configuration validation.
-PRAGMAs are applied via executescript() reading schema.sql, and the
-configuration is validated to ensure correct application.
+This module handles SQLite schema bootstrap and PRAGMA configuration validation.
+
+Session-level PRAGMAs (journal_mode, synchronous) are applied at connection time
+via configure_connection(). Persistent PRAGMAs (foreign_keys, user_version) are
+set via executescript() reading schema.sql. All PRAGMAs are validated to ensure
+correct application.
 
 SchemaConfigError is raised if schema file cannot be read, DDL fails, or
 PRAGMA validation fails. This module is independent of LanceDB and is
@@ -19,11 +22,36 @@ class SchemaConfigError(Exception):
     pass
 
 
+def configure_connection(conn: sqlite3.Connection) -> None:
+    """Configure session-level PRAGMAs on the connection.
+
+    Sets PRAGMAs that must be applied at connection initialization time:
+    - journal_mode=WAL: Write-ahead logging for better concurrency
+    - synchronous=NORMAL: Balanced durability and performance
+
+    These PRAGMAs are session-level and cannot be set via executescript().
+    Must be called immediately after creating a connection, before other operations.
+
+    Args:
+        conn: SQLite database connection
+
+    Raises:
+        SchemaConfigError: If PRAGMA configuration fails
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError as e:
+        raise SchemaConfigError(f"Failed to configure connection PRAGMAs: {e}") from e
+
+
 def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
     """Apply schema and validate PRAGMA configuration.
 
-    Reads schema.sql, applies table definitions and PRAGMAs via executescript(),
-    then validates PRAGMA settings.
+    Configures session-level PRAGMAs at connection time, reads schema.sql,
+    applies table definitions and persistent PRAGMAs via executescript(),
+    then validates all PRAGMA settings.
 
     Args:
         conn: SQLite database connection
@@ -32,6 +60,9 @@ def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
         SchemaConfigError: If schema file cannot be read, DDL fails, or PRAGMA
                           validation fails
     """
+    # Configure connection-time PRAGMAs (journal_mode, synchronous)
+    configure_connection(conn)
+
     schema_path = Path(__file__).parent / "schema.sql"
 
     # Read schema file with proper error handling
@@ -45,8 +76,7 @@ def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
 
     cursor = conn.cursor()
 
-    # Apply the full schema (PRAGMAs, table definitions, and triggers)
-    # PRAGMAs are defined in schema.sql lines 1-4 and applied here
+    # Apply the schema (persistent PRAGMAs, table definitions, and triggers)
     try:
         cursor.executescript(schema_content)
         conn.commit()
@@ -55,18 +85,18 @@ def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
             f"Failed to apply schema: {e}"
         ) from e
 
-    # Validate pragmas are in effect
+    # Validate all pragmas are in effect
     validate_pragmas(conn)
 
 
 def validate_pragmas(conn: sqlite3.Connection) -> None:
     """Validate that PRAGMAs are applied correctly.
 
-    Checks that the critical PRAGMAs defined in schema.sql (lines 1-4) are in effect:
-    - foreign_keys: ON (enforces foreign key constraints)
-    - synchronous: NORMAL (balanced durability/performance)
-    - user_version: >= 1 (schema versioning)
-    - journal_mode: wal or memory (WAL mode or in-memory)
+    Checks that the critical PRAGMAs are in effect:
+    - foreign_keys: ON (persistent, set in schema.sql)
+    - synchronous: NORMAL (session-level, set at connection time)
+    - user_version: >= 1 (persistent, set in schema.sql)
+    - journal_mode: wal or memory (session-level, set at connection time)
 
     Args:
         conn: SQLite database connection
@@ -78,26 +108,38 @@ def validate_pragmas(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
 
     # Verify foreign_keys is ON
-    cursor.execute("PRAGMA foreign_keys")
-    result = cursor.fetchone()
+    try:
+        cursor.execute("PRAGMA foreign_keys")
+        result = cursor.fetchone()
+    except sqlite3.OperationalError as e:
+        raise SchemaConfigError(f"Failed to query PRAGMA foreign_keys: {e}") from e
     if result is None or result[0] != 1:
         raise SchemaConfigError("PRAGMA foreign_keys must be ON (1)")
 
     # Verify synchronous is NORMAL (1)
-    cursor.execute("PRAGMA synchronous")
-    result = cursor.fetchone()
+    try:
+        cursor.execute("PRAGMA synchronous")
+        result = cursor.fetchone()
+    except sqlite3.OperationalError as e:
+        raise SchemaConfigError(f"Failed to query PRAGMA synchronous: {e}") from e
     if result is None or result[0] != 1:
         raise SchemaConfigError("PRAGMA synchronous must be NORMAL (1)")
 
     # Verify user_version is set
-    cursor.execute("PRAGMA user_version")
-    result = cursor.fetchone()
+    try:
+        cursor.execute("PRAGMA user_version")
+        result = cursor.fetchone()
+    except sqlite3.OperationalError as e:
+        raise SchemaConfigError(f"Failed to query PRAGMA user_version: {e}") from e
     if result is None or result[0] < 1:
         raise SchemaConfigError("PRAGMA user_version must be >= 1")
 
     # Verify journal_mode is WAL or memory (memory for in-memory databases)
-    cursor.execute("PRAGMA journal_mode")
-    result = cursor.fetchone()
+    try:
+        cursor.execute("PRAGMA journal_mode")
+        result = cursor.fetchone()
+    except sqlite3.OperationalError as e:
+        raise SchemaConfigError(f"Failed to query PRAGMA journal_mode: {e}") from e
     if result is None or result[0] not in ("wal", "memory"):
         mode = result[0] if result else None
         raise SchemaConfigError(f"PRAGMA journal_mode must be 'wal' or 'memory', got {mode!r}")
