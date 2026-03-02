@@ -22,7 +22,6 @@ class Differ:
         Normalization:
         - Collapse runs of spaces/tabs to single space
         - Strip trailing whitespace from each line
-        - Strip entire lines that only contain whitespace
         - Strip leading/trailing whitespace from entire text
 
         Args:
@@ -33,10 +32,8 @@ class Differ:
         """
         # Collapse runs of spaces and tabs to single space
         text = re.sub(r"[ \t]+", " ", text)
-        # Strip trailing whitespace from each line and filter out whitespace-only lines
-        lines = [line.rstrip() for line in text.splitlines()]
-        lines = [line for line in lines if line]  # Remove empty lines
-        text = "\n".join(lines)
+        # Strip trailing whitespace from each line
+        text = "\n".join(line.rstrip() for line in text.splitlines())
         # Strip leading/trailing whitespace from entire text
         return text.strip()
 
@@ -99,7 +96,8 @@ class Differ:
             )
 
         # Content changed: compute set operations on chunk hashes
-        assert prev_chunk_hashes is not None
+        if prev_chunk_hashes is None:
+            raise ValueError("prev_chunk_hashes must not be None when prev_markdown is provided")
         added = curr_chunk_hashes - prev_chunk_hashes
         removed = prev_chunk_hashes - curr_chunk_hashes
         unchanged = curr_chunk_hashes & prev_chunk_hashes

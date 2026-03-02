@@ -57,11 +57,11 @@ class TestDifferUnchangedDocument:
         assert result.prev_hash == result.curr_hash
 
     def test_whitespace_only_change_treated_as_unchanged(self):
-        """Trailing whitespace and blank line changes should be ignored."""
+        """Trailing whitespace changes should be ignored."""
         differ = Differ()
         prev_markdown = "# Document\n\nContent here."
-        # Add trailing spaces and extra blank line
-        curr_markdown = "# Document  \n\n\nContent here.  "
+        # Add trailing spaces (but preserve blank line structure)
+        curr_markdown = "# Document  \n\nContent here.  "
         chunk_hashes = {
             "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
         }
@@ -220,9 +220,9 @@ class TestDifferWhitespaceNormalization:
         assert result.changed is False
 
     def test_normalize_handles_blank_lines(self):
-        """Multiple blank lines should be treated as whitespace-only."""
+        """Blank lines with trailing whitespace should be normalized."""
         differ = Differ()
-        prev = "line one\n\n\nline two"
+        prev = "line one\n  \nline two"
         curr = "line one\n\nline two"
         chunk_hashes = {
             "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
