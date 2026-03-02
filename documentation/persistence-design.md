@@ -39,7 +39,7 @@ If the schema design evolves to require more complex migration metadata (e.g., p
 Registry of configured adapters and their current normalizer versions.
 
 ```sql
-CREATE TABLE adapters (
+CREATE TABLE IF NOT EXISTS adapters (
     adapter_id          TEXT PRIMARY KEY,
     domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
@@ -50,7 +50,7 @@ CREATE TABLE adapters (
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TRIGGER adapters_update_timestamp
+CREATE TRIGGER IF NOT EXISTS adapters_update_timestamp
 AFTER UPDATE ON adapters
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
@@ -68,7 +68,7 @@ END;
 Registry of known sources and their current state.
 
 ```sql
-CREATE TABLE sources (
+CREATE TABLE IF NOT EXISTS sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
     domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
@@ -83,10 +83,10 @@ CREATE TABLE sources (
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
-CREATE INDEX idx_sources_adapter ON sources(adapter_id);
-CREATE INDEX idx_sources_domain ON sources(domain);
+CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain);
 
-CREATE TRIGGER sources_update_timestamp
+CREATE TRIGGER IF NOT EXISTS sources_update_timestamp
 AFTER UPDATE ON sources
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
@@ -102,7 +102,7 @@ END;
 The full normalized markdown for every version of every source. This is the document store.
 
 ```sql
-CREATE TABLE source_versions (
+CREATE TABLE IF NOT EXISTS source_versions (
     source_id           TEXT NOT NULL,
     version             INTEGER NOT NULL,
     markdown            TEXT NOT NULL,
@@ -116,7 +116,7 @@ CREATE TABLE source_versions (
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
-CREATE INDEX idx_source_versions_adapter_id ON source_versions(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id);
 ```
 
 **Note on foreign keys:** The table references both `sources` and `adapters` to ensure referential integrity. The `source_id` foreign key was previously omitted from the documentation but is enforced in the actual schema.
@@ -128,7 +128,7 @@ CREATE INDEX idx_source_versions_adapter_id ON source_versions(adapter_id);
 The canonical record for every chunk. One row per unique chunk content. This is the single source of truth for chunk existence and metadata.
 
 ```sql
-CREATE TABLE chunks (
+CREATE TABLE IF NOT EXISTS chunks (
     chunk_hash          TEXT PRIMARY KEY,
     source_id           TEXT NOT NULL,
     source_version      INTEGER NOT NULL,
@@ -149,11 +149,11 @@ CREATE TABLE chunks (
     UNIQUE (source_id, source_version, chunk_index)
 );
 
-CREATE INDEX idx_chunks_source ON chunks(source_id, source_version);
-CREATE INDEX idx_chunks_domain ON chunks(domain);
-CREATE INDEX idx_chunks_parent ON chunks(parent_chunk_hash);
-CREATE INDEX idx_chunks_retired ON chunks(retired_at);
-CREATE INDEX idx_chunks_adapter ON chunks(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version);
+CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain);
+CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash);
+CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at);
+CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id);
 ```
 
 **Note on constraints:** The CHECK constraints on `domain` and `chunk_type` enforce valid enumerated values. The UNIQUE constraint on (source_id, source_version, chunk_index) prevents duplicate or misordered chunks within a source version. Each index position within a version is claimed by exactly one chunk.
@@ -242,13 +242,13 @@ created_at        TIMESTAMP     -- filtered search: time-range queries
 A lightweight SQLite table to track which chunks have been synchronized to LanceDB. This enables drift detection between the two stores.
 
 ```sql
-CREATE TABLE lancedb_sync_log (
+CREATE TABLE IF NOT EXISTS lancedb_sync_log (
     chunk_hash      TEXT PRIMARY KEY,
     synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
 );
 
-CREATE INDEX idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
+CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
 ```
 
 This table is consulted during drift detection checks to identify chunks that should be in LanceDB but aren't (orphaned in SQLite) or chunks in LanceDB that have been retired in SQLite.
@@ -473,8 +473,10 @@ LanceDB is configured with:
 
 If the schema needs to evolve:
 
-**SQLite migrations** follow a standard versioned migration pattern. The `schema_version` table tracks the current version, and migration scripts run on startup if needed. The application compares the current schema version against pending migrations and executes any that haven't been applied yet. This provides an audit trail (via the `applied_at` timestamp) and integrates with the application's migration framework.
+**SQLite migrations** follow a standard versioned migration pattern. The `PRAGMA user_version` (currently set to 1) tracks the current schema version, and migration scripts run on startup if needed. The application reads the current version, compares it against pending migrations, and executes any that haven't been applied yet. The version is incremented after each successful migration.
 
 SQLite's `ALTER TABLE` limitations (no column drops, limited type changes) mean some migrations require create-new-table-and-copy patterns. The migration runner handles these via explicit SQL scripts or, where the overhead is acceptable, Python code.
+
+Migration metadata (which migrations have run, timestamps, etc.) is not stored in SQLite—it's tracked externally by the application. If more complex migration auditing is needed in the future (per-migration timestamps, migration names, rollback support), a dedicated `schema_metadata` table can be introduced, but the primary version number will continue to use `PRAGMA user_version` for simplicity and atomicity.
 
 **LanceDB changes** (new metadata columns, dimension changes) are handled by rebuild. Drop the LanceDB table, recreate with the new schema, re-embed from SQLite. This is the same procedure as an embedding model change. The `lancedb_sync_log` table is cleared during rebuild to ensure all chunks are re-embedded.
