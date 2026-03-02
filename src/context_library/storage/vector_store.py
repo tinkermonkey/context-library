@@ -1,5 +1,6 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from lancedb.pydantic import (  # type: ignore[import-untyped]
@@ -38,7 +39,7 @@ class ChunkVector(LanceModel):
 
     @field_validator("vector", mode="before")
     @classmethod
-    def validate_vector(cls, value: list[float]) -> list[float]:
+    def validate_vector(cls, value: Sequence[float]) -> Sequence[float]:
         """Validate that vector has correct dimension and no NaN/infinity values.
 
         NaN and infinity corrupt similarity calculations in LanceDB.

@@ -11,6 +11,8 @@ from context_library.storage.validators import (
 from context_library.storage.models import Domain
 from context_library.storage.vector_store import ChunkVector
 
+numpy = pytest.importorskip("numpy")
+
 
 class TestValidateEmbeddingDimension:
     """Tests for embedding dimension validation."""
@@ -85,8 +87,29 @@ class TestValidateEmbeddingDimension:
     def test_tuple_input_is_accepted(self) -> None:
         """Tuple input is accepted as valid (list-like)."""
         tuple_embedding = tuple([0.1] * EMBEDDING_DIM)
+        # Should not raise - tuple is now correctly typed as Sequence[float]
+        validate_embedding_dimension(tuple_embedding)
+
+    def test_numpy_scalar_types_are_accepted(self) -> None:
+        """Numpy scalar types (e.g., numpy.float32) from sentence-transformers are accepted."""
+        numpy_embedding = [numpy.float32(0.1)] * EMBEDDING_DIM
         # Should not raise
-        validate_embedding_dimension(tuple_embedding)  # type: ignore[arg-type]
+        validate_embedding_dimension(numpy_embedding)  # type: ignore[arg-type]
+
+    def test_chunk_vector_accepts_numpy_scalar_elements(self) -> None:
+        """ChunkVector accepts embeddings with numpy scalar elements from sentence-transformers."""
+        numpy_vector = [numpy.float32(0.1)] * EMBEDDING_DIM
+        chunk_vector = ChunkVector(
+            chunk_hash="test_hash",
+            content="test content",
+            vector=numpy_vector,  # type: ignore[arg-type]
+            domain=Domain.NOTES,
+            source_id="source_1",
+            source_version=1,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        assert chunk_vector.chunk_hash == "test_hash"
+        assert len(chunk_vector.vector) == EMBEDDING_DIM
 
     def test_nan_value_raises_error(self) -> None:
         """Embedding with NaN values raises ValueError."""
@@ -401,3 +424,33 @@ class TestChunkVectorConstruction:
         assert chunk_vector.source_id == "test_source"
         assert chunk_vector.source_version == 3
         assert chunk_vector.created_at == "2025-03-02T15:45:00Z"
+
+    def test_chunk_vector_is_frozen_and_immutable(self) -> None:
+        """ChunkVector frozen=True prevents field reassignment post-construction."""
+        chunk_vector = ChunkVector(
+            chunk_hash="test_hash",
+            content="test content",
+            vector=[0.1] * EMBEDDING_DIM,
+            domain=Domain.NOTES,
+            source_id="source_1",
+            source_version=1,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        # Attempt to reassign a field should raise ValidationError
+        with pytest.raises(ValidationError):
+            chunk_vector.chunk_hash = "modified_hash"  # type: ignore[misc]
+
+    def test_chunk_vector_vector_field_cannot_be_reassigned(self) -> None:
+        """ChunkVector frozen=True prevents vector field reassignment, bypassing validators."""
+        chunk_vector = ChunkVector(
+            chunk_hash="test_hash",
+            content="test content",
+            vector=[0.1] * EMBEDDING_DIM,
+            domain=Domain.NOTES,
+            source_id="source_1",
+            source_version=1,
+            created_at="2025-03-02T10:30:45Z",
+        )
+        # Attempt to reassign vector with NaN values should raise ValidationError, not silently accept
+        with pytest.raises(ValidationError):
+            chunk_vector.vector = [float("nan")] * EMBEDDING_DIM  # type: ignore[misc]

@@ -44,7 +44,7 @@ def validate_embedding_dimension(embedding: Sequence[float]) -> None:
         if not isinstance(element, numbers.Real):
             raise ValueError(
                 f"Embedding element at index {i} is {type(element).__name__}, "
-                f"expected numeric type (int, float, or numpy scalar). All embedding elements must be numeric."
+                f"expected numeric type. All embedding elements must be numeric."
             )
 
         if not math.isfinite(element):
