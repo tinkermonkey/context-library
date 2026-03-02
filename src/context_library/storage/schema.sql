@@ -75,14 +75,6 @@ CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash);
 CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at);
 CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id);
 
-CREATE TABLE IF NOT EXISTS lancedb_sync_log (
-    chunk_hash          TEXT PRIMARY KEY,
-    synced_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
-);
-
-CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
-
 -- Triggers to auto-update the updated_at column
 -- WHEN guard prevents recursion: if updated_at has already changed, don't fire again
 CREATE TRIGGER IF NOT EXISTS sources_update_timestamp

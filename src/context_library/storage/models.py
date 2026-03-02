@@ -1,4 +1,4 @@
-"""Shared Pydantic data models: Chunk, LineageRecord, SourceVersion, VersionDiff."""
+"""Shared enumeration types for domain classification across adapters, storage, and chunking."""
 
 from enum import Enum
 
