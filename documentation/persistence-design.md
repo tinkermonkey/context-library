@@ -18,18 +18,21 @@ The **join key** between the two stores is `chunk_hash` — the content hash of 
 
 ## SQLite Schema
 
-### `schema_version`
+### Schema Versioning
 
-Tracks the current schema version for migration management.
+Schema versioning is managed via SQLite's built-in `PRAGMA user_version`, which stores a single integer in the database header. This is sufficient for tracking schema migrations.
 
 ```sql
-CREATE TABLE schema_version (
-    version             INTEGER PRIMARY KEY,
-    applied_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+PRAGMA user_version=1;
 ```
 
-This table enables versioned schema migrations. On startup, the application checks the current version and runs any pending migration scripts. Using a dedicated table (rather than SQLite's `PRAGMA user_version`) provides an audit trail and integrates naturally with the application's migration framework.
+On startup, the application reads the current version and applies any pending migration scripts if needed. This approach is simpler than maintaining a separate table and avoids the overhead of a dedicated `schema_version` table for what amounts to a single version integer. The pragma is embedded in the schema initialization and can be queried with:
+
+```sql
+PRAGMA user_version;  -- Returns current version as integer
+```
+
+If the schema design evolves to require more complex migration metadata (e.g., per-migration timestamps, migration names), a dedicated table can be introduced at that time.
 
 ### `adapters`
 
@@ -38,7 +41,7 @@ Registry of configured adapters and their current normalizer versions.
 ```sql
 CREATE TABLE adapters (
     adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
     normalizer_version  TEXT NOT NULL,
     config              TEXT,                -- JSON, adapter-specific configuration
@@ -46,9 +49,19 @@ CREATE TABLE adapters (
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TRIGGER adapters_update_timestamp
+AFTER UPDATE ON adapters
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+END;
 ```
 
-**Note on `updated_at`:** A trigger automatically updates this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time.
+**Note on `updated_at`:** A trigger automatically updates this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time. The trigger includes a `WHEN` guard to prevent infinite recursion: if `updated_at` has already changed, the trigger doesn't fire again.
+
+**Note on `domain`:** The CHECK constraint enforces that domain values are one of the four supported domains: `messages`, `notes`, `events`, or `tasks`.
 
 ### `sources`
 
@@ -58,12 +71,12 @@ Registry of known sources and their current state.
 CREATE TABLE sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
     display_name        TEXT,
     current_version     INTEGER NOT NULL DEFAULT 0,
     last_fetched_at     DATETIME,
-    poll_strategy       TEXT NOT NULL,       -- push | pull | webhook
+    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
     poll_interval_sec   INTEGER,             -- for pull-based sources
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -72,11 +85,7 @@ CREATE TABLE sources (
 
 CREATE INDEX idx_sources_adapter ON sources(adapter_id);
 CREATE INDEX idx_sources_domain ON sources(domain);
-```
 
-**Note on `updated_at`:** Triggers automatically update this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time. The trigger includes a `WHEN` guard to prevent infinite recursion:
-
-```sql
 CREATE TRIGGER sources_update_timestamp
 AFTER UPDATE ON sources
 FOR EACH ROW
@@ -86,7 +95,7 @@ BEGIN
 END;
 ```
 
-The `WHEN NEW.updated_at = OLD.updated_at` clause prevents re-firing: if `updated_at` has already changed, the trigger doesn't fire again.
+**Note on constraints:** The CHECK constraints on `domain` and `poll_strategy` enforce valid values. The `WHEN` guard in the trigger prevents infinite recursion: if `updated_at` has already changed, the trigger doesn't fire again.
 
 ### `source_versions`
 
@@ -103,11 +112,14 @@ CREATE TABLE source_versions (
     fetch_timestamp     DATETIME NOT NULL,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (source_id, version),
+    FOREIGN KEY (source_id) REFERENCES sources(source_id),
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
 CREATE INDEX idx_source_versions_adapter_id ON source_versions(adapter_id);
 ```
+
+**Note on foreign keys:** The table references both `sources` and `adapters` to ensure referential integrity. The `source_id` foreign key was previously omitted from the documentation but is enforced in the actual schema.
 
 **Note on indexes:** The composite PRIMARY KEY (source_id, version) creates an index with `source_id` as the leading column, making the single-column index on `source_id` redundant. SQLite's leftmost prefix rule means queries filtering by `source_id` already use the primary key index efficiently.
 
@@ -123,16 +135,17 @@ CREATE TABLE chunks (
     chunk_index         INTEGER NOT NULL,
     content             TEXT NOT NULL,       -- normalized markdown text
     context_header      TEXT,                -- heading breadcrumb trail (not included in hash)
-    domain              TEXT NOT NULL,       -- messages | notes | events | tasks
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,
     parent_chunk_hash   TEXT,                -- hash of the chunk this replaced (version chain)
     domain_metadata     TEXT,                -- JSON, domain-specific fields
-    chunk_type          TEXT DEFAULT 'standard', -- standard | oversized | table_part
+    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part')),
     retired_at          DATETIME,            -- set when chunk is superseded by a new version
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
     UNIQUE (source_id, source_version, chunk_index)
 );
 
@@ -143,7 +156,9 @@ CREATE INDEX idx_chunks_retired ON chunks(retired_at);
 CREATE INDEX idx_chunks_adapter ON chunks(adapter_id);
 ```
 
-**Note on chunk indexing:** The UNIQUE constraint on (source_id, source_version, chunk_index) prevents duplicate or misordered chunks within a source version. Each index position within a version is claimed by exactly one chunk.
+**Note on constraints:** The CHECK constraints on `domain` and `chunk_type` enforce valid enumerated values. The UNIQUE constraint on (source_id, source_version, chunk_index) prevents duplicate or misordered chunks within a source version. Each index position within a version is claimed by exactly one chunk.
+
+**Note on foreign keys:** The table has two foreign key references: one to `source_versions` (composite) and one to `adapters`. These enforce referential integrity with their parent tables.
 
 ### Domain Metadata Tables
 
@@ -430,6 +445,9 @@ On disk, the data directory looks like:
 SQLite is configured with:
 - WAL mode for concurrent reads during writes
 - Foreign keys enabled
+- NORMAL synchronous mode for a balance of safety and performance
+
+**Planned optimizations** (not yet implemented):
 - Journal size limit to prevent unbounded WAL growth
 - Periodic `VACUUM` on a maintenance schedule
 

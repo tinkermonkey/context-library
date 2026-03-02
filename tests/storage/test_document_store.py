@@ -73,6 +73,32 @@ class TestSchemaInitialization:
         finally:
             conn.close()
 
+    def test_schema_uses_pragma_user_version(self) -> None:
+        """Schema uses PRAGMA user_version for schema versioning (not a schema_version table)."""
+        with open(self.SCHEMA_PATH, "r") as f:
+            schema_content = f.read()
+
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+
+        try:
+            cursor.executescript(schema_content)
+            conn.commit()
+
+            # Verify PRAGMA user_version is set
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version >= 1, f"Expected user_version >= 1, got {version}"
+
+            # Verify there is no separate schema_version table
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+            )
+            result = cursor.fetchone()
+            assert result is None, "Schema should not have a separate schema_version table; PRAGMA user_version is used instead"
+        finally:
+            conn.close()
+
     def test_schema_enforces_foreign_keys(self) -> None:
         """Schema enables foreign key constraints."""
         with open(self.SCHEMA_PATH, "r") as f:
