@@ -1,13 +1,9 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
 from pathlib import Path
-from typing import Type  # noqa: F401 - required for Vector type annotation
 
-import pyarrow as pa  # noqa: F401 - required for Vector type annotation
 from lancedb.pydantic import (  # type: ignore[import-untyped]
-    FixedSizeListMixin,  # noqa: F401 - required for Vector type annotation
     LanceModel,
-    Vector,
 )
 
 from context_library.storage.models import Domain
@@ -41,7 +37,7 @@ class ChunkVector(LanceModel):
 
     chunk_hash: str       # join key to SQLite chunks table
     content: str          # denormalized for reranker access without SQLite lookup
-    vector: Vector[EMBEDDING_DIM]
+    vector: list[float]   # embedding vector of dimension EMBEDDING_DIM
     domain: Domain        # supports filtered vector search by domain
     source_id: str        # supports filtered vector search by source
     source_version: int   # supports filtered vector search by version
