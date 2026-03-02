@@ -1,0 +1,39 @@
+# Exclude git directory
+.git/
+.github/
+
+# Exclude Python build artifacts
+__pycache__/
+*.py[codz]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Exclude virtual environments
+.venv/
+venv/
+env/
+
+# Exclude test/coverage artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Exclude IDE files
+.vscode/
+.idea/
+
+# Exclude logs
+*.log
+
+# Exclude environment files
+.env
+.envrc
+
+# Exclude documentation (not needed for image build)
+documentation/
