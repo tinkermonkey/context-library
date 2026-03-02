@@ -5,7 +5,6 @@ Implementation of document store operations will be covered when the module is i
 """
 
 import sqlite3
-import tempfile
 from pathlib import Path
 
 
