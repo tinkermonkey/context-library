@@ -6,7 +6,7 @@
 # ============================================================================
 
 # ============================================================================
-# Stage 1: Base Environment Setup
+# Section 1: Base Environment Setup
 # ============================================================================
 FROM clauditoreum-orchestrator:latest
 
@@ -15,7 +15,7 @@ FROM clauditoreum-orchestrator:latest
 USER root
 
 # ============================================================================
-# Stage 2: Install System Dependencies
+# Section 2: Install System Dependencies
 # ============================================================================
 # lancedb and sentence-transformers may need native build tools
 RUN apt-get update && \
@@ -25,28 +25,24 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================================
-# Stage 3: Pre-install Python Dependencies
+# Section 3: Pre-install Python Dependencies
 # ============================================================================
 WORKDIR /workspace/context-library
 
-# Copy only pyproject.toml for dependency installation
+# Copy project configuration for dependency installation
 COPY pyproject.toml ./
 
-# Install project dependencies (runtime + dev) without the package itself
-RUN pip install --no-cache-dir \
-    "lancedb>=0.29" \
-    "sentence-transformers>=5.0" \
-    "mistune>=3.0" \
-    "pydantic>=2.0" \
-    ruff mypy pytest
+# Install project dependencies (runtime + dev) from pyproject.toml
+# Using ".[dev]" installs runtime deps + dev optional group without the package itself
+RUN pip install --no-cache-dir ".[dev]"
 
 # ============================================================================
-# Stage 4: Switch to Runtime User
+# Section 4: Switch to Runtime User
 # ============================================================================
 USER orchestrator
 
 # ============================================================================
-# Stage 5: Verification (MANDATORY)
+# Section 5: Verification (MANDATORY)
 # ============================================================================
 RUN claude --version && \
     git --version && \
