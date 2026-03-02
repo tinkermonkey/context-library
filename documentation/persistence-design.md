@@ -18,6 +18,62 @@ The **join key** between the two stores is `chunk_hash` — the content hash of 
 
 ## SQLite Schema
 
+### `schema_version`
+
+Tracks the current schema version for migration management.
+
+```sql
+CREATE TABLE schema_version (
+    version             INTEGER PRIMARY KEY,
+    applied_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+This table enables versioned schema migrations. On startup, the application checks the current version and runs any pending migration scripts. Using a dedicated table (rather than SQLite's `PRAGMA user_version`) provides an audit trail and integrates naturally with the application's migration framework.
+
+### `adapters`
+
+Registry of configured adapters and their current normalizer versions.
+
+```sql
+CREATE TABLE adapters (
+    adapter_id          TEXT PRIMARY KEY,
+    domain              TEXT NOT NULL,
+    adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
+    normalizer_version  TEXT NOT NULL,
+    config              TEXT,                -- JSON, adapter-specific configuration
+    enabled             BOOLEAN NOT NULL DEFAULT 1,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### `sources`
+
+Registry of known sources and their current state.
+
+```sql
+CREATE TABLE sources (
+    source_id           TEXT PRIMARY KEY,
+    adapter_id          TEXT NOT NULL,
+    domain              TEXT NOT NULL,
+    origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
+    display_name        TEXT,
+    current_version     INTEGER NOT NULL DEFAULT 0,
+    last_fetched_at     DATETIME,
+    poll_strategy       TEXT NOT NULL,       -- push | pull | webhook
+    poll_interval_sec   INTEGER,             -- for pull-based sources
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+);
+
+CREATE INDEX idx_sources_adapter ON sources(adapter_id);
+CREATE INDEX idx_sources_domain ON sources(domain);
+```
+
+**Note on `updated_at`:** Triggers automatically update this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time due to triggers executing `UPDATE sources SET updated_at = CURRENT_TIMESTAMP`.
+
 ### `source_versions`
 
 The full normalized markdown for every version of every source. This is the document store.
@@ -32,12 +88,14 @@ CREATE TABLE source_versions (
     normalizer_version  TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (source_id, version)
+    PRIMARY KEY (source_id, version),
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
-CREATE INDEX idx_source_versions_source_id ON source_versions(source_id);
 CREATE INDEX idx_source_versions_adapter_id ON source_versions(adapter_id);
 ```
+
+**Note on indexes:** The composite PRIMARY KEY (source_id, version) creates an index with `source_id` as the leading column, making the single-column index on `source_id` redundant. SQLite's leftmost prefix rule means queries filtering by `source_id` already use the primary key index efficiently.
 
 ### `chunks`
 
@@ -60,7 +118,8 @@ CREATE TABLE chunks (
     chunk_type          TEXT DEFAULT 'standard', -- standard | oversized | table_part
     retired_at          DATETIME,            -- set when chunk is superseded by a new version
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version)
+    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+    UNIQUE (source_id, source_version, chunk_index)
 );
 
 CREATE INDEX idx_chunks_source ON chunks(source_id, source_version);
@@ -70,45 +129,7 @@ CREATE INDEX idx_chunks_retired ON chunks(retired_at);
 CREATE INDEX idx_chunks_adapter ON chunks(adapter_id);
 ```
 
-### `sources`
-
-Registry of known sources and their current state.
-
-```sql
-CREATE TABLE sources (
-    source_id           TEXT PRIMARY KEY,
-    adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL,
-    origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
-    display_name        TEXT,
-    current_version     INTEGER NOT NULL DEFAULT 0,
-    last_fetched_at     DATETIME,
-    poll_strategy       TEXT NOT NULL,       -- push | pull | webhook
-    poll_interval_sec   INTEGER,             -- for pull-based sources
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_sources_adapter ON sources(adapter_id);
-CREATE INDEX idx_sources_domain ON sources(domain);
-```
-
-### `adapters`
-
-Registry of configured adapters and their current normalizer versions.
-
-```sql
-CREATE TABLE adapters (
-    adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL,
-    adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
-    normalizer_version  TEXT NOT NULL,
-    config              TEXT,                -- JSON, adapter-specific configuration
-    enabled             BOOLEAN NOT NULL DEFAULT 1,
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
+**Note on chunk indexing:** The UNIQUE constraint on (source_id, source_version, chunk_index) prevents duplicate or misordered chunks within a source version. Each index position within a version is claimed by exactly one chunk.
 
 ### Domain Metadata Tables
 
@@ -186,6 +207,22 @@ source_id         STRING        -- filtered search: scope to source
 source_version    INT           -- filtered search: scope to version
 created_at        TIMESTAMP     -- filtered search: time-range queries
 ```
+
+### `lancedb_sync_log` (SQLite)
+
+A lightweight SQLite table to track which chunks have been synchronized to LanceDB. This enables drift detection between the two stores.
+
+```sql
+CREATE TABLE lancedb_sync_log (
+    chunk_hash      TEXT PRIMARY KEY,
+    synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
+);
+
+CREATE INDEX idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
+```
+
+This table is consulted during drift detection checks to identify chunks that should be in LanceDB but aren't (orphaned in SQLite) or chunks in LanceDB that have been retired in SQLite.
 
 **Why these fields are denormalized:**
 
@@ -404,6 +441,8 @@ LanceDB is configured with:
 
 If the schema needs to evolve:
 
-**SQLite migrations** follow a standard versioned migration pattern. A `schema_version` table tracks the current version, and migration scripts run on startup if needed. SQLite's `ALTER TABLE` limitations (no column drops, limited type changes) mean some migrations require create-new-table-and-copy patterns.
+**SQLite migrations** follow a standard versioned migration pattern. The `schema_version` table tracks the current version, and migration scripts run on startup if needed. The application compares the current schema version against pending migrations and executes any that haven't been applied yet. This provides an audit trail (via the `applied_at` timestamp) and integrates with the application's migration framework.
 
-**LanceDB changes** (new metadata columns, dimension changes) are handled by rebuild. Drop the LanceDB table, recreate with the new schema, re-embed from SQLite. This is the same procedure as an embedding model change.
+SQLite's `ALTER TABLE` limitations (no column drops, limited type changes) mean some migrations require create-new-table-and-copy patterns. The migration runner handles these via explicit SQL scripts or, where the overhead is acceptable, Python code.
+
+**LanceDB changes** (new metadata columns, dimension changes) are handled by rebuild. Drop the LanceDB table, recreate with the new schema, re-embed from SQLite. This is the same procedure as an embedding model change. The `lancedb_sync_log` table is cleared during rebuild to ensure all chunks are re-embedded.
