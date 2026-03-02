@@ -7,6 +7,8 @@ Implementation of document store operations will be covered when the module is i
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 
 class TestSchemaInitialization:
     """Tests for document store schema initialization via schema.sql."""
@@ -93,5 +95,30 @@ class TestSchemaInitialization:
             result = cursor.fetchone()
             # Result should be (1,) when ON
             assert result[0] == 1, "Foreign keys not enforced by schema"
+        finally:
+            conn.close()
+
+    def test_schema_rejects_invalid_foreign_keys(self) -> None:
+        """Schema enforces foreign key constraints by rejecting invalid INSERTs."""
+        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
+
+        with open(schema_path, "r") as f:
+            schema_content = f.read()
+
+        conn = sqlite3.connect(":memory:")
+        cursor = conn.cursor()
+
+        try:
+            cursor.executescript(schema_content)
+            conn.commit()
+
+            # Attempt to insert a source with a non-existent adapter_id
+            # This should raise an IntegrityError due to FK constraint
+            with pytest.raises(sqlite3.IntegrityError):
+                cursor.execute(
+                    "INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy) "
+                    "VALUES ('test_source_1', 'nonexistent_adapter', 'messages', 'ref1', 'pull')"
+                )
+                conn.commit()
         finally:
             conn.close()
