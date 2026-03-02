@@ -122,27 +122,13 @@ class TestValidatePragmas:
         conn.close()
 
     def test_null_fetchone_result_raises_error(self) -> None:
-        """Null fetchone() result from PRAGMA query raises SchemaConfigError.
+        """Null fetchone() result from PRAGMA query raises SchemaConfigError."""
 
-        Tests the defensive null checks in validate_pragmas() by directly verifying
-        that null results are handled. The validate_pragmas function checks:
-        - PRAGMA foreign_keys: result is None or result[0] != 1
-        - PRAGMA synchronous: result is None or result[0] != 1
-        - PRAGMA user_version: result is None or result[0] < 1
-        - PRAGMA journal_mode: result is None or result[0] not in ("wal", "memory")
-
-        These checks ensure that if any PRAGMA query returns None, SchemaConfigError
-        is raised with an appropriate message.
-        """
-        # Create a wrapper that yields None for the first execute() to simulate
+        # Create a wrapper that yields None for the first fetchone() to simulate
         # a PRAGMA query returning no results
-        import sqlite3 as sqlite3_module
-
-        # We'll test this by creating a custom connection wrapper
         class NullResultConnection:
             def __init__(self):
                 self._conn = sqlite3.connect(":memory:")
-                self._first_call = True
 
             def cursor(self):
                 return NullResultCursor(self._conn.cursor())
