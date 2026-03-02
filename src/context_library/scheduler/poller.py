@@ -1,1 +1,1 @@
-"""Polling-based ingestion trigger; manages per-adapter poll intervals."""
+"""Polling-based ingestion trigger; manages per-source poll intervals."""
