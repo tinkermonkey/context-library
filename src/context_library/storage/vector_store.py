@@ -58,7 +58,7 @@ class ChunkVector(LanceModel):
 
     chunk_hash: str              # join key to SQLite chunks table
     content: str                 # denormalized for reranker access without SQLite lookup
-    vector: Vector[EMBEDDING_DIM]  # fixed-size embedding vector (float32 optimized storage)
+    vector: Vector(EMBEDDING_DIM)  # fixed-size embedding vector (float32 optimized storage)
     domain: Domain               # supports filtered vector search by domain
     source_id: str               # supports filtered vector search by source
     source_version: int          # supports filtered vector search by version
