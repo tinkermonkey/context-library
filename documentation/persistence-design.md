@@ -355,6 +355,9 @@ WHERE c.chunk_hash = ?;
 WITH RECURSIVE chain AS (
     SELECT * FROM chunks WHERE chunk_hash = ?
     UNION ALL
+    -- Walk backward through the chain: follow parent_chunk_hash to find all ancestors.
+    -- This traversal direction means we find all previous versions of this chunk (its history).
+    -- To traverse forward (find all descendants), join on child chunks with parent_chunk_hash = c.chunk_hash instead.
     SELECT c.* FROM chunks c
     JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash
 )
