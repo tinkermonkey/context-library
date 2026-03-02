@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from context_library.storage.schema import (
+from context_library.storage.vector_store import (
     SchemaConfigError,
     apply_schema_and_validate_pragmas,
     validate_pragmas,
