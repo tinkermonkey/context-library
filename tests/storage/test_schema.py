@@ -30,6 +30,47 @@ class TestApplySchemaAndValidatePragmas:
         assert cursor.fetchone() is not None
         conn.close()
 
+    def test_schema_is_idempotent(self) -> None:
+        """Schema application is idempotent — can be applied twice without error.
+
+        This test ensures that all DDL statements use IF NOT EXISTS clauses.
+        Accidental removal of an IF NOT EXISTS clause would cause a production
+        crash on restart (when schema is reapplied), but without this test,
+        the regression would go undetected.
+        """
+        conn = sqlite3.connect(":memory:")
+
+        # First application
+        apply_schema_and_validate_pragmas(conn)
+
+        # Verify tables exist after first application
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        table_count_after_first = cursor.fetchone()[0]
+        assert table_count_after_first > 0, "No tables created after first schema application"
+
+        # Second application on same connection — should not raise
+        apply_schema_and_validate_pragmas(conn)
+
+        # Verify table count hasn't changed (tables not duplicated)
+        cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+        table_count_after_second = cursor.fetchone()[0]
+        assert table_count_after_second == table_count_after_first, (
+            "Table count changed after second schema application; "
+            "IF NOT EXISTS clauses may be missing from schema.sql"
+        )
+
+        # Verify all expected tables still exist
+        expected_tables = {"adapters", "sources", "source_versions", "chunks", "lancedb_sync_log"}
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?, ?, ?)",
+            tuple(expected_tables)
+        )
+        actual_tables = {row[0] for row in cursor.fetchall()}
+        assert actual_tables == expected_tables, f"Expected tables {expected_tables}, got {actual_tables}"
+
+        conn.close()
+
     def test_missing_schema_file_raises_schema_config_error(self, monkeypatch) -> None:
         """Missing schema.sql file raises SchemaConfigError, not FileNotFoundError."""
 
