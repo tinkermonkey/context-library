@@ -2,7 +2,7 @@
 
 import pytest
 
-from context_library.storage.vector_store import (
+from context_library.storage.validators import (
     EMBEDDING_DIM,
     validate_embedding_dimension,
 )

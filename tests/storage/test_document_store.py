@@ -4,8 +4,10 @@ Tests include schema validation for the SQLite DDL.
 Implementation of document store operations will be covered when the module is implemented.
 """
 
+import os
 import re
 import sqlite3
+import tempfile
 import time
 from pathlib import Path
 
@@ -564,7 +566,6 @@ class TestValidatePragmasErrorPaths:
         For file-based databases, we can set journal_mode to an invalid value.
         In-memory databases don't support DELETE mode, so we use a file-based DB.
         """
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
             db_path = f.name
 
@@ -596,7 +597,6 @@ class TestValidatePragmasErrorPaths:
             conn.close()
         finally:
             # Clean up temp file
-            import os
             if os.path.exists(db_path):
                 os.unlink(db_path)
 
