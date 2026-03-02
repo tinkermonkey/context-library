@@ -133,7 +133,7 @@ class TestAdapterRegistration:
             config=None,
         )
 
-        adapter_id = store.register_adapter(config)
+        store.register_adapter(config)
         retrieved = store.get_adapter("simple-adapter")
 
         assert retrieved is not None

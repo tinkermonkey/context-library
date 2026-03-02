@@ -196,6 +196,7 @@ class DocumentStore:
 
             # Capture the rowid of the inserted row
             source_version_id = cursor.lastrowid
+            assert source_version_id is not None
 
             # Update sources.current_version
             self.conn.execute(
