@@ -60,6 +60,7 @@ RUN claude --version && \
 RUN python3 --version && \
     pip --version && \
     python3 -c "import lancedb; print('lancedb OK')" && \
+    python3 -c "import pyarrow; print('pyarrow OK')" && \
     python3 -c "import sentence_transformers; print('sentence_transformers OK')" && \
     python3 -c "import mistune; print('mistune OK')" && \
     python3 -c "import pydantic; print('pydantic OK')"
