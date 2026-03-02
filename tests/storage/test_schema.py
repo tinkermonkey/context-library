@@ -1,7 +1,6 @@
 """Tests for SQLite schema initialization and PRAGMA validation."""
 
 import sqlite3
-import tempfile
 
 import pytest
 
@@ -17,19 +16,18 @@ class TestApplySchemaAndValidatePragmas:
 
     def test_successful_schema_application(self) -> None:
         """Successful schema application with PRAGMA validation."""
-        with tempfile.TemporaryDirectory():
-            # Create an in-memory database
-            conn = sqlite3.connect(":memory:")
-            # Apply schema and validate
-            apply_schema_and_validate_pragmas(conn)
+        # Create an in-memory database
+        conn = sqlite3.connect(":memory:")
+        # Apply schema and validate
+        apply_schema_and_validate_pragmas(conn)
 
-            # Verify tables were created
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='adapters'"
-            )
-            assert cursor.fetchone() is not None
-            conn.close()
+        # Verify tables were created
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='adapters'"
+        )
+        assert cursor.fetchone() is not None
+        conn.close()
 
     def test_missing_schema_file_raises_schema_config_error(self, monkeypatch) -> None:
         """Missing schema.sql file raises SchemaConfigError, not FileNotFoundError."""
@@ -84,7 +82,12 @@ class TestApplySchemaAndValidatePragmas:
 
 
 class TestValidatePragmas:
-    """Tests for validate_pragmas()."""
+    """Tests for validate_pragmas() - focusing on valid configurations.
+
+    Error path tests (foreign_keys, synchronous, user_version, journal_mode errors)
+    are comprehensively covered in tests/storage/test_document_store.py:482-624
+    (TestValidatePragmasErrorPaths) and are not duplicated here.
+    """
 
     def test_valid_pragmas_pass(self) -> None:
         """Valid PRAGMA configuration passes without raising."""
@@ -101,58 +104,6 @@ class TestValidatePragmas:
         # Should not raise
         validate_pragmas(conn)
         conn.close()
-
-    def test_foreign_keys_off_raises_error(self) -> None:
-        """PRAGMA foreign_keys=OFF raises SchemaConfigError."""
-        conn = sqlite3.connect(":memory:")
-        cursor = conn.cursor()
-
-        # Set up with foreign_keys OFF
-        cursor.execute("PRAGMA foreign_keys=OFF")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA user_version=1")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        conn.commit()
-
-        with pytest.raises(SchemaConfigError) as exc_info:
-            validate_pragmas(conn)
-        assert "PRAGMA foreign_keys must be ON" in str(exc_info.value)
-        conn.close()
-
-    def test_synchronous_wrong_value_raises_error(self) -> None:
-        """PRAGMA synchronous=FULL raises SchemaConfigError."""
-        conn = sqlite3.connect(":memory:")
-        cursor = conn.cursor()
-
-        # Set up with wrong synchronous value
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA synchronous=FULL")  # Should be NORMAL (1)
-        cursor.execute("PRAGMA user_version=1")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        conn.commit()
-
-        with pytest.raises(SchemaConfigError) as exc_info:
-            validate_pragmas(conn)
-        assert "PRAGMA synchronous must be NORMAL" in str(exc_info.value)
-        conn.close()
-
-    def test_user_version_zero_raises_error(self) -> None:
-        """PRAGMA user_version=0 raises SchemaConfigError."""
-        conn = sqlite3.connect(":memory:")
-        cursor = conn.cursor()
-
-        # Set up with user_version 0
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA user_version=0")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        conn.commit()
-
-        with pytest.raises(SchemaConfigError) as exc_info:
-            validate_pragmas(conn)
-        assert "PRAGMA user_version must be >= 1" in str(exc_info.value)
-        conn.close()
-
 
     def test_journal_mode_memory_acceptable(self) -> None:
         """PRAGMA journal_mode=MEMORY is acceptable for in-memory databases."""
@@ -171,20 +122,56 @@ class TestValidatePragmas:
         conn.close()
 
     def test_null_fetchone_result_raises_error(self) -> None:
-        """Null fetchone() result from PRAGMA query raises meaningful error."""
-        conn = sqlite3.connect(":memory:")
-        cursor = conn.cursor()
+        """Null fetchone() result from PRAGMA query raises SchemaConfigError.
 
-        # Create a closed cursor to simulate fetchone() returning None
-        # This is a tricky scenario to test, but we can at least verify
-        # the null-check is in place by inspecting the code
-        # For now, we'll verify that valid pragmas work
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA user_version=1")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        conn.commit()
+        Tests the defensive null checks in validate_pragmas() by directly verifying
+        that null results are handled. The validate_pragmas function checks:
+        - PRAGMA foreign_keys: result is None or result[0] != 1
+        - PRAGMA synchronous: result is None or result[0] != 1
+        - PRAGMA user_version: result is None or result[0] < 1
+        - PRAGMA journal_mode: result is None or result[0] not in ("wal", "memory")
 
-        # Should not raise - null checks are in place
-        validate_pragmas(conn)
-        conn.close()
+        These checks ensure that if any PRAGMA query returns None, SchemaConfigError
+        is raised with an appropriate message.
+        """
+        # Create a wrapper that yields None for the first execute() to simulate
+        # a PRAGMA query returning no results
+        import sqlite3 as sqlite3_module
+
+        # We'll test this by creating a custom connection wrapper
+        class NullResultConnection:
+            def __init__(self):
+                self._conn = sqlite3.connect(":memory:")
+                self._first_call = True
+
+            def cursor(self):
+                return NullResultCursor(self._conn.cursor())
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+        class NullResultCursor:
+            def __init__(self, real_cursor):
+                self._cursor = real_cursor
+                self._first_call = True
+
+            def execute(self, query):
+                return self._cursor.execute(query)
+
+            def fetchone(self):
+                if self._first_call:
+                    self._first_call = False
+                    return None  # Simulate null result
+                return self._cursor.fetchone()
+
+            def __getattr__(self, name):
+                return getattr(self._cursor, name)
+
+        conn_wrapper = NullResultConnection()
+        try:
+            with pytest.raises(SchemaConfigError) as exc_info:
+                validate_pragmas(conn_wrapper)
+            # Should fail on first PRAGMA (foreign_keys)
+            assert "foreign_keys" in str(exc_info.value)
+        finally:
+            conn_wrapper._conn.close()
