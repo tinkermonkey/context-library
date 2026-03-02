@@ -22,7 +22,9 @@ class BaseAdapter(ABC):
         """Fetch and normalize content from a source.
 
         Args:
-            source_ref: Source-specific reference (e.g., directory path, email address)
+            source_ref: Source-specific reference (e.g., directory path, email address).
+                Some adapters that receive their source at construction time may ignore
+                this parameter.
 
         Yields:
             NormalizedContent: Normalized markdown content with structural hints

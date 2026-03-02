@@ -117,6 +117,6 @@ class FilesystemAdapter(BaseAdapter):
             except UnicodeDecodeError:
                 logger.warning(f"Failed to decode file as UTF-8: {md_file}")
                 continue
-            except Exception as e:
+            except OSError as e:
                 logger.warning(f"Error processing file {md_file}: {e}")
                 continue

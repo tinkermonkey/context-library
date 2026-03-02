@@ -3,8 +3,6 @@
 import pytest
 from pathlib import Path
 from datetime import datetime, timezone
-import tempfile
-import os
 from unittest.mock import MagicMock
 
 from context_library.adapters.filesystem import FilesystemAdapter
