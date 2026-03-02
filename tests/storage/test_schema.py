@@ -43,7 +43,22 @@ class TestApplySchemaAndValidatePragmas:
         with pytest.raises(SchemaConfigError) as exc_info:
             apply_schema_and_validate_pragmas(conn)
 
-        assert "Schema file not found" in str(exc_info.value)
+        assert "Failed to read schema file" in str(exc_info.value)
+        conn.close()
+
+    def test_permission_error_raises_schema_config_error(self, monkeypatch) -> None:
+        """PermissionError (OSError subclass) raises SchemaConfigError."""
+
+        def mock_open(*args, **kwargs):
+            raise PermissionError("Permission denied")
+
+        conn = sqlite3.connect(":memory:")
+        monkeypatch.setattr("builtins.open", mock_open)
+
+        with pytest.raises(SchemaConfigError) as exc_info:
+            apply_schema_and_validate_pragmas(conn)
+
+        assert "Failed to read schema file" in str(exc_info.value)
         conn.close()
 
     def test_invalid_sql_in_schema_raises_schema_config_error(self, monkeypatch) -> None:
