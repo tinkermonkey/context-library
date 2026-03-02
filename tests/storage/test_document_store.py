@@ -12,7 +12,35 @@ from pathlib import Path
 import pytest
 
 from src.context_library.storage.models import Domain
-from src.context_library.storage.schema import apply_schema_and_validate_pragmas, validate_pragmas
+from src.context_library.storage.schema import (
+    SchemaConfigError,
+    apply_schema_and_validate_pragmas,
+    validate_pragmas,
+)
+
+
+@pytest.fixture
+def schema_path():
+    """Return the path to the schema.sql file."""
+    return Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
+
+
+@pytest.fixture
+def schema_content(schema_path):
+    """Load and return the schema.sql file content."""
+    with open(schema_path, "r") as f:
+        return f.read()
+
+
+@pytest.fixture
+def memory_db_with_schema(schema_content):
+    """Create an in-memory SQLite database with schema applied via executescript."""
+    conn = sqlite3.connect(":memory:")
+    cursor = conn.cursor()
+    cursor.executescript(schema_content)
+    conn.commit()
+    yield conn
+    conn.close()
 
 
 class TestSchemaInitialization:
@@ -470,7 +498,12 @@ class TestSchemaInitialization:
             conn.close()
 
     def test_triggers_prevent_recursion(self) -> None:
-        """Trigger WHEN guard prevents infinite recursion when updating updated_at."""
+        """Trigger WHEN guard prevents infinite recursion when updating updated_at.
+
+        The trigger fires when NEW.updated_at = OLD.updated_at and updates to CURRENT_TIMESTAMP.
+        When we directly set updated_at to a different value, NEW.updated_at != OLD.updated_at,
+        so the WHEN clause is FALSE and the trigger does not fire.
+        """
         with open(self.SCHEMA_PATH, "r") as f:
             schema_content = f.read()
 
@@ -492,15 +525,16 @@ class TestSchemaInitialization:
             cursor.execute("SELECT updated_at FROM adapters WHERE adapter_id = 'adapter1'")
             first_ts = cursor.fetchone()[0]
 
-            # Wait and directly update updated_at (the WHEN guard should prevent recursion)
-            time.sleep(0.01)
-            cursor.execute("UPDATE adapters SET updated_at = ? WHERE adapter_id = 'adapter1'", (first_ts,))
+            # Directly set updated_at to a different value
+            # Since NEW.updated_at != OLD.updated_at, the WHEN clause is FALSE and trigger does not fire
+            different_ts = "2099-01-01 00:00:00"
+            cursor.execute("UPDATE adapters SET updated_at = ? WHERE adapter_id = 'adapter1'", (different_ts,))
             conn.commit()
 
-            # Verify updated_at is still the same (trigger didn't fire because of WHEN guard)
+            # Verify updated_at is still the different value (trigger didn't fire)
             cursor.execute("SELECT updated_at FROM adapters WHERE adapter_id = 'adapter1'")
             final_ts = cursor.fetchone()[0]
-            assert final_ts == first_ts, "WHEN guard should prevent trigger from updating again"
+            assert final_ts == different_ts, "WHEN guard should prevent trigger from updating when NEW.updated_at != OLD.updated_at"
         finally:
             conn.close()
 
