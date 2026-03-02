@@ -13,24 +13,22 @@ import pytest
 class TestSchemaInitialization:
     """Tests for document store schema initialization via schema.sql."""
 
+    SCHEMA_PATH = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
+
     def test_schema_file_exists(self) -> None:
         """Schema file exists at expected location."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-        assert schema_path.exists(), f"Schema file not found at {schema_path}"
+        assert self.SCHEMA_PATH.exists(), f"Schema file not found at {self.SCHEMA_PATH}"
 
     def test_schema_file_is_readable(self) -> None:
         """Schema file can be read without errors."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-        with open(schema_path, "r") as f:
+        with open(self.SCHEMA_PATH, "r") as f:
             content = f.read()
         assert len(content) > 0, "Schema file is empty"
         assert "CREATE TABLE" in content, "Schema file does not contain table definitions"
 
     def test_schema_applies_without_syntax_error(self) -> None:
         """Schema can be applied to an in-memory SQLite database without syntax errors."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-
-        with open(schema_path, "r") as f:
+        with open(self.SCHEMA_PATH, "r") as f:
             schema_content = f.read()
 
         # Use in-memory database for testing
@@ -46,9 +44,7 @@ class TestSchemaInitialization:
 
     def test_schema_creates_required_tables(self) -> None:
         """Schema creates all expected tables."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-
-        with open(schema_path, "r") as f:
+        with open(self.SCHEMA_PATH, "r") as f:
             schema_content = f.read()
 
         conn = sqlite3.connect(":memory:")
@@ -79,9 +75,7 @@ class TestSchemaInitialization:
 
     def test_schema_enforces_foreign_keys(self) -> None:
         """Schema enables foreign key constraints."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-
-        with open(schema_path, "r") as f:
+        with open(self.SCHEMA_PATH, "r") as f:
             schema_content = f.read()
 
         conn = sqlite3.connect(":memory:")
@@ -100,9 +94,7 @@ class TestSchemaInitialization:
 
     def test_schema_rejects_invalid_foreign_keys(self) -> None:
         """Schema enforces foreign key constraints by rejecting invalid INSERTs."""
-        schema_path = Path(__file__).parent.parent.parent / "src" / "context_library" / "storage" / "schema.sql"
-
-        with open(schema_path, "r") as f:
+        with open(self.SCHEMA_PATH, "r") as f:
             schema_content = f.read()
 
         conn = sqlite3.connect(":memory:")
@@ -119,6 +111,5 @@ class TestSchemaInitialization:
                     "INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy) "
                     "VALUES ('test_source_1', 'nonexistent_adapter', 'messages', 'ref1', 'pull')"
                 )
-                conn.commit()
         finally:
             conn.close()
