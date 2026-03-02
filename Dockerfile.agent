@@ -32,9 +32,12 @@ WORKDIR /workspace/context-library
 # Copy project configuration for dependency installation
 COPY pyproject.toml ./
 
-# Install project dependencies (runtime + dev) from pyproject.toml
-# Using ".[dev]" installs runtime deps + dev optional group without the package itself
-RUN pip install --no-cache-dir ".[dev]"
+# Create minimal package stub so hatchling can build during pip install
+# (source code is mounted at runtime, not included in image)
+RUN mkdir -p src/context_library && \
+    touch src/context_library/__init__.py && \
+    pip install --no-cache-dir ".[dev]" && \
+    rm -rf src/context_library
 
 # ============================================================================
 # Section 4: Switch to Runtime User
