@@ -1,15 +1,11 @@
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 PRAGMA foreign_keys=ON;
-
-CREATE TABLE IF NOT EXISTS schema_version (
-    version             INTEGER PRIMARY KEY,
-    applied_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+PRAGMA user_version=1;
 
 CREATE TABLE IF NOT EXISTS adapters (
     adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_type        TEXT NOT NULL,
     normalizer_version  TEXT NOT NULL,
     config              TEXT,
@@ -21,12 +17,12 @@ CREATE TABLE IF NOT EXISTS adapters (
 CREATE TABLE IF NOT EXISTS sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     origin_ref          TEXT NOT NULL,
     display_name        TEXT,
     current_version     INTEGER NOT NULL DEFAULT 0,
     last_fetched_at     DATETIME,
-    poll_strategy       TEXT NOT NULL,
+    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
     poll_interval_sec   INTEGER,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -46,6 +42,7 @@ CREATE TABLE IF NOT EXISTS source_versions (
     fetch_timestamp     DATETIME NOT NULL,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (source_id, version),
+    FOREIGN KEY (source_id) REFERENCES sources(source_id),
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
@@ -58,16 +55,17 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index         INTEGER NOT NULL,
     content             TEXT NOT NULL,
     context_header      TEXT,
-    domain              TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,
     parent_chunk_hash   TEXT,
     domain_metadata     TEXT,
-    chunk_type          TEXT DEFAULT 'standard',
+    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part')),
     retired_at          DATETIME,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
     UNIQUE (source_id, source_version, chunk_index)
 );
 
@@ -86,7 +84,7 @@ CREATE TABLE IF NOT EXISTS lancedb_sync_log (
 CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
 
 -- Triggers to auto-update the updated_at column
--- WHEN guards prevent recursion: if updated_at hasn't changed, don't fire again
+-- WHEN guard prevents recursion: if updated_at has already changed, don't fire again
 CREATE TRIGGER IF NOT EXISTS sources_update_timestamp
 AFTER UPDATE ON sources
 FOR EACH ROW
@@ -102,3 +100,4 @@ WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
 END;
+
