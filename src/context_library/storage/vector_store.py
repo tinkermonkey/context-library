@@ -1,8 +1,14 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
 from pathlib import Path
+from typing import Type  # noqa: F401 - required for Vector type annotation
 
-from lancedb.pydantic import LanceModel, Vector  # type: ignore[import-untyped]
+import pyarrow as pa  # noqa: F401 - required for Vector type annotation
+from lancedb.pydantic import (  # type: ignore[import-untyped]
+    FixedSizeListMixin,  # noqa: F401 - required for Vector type annotation
+    LanceModel,
+    Vector,
+)
 
 from context_library.storage.models import Domain
 
