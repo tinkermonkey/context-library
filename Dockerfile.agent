@@ -33,18 +33,12 @@ WORKDIR /workspace/context-library
 # Copy only the dependency manifest
 COPY pyproject.toml ./
 
-# Install main + dev dependencies from pyproject.toml
-# We use pip to install the declared dependencies without the package itself
-# since source code is mounted at runtime
+# Install dependencies from pyproject.toml
+# Install the package in editable mode with all dev dependencies
+# Source code is mounted at runtime, so we only install the deps
 RUN pip install --no-cache-dir \
-    "lancedb>=0.29" \
-    "sentence-transformers>=5.0" \
-    "mistune>=3.0" \
-    "pydantic>=2.0" \
-    "ruff" \
-    "mypy" \
-    "pytest" \
-    "hatchling"
+    -e ".[dev]" \
+    hatchling
 
 # ============================================================================
 # Stage 4: Ownership and Permissions
@@ -69,6 +63,7 @@ RUN claude --version && \
 RUN python3 --version && \
     pip --version && \
     python3 -c "import lancedb; print('lancedb OK')" && \
+    python3 -c "import sentence_transformers; print('sentence_transformers OK')" && \
     python3 -c "import mistune; print('mistune OK')" && \
     python3 -c "import pydantic; print('pydantic OK')"
 
