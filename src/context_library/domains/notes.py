@@ -100,7 +100,6 @@ class NotesDomain(BaseDomain):
         candidates = []
         heading_stack = []  # Stack of (level, text) tuples
         current_candidate = None
-        current_heading_level = None  # Track the heading level of current candidate
 
         for block in ast:
             block_type = block.get("type")
@@ -133,7 +132,6 @@ class NotesDomain(BaseDomain):
                     "domain_metadata": {"heading_level": level},
                     "is_atomic": False,
                 }
-                current_heading_level = level
 
             elif block_type == "block_code":
                 # Code blocks are atomic - flush current if needed
@@ -233,11 +231,19 @@ class NotesDomain(BaseDomain):
         return candidates
 
     def _extract_text_from_children(self, children: list[dict[str, Any]]) -> str:
-        """Recursively extract text from inline children."""
+        """Recursively extract text from inline children.
+
+        Handles both text nodes with 'raw' field and nodes with 'children'.
+        Special handling for inline nodes that have 'raw' but no 'children'
+        (e.g., codespan, html_inline).
+        """
         text = ""
         for child in children:
-            if child.get("type") == "text":
+            child_type = child.get("type")
+            # Nodes with 'raw' field (text, codespan, html_inline, etc.)
+            if child_type in ("text", "codespan", "html_inline"):
                 text += child.get("raw", "")
+            # Nodes with 'children' (emphasis, strong, link, image, etc.)
             elif "children" in child:
                 text += self._extract_text_from_children(child.get("children", []))
         return text
@@ -313,20 +319,42 @@ class NotesDomain(BaseDomain):
     def _extract_table_markdown(self, block: dict[str, Any]) -> str:
         """Extract table content as markdown."""
         # For simplicity, reconstruct a basic table markdown representation
-        # from the AST structure
+        # from the AST structure.
+        # Note: In mistune 3.x, table_head has table_cell nodes as direct children,
+        # while table_body wraps cells in table_row nodes.
         children = block.get("children", [])
         lines = []
+        separator_added = False
 
-        for child in children:
-            if child.get("type") in ("table_head", "table_body"):
-                for row in child.get("children", []):
+        for section in children:
+            section_type = section.get("type")
+            if section_type == "table_head":
+                # table_head children are table_cell nodes directly (no table_row wrapper)
+                cells = []
+                for cell in section.get("children", []):
+                    if cell.get("type") == "table_cell":
+                        cell_text = self._extract_text_from_children(
+                            cell.get("children", [])
+                        )
+                        cells.append(cell_text)
+                if cells:
+                    lines.append("| " + " | ".join(cells) + " |")
+                    # Add separator line after header
+                    separator = "| " + " | ".join(["---"] * len(cells)) + " |"
+                    lines.append(separator)
+                    separator_added = True
+
+            elif section_type == "table_body":
+                # table_body children are table_row nodes
+                for row in section.get("children", []):
                     cells = []
                     for cell in row.get("children", []):
                         cell_text = self._extract_text_from_children(
                             cell.get("children", [])
                         )
                         cells.append(cell_text)
-                    lines.append("| " + " | ".join(cells) + " |")
+                    if cells:
+                        lines.append("| " + " | ".join(cells) + " |")
 
         return "\n".join(lines)
 
@@ -437,8 +465,9 @@ class NotesDomain(BaseDomain):
 
             # If a single paragraph exceeds hard_limit, try sentence boundaries first
             if para_tokens > self.hard_limit:
-                # Try splitting at sentence boundaries
-                sentences = re.split(r'([.!?]\s+)', para)
+                # Split at sentence boundaries using lookbehind to keep punctuation attached
+                # This produces clean sentences like "Hello world." instead of "Hello world . "
+                sentences = re.split(r'(?<=[.!?])\s+', para)
                 # Filter out empty strings from the split
                 sentences = [s for s in sentences if s.strip()]
 
