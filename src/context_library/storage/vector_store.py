@@ -8,7 +8,7 @@ from lancedb.pydantic import (  # type: ignore[import-untyped]
 )
 
 from context_library.storage.models import Domain
-from context_library.storage.validators import EMBEDDING_DIM, validate_embedding_dimension
+from context_library.storage.validators import EMBEDDING_DIM
 
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
 
