@@ -1,12 +1,22 @@
 """NotesDomain: chunking and metadata for freeform notes."""
 
 import re
-from typing import Any
+from typing import Any, TypedDict
 
 import mistune
 
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import Chunk, NormalizedContent, compute_chunk_hash
+
+
+class CandidateChunk(TypedDict, total=False):
+    """TypedDict for candidate chunk dictionaries."""
+
+    content: str
+    context_header: str | None
+    chunk_type: str
+    domain_metadata: dict[str, Any] | None
+    is_atomic: bool
 
 
 class NotesDomain(BaseDomain):
@@ -54,7 +64,9 @@ class NotesDomain(BaseDomain):
             A list of Chunk instances with sequential chunk_index values
         """
         # Parse markdown to AST
-        ast = self.md(content.markdown)
+        # mistune returns str | list[dict[str, Any]] but with renderer=None we always get list
+        ast_result = self.md(content.markdown)
+        ast = ast_result if isinstance(ast_result, list) else []
 
         # Build candidate chunks from AST
         candidates = self._build_candidates(ast)
@@ -85,7 +97,7 @@ class NotesDomain(BaseDomain):
 
         return chunks
 
-    def _build_candidates(self, ast: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _build_candidates(self, ast: list[dict[str, Any]]) -> list[CandidateChunk]:
         """Build candidate chunks from AST by walking block structure.
 
         Splits on headings, preserving hierarchy with a heading stack.
@@ -97,9 +109,9 @@ class NotesDomain(BaseDomain):
         Returns:
             A list of candidate chunk dicts with content, context_header, chunk_type, etc.
         """
-        candidates = []
-        heading_stack = []  # Stack of (level, text) tuples
-        current_candidate = None
+        candidates: list[CandidateChunk] = []
+        heading_stack: list[tuple[int, str]] = []  # Stack of (level, text) tuples
+        current_candidate: CandidateChunk | None = None
 
         for block in ast:
             block_type = block.get("type")
@@ -367,7 +379,7 @@ class NotesDomain(BaseDomain):
         """
         return len(text.split())
 
-    def _apply_token_limits(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _apply_token_limits(self, candidates: list[CandidateChunk]) -> list[CandidateChunk]:
         """Apply soft and hard token limits to candidate chunks.
 
         Algorithm:
@@ -384,7 +396,7 @@ class NotesDomain(BaseDomain):
         if not candidates:
             return []
 
-        result = []
+        result: list[CandidateChunk] = []
         i = 0
 
         while i < len(candidates):
@@ -432,7 +444,7 @@ class NotesDomain(BaseDomain):
 
         return result
 
-    def _split_oversized_chunk(self, chunk: dict[str, Any]) -> list[dict[str, Any]]:
+    def _split_oversized_chunk(self, chunk: CandidateChunk) -> list[CandidateChunk]:
         """Split an oversized chunk at paragraph boundaries.
 
         When paragraphs exceed hard_limit, split at sentence boundaries.
@@ -452,7 +464,7 @@ class NotesDomain(BaseDomain):
         # Split into paragraphs (double newline separated)
         paragraphs = re.split(r"\n\n+", content)
 
-        result = []
+        result: list[CandidateChunk] = []
         current_chunk = ""
 
         for para in paragraphs:
@@ -479,7 +491,7 @@ class NotesDomain(BaseDomain):
                     if sent_tokens > self.hard_limit:
                         words = sent.split()
                         for word in words:
-                            word_tokens = self._token_count(word)
+                            self._token_count(word)
                             test_chunk = (current_chunk + " " + word).strip()
 
                             if self._token_count(test_chunk) <= self.hard_limit:
