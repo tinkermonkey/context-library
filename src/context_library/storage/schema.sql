@@ -7,6 +7,17 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS adapters (
+    adapter_id          TEXT PRIMARY KEY,
+    domain              TEXT NOT NULL,
+    adapter_type        TEXT NOT NULL,
+    normalizer_version  TEXT NOT NULL,
+    config              TEXT,
+    enabled             BOOLEAN NOT NULL DEFAULT 1,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
@@ -24,17 +35,6 @@ CREATE TABLE IF NOT EXISTS sources (
 
 CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id);
 CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain);
-
-CREATE TABLE IF NOT EXISTS adapters (
-    adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL,
-    adapter_type        TEXT NOT NULL,
-    normalizer_version  TEXT NOT NULL,
-    config              TEXT,
-    enabled             BOOLEAN NOT NULL DEFAULT 1,
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 
 CREATE TABLE IF NOT EXISTS source_versions (
     source_id           TEXT NOT NULL,
@@ -86,9 +86,11 @@ CREATE TABLE IF NOT EXISTS lancedb_sync_log (
 CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
 
 -- Triggers to auto-update the updated_at column
+-- WHEN guards prevent recursion: if updated_at hasn't changed, don't fire again
 CREATE TRIGGER IF NOT EXISTS sources_update_timestamp
 AFTER UPDATE ON sources
 FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
 END;
@@ -96,6 +98,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS adapters_update_timestamp
 AFTER UPDATE ON adapters
 FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
 END;

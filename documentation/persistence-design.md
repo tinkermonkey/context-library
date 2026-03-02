@@ -48,6 +48,8 @@ CREATE TABLE adapters (
 );
 ```
 
+**Note on `updated_at`:** A trigger automatically updates this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time.
+
 ### `sources`
 
 Registry of known sources and their current state.
@@ -72,7 +74,19 @@ CREATE INDEX idx_sources_adapter ON sources(adapter_id);
 CREATE INDEX idx_sources_domain ON sources(domain);
 ```
 
-**Note on `updated_at`:** Triggers automatically update this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time due to triggers executing `UPDATE sources SET updated_at = CURRENT_TIMESTAMP`.
+**Note on `updated_at`:** Triggers automatically update this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time. The trigger includes a `WHEN` guard to prevent infinite recursion:
+
+```sql
+CREATE TRIGGER sources_update_timestamp
+AFTER UPDATE ON sources
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+END;
+```
+
+The `WHEN NEW.updated_at = OLD.updated_at` clause prevents re-firing: if `updated_at` has already changed, the trigger doesn't fire again.
 
 ### `source_versions`
 
