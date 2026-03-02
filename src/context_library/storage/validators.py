@@ -5,12 +5,14 @@ allowing them to be tested and used independently.
 """
 
 import math
+import numbers
+from collections.abc import Sequence
 from datetime import datetime
 
 EMBEDDING_DIM = 384  # all-MiniLM-L6-v2; change here when swapping embedding model
 
 
-def validate_embedding_dimension(embedding: list[float]) -> None:
+def validate_embedding_dimension(embedding: Sequence[float]) -> None:
     """Validate that an embedding has the expected dimension and element types.
 
     Args:
@@ -39,10 +41,10 @@ def validate_embedding_dimension(embedding: list[float]) -> None:
 
     # Validate that all elements are numeric and finite
     for i, element in enumerate(embedding):
-        if not isinstance(element, (int, float)):
+        if not isinstance(element, numbers.Real):
             raise ValueError(
                 f"Embedding element at index {i} is {type(element).__name__}, "
-                f"expected numeric type (int or float). All embedding elements must be numeric."
+                f"expected numeric type (int, float, or numpy scalar). All embedding elements must be numeric."
             )
 
         if not math.isfinite(element):

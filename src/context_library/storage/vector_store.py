@@ -6,7 +6,7 @@ from lancedb.pydantic import (  # type: ignore[import-untyped]
     LanceModel,
     Vector,
 )
-from pydantic import field_validator
+from pydantic import ConfigDict, field_validator
 
 from context_library.storage.models import Domain
 from context_library.storage.validators import (
@@ -23,7 +23,10 @@ class ChunkVector(LanceModel):
 
     chunk_hash is the join key to the SQLite chunks table.
     LanceDB is derived and disposable; it can be fully rebuilt from SQLite.
+    Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     chunk_hash: str              # join key to SQLite chunks table
     content: str                 # denormalized for reranker access without SQLite lookup
