@@ -28,5 +28,9 @@ warn_unused_configs = true
 module = "lancedb.*"
 ignore_missing_imports = true
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/context_library"]
