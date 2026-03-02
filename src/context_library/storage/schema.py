@@ -17,53 +17,47 @@ class SchemaConfigError(Exception):
 def apply_schema_and_validate_pragmas(conn: sqlite3.Connection) -> None:
     """Apply schema and validate PRAGMA configuration.
 
-    Reads schema.sql, applies PRAGMAs via individual execute() calls with
-    verification, and applies table definitions via executescript().
+    Reads schema.sql, applies table definitions and PRAGMAs via executescript(),
+    then validates PRAGMA settings.
 
     Args:
         conn: SQLite database connection
 
     Raises:
-        SchemaConfigError: If PRAGMA application or validation fails
+        SchemaConfigError: If schema file cannot be read, DDL fails, or PRAGMA
+                          validation fails
     """
     schema_path = Path(__file__).parent / "schema.sql"
-    with open(schema_path, "r") as f:
-        schema_content = f.read()
+
+    # Read schema file with proper error handling
+    try:
+        with open(schema_path, "r") as f:
+            schema_content = f.read()
+    except FileNotFoundError as e:
+        raise SchemaConfigError(
+            f"Schema file not found at {schema_path}"
+        ) from e
 
     cursor = conn.cursor()
 
-    # Apply critical PRAGMAs individually with verification
-    _apply_pragmas(cursor)
-
-    # Apply the full schema (table definitions and triggers)
-    cursor.executescript(schema_content)
-    conn.commit()
+    # Apply the full schema (PRAGMAs, table definitions, and triggers)
+    # PRAGMAs are defined in schema.sql lines 1-4 and applied here
+    try:
+        cursor.executescript(schema_content)
+        conn.commit()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
+        raise SchemaConfigError(
+            f"Failed to apply schema: {e}"
+        ) from e
 
     # Validate pragmas are in effect
     validate_pragmas(conn)
 
 
-def _apply_pragmas(cursor: sqlite3.Cursor) -> None:
-    """Apply critical PRAGMAs via individual execute() calls.
-
-    Applies PRAGMAs without inline verification; verification is delegated to
-    validate_pragmas() which is called after schema application in
-    apply_schema_and_validate_pragmas().
-
-    Raises:
-        sqlite3.Error: If PRAGMA application fails
-    """
-    # Apply critical PRAGMAs individually
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.execute("PRAGMA user_version=1")
-    cursor.execute("PRAGMA journal_mode=WAL")
-
-
 def validate_pragmas(conn: sqlite3.Connection) -> None:
     """Validate that PRAGMAs are applied correctly.
 
-    Checks that the critical PRAGMAs set by schema.sql are in effect:
+    Checks that the critical PRAGMAs defined in schema.sql (lines 1-4) are in effect:
     - foreign_keys: ON (enforces foreign key constraints)
     - synchronous: NORMAL (balanced durability/performance)
     - user_version: >= 1 (schema versioning)
@@ -73,27 +67,32 @@ def validate_pragmas(conn: sqlite3.Connection) -> None:
         conn: SQLite database connection
 
     Raises:
-        SchemaConfigError: If any PRAGMA has an unexpected value
+        SchemaConfigError: If any PRAGMA has an unexpected value or cannot be
+                          queried
     """
     cursor = conn.cursor()
 
     # Verify foreign_keys is ON
     cursor.execute("PRAGMA foreign_keys")
-    if cursor.fetchone()[0] != 1:
+    result = cursor.fetchone()
+    if result is None or result[0] != 1:
         raise SchemaConfigError("PRAGMA foreign_keys must be ON (1)")
 
     # Verify synchronous is NORMAL (1)
     cursor.execute("PRAGMA synchronous")
-    if cursor.fetchone()[0] != 1:
+    result = cursor.fetchone()
+    if result is None or result[0] != 1:
         raise SchemaConfigError("PRAGMA synchronous must be NORMAL (1)")
 
     # Verify user_version is set
     cursor.execute("PRAGMA user_version")
-    if cursor.fetchone()[0] < 1:
+    result = cursor.fetchone()
+    if result is None or result[0] < 1:
         raise SchemaConfigError("PRAGMA user_version must be >= 1")
 
     # Verify journal_mode is WAL or memory (memory for in-memory databases)
     cursor.execute("PRAGMA journal_mode")
-    mode = cursor.fetchone()[0]
-    if mode not in ("wal", "memory"):
+    result = cursor.fetchone()
+    if result is None or result[0] not in ("wal", "memory"):
+        mode = result[0] if result else None
         raise SchemaConfigError(f"PRAGMA journal_mode must be 'wal' or 'memory', got {mode!r}")
