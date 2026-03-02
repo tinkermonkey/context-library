@@ -1,12 +1,12 @@
 # Persistence Design
 
-How Chronicle stores, links, and maintains data across its dual-storage architecture.
+How Context Library stores, links, and maintains data across its dual-storage architecture.
 
 ---
 
 ## Storage Architecture
 
-Chronicle uses two storage engines with distinct responsibilities:
+Context Library uses two storage engines with distinct responsibilities:
 
 **SQLite** is the source of truth. It holds all canonical data: source versions, chunk records, lineage metadata, adapter configurations, and domain-specific metadata. Every structured or relational query — version diffs, provenance tracing, source history, state transitions — runs against SQLite.
 
@@ -18,12 +18,91 @@ The **join key** between the two stores is `chunk_hash` — the content hash of 
 
 ## SQLite Schema
 
+### Schema Versioning
+
+Schema versioning is managed via SQLite's built-in `PRAGMA user_version`, which stores a single integer in the database header. This is sufficient for tracking schema migrations.
+
+```sql
+PRAGMA user_version=1;
+```
+
+On startup, the application reads the current version and applies any pending migration scripts if needed. This approach is simpler than maintaining a separate table and avoids the overhead of a dedicated `schema_version` table for what amounts to a single version integer. The pragma is embedded in the schema initialization and can be queried with:
+
+```sql
+PRAGMA user_version;  -- Returns current version as integer
+```
+
+If the schema design evolves to require more complex migration metadata (e.g., per-migration timestamps, migration names), a dedicated table can be introduced at that time.
+
+### `adapters`
+
+Registry of configured adapters and their current normalizer versions.
+
+```sql
+CREATE TABLE IF NOT EXISTS adapters (
+    adapter_id          TEXT PRIMARY KEY,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
+    adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
+    normalizer_version  TEXT NOT NULL,
+    config              TEXT,                -- JSON, adapter-specific configuration
+    enabled             BOOLEAN NOT NULL DEFAULT 1,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER IF NOT EXISTS adapters_update_timestamp
+AFTER UPDATE ON adapters
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+END;
+```
+
+**Note on `updated_at`:** A trigger automatically updates this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time. The trigger includes a `WHEN` guard to prevent infinite recursion: if `updated_at` has already changed, the trigger doesn't fire again.
+
+**Note on `domain`:** The CHECK constraint enforces that domain values are one of the four supported domains: `messages`, `notes`, `events`, or `tasks`.
+
+### `sources`
+
+Registry of known sources and their current state.
+
+```sql
+CREATE TABLE IF NOT EXISTS sources (
+    source_id           TEXT PRIMARY KEY,
+    adapter_id          TEXT NOT NULL,
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
+    origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
+    display_name        TEXT,
+    current_version     INTEGER NOT NULL DEFAULT 0,
+    last_fetched_at     DATETIME,
+    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+    poll_interval_sec   INTEGER,             -- for pull-based sources
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain);
+
+CREATE TRIGGER IF NOT EXISTS sources_update_timestamp
+AFTER UPDATE ON sources
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+END;
+```
+
+**Note on constraints:** The CHECK constraints on `domain` and `poll_strategy` enforce valid values. The `WHEN` guard in the trigger prevents infinite recursion: if `updated_at` has already changed, the trigger doesn't fire again.
+
 ### `source_versions`
 
 The full normalized markdown for every version of every source. This is the document store.
 
 ```sql
-CREATE TABLE source_versions (
+CREATE TABLE IF NOT EXISTS source_versions (
     source_id           TEXT NOT NULL,
     version             INTEGER NOT NULL,
     markdown            TEXT NOT NULL,
@@ -32,83 +111,54 @@ CREATE TABLE source_versions (
     normalizer_version  TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (source_id, version)
+    PRIMARY KEY (source_id, version),
+    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
 );
 
-CREATE INDEX idx_source_versions_source_id ON source_versions(source_id);
-CREATE INDEX idx_source_versions_adapter_id ON source_versions(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id);
 ```
+
+**Note on foreign keys:** The table references both `sources` and `adapters` to ensure referential integrity. The `source_id` foreign key was previously omitted from the documentation but is enforced in the actual schema.
+
+**Note on indexes:** The composite PRIMARY KEY (source_id, version) creates an index with `source_id` as the leading column, making the single-column index on `source_id` redundant. SQLite's leftmost prefix rule means queries filtering by `source_id` already use the primary key index efficiently.
 
 ### `chunks`
 
 The canonical record for every chunk. One row per unique chunk content. This is the single source of truth for chunk existence and metadata.
 
 ```sql
-CREATE TABLE chunks (
+CREATE TABLE IF NOT EXISTS chunks (
     chunk_hash          TEXT PRIMARY KEY,
     source_id           TEXT NOT NULL,
     source_version      INTEGER NOT NULL,
     chunk_index         INTEGER NOT NULL,
     content             TEXT NOT NULL,       -- normalized markdown text
     context_header      TEXT,                -- heading breadcrumb trail (not included in hash)
-    domain              TEXT NOT NULL,       -- messages | notes | events | tasks
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,
     parent_chunk_hash   TEXT,                -- hash of the chunk this replaced (version chain)
     domain_metadata     TEXT,                -- JSON, domain-specific fields
-    chunk_type          TEXT DEFAULT 'standard', -- standard | oversized | table_part
+    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part')),
     retired_at          DATETIME,            -- set when chunk is superseded by a new version
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version)
+    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+    UNIQUE (source_id, source_version, chunk_index)
 );
 
-CREATE INDEX idx_chunks_source ON chunks(source_id, source_version);
-CREATE INDEX idx_chunks_domain ON chunks(domain);
-CREATE INDEX idx_chunks_parent ON chunks(parent_chunk_hash);
-CREATE INDEX idx_chunks_retired ON chunks(retired_at);
-CREATE INDEX idx_chunks_adapter ON chunks(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version);
+CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain);
+CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash);
+CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at);
+CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id);
 ```
 
-### `sources`
+**Note on constraints:** The CHECK constraints on `domain` and `chunk_type` enforce valid enumerated values. The UNIQUE constraint on (source_id, source_version, chunk_index) prevents duplicate or misordered chunks within a source version. Each index position within a version is claimed by exactly one chunk.
 
-Registry of known sources and their current state.
-
-```sql
-CREATE TABLE sources (
-    source_id           TEXT PRIMARY KEY,
-    adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL,
-    origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
-    display_name        TEXT,
-    current_version     INTEGER NOT NULL DEFAULT 0,
-    last_fetched_at     DATETIME,
-    poll_strategy       TEXT NOT NULL,       -- push | pull | webhook
-    poll_interval_sec   INTEGER,             -- for pull-based sources
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_sources_adapter ON sources(adapter_id);
-CREATE INDEX idx_sources_domain ON sources(domain);
-```
-
-### `adapters`
-
-Registry of configured adapters and their current normalizer versions.
-
-```sql
-CREATE TABLE adapters (
-    adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL,
-    adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
-    normalizer_version  TEXT NOT NULL,
-    config              TEXT,                -- JSON, adapter-specific configuration
-    enabled             BOOLEAN NOT NULL DEFAULT 1,
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
+**Note on foreign keys:** The table has two foreign key references: one to `source_versions` (composite) and one to `adapters`. These enforce referential integrity with their parent tables.
 
 ### Domain Metadata Tables
 
@@ -136,7 +186,7 @@ Example of what `domain_metadata` contains per domain:
     "created_at": "2025-03-01T09:00:00Z",
     "modified_at": "2025-03-01T14:00:00Z",
     "source_app": "obsidian",
-    "tags": ["project-chronicle", "architecture"],
+    "tags": ["project-context-library", "architecture"],
     "title": "Persistence design notes",
     "is_handwritten_origin": false
 }
@@ -158,7 +208,7 @@ Example of what `domain_metadata` contains per domain:
 ```json
 {
     "task_id": "task_789",
-    "project": "chronicle",
+    "project": "context-library",
     "workstream": "persistence",
     "state": "in_progress",
     "previous_state": "open",
@@ -186,6 +236,22 @@ source_id         STRING        -- filtered search: scope to source
 source_version    INT           -- filtered search: scope to version
 created_at        TIMESTAMP     -- filtered search: time-range queries
 ```
+
+### `lancedb_sync_log` (SQLite)
+
+A lightweight SQLite table to track which chunks have been synchronized to LanceDB. This enables drift detection between the two stores.
+
+```sql
+CREATE TABLE IF NOT EXISTS lancedb_sync_log (
+    chunk_hash      TEXT PRIMARY KEY,
+    synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
+```
+
+This table is consulted during drift detection checks to identify chunks that should be in LanceDB but aren't (orphaned in SQLite) or chunks in LanceDB that have been retired in SQLite.
 
 **Why these fields are denormalized:**
 
@@ -289,6 +355,9 @@ WHERE c.chunk_hash = ?;
 WITH RECURSIVE chain AS (
     SELECT * FROM chunks WHERE chunk_hash = ?
     UNION ALL
+    -- Walk backward through the chain: follow parent_chunk_hash to find all ancestors.
+    -- This traversal direction means we find all previous versions of this chunk (its history).
+    -- To traverse forward (find all descendants), join on child chunks with parent_chunk_hash = c.chunk_hash instead.
     SELECT c.* FROM chunks c
     JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash
 )
@@ -367,10 +436,10 @@ This is an offline operation that doesn't affect SQLite writes. New chunks arriv
 On disk, the data directory looks like:
 
 ```
-~/.chronicle/
-├── chronicle.db              -- SQLite database (source of truth)
-├── chronicle.db-wal          -- SQLite write-ahead log
-├── chronicle.db-shm          -- SQLite shared memory
+~/.context-library/
+├── context_library.db        -- SQLite database (source of truth)
+├── context_library.db-wal    -- SQLite write-ahead log
+├── context_library.db-shm    -- SQLite shared memory
 ├── vectors/                  -- LanceDB data directory
 │   └── chunk_vectors.lance/  -- Lance format files
 └── backups/                  -- SQLite backups (periodic)
@@ -379,6 +448,9 @@ On disk, the data directory looks like:
 SQLite is configured with:
 - WAL mode for concurrent reads during writes
 - Foreign keys enabled
+- NORMAL synchronous mode for a balance of safety and performance
+
+**Planned optimizations** (not yet implemented):
 - Journal size limit to prevent unbounded WAL growth
 - Periodic `VACUUM` on a maintenance schedule
 
@@ -404,6 +476,10 @@ LanceDB is configured with:
 
 If the schema needs to evolve:
 
-**SQLite migrations** follow a standard versioned migration pattern. A `schema_version` table tracks the current version, and migration scripts run on startup if needed. SQLite's `ALTER TABLE` limitations (no column drops, limited type changes) mean some migrations require create-new-table-and-copy patterns.
+**SQLite migrations** follow a standard versioned migration pattern. The `PRAGMA user_version` (currently set to 1) tracks the current schema version, and migration scripts run on startup if needed. The application reads the current version, compares it against pending migrations, and executes any that haven't been applied yet. The version is incremented after each successful migration.
 
-**LanceDB changes** (new metadata columns, dimension changes) are handled by rebuild. Drop the LanceDB table, recreate with the new schema, re-embed from SQLite. This is the same procedure as an embedding model change.
+SQLite's `ALTER TABLE` limitations (no column drops, limited type changes) mean some migrations require create-new-table-and-copy patterns. The migration runner handles these via explicit SQL scripts or, where the overhead is acceptable, Python code.
+
+Migration metadata (which migrations have run, timestamps, etc.) is not stored in SQLite—it's tracked externally by the application. If more complex migration auditing is needed in the future (per-migration timestamps, migration names, rollback support), a dedicated `schema_metadata` table can be introduced, but the primary version number will continue to use `PRAGMA user_version` for simplicity and atomicity.
+
+**LanceDB changes** (new metadata columns, dimension changes) are handled by rebuild. Drop the LanceDB table, recreate with the new schema, re-embed from SQLite. This is the same procedure as an embedding model change. The `lancedb_sync_log` table is cleared during rebuild to ensure all chunks are re-embedded.
