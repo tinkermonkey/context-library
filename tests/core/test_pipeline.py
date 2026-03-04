@@ -201,7 +201,7 @@ class TestIngestionPipelineReIngestUnchanged:
 
         # First ingest
         result_first = pipeline.ingest(adapter, domain_chunker)
-        result_first["chunks_added"]
+        assert result_first["chunks_added"] > 0
 
         # Get chunk count before re-ingest
         cursor = pipeline.document_store.conn.cursor()
@@ -231,7 +231,7 @@ class TestIngestionPipelineReIngestWithChanges:
 
         # First ingest
         result_first = pipeline.ingest(adapter, domain_chunker)
-        result_first["chunks_added"]
+        assert result_first["chunks_added"] > 0
 
         # Modify file1.md
         (temp_markdown_dir / "file1.md").write_text(
@@ -465,6 +465,7 @@ class TestIngestionPipelineEdgeCases:
         # Different chunkers may produce different chunk counts
         # (This test just verifies both succeed)
         assert result1["sources_processed"] > 0
+        assert result2["sources_processed"] > 0
 
 
 class TestIntegrationVectorSearch:
@@ -498,3 +499,115 @@ class TestIntegrationVectorSearch:
             assert "_distance" in result or "score" in result, (
                 "Result should contain relevance score"
             )
+
+
+class TestFixtureIntegration:
+    """Integration tests verifying fixture files and expected diff structure."""
+
+    @pytest.fixture
+    def fixture_dir(self):
+        """Return the path to the fixture directory."""
+        return Path(__file__).parent.parent / "fixtures"
+
+    def test_fixture_files_exist(self, fixture_dir):
+        """Fixture markdown files should exist with correct structure."""
+        initial_file = fixture_dir / "sample_initial.md"
+        modified_file = fixture_dir / "sample_modified.md"
+
+        assert initial_file.exists(), "sample_initial.md should exist"
+        assert modified_file.exists(), "sample_modified.md should exist"
+
+        initial_content = initial_file.read_text()
+        modified_content = modified_file.read_text()
+
+        # Verify H1/H2/H3 hierarchy in initial
+        assert "# Project Overview" in initial_content, "Should have H1 heading"
+        assert "## Architecture" in initial_content, "Should have H2 heading"
+        assert "### Storage Layer" in initial_content, "Should have H3 heading"
+
+        # Verify code block exists
+        assert "```" in initial_content, "Should contain code block"
+
+        # Verify table exists
+        assert "|" in initial_content and "Component" in initial_content, "Should contain table"
+
+        # Verify documented changes between versions
+        # "Getting Started" exists in initial but not modified
+        assert "## Getting Started" in initial_content, "Initial should have Getting Started section"
+        assert "## Getting Started" not in modified_content, "Modified should not have Getting Started"
+
+        # "Contributing" exists in modified but not initial
+        assert "## Contributing" not in initial_content, "Initial should not have Contributing section"
+        assert "## Contributing" in modified_content, "Modified should have Contributing section"
+
+        # Storage Layer content differs
+        initial_storage = initial_content.split("### Storage Layer")[1].split("##")[0]
+        modified_storage = modified_content.split("### Storage Layer")[1].split("##")[0]
+        assert initial_storage != modified_storage, "Storage Layer content should differ between versions"
+
+    def test_expected_diff_helper_available(self, fixture_dir):
+        """expected_diff.py should provide helper function for computing expected changes."""
+        from tests.fixtures.expected_diff import get_expected_changes
+
+        # Function should be callable
+        assert callable(get_expected_changes), "get_expected_changes should be callable"
+
+        # Create mock chunk objects
+        class MockChunk:
+            def __init__(self, text, hash_val):
+                self.text = text
+                self.hash = hash_val
+
+        initial_chunks = [
+            MockChunk("intro", "hash_intro"),
+            MockChunk("arch", "hash_arch"),
+            MockChunk("storage", "hash_storage_v1"),
+            MockChunk("getting started", "hash_getting_started"),
+        ]
+
+        modified_chunks = [
+            MockChunk("intro", "hash_intro"),  # unchanged
+            MockChunk("arch", "hash_arch"),  # unchanged
+            MockChunk("storage modified", "hash_storage_v2"),  # modified (different hash)
+            MockChunk("contributing", "hash_contributing"),  # added
+        ]
+
+        result = get_expected_changes(initial_chunks, modified_chunks)
+
+        # Verify result structure
+        assert "added_hashes" in result, "Should return added_hashes"
+        assert "removed_hashes" in result, "Should return removed_hashes"
+        assert "unchanged_hashes" in result, "Should return unchanged_hashes"
+
+        # Verify expected changes detected
+        assert "hash_contributing" in result["added_hashes"], "Contributing should be added"
+        assert "hash_getting_started" in result["removed_hashes"], "Getting Started should be removed"
+        assert "hash_intro" in result["unchanged_hashes"], "Intro should be unchanged"
+        assert "hash_arch" in result["unchanged_hashes"], "Arch should be unchanged"
+
+    def test_retrieval_search_returns_required_fields(self, temp_markdown_dir, pipeline, domain_chunker, embedder):
+        """Vector search retrieval should return all required fields: content, chunk_hash, source_id, score."""
+        # Use existing temp_markdown_dir fixture with known content
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        result = pipeline.ingest(adapter, domain_chunker)
+        assert result["chunks_added"] > 0, "Should ingest chunks"
+
+        # Create query vector related to test content
+        query_text = "file content section"
+        query_vector = embedder.embed_query(query_text)
+
+        # Search LanceDB
+        db = lancedb.connect(str(pipeline.vector_store_path))
+        table = db.open_table("chunk_vectors")
+        results = table.search(query_vector).limit(5).to_list()
+
+        # Verify results exist and have required fields
+        assert len(results) > 0, "Should return search results"
+
+        for result in results:
+            # LanceDB returns these exact field names
+            assert "content" in result, "Result must contain 'content' field"
+            assert "chunk_hash" in result, "Result must contain 'chunk_hash' field"
+            assert "source_id" in result, "Result must contain 'source_id' field"
+            # LanceDB returns similarity as "_distance" for vector search
+            assert "_distance" in result, "Result must contain '_distance' score field"

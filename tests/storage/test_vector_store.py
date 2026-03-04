@@ -3,13 +3,9 @@
 Tests write chunk vectors to LanceDB, search, and verify results.
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
 import lancedb
 
-from context_library.storage.vector_store import ChunkVector
 from context_library.storage.models import Domain
 
 
@@ -135,11 +131,8 @@ class TestVectorStoreIntegration:
         )
         assert table.count_rows() == 2, "Should have 2 vectors after insert"
 
-        # Delete one vector by recreating table without it
-        remaining_vectors = [chunk_vector_dicts[0]]
-        table = db.create_table(
-            "chunk_vectors", data=remaining_vectors, mode="overwrite"
-        )
+        # Delete one vector using LanceDB's delete() method
+        table.delete("chunk_hash = 'hash_2'")
         assert table.count_rows() == 1, "Should have 1 vector after deletion"
 
         # Verify the remaining vector is correct

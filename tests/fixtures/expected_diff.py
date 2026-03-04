@@ -1,40 +1,48 @@
-"""
-Expected DiffResult outcomes for fixture files.
+"""Expected structure for fixture file differences.
 
-This module documents the expected changes when comparing sample_initial.md to sample_modified.md.
+Documents the semantic changes between sample_initial.md and sample_modified.md.
 
 Changes in sample_modified.md:
-1. MODIFIED: "### Storage Layer" section - the paragraph content has been changed
-2. ADDED: "## Contributing" section (new H2 heading with content)
-3. REMOVED: "## Getting Started" section (H2 heading with code examples removed)
+1. MODIFIED: "### Storage Layer" section - paragraph content has been changed
+   From: "The storage layer is responsible for persisting document versions, chunks, and vectors..."
+   To: "The storage layer is responsible for persisting all data artifacts reliably..."
 
-The other sections (Overview, Architecture, Chunking Strategy, API Reference, Configuration) remain unchanged.
+2. ADDED: "## Contributing" section (new H2 section with bullet points and text)
+   Lines 24-33 in sample_modified.md (between "### Chunking Strategy" and "## API Reference")
+
+3. REMOVED: "## Getting Started" section (H2 with code blocks)
+   Lines 24-42 in sample_initial.md (between "### Chunking Strategy" and "## API Reference")
+
+Unchanged sections:
+- "# Project Overview" (lines 1-3)
+- "## Architecture" (lines 5-7)
+- "### Storage Layer" heading with table (heading + table structure, but paragraph content differs)
+- "### Chunking Strategy" (lines 20-22)
+- "## API Reference" (lines 44-57 initial, 35-48 modified)
+- "## Configuration" (lines 59-63 initial, 50-54 modified)
 """
 
-# Expected chunk hashes that should be in sample_initial.md (these are the hashes that will differ)
-# These are deterministic - computed by the NotesDomain chunker with whitespace normalization
 
-EXPECTED_CHANGES = {
-    "modified_chunks": [
-        # The "### Storage Layer" section content changed
-        # The chunker will create a new hash for this section's chunk
-    ],
-    "added_chunks": [
-        # "## Contributing" is a new H2 section with content
-    ],
-    "removed_chunks": [
-        # "## Getting Started" with its code blocks is removed
-    ],
-    "unchanged_chunks": [
-        # The following sections stay the same:
-        # "# Project Overview" (intro)
-        # "## Architecture" (intro)
-        # "### Chunking Strategy"
-        # "## API Reference" with code block
-        # "## Configuration"
-    ],
-}
+def get_expected_changes(initial_chunks, modified_chunks):
+    """Compute expected diff between initial and modified chunk lists.
 
-# NOTE: The actual chunk hashes are computed by chunking the markdown files using NotesDomain.
-# Tests will compute these at runtime using the actual chunker and embedder.
-# This module documents the semantic structure of expected changes for validation purposes.
+    Args:
+        initial_chunks: List of chunks from sample_initial.md
+        modified_chunks: List of chunks from sample_modified.md
+
+    Returns:
+        Dict with lists of added_hashes, removed_hashes, unchanged_hashes
+    """
+    initial_hashes = {chunk.hash for chunk in initial_chunks}
+    modified_hashes = {chunk.hash for chunk in modified_chunks}
+
+    # A chunk is unchanged if hash is present in both versions
+    unchanged_hashes = initial_hashes & modified_hashes
+    added_hashes = modified_hashes - initial_hashes
+    removed_hashes = initial_hashes - modified_hashes
+
+    return {
+        "added_hashes": sorted(list(added_hashes)),
+        "removed_hashes": sorted(list(removed_hashes)),
+        "unchanged_hashes": sorted(list(unchanged_hashes)),
+    }
