@@ -1,6 +1,6 @@
 """Tests for the embedder module."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from context_library.core.embedder import Embedder

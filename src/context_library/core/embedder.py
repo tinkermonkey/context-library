@@ -33,10 +33,11 @@ class Embedder:
             The embedding dimension as an integer.
 
         Raises:
-            AssertionError: If the model does not report an embedding dimension.
+            ValueError: If the model does not report an embedding dimension.
         """
         dim = self._model.get_sentence_embedding_dimension()
-        assert dim is not None, f"Model {self._model_name} did not report an embedding dimension"
+        if dim is None:
+            raise ValueError(f"Model {self._model_name} did not report an embedding dimension")
         return dim
 
     def embed(self, texts: list[str]) -> list[list[float]]:
