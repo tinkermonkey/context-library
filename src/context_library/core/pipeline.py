@@ -1,5 +1,6 @@
 """Orchestrates the full ingestion pipeline: fetch → normalize → diff → chunk → embed → store."""
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVector
+
+logger = logging.getLogger(__name__)
 
 
 class IngestionPipeline:
@@ -206,8 +209,11 @@ class IngestionPipeline:
                     added_hashes = [c.chunk_hash for c in added_chunks]
                     self.document_store.write_sync_log(added_hashes)
 
+                # Retire removed chunks from SQLite first
                 if diff_result.removed_hashes:
+                    self.document_store.retire_chunks(diff_result.removed_hashes)
                     removed_list = list(diff_result.removed_hashes)
+                    # Record pending delete operations before attempting LanceDB deletes
                     self.document_store.delete_sync_log(removed_list)
 
                 # Write vectors to LanceDB (get or create table)
@@ -256,11 +262,8 @@ class IngestionPipeline:
                         ])
                         db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
 
-                # Retire removed chunks
+                # Remove from LanceDB (if table exists and chunks were removed)
                 if diff_result.removed_hashes:
-                    self.document_store.retire_chunks(diff_result.removed_hashes)
-
-                    # Remove from LanceDB (if table exists)
                     existing_tables = db.list_tables().tables
                     if "chunk_vectors" in existing_tables:
                         table = db.open_table("chunk_vectors")
@@ -275,7 +278,7 @@ class IngestionPipeline:
 
             except Exception as e:
                 # Log error and continue processing next source
-                print(f"Error processing source '{content.source_id}': {e}", flush=True)
+                logger.error(f"Error processing source '{content.source_id}'", exc_info=True)
                 sources_processed -= 1
                 continue
 

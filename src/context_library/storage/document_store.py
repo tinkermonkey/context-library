@@ -315,15 +315,18 @@ class DocumentStore:
             )
 
     def write_sync_log(self, chunk_hashes: list[str]) -> None:
-        """Log chunk sync state (insert) to LanceDB.
+        """Record pending insert operations for chunks in sync log.
 
-        Inserts entries into lancedb_sync_log to track which chunks have been
-        synced to the vector database. Uses INSERT OR REPLACE, so each operation
-        creates a new timestamped record. The synced_at column reflects when the
-        most recent insert operation was logged.
+        Inserts entries into lancedb_sync_log before LanceDB write attempts to create
+        a recovery trail. The sync log is an append-only audit trail; entries are never
+        cleared on successful operations. If a LanceDB write fails after this call,
+        the sync log can be used to identify which chunks need to be retried.
+
+        Uses INSERT OR REPLACE, so multiple operations on the same chunk create
+        timestamped records showing operation history.
 
         Args:
-            chunk_hashes: List of chunk hashes that were synced to the vector database.
+            chunk_hashes: List of chunk hashes marked for vector database insertion.
         """
         with self.conn:
             self.conn.executemany(
@@ -335,16 +338,18 @@ class DocumentStore:
             )
 
     def delete_sync_log(self, chunk_hashes: list[str]) -> None:
-        """Record delete operations for chunks in sync log.
+        """Record pending delete operations for chunks in sync log.
 
-        Updates lancedb_sync_log entries to record that chunks have been deleted
-        from the vector database. Marks the operation as 'delete' for audit trail.
+        Inserts entries into lancedb_sync_log before LanceDB delete attempts to create
+        a recovery trail. The sync log is an append-only audit trail; entries are never
+        cleared on successful operations. If a LanceDB delete fails after this call,
+        the sync log can be used to identify which chunks still need to be removed.
+
         Uses INSERT OR REPLACE, so each operation creates a new timestamped record.
-        The synced_at column reflects when the delete operation was logged, not the
-        original insert time.
+        The synced_at column reflects when the operation was logged.
 
         Args:
-            chunk_hashes: List of chunk hashes that were deleted from LanceDB.
+            chunk_hashes: List of chunk hashes marked for deletion from LanceDB.
         """
         with self.conn:
             self.conn.executemany(
@@ -353,6 +358,26 @@ class DocumentStore:
                 VALUES (?, 'delete')
                 """,
                 [(h,) for h in chunk_hashes],
+            )
+
+    def clear_sync_log(self, chunk_hashes: list[str]) -> None:
+        """Clear sync log entries for successfully synced chunks.
+
+        Removes entries from lancedb_sync_log after successful LanceDB operations.
+        Called after both insert and delete operations succeed to clear the pending
+        sync markers.
+
+        Args:
+            chunk_hashes: List of chunk hashes that were successfully synced.
+        """
+        if not chunk_hashes:
+            return
+        with self.conn:
+            # Build a placeholders list for the IN clause
+            placeholders = ", ".join("?" * len(chunk_hashes))
+            self.conn.execute(
+                f"DELETE FROM lancedb_sync_log WHERE chunk_hash IN ({placeholders})",
+                chunk_hashes,
             )
 
     def get_latest_version(self, source_id: str) -> Optional[SourceVersion]:
@@ -621,14 +646,19 @@ class DocumentStore:
             )
 
     def get_chunks_pending_sync(self) -> list[dict]:
-        """Get all chunks that need to be synced to LanceDB.
+        """Get all chunks marked with 'insert' in the sync log audit trail.
 
-        Returns chunks marked with 'insert' operation in the sync log.
-        Used for recovery when LanceDB write fails after SQLite write.
+        Queries the append-only sync log for all chunks with 'insert' operation
+        recorded. The sync log is not cleared on successful LanceDB writes, so this
+        includes all chunks ever inserted (not just pending ones). Use this method
+        to rebuild LanceDB from SQLite if an insert operation failed.
+
+        Note: This method returns ALL inserts in the audit trail, not just recent
+        or pending operations.
 
         Returns:
-            List of dicts with keys: chunk_hash, content, vector (if available),
-                                     domain, source_id, source_version, created_at
+            List of dicts with keys: chunk_hash, content, domain, source_id,
+                                     source_version, created_at
         """
         cursor = self.conn.cursor()
         cursor.execute(
@@ -657,10 +687,15 @@ class DocumentStore:
         return result
 
     def get_chunks_pending_deletion(self) -> list[str]:
-        """Get all chunk hashes marked for deletion in LanceDB.
+        """Get all chunk hashes marked with 'delete' in the sync log audit trail.
 
-        Returns chunks marked with 'delete' operation in the sync log.
-        Used for recovery when LanceDB delete fails after SQLite retire.
+        Queries the append-only sync log for all chunks with 'delete' operation
+        recorded. The sync log is not cleared on successful LanceDB deletes, so this
+        includes all chunks ever marked for deletion (not just pending ones). Use this
+        method to complete LanceDB deletion if a delete operation failed.
+
+        Note: This method returns ALL deletes in the audit trail, not just recent
+        or pending operations.
 
         Returns:
             List of chunk hashes to delete from LanceDB
