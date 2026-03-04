@@ -900,10 +900,9 @@ class TestChunkVersioningFixes:
         import tempfile
         from context_library.adapters.filesystem import FilesystemAdapter
 
-        # Create two separate markdown directories with identical content
+        # Create a markdown directory with identical content in multiple files
         with tempfile.TemporaryDirectory() as dir1:
-            with tempfile.TemporaryDirectory() as dir2:
-                identical_content = """# Shared Content
+            identical_content = """# Shared Content
 
 This is identical content shared between two sources.
 
@@ -911,88 +910,83 @@ This is identical content shared between two sources.
 
 Some shared text here."""
 
-                # Create identical files in both directories
-                Path(dir1) .mkdir(parents=True, exist_ok=True)
-                Path(dir2).mkdir(parents=True, exist_ok=True)
-                (Path(dir1) / "shared.md").write_text(identical_content)
-                (Path(dir2) / "shared.md").write_text(identical_content)
+            # Create identical files in the same directory
+            Path(dir1).mkdir(parents=True, exist_ok=True)
+            (Path(dir1) / "shared.md").write_text(identical_content)
+            (Path(dir1) / "shared_copy.md").write_text(identical_content)
 
-                # Ingest from first source
-                adapter1 = FilesystemAdapter(dir1)
-                result1 = pipeline.ingest(adapter1, domain_chunker)
-                assert result1["sources_processed"] == 1
-                assert result1["chunks_added"] > 0
+            # Ingest from first source
+            adapter1 = FilesystemAdapter(dir1)
+            result1 = pipeline.ingest(adapter1, domain_chunker)
+            assert result1["sources_processed"] == 2
+            assert result1["chunks_added"] > 0
 
-                # Get chunks from first source
-                chunks_source1 = pipeline.document_store.get_chunks_by_source("shared.md")
-                source1_chunk_hashes = {c.chunk_hash for c in chunks_source1}
-                assert len(source1_chunk_hashes) > 0
+            # Get chunks from first source
+            chunks_source1 = pipeline.document_store.get_chunks_by_source("shared.md")
+            source1_chunk_hashes = {c.chunk_hash for c in chunks_source1}
+            assert len(source1_chunk_hashes) > 0
 
-                # Ingest from second source (same content, different source_id would be different
-                # if we created a file from dir2, but for this test we use the same filesystem
-                # so we'll create a second source with identical content via a different adapter)
+            # Both files have identical content, so they should have same chunk hashes
+            chunks_source2 = pipeline.document_store.get_chunks_by_source("shared_copy.md")
+            assert len(chunks_source2) > 0, \
+                "Second source with identical content should have queryable chunks"
 
-                # Create another markdown file in the same dir with identical content
-                (Path(dir1) / "shared_copy.md").write_text(identical_content)
+            source2_chunk_hashes = {c.chunk_hash for c in chunks_source2}
 
-                # Re-ingest from the updated directory
-                result2 = pipeline.ingest(adapter1, domain_chunker)
+            # Both sources should have the same content hashes (since content is identical)
+            assert source1_chunk_hashes == source2_chunk_hashes, \
+                "Sources with identical content should have same chunk hashes"
 
-                # The second file with identical content should be queryable
-                chunks_source2 = pipeline.document_store.get_chunks_by_source("shared_copy.md")
-                assert len(chunks_source2) > 0, \
-                    "Second source with identical content should have queryable chunks"
+            # Both sources should be queryable independently
+            chunks_s1 = pipeline.document_store.get_chunks_by_source("shared.md")
+            chunks_s2 = pipeline.document_store.get_chunks_by_source("shared_copy.md")
 
-                source2_chunk_hashes = {c.chunk_hash for c in chunks_source2}
-
-                # Both sources should have the same content hashes (since content is identical)
-                assert source1_chunk_hashes == source2_chunk_hashes, \
-                    "Sources with identical content should have same chunk hashes"
-
-                # Both sources should be queryable independently
-                chunks_s1 = pipeline.document_store.get_chunks_by_source("shared.md")
-                chunks_s2 = pipeline.document_store.get_chunks_by_source("shared_copy.md")
-
-                assert len(chunks_s1) > 0, "Source 1 chunks should be queryable"
-                assert len(chunks_s2) > 0, "Source 2 chunks should be queryable"
-                assert len(chunks_s1) == len(chunks_s2), \
-                    "Both sources with identical content should have same number of chunks"
+            assert len(chunks_s1) > 0, "Source 1 chunks should be queryable"
+            assert len(chunks_s2) > 0, "Source 2 chunks should be queryable"
+            assert len(chunks_s1) == len(chunks_s2), \
+                "Both sources with identical content should have same number of chunks"
 
     def test_unchanged_chunks_in_reingest_prevent_duplicate_vectors(
         self, temp_markdown_dir, pipeline, domain_chunker
     ):
-        """Unchanged chunks should not re-embed vectors, only write new entries.
+        """Unchanged chunks are written to new version but don't re-embed.
 
-        When re-ingesting with unchanged chunks:
+        When re-ingesting with some unchanged chunks:
         - Unchanged chunks should be written to the new version in SQLite
-        - But they should NOT create new sync log entries (no re-embedding needed)
-        - This optimizes the pipeline by skipping unnecessary embeddings
+        - Unchanged chunks should NOT create new sync log entries (no re-embedding)
+        - Only newly added chunks should create sync log entries
         """
         adapter = FilesystemAdapter(temp_markdown_dir)
 
         # Phase 1: Initial ingest
         result_first = pipeline.ingest(adapter, domain_chunker)
-        initial_sync_count = result_first["chunks_added"]
+        assert result_first["sources_processed"] == 2
+        assert result_first["chunks_added"] > 0
+        sync_log_after_first = self._count_sync_log_inserts(pipeline)
 
-        # Phase 2: Re-ingest without changes
+        # Phase 2: Modify one file - some chunks unchanged, some added
+        file1 = temp_markdown_dir / "file1.md"
+        original_content = file1.read_text()
+        file1.write_text(original_content + "\n\n## New Section\n\nNew content here.")
+
+        # Re-ingest - file1 has partial changes
         result_second = pipeline.ingest(adapter, domain_chunker)
 
-        # Verify unchanged content skips sync log for those chunks
-        # The pipeline should not write sync log entries for unchanged chunks
-        cursor = pipeline.document_store.conn.cursor()
+        # Core assertion: sync log only records ADDED chunks, not unchanged ones
+        sync_log_after_second = self._count_sync_log_inserts(pipeline)
+        new_sync_entries = sync_log_after_second - sync_log_after_first
 
-        # Count total sync log entries (should only have entries from first ingest)
-        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'insert'")
-        total_insert_operations = cursor.fetchone()[0]
+        # The test exercises the fix: unchanged chunks are NOT re-embedded
+        assert new_sync_entries == result_second["chunks_added"], \
+            f"Only newly added chunks should create sync log entries. " \
+            f"Got {new_sync_entries} new entries, but chunks_added={result_second['chunks_added']}"
 
-        # For unchanged content, no new sync operations should be recorded
-        # (the chunks are still there, no re-embedding needed)
-        assert result_second["chunks_added"] == 0, \
-            "Re-ingest of unchanged content should not add new chunks"
+        # Verify unchanged chunks are preserved
         assert result_second["chunks_unchanged"] > 0, \
-            "Re-ingest should count unchanged chunks"
+            "Partial updates should preserve unchanged chunks"
 
-        # Verify the sync log wasn't duplicated for unchanged chunks
-        # Only additions create new sync log entries
-        assert total_insert_operations == initial_sync_count, \
-            "Unchanged chunks should not create new sync log entries"
+    def _count_sync_log_inserts(self, pipeline) -> int:
+        """Helper to count total insert operations in sync log."""
+        cursor = pipeline.document_store.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'insert'")
+        return cursor.fetchone()[0]

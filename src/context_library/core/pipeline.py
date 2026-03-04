@@ -209,6 +209,15 @@ class IngestionPipeline:
                 # Unchanged chunks are re-written to the new version to be queryable via get_chunks_by_source()
                 unchanged_lineage_records: list[LineageRecord] = []
                 for unchanged_chunk in unchanged_chunks:
+                    # Fetch original lineage to preserve the embedding model that created the vectors
+                    # (not the current embedder's model, which may have changed since the chunk was created)
+                    original_lineage = self.document_store.get_lineage(unchanged_chunk.chunk_hash)
+                    original_embedding_model = (
+                        original_lineage.embedding_model_id
+                        if original_lineage
+                        else self.embedder.model_id
+                    )
+
                     lineage = LineageRecord(
                         chunk_hash=unchanged_chunk.chunk_hash,
                         source_id=content.source_id,
@@ -216,7 +225,7 @@ class IngestionPipeline:
                         adapter_id=adapter.adapter_id,
                         domain=adapter.domain,
                         normalizer_version=content.normalizer_version,
-                        embedding_model_id=self.embedder.model_id,  # Preserve original embedding model
+                        embedding_model_id=original_embedding_model,  # Use original embedding model
                     )
                     unchanged_lineage_records.append(lineage)
 
@@ -233,8 +242,10 @@ class IngestionPipeline:
                         self.document_store.write_sync_log(added_hashes)
 
                 # Retire removed chunks from SQLite first
+                # Note: retire chunks from the old version (prev_version), not the new one
                 if diff_result.removed_hashes:
-                    self.document_store.retire_chunks(diff_result.removed_hashes)
+                    old_version = prev_version.version if prev_version else 1
+                    self.document_store.retire_chunks(diff_result.removed_hashes, content.source_id, old_version)
                     removed_list = list(diff_result.removed_hashes)
                     # Record pending delete operations before attempting LanceDB deletes
                     self.document_store.delete_sync_log(removed_list)

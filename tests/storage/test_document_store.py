@@ -649,10 +649,11 @@ class TestChunkRetirement:
         return hashes
 
     def test_retire_chunks(self, store: DocumentStore) -> None:
-        """Test retiring chunks."""
+        """Test retiring chunks for a specific source and version."""
         hashes = self._setup_chunks_for_retirement(store)
 
-        store.retire_chunks(hashes)
+        # Retire chunks for source-1 version 1
+        store.retire_chunks(hashes, source_id="source-1", source_version=1)
 
         # Verify retired_at is set
         cursor = store.conn.cursor()
@@ -726,8 +727,8 @@ class TestChunkRetirement:
 
         store.write_chunks(chunks, lineage)
 
-        # Retire one chunk
-        store.retire_chunks({_make_hash("a")})
+        # Retire one chunk from source-1 version 1
+        store.retire_chunks({_make_hash("a")}, source_id="source-1", source_version=1)
 
         # Get chunks should only return non-retired
         retrieved = store.get_chunks_by_source("source-1", version=1)

@@ -301,17 +301,24 @@ class DocumentStore:
                     # For any other constraint violation (foreign key, CHECK), re-raise
                     raise
 
-    def retire_chunks(self, chunk_hashes: set[str]) -> None:
-        """Mark chunks as retired.
+    def retire_chunks(self, chunk_hashes: set[str], source_id: str, source_version: int) -> None:
+        """Mark chunks as retired for a specific source and version.
 
         Updates the retired_at timestamp for matching chunks, indicating
-        they are no longer active in the latest version.
+        they are no longer active in the specified version.
+
+        With composite PK (chunk_hash, source_id, source_version), the same chunk_hash
+        can exist across multiple sources/versions. This method only retires the copy
+        for the specified source and version, preventing accidental over-retirement of
+        identical content in other sources.
 
         Args:
             chunk_hashes: Set of chunk hashes to retire.
+            source_id: Source ID to scope retirement to (prevents cross-source retirement).
+            source_version: Source version to scope retirement to.
 
         Raises:
-            RuntimeError: If any chunk hash does not exist.
+            RuntimeError: If any chunk hash does not exist for the given source/version.
         """
         now = datetime.now(timezone.utc).isoformat()
 
@@ -319,25 +326,24 @@ class DocumentStore:
             cursor = self.conn.cursor()
             for chunk_hash in chunk_hashes:
                 cursor.execute(
-                    "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
-                    (now, chunk_hash),
+                    "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ? AND source_id = ? AND source_version = ?",
+                    (now, chunk_hash, source_id, source_version),
                 )
                 if cursor.rowcount == 0:
                     raise RuntimeError(
-                        f"Chunk '{chunk_hash}' does not exist"
+                        f"Chunk '{chunk_hash}' does not exist for source '{source_id}' version {source_version}"
                     )
 
     def write_sync_log(self, chunk_hashes: list[str]) -> None:
-        """Record insert operations for chunks in an append-only sync log.
+        """Record insert operations for chunks in the sync log.
 
         Inserts entries into lancedb_sync_log before LanceDB write attempts. The sync log
-        is an append-only audit trail that accumulates all sync operations; entries are
-        never cleared on successful writes. This provides a recovery trail: if a LanceDB
-        write fails, the sync log can be queried to identify which chunks need to be
-        retried.
+        tracks sync operations and provides a recovery trail: if a LanceDB write fails,
+        the sync log can be queried to identify which chunks need to be retried.
 
-        Uses INSERT OR REPLACE, so multiple operations on the same chunk create
-        timestamped records showing operation history.
+        Uses INSERT OR REPLACE with UNIQUE (chunk_hash, operation), so multiple inserts
+        of the same chunk_hash overwrite the previous entry (last-write-wins). The synced_at
+        timestamp reflects when the operation was last recorded.
 
         Args:
             chunk_hashes: List of chunk hashes marked for vector database insertion.
@@ -352,16 +358,15 @@ class DocumentStore:
             )
 
     def delete_sync_log(self, chunk_hashes: list[str]) -> None:
-        """Record delete operations for chunks in an append-only sync log.
+        """Record delete operations for chunks in the sync log.
 
         Inserts entries into lancedb_sync_log before LanceDB delete attempts. The sync log
-        is an append-only audit trail that accumulates all sync operations; entries are
-        never cleared on successful writes. This provides a recovery trail: if a LanceDB
-        delete fails, the sync log can be queried to identify which chunks still need to
-        be removed.
+        tracks sync operations and provides a recovery trail: if a LanceDB delete fails,
+        the sync log can be queried to identify which chunks still need to be removed.
 
-        Uses INSERT OR REPLACE, so each operation creates a new timestamped record.
-        The synced_at column reflects when the operation was logged.
+        Uses INSERT OR REPLACE with UNIQUE (chunk_hash, operation), so multiple deletes
+        of the same chunk_hash overwrite the previous entry (last-write-wins). The synced_at
+        timestamp reflects when the operation was last logged.
 
         Args:
             chunk_hashes: List of chunk hashes marked for deletion from LanceDB.
@@ -652,13 +657,17 @@ class DocumentStore:
                 )
 
     def get_chunks_pending_sync(self) -> list[dict]:
-        """Get all chunks with 'insert' operations in the sync log audit trail.
+        """Get all chunks with 'insert' operations in the sync log.
 
-        Queries the append-only sync log for all chunks with 'insert' operations recorded.
-        The sync log is not cleared on successful LanceDB writes, so this includes all
-        chunks ever inserted (not just pending ones). Use this method to rebuild LanceDB
-        from SQLite if an insert operation failed, or to audit the history of sync
-        operations.
+        Queries the sync log for all chunks with 'insert' operations recorded. The sync log
+        uses last-write-wins semantics (UNIQUE constraint + INSERT OR REPLACE), so the most
+        recent operation for each chunk_hash is reflected. Use this method to rebuild LanceDB
+        from SQLite if an insert operation failed.
+
+        With composite PK (chunk_hash, source_id, source_version), the same chunk_hash can
+        exist in multiple rows (different sources/versions). This query GROUPs BY chunk_hash
+        to consolidate and prevent duplicate sync attempts for identical content across
+        different sources.
 
         Returns:
             List of dicts with keys: chunk_hash, content, domain, source_id,
@@ -672,6 +681,7 @@ class DocumentStore:
             FROM chunks c
             INNER JOIN lancedb_sync_log l ON c.chunk_hash = l.chunk_hash
             WHERE l.operation = 'insert'
+            GROUP BY c.chunk_hash
             ORDER BY l.synced_at ASC
             """
         )
