@@ -144,7 +144,6 @@ class DiffResult(BaseModel):
     Invariants:
     - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint sets
     - If changed=False: added_hashes and removed_hashes must be empty
-    - If changed=True: at least one of added_hashes or removed_hashes must be non-empty
     - All chunk_hashes are validated as SHA-256 hex strings
     """
 

@@ -328,6 +328,68 @@ class TestDiffResult:
         assert result.curr_hash is not None
         assert len(result.added_hashes) == 3
 
+    def test_overlapping_added_and_removed_hashes_raises_error(self) -> None:
+        """Test that overlapping added_hashes and removed_hashes raises ValueError."""
+        overlapping_hash = "a" * 64
+        with pytest.raises(ValueError) as exc_info:
+            DiffResult(
+                changed=True,
+                added_hashes={overlapping_hash, "b" * 64},
+                removed_hashes={overlapping_hash, "c" * 64},
+                unchanged_hashes=set(),
+            )
+        assert "added_hashes and removed_hashes must be disjoint" in str(exc_info.value)
+
+    def test_overlapping_added_and_unchanged_hashes_raises_error(self) -> None:
+        """Test that overlapping added_hashes and unchanged_hashes raises ValueError."""
+        overlapping_hash = "a" * 64
+        with pytest.raises(ValueError) as exc_info:
+            DiffResult(
+                changed=True,
+                added_hashes={overlapping_hash, "b" * 64},
+                removed_hashes=set(),
+                unchanged_hashes={overlapping_hash, "c" * 64},
+            )
+        assert "added_hashes and unchanged_hashes must be disjoint" in str(exc_info.value)
+
+    def test_overlapping_removed_and_unchanged_hashes_raises_error(self) -> None:
+        """Test that overlapping removed_hashes and unchanged_hashes raises ValueError."""
+        overlapping_hash = "a" * 64
+        with pytest.raises(ValueError) as exc_info:
+            DiffResult(
+                changed=True,
+                added_hashes=set(),
+                removed_hashes={overlapping_hash, "b" * 64},
+                unchanged_hashes={overlapping_hash, "c" * 64},
+            )
+        assert "removed_hashes and unchanged_hashes must be disjoint" in str(exc_info.value)
+
+    def test_changed_false_with_added_hashes_raises_error(self) -> None:
+        """Test that changed=False with non-empty added_hashes raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            DiffResult(
+                changed=False,
+                added_hashes={"a" * 64},
+                removed_hashes=set(),
+                unchanged_hashes={"b" * 64},
+            )
+        assert "If changed=False, both added_hashes and removed_hashes must be empty" in str(
+            exc_info.value
+        )
+
+    def test_changed_false_with_removed_hashes_raises_error(self) -> None:
+        """Test that changed=False with non-empty removed_hashes raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            DiffResult(
+                changed=False,
+                added_hashes=set(),
+                removed_hashes={"a" * 64},
+                unchanged_hashes={"b" * 64},
+            )
+        assert "If changed=False, both added_hashes and removed_hashes must be empty" in str(
+            exc_info.value
+        )
+
     def test_frozen_immutability(self) -> None:
         """Test that DiffResult is frozen."""
         result = DiffResult(
