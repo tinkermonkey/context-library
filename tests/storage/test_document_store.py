@@ -123,6 +123,46 @@ class TestAdapterRegistration:
         count = cursor.fetchone()[0]
         assert count == 1
 
+    def test_register_adapter_config_update(self, store: DocumentStore) -> None:
+        """Test that re-registering an adapter with updated config actually updates it."""
+        config1 = AdapterConfig(
+            adapter_id="update-adapter",
+            adapter_type="gmail",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+            config={"api_key": "old_key"},
+        )
+
+        store.register_adapter(config1)
+        adapter1 = store.get_adapter("update-adapter")
+        assert adapter1 is not None
+        assert adapter1.normalizer_version == "1.0.0"
+        assert adapter1.config == {"api_key": "old_key"}
+
+        # Re-register with updated config
+        config2 = AdapterConfig(
+            adapter_id="update-adapter",
+            adapter_type="gmail",
+            domain=Domain.MESSAGES,
+            normalizer_version="2.0.0",
+            config={"api_key": "new_key"},
+        )
+
+        store.register_adapter(config2)
+        adapter2 = store.get_adapter("update-adapter")
+
+        assert adapter2 is not None
+        assert adapter2.normalizer_version == "2.0.0"
+        assert adapter2.config == {"api_key": "new_key"}
+
+        # Should still be only one row
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM adapters WHERE adapter_id = ?", ("update-adapter",)
+        )
+        count = cursor.fetchone()[0]
+        assert count == 1
+
     def test_register_adapter_without_config(self, store: DocumentStore) -> None:
         """Test registering an adapter without optional config."""
         config = AdapterConfig(
@@ -387,6 +427,65 @@ class TestChunkWriteAndRead:
         count = cursor.fetchone()[0]
         assert count == 1
 
+    def test_write_chunks_invalid_chunk_type_raises_error(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that write_chunks raises IntegrityError for invalid chunk_type."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Create a chunk with invalid chunk_type that violates CHECK constraint
+        chunk = Chunk(
+            chunk_hash=_make_hash("f"),
+            content="Invalid chunk",
+            chunk_index=0,
+            chunk_type="invalid_type_value",  # Not in ('standard', 'oversized', 'table_part', 'code', 'table')
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("f"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        # Should raise IntegrityError because chunk_type violates CHECK constraint
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.write_chunks([chunk], [lineage])
+
+    def test_write_chunks_invalid_adapter_id_raises_error(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that write_chunks raises IntegrityError for foreign key violation."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("1"),
+            content="Foreign key test",
+            chunk_index=0,
+            chunk_type="standard",
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("1"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id="nonexistent-adapter",  # Doesn't exist in adapters table
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        # Should raise IntegrityError because adapter_id doesn't exist (foreign key)
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.write_chunks([chunk], [lineage])
+
     def test_get_chunk_by_hash_not_found(self, store: DocumentStore) -> None:
         """Test retrieving a non-existent chunk."""
         chunk = store.get_chunk_by_hash("nonexistent")
@@ -481,6 +580,7 @@ class TestLineageTracking:
         assert lineage.adapter_id == "adapter-1"
         assert lineage.domain == Domain.NOTES
         assert lineage.normalizer_version == "1.0.0"
+        assert lineage.embedding_model_id == "embedding-v1"
 
     def test_get_lineage_not_found(self, store: DocumentStore) -> None:
         """Test retrieving lineage for non-existent chunk."""

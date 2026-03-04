@@ -83,10 +83,8 @@ class DocumentStore:
         adapter_id already exists with different normalizer_version or config.
 
         The adapter is identified by adapter_id. On first registration, a new row
-        is created. On subsequent registrations:
-        - If normalizer_version or config has changed, the row is updated (and
-          updated_at timestamp is refreshed via trigger)
-        - If both are identical, the row is unchanged (idempotent)
+        is created. On subsequent registrations, the row is updated with the new
+        configuration. The trigger refreshes updated_at on any UPDATE.
 
         Args:
             config: AdapterConfig with adapter_id, type, domain, and config dict.
@@ -97,59 +95,28 @@ class DocumentStore:
         config_json = json.dumps(config.config) if config.config else None
 
         with self.conn:
-            cursor = self.conn.cursor()
-
-            # Check if adapter already exists
-            cursor.execute(
-                "SELECT normalizer_version, config FROM adapters WHERE adapter_id = ?",
-                (config.adapter_id,),
+            # Use INSERT ... ON CONFLICT ... DO UPDATE for atomic upsert
+            # This handles both insert (new adapter) and update (changed config)
+            self.conn.execute(
+                """
+                INSERT INTO adapters
+                (adapter_id, domain, adapter_type, normalizer_version, config)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(adapter_id)
+                DO UPDATE SET
+                    domain = excluded.domain,
+                    adapter_type = excluded.adapter_type,
+                    normalizer_version = excluded.normalizer_version,
+                    config = excluded.config
+                """,
+                (
+                    config.adapter_id,
+                    config.domain.value,
+                    config.adapter_type,
+                    config.normalizer_version,
+                    config_json,
+                ),
             )
-            existing = cursor.fetchone()
-
-            if existing is None:
-                # New adapter - insert it
-                self.conn.execute(
-                    """
-                    INSERT INTO adapters
-                    (adapter_id, domain, adapter_type, normalizer_version, config)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        config.adapter_id,
-                        config.domain.value,
-                        config.adapter_type,
-                        config.normalizer_version,
-                        config_json,
-                    ),
-                )
-            else:
-                # Adapter exists - check if config has changed
-                existing_normalizer_version = existing["normalizer_version"]
-                existing_config_json = existing["config"]
-
-                # Determine if we need to update
-                normalizer_version_changed = (
-                    existing_normalizer_version != config.normalizer_version
-                )
-                config_changed = existing_config_json != config_json
-
-                if normalizer_version_changed or config_changed:
-                    # Config has changed - update the row
-                    # The trigger will refresh updated_at
-                    self.conn.execute(
-                        """
-                        UPDATE adapters
-                        SET domain = ?, adapter_type = ?, normalizer_version = ?, config = ?
-                        WHERE adapter_id = ?
-                        """,
-                        (
-                            config.domain.value,
-                            config.adapter_type,
-                            config.normalizer_version,
-                            config_json,
-                            config.adapter_id,
-                        ),
-                    )
 
         return config.adapter_id
 
