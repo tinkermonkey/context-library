@@ -324,30 +324,39 @@ class DocumentStore:
 
         Args:
             chunk_hashes: List of chunk hashes that were synced.
-            operation: Type of operation (for future use; currently ignored).
+            operation: Type of operation ('insert' or 'delete').
+
+        Raises:
+            ValueError: If operation is not 'insert' or 'delete'.
         """
+        if operation not in ("insert", "delete"):
+            raise ValueError(
+                f"Invalid operation: {operation}. Must be 'insert' or 'delete'."
+            )
+
         with self.conn:
             self.conn.executemany(
                 """
-                INSERT OR IGNORE INTO lancedb_sync_log (chunk_hash)
-                VALUES (?)
+                INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
+                VALUES (?, ?)
                 """,
-                [(h,) for h in chunk_hashes],
+                [(h, operation) for h in chunk_hashes],
             )
 
     def delete_sync_log(self, chunk_hashes: list[str]) -> None:
-        """Delete sync log entries for chunks.
+        """Record delete operations for chunks in sync log.
 
-        Removes entries from lancedb_sync_log, typically when chunks are
-        retired or removed from the index.
+        Updates lancedb_sync_log entries to record that chunks have been deleted
+        from the vector database. Marks the operation as 'delete' for audit trail.
 
         Args:
-            chunk_hashes: List of chunk hashes to remove from sync log.
+            chunk_hashes: List of chunk hashes that were deleted from LanceDB.
         """
         with self.conn:
             self.conn.executemany(
                 """
-                DELETE FROM lancedb_sync_log WHERE chunk_hash = ?
+                INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
+                VALUES (?, 'delete')
                 """,
                 [(h,) for h in chunk_hashes],
             )

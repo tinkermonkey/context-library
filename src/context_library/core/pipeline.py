@@ -13,6 +13,7 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
+from context_library.storage.vector_store import ChunkVector
 
 
 class IngestionPipeline:
@@ -186,14 +187,25 @@ class IngestionPipeline:
                 # Build chunk vector data as dicts for LanceDB (enum -> string)
                 chunk_vector_dicts = []
                 for added_chunk, vector in zip(added_chunks, vectors):
+                    # Validate using ChunkVector schema to ensure field validators run
+                    chunk_vector = ChunkVector(
+                        chunk_hash=added_chunk.chunk_hash,
+                        content=added_chunk.content,
+                        vector=vector,
+                        domain=adapter.domain,  # Pass enum directly
+                        source_id=content.source_id,
+                        source_version=new_version,
+                        created_at=fetch_timestamp,
+                    )
+                    # Convert to dict with enum values serialized
                     chunk_vector_dicts.append({
-                        "chunk_hash": added_chunk.chunk_hash,
-                        "content": added_chunk.content,
-                        "vector": vector,
-                        "domain": adapter.domain.value,  # Convert enum to string
-                        "source_id": content.source_id,
-                        "source_version": new_version,
-                        "created_at": fetch_timestamp,
+                        "chunk_hash": chunk_vector.chunk_hash,
+                        "content": chunk_vector.content,
+                        "vector": chunk_vector.vector,
+                        "domain": chunk_vector.domain.value,  # Convert enum to string
+                        "source_id": chunk_vector.source_id,
+                        "source_version": chunk_vector.source_version,
+                        "created_at": chunk_vector.created_at,
                     })
 
                 # Create or append to table

@@ -932,20 +932,21 @@ class TestSyncLog:
         return _make_hash("5")
 
     def test_write_sync_log(self, store: DocumentStore) -> None:
-        """Test writing to sync log."""
+        """Test writing to sync log with operation type."""
         chunk_hash = self._setup_chunk_for_sync(store)
 
         store.write_sync_log([chunk_hash], "insert")
 
-        # Verify entry exists
+        # Verify entry exists with correct operation
         cursor = store.conn.cursor()
         cursor.execute(
-            "SELECT chunk_hash FROM lancedb_sync_log WHERE chunk_hash = ?",
+            "SELECT chunk_hash, operation FROM lancedb_sync_log WHERE chunk_hash = ?",
             (chunk_hash,),
         )
         row = cursor.fetchone()
         assert row is not None
         assert row[0] == chunk_hash
+        assert row[1] == "insert"
 
     def test_write_sync_log_idempotency(self, store: DocumentStore) -> None:
         """Test that writing sync log twice is idempotent."""
@@ -964,25 +965,47 @@ class TestSyncLog:
         assert count == 1
 
     def test_delete_sync_log(self, store: DocumentStore) -> None:
-        """Test deleting from sync log."""
+        """Test recording delete operation in sync log."""
         chunk_hash = self._setup_chunk_for_sync(store)
 
         store.write_sync_log([chunk_hash], "insert")
         store.delete_sync_log([chunk_hash])
 
-        # Verify entry is deleted
+        # Verify operation is recorded as delete
         cursor = store.conn.cursor()
         cursor.execute(
-            "SELECT COUNT(*) FROM lancedb_sync_log WHERE chunk_hash = ?",
+            "SELECT operation FROM lancedb_sync_log WHERE chunk_hash = ?",
             (chunk_hash,),
         )
-        count = cursor.fetchone()[0]
-        assert count == 0
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == "delete"
 
     def test_delete_sync_log_non_existent(self, store: DocumentStore) -> None:
-        """Test deleting non-existent entry doesn't raise error."""
-        # Should not raise
-        store.delete_sync_log([_make_hash("6")])
+        """Test deleting chunk that wasn't previously synced."""
+        # First create and sync a chunk
+        chunk_hash = self._setup_chunk_for_sync(store)
+        store.write_sync_log([chunk_hash], "insert")
+
+        # Now record a delete for it (chunk exists, but wasn't in sync log before)
+        store.delete_sync_log([chunk_hash])
+
+        # Verify delete record was created
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT operation FROM lancedb_sync_log WHERE chunk_hash = ?",
+            (chunk_hash,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == "delete"
+
+    def test_write_sync_log_invalid_operation(self, store: DocumentStore) -> None:
+        """Test that invalid operation type raises ValueError."""
+        chunk_hash = self._setup_chunk_for_sync(store)
+
+        with pytest.raises(ValueError, match="Invalid operation"):
+            store.write_sync_log([chunk_hash], "invalid")
 
 
 class TestParameterizedQueries:

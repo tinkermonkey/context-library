@@ -94,6 +94,7 @@ END;
 
 CREATE TABLE IF NOT EXISTS lancedb_sync_log (
     chunk_hash      TEXT PRIMARY KEY,
+    operation       TEXT NOT NULL CHECK (operation IN ('insert', 'delete')),
     synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
 );

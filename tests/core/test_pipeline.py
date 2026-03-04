@@ -311,13 +311,12 @@ Completely new content."""
         lancedb_count_after = table.count_rows()
         assert lancedb_count_after < lancedb_count_before
 
-        # Verify sync log was updated: removed chunks are deleted from sync_log
-        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
-        sync_log_count_after = cursor.fetchone()[0]
-        # The key invariant: sync log entries for removed chunks are deleted
-        # Since we removed chunks and added fewer replacements, sync log should shrink
-        assert sync_log_count_after < sync_log_count_before, \
-            f"Sync log should shrink when chunks are removed (before: {sync_log_count_before}, after: {sync_log_count_after})"
+        # Verify sync log records delete operations for removed chunks
+        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'delete'")
+        delete_count = cursor.fetchone()[0]
+        # The key invariant: delete operations are recorded for removed chunks
+        assert delete_count > 0, \
+            "Sync log should record delete operations for removed chunks"
 
     def test_reingest_deleted_chunk(
         self, pipeline, temp_markdown_dir, domain_chunker
