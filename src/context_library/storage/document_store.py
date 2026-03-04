@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, Sha256Hash, SourceVersion
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, Sha256Hash, SourceVersion, _validate_sha256_hex
 
 
 class DocumentStore:
@@ -179,8 +179,13 @@ class DocumentStore:
             The SQLite rowid of the newly created source_version row.
 
         Raises:
+            ValueError: If any chunk_hash is not a valid SHA-256 hex string.
             sqlite3.IntegrityError: If source_id or adapter_id don't exist.
         """
+        # Validate all hashes at write time to prevent malformed data in database
+        for chunk_hash in chunk_hashes:
+            _validate_sha256_hex(chunk_hash)
+
         chunk_hashes_json = json.dumps(chunk_hashes)
 
         with self.conn:
@@ -318,8 +323,13 @@ class DocumentStore:
             source_version: Source version to scope retirement to.
 
         Raises:
+            ValueError: If any chunk_hash is not a valid SHA-256 hex string.
             RuntimeError: If any chunk hash does not exist for the given source/version.
         """
+        # Validate all hashes at write time to prevent malformed data in database
+        for chunk_hash in chunk_hashes:
+            _validate_sha256_hex(chunk_hash)
+
         now = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
@@ -347,7 +357,14 @@ class DocumentStore:
 
         Args:
             chunk_hashes: List of validated SHA-256 chunk hashes marked for vector database insertion.
+
+        Raises:
+            ValueError: If any chunk_hash is not a valid SHA-256 hex string.
         """
+        # Validate all hashes at write time to prevent malformed data in database
+        for chunk_hash in chunk_hashes:
+            _validate_sha256_hex(chunk_hash)
+
         with self.conn:
             self.conn.executemany(
                 """
@@ -370,7 +387,14 @@ class DocumentStore:
 
         Args:
             chunk_hashes: List of validated SHA-256 chunk hashes marked for deletion from LanceDB.
+
+        Raises:
+            ValueError: If any chunk_hash is not a valid SHA-256 hex string.
         """
+        # Validate all hashes at write time to prevent malformed data in database
+        for chunk_hash in chunk_hashes:
+            _validate_sha256_hex(chunk_hash)
+
         with self.conn:
             self.conn.executemany(
                 """

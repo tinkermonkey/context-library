@@ -203,7 +203,12 @@ def retrieve(
             )
 
         if isinstance(distance, (int, float)):
-            similarity_score = max(0.0, 1.0 - (distance / 2.0))
+            # Clamp similarity score to [0, 1] range to match RetrievalResult validator.
+            # The lower bound is inherently protected by max(0.0, ...). The upper bound
+            # is explicitly clamped with min(1.0, ...) to handle edge cases where LanceDB
+            # returns negative distances (anomalous but possible with certain metrics or
+            # floating-point drift), which would otherwise produce scores > 1.0.
+            similarity_score = min(1.0, max(0.0, 1.0 - (distance / 2.0)))
         else:
             # Defensive fallback: non-numeric distance (shouldn't happen with standard LanceDB output)
             raise RuntimeError(
