@@ -561,6 +561,38 @@ class DocumentStore:
             domain_metadata=domain_metadata,
         )
 
+    def is_chunk_retired(self, chunk_hash: str) -> bool:
+        """Check if a chunk is retired (exists but marked as retired).
+
+        Distinguishes between a truly missing chunk (never existed) and a retired chunk
+        (existed but was removed from a source version). This is important for diagnosing
+        desynchronization between SQLite and LanceDB: a chunk existing in LanceDB but
+        retired in SQLite is normal pipeline behavior (lazy cleanup), not an inconsistency.
+
+        Args:
+            chunk_hash: SHA-256 hash of the chunk.
+
+        Returns:
+            True if the chunk exists but is marked as retired (retired_at IS NOT NULL).
+            False if the chunk doesn't exist or is not retired.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT retired_at
+            FROM chunks
+            WHERE chunk_hash = ?
+            LIMIT 1
+            """,
+            (chunk_hash,),
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            return False
+
+        return row["retired_at"] is not None
+
     def get_lineage(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[LineageRecord]:
         """Get the lineage record for a chunk.
 

@@ -736,6 +736,67 @@ class TestChunkRetirement:
         assert len(retrieved) == 1
         assert retrieved[0].chunk_hash == _make_hash("1")
 
+    def test_is_chunk_retired_returns_true_for_retired(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that is_chunk_retired() correctly identifies retired chunks."""
+        # Setup initial chunks
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Chunk A",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id="source-1",
+            source_version_id=version_id,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+
+        # Before retirement, should return False
+        assert store.is_chunk_retired(_make_hash("a")) is False
+
+        # After retirement, should return True
+        store.retire_chunks({_make_hash("a")}, source_id="source-1", source_version=1)
+        assert store.is_chunk_retired(_make_hash("a")) is True
+
+    def test_is_chunk_retired_returns_false_for_missing(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that is_chunk_retired() returns False for missing chunks."""
+        # Non-existent chunk should return False (not retired, just doesn't exist)
+        assert store.is_chunk_retired(_make_hash("z")) is False
+
 
 class TestChunksBySource:
     """Tests for retrieving chunks by source."""

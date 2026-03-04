@@ -681,6 +681,58 @@ class TestRetrieve:
         document_store.get_lineage = original_get_lineage
 
     @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_skips_retired_chunks_without_warning(
+        self, mock_connect, embedder, document_store, tmp_path, caplog
+    ) -> None:
+        """Test that retrieve() skips retired chunks without logging warning.
+
+        A chunk retired in SQLite but still searchable in LanceDB is normal pipeline
+        behavior (lazy cleanup). This should not be flagged as a store inconsistency.
+        """
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        # Set up document store and create a chunk
+        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+        chunk = _create_test_chunk("a", chunk_index=0)
+        lineage = _create_test_lineage("a", source_id=source_id)
+        document_store.write_chunks([chunk], [lineage])
+
+        # Now retire the chunk
+        document_store.retire_chunks({_make_hash("a")}, source_id, 1)
+
+        # Mock LanceDB to return the retired chunk
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+
+        search_results = [
+            {
+                "chunk_hash": _make_hash("a"),
+                "_distance": 0.1,
+            },
+        ]
+        mock_search.limit.return_value.to_list.return_value = search_results
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        results = retrieve(
+            "test query",
+            embedder,
+            document_store,
+            vector_store_path=tmp_path,
+        )
+
+        # Should skip the retired chunk and return empty results
+        assert results == []
+
+        # Verify NO warning was logged for retired chunks
+        # (they are normal, not store inconsistencies)
+        assert "Store inconsistency" not in caplog.text
+
+    @patch("context_library.retrieval.query.lancedb.connect")
     def test_retrieve_table_open_error_preserves_exception_type(
         self, mock_connect, embedder, document_store, tmp_path
     ) -> None:

@@ -190,13 +190,22 @@ def retrieve(
         # Retrieve full chunk from SQLite
         chunk = document_store.get_chunk_by_hash(chunk_hash)
         if chunk is None:
-            # Chunk exists in LanceDB but not in SQLite - indicates store desynchronization
-            _logger.warning(
-                "Store inconsistency: chunk_hash=%s exists in LanceDB but not in SQLite. "
-                "This indicates desynchronization between vector store and document store.",
-                chunk_hash,
-            )
-            continue
+            # Chunk not found in active records. Determine the reason: retired or truly missing.
+            if document_store.is_chunk_retired(chunk_hash):
+                # Chunk is retired in SQLite but still searchable in LanceDB.
+                # This is normal behavior: LanceDB deletion is lazy, and post-retrieval filtering
+                # catches stale results. No warning needed; this is expected in normal operation.
+                continue
+            else:
+                # Chunk exists in LanceDB but doesn't exist in SQLite at all.
+                # This indicates true store desynchronization (e.g., SQLite delete succeeded
+                # but LanceDB cleanup failed, or data corruption).
+                _logger.warning(
+                    "Store inconsistency: chunk_hash=%s exists in LanceDB but not in SQLite. "
+                    "This indicates desynchronization between vector store and document store.",
+                    chunk_hash,
+                )
+                continue
 
         # Retrieve lineage from SQLite
         lineage = document_store.get_lineage(chunk_hash)
