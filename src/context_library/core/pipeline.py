@@ -276,7 +276,7 @@ class IngestionPipeline:
                 chunks_removed_total += len(diff_result.removed_hashes)
                 chunks_unchanged_total += len(diff_result.unchanged_hashes)
 
-            except Exception as e:
+            except Exception:
                 # Log error and continue processing next source
                 logger.error(f"Error processing source '{content.source_id}'", exc_info=True)
                 sources_processed -= 1
