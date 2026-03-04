@@ -8,7 +8,7 @@ Covers:
 - Error handling for missing vector store or empty results
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch  # noqa: F401 - used in new test
 
 import pytest
 
@@ -310,6 +310,87 @@ class TestRetrieve:
         mock_search.where.assert_called_once()
         assert 'source_id = "my_source"' in mock_search.where.call_args[0][0]
 
+    def test_retrieve_source_filter_with_double_quote_raises_error(
+        self, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that source_filter containing double quote raises ValueError."""
+        with pytest.raises(ValueError, match="source_filter contains invalid characters"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+                source_filter='my"source',
+            )
+
+    def test_retrieve_source_filter_with_single_quote_raises_error(
+        self, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that source_filter containing single quote raises ValueError."""
+        with pytest.raises(ValueError, match="source_filter contains invalid characters"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+                source_filter="my'source",
+            )
+
+    def test_retrieve_source_filter_with_semicolon_raises_error(
+        self, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that source_filter containing semicolon raises ValueError."""
+        with pytest.raises(ValueError, match="source_filter contains invalid characters"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+                source_filter="my;source",
+            )
+
+    def test_retrieve_source_filter_with_backslash_raises_error(
+        self, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that source_filter containing backslash raises ValueError."""
+        with pytest.raises(ValueError, match="source_filter contains invalid characters"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+                source_filter="my\\source",
+            )
+
+    def test_retrieve_source_filter_valid_characters(
+        self, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that source_filter allows valid characters: alphanumeric, underscore, hyphen, dot, forward slash."""
+        # This test mocks the LanceDB connection to verify valid source filters are accepted
+        with patch("context_library.retrieval.query.lancedb.connect") as mock_connect:
+            mock_db = MagicMock()
+            mock_table = MagicMock()
+            mock_search = MagicMock()
+            mock_search.where.return_value.limit.return_value.to_list.return_value = []
+
+            mock_table.search.return_value = mock_search
+            mock_db.open_table.return_value = mock_table
+            mock_connect.return_value = mock_db
+
+            # This should not raise an error
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+                source_filter="my_source-123.test/path",
+            )
+
+            # Verify the filter was applied correctly
+            mock_search.where.assert_called_once()
+            filter_expr = mock_search.where.call_args[0][0]
+            assert 'source_id = "my_source-123.test/path"' in filter_expr
+
     @patch("context_library.retrieval.query.lancedb.connect")
     def test_retrieve_domain_and_source_filters_combined(
         self, mock_connect, embedder, document_store, tmp_path
@@ -318,9 +399,7 @@ class TestRetrieve:
         mock_db = MagicMock()
         mock_table = MagicMock()
         mock_search = MagicMock()
-        mock_where_1 = MagicMock()
-        mock_search.where.return_value = mock_where_1
-        mock_where_1.where.return_value.limit.return_value.to_list.return_value = []
+        mock_search.where.return_value.limit.return_value.to_list.return_value = []
 
         mock_table.search.return_value = mock_search
         mock_db.open_table.return_value = mock_table
@@ -335,7 +414,7 @@ class TestRetrieve:
             source_filter="my_source",
         )
 
-        # Verify that where() was called with a combined filter using AND logic
+        # Verify that where() was called once with a combined filter using AND logic
         mock_search.where.assert_called_once()
         filter_expr = mock_search.where.call_args[0][0]
         assert 'domain = "notes"' in filter_expr

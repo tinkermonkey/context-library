@@ -4,6 +4,7 @@ Enables retrieval of relevant chunks from the vector store via nearest-neighbor 
 Integrates vector similarity with lineage lookup for full provenance tracing.
 """
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +15,9 @@ from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain, LineageRecord
 from context_library.storage.vector_store import VECTOR_DIR
+
+# Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
+_SAFE_SOURCE_FILTER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./]+$")
 
 
 class RetrievalResult(BaseModel):
@@ -85,6 +89,15 @@ def retrieve(
     if top_k <= 0:
         raise ValueError(f"top_k must be positive, got {top_k}")
 
+    # Validate source_filter early, before expensive operations
+    if source_filter is not None:
+        # Validate source_filter using allowlist pattern to prevent SQL injection.
+        # Only allow alphanumeric, underscore, hyphen, dot, and forward slash.
+        if not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
+            raise ValueError(
+                f'source_filter contains invalid characters: {source_filter!r}'
+            )
+
     # Step 1: Embed the query
     query_vector = embedder.embed_query(query)
 
@@ -109,11 +122,7 @@ def retrieve(
         filters.append(f'domain = "{domain_filter.value}"')
 
     if source_filter is not None:
-        # Validate source_filter to prevent SQL injection
-        if '"' in source_filter or "'" in source_filter:
-            raise ValueError(
-                f'source_filter contains invalid characters: {source_filter}'
-            )
+        # source_filter already validated above
         filters.append(f'source_id = "{source_filter}"')
 
     # Apply combined filter if any conditions exist
@@ -135,17 +144,27 @@ def retrieve(
 
     for row in search_results:
         chunk_hash = row["chunk_hash"]
-        similarity_score = row.get("_distance", 0.0)
+        distance = row.get("_distance")
 
         # LanceDB returns Euclidean distance; convert to similarity score [0, 1]
         # For normalized embeddings, distance ranges [0, 4], so similarity = 1 - (distance / 2)
         # This maps distance 0 (identical) to similarity 1.0, and clamps high distances to 0.
         # max(0.0, ...) handles any floating-point drift that could produce negative scores.
-        if isinstance(similarity_score, (int, float)):
-            similarity_score = max(0.0, 1.0 - (similarity_score / 2.0))
+        if distance is None:
+            # LanceDB should always return _distance; raise error if missing to avoid false positives
+            raise RuntimeError(
+                f"Missing _distance field in search result for chunk {chunk_hash}. "
+                "This indicates an issue with the LanceDB table schema or search output."
+            )
+
+        if isinstance(distance, (int, float)):
+            similarity_score = max(0.0, 1.0 - (distance / 2.0))
         else:
             # Defensive fallback: non-numeric distance (shouldn't happen with standard LanceDB output)
-            similarity_score = 0.5
+            raise RuntimeError(
+                f"Invalid _distance type {type(distance)} for chunk {chunk_hash}. "
+                "Expected numeric value."
+            )
 
         # Retrieve full chunk from SQLite
         chunk = document_store.get_chunk_by_hash(chunk_hash)
