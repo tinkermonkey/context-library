@@ -138,7 +138,7 @@ class TestIngestionPipelineFirstIngest:
     ):
         """First ingest should create chunk records in SQLite."""
         adapter = FilesystemAdapter(temp_markdown_dir)
-        result = pipeline.ingest(adapter, domain_chunker)
+        pipeline.ingest(adapter, domain_chunker)
 
         # Get chunks for file1.md
         chunks = pipeline.document_store.get_chunks_by_source("file1.md")
@@ -201,7 +201,7 @@ class TestIngestionPipelineReIngestUnchanged:
 
         # First ingest
         result_first = pipeline.ingest(adapter, domain_chunker)
-        chunks_added_first = result_first["chunks_added"]
+        result_first["chunks_added"]
 
         # Get chunk count before re-ingest
         cursor = pipeline.document_store.conn.cursor()
@@ -231,7 +231,7 @@ class TestIngestionPipelineReIngestWithChanges:
 
         # First ingest
         result_first = pipeline.ingest(adapter, domain_chunker)
-        chunks_added_first = result_first["chunks_added"]
+        result_first["chunks_added"]
 
         # Modify file1.md
         (temp_markdown_dir / "file1.md").write_text(
