@@ -642,7 +642,7 @@ class TestPipelineEmbeddingValidation:
             pipeline.embedder, "embed", side_effect=mock_embed_invalid_dimension
         ):
             # Pipeline catches errors and logs them, doesn't raise
-            result = pipeline.ingest(adapter, domain_chunker)
+            pipeline.ingest(adapter, domain_chunker)
             # Source processing was attempted but failed, so not counted in success
             assert "Error processing source 'file1.md'" in caplog.text
 
@@ -668,7 +668,7 @@ class TestPipelineEmbeddingValidation:
         with patch.object(
             pipeline.embedder, "embed", side_effect=create_embeddings_with_nan
         ):
-            result = pipeline.ingest(adapter, domain_chunker)
+            pipeline.ingest(adapter, domain_chunker)
             # Error should be logged
             assert "Error processing source" in caplog.text or "non-finite" in caplog.text
 
@@ -694,7 +694,7 @@ class TestPipelineEmbeddingValidation:
         with patch.object(
             pipeline.embedder, "embed", side_effect=create_embeddings_with_inf
         ):
-            result = pipeline.ingest(adapter, domain_chunker)
+            pipeline.ingest(adapter, domain_chunker)
             # Error should be logged
             assert "Error processing source" in caplog.text or "non-finite" in caplog.text
 

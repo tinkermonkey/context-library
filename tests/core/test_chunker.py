@@ -14,7 +14,7 @@ Covers:
 import pytest
 
 from context_library.domains.notes import NotesDomain
-from context_library.storage.models import ChunkType, Domain, NormalizedContent, StructuralHints
+from context_library.storage.models import ChunkType, NormalizedContent, StructuralHints
 
 
 @pytest.fixture
@@ -148,7 +148,7 @@ Content under subsection.""",
 
         assert len(chunks) > 0
         # Context headers should be present for subsections
-        has_context_headers = any(chunk.context_header for chunk in chunks)
+        any(chunk.context_header for chunk in chunks)
         # At least some chunks should have content
         assert all(chunk.content for chunk in chunks)
 

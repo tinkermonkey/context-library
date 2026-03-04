@@ -5,7 +5,6 @@ Covers:
 - ISO 8601 timestamp validation (format compliance)
 """
 
-import math
 
 import pytest
 
