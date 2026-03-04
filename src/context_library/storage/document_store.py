@@ -620,6 +620,63 @@ class DocumentStore:
                 (now, source_id),
             )
 
+    def get_chunks_pending_sync(self) -> list[dict]:
+        """Get all chunks that need to be synced to LanceDB.
+
+        Returns chunks marked with 'insert' operation in the sync log.
+        Used for recovery when LanceDB write fails after SQLite write.
+
+        Returns:
+            List of dicts with keys: chunk_hash, content, vector (if available),
+                                     domain, source_id, source_version, created_at
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT c.chunk_hash, c.content, c.domain, c.source_id,
+                   c.source_version, c.fetch_timestamp as created_at
+            FROM chunks c
+            INNER JOIN lancedb_sync_log l ON c.chunk_hash = l.chunk_hash
+            WHERE l.operation = 'insert'
+            ORDER BY l.synced_at ASC
+            """
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "chunk_hash": row["chunk_hash"],
+                "content": row["content"],
+                "domain": row["domain"],
+                "source_id": row["source_id"],
+                "source_version": row["source_version"],
+                "created_at": row["created_at"],
+            })
+
+        return result
+
+    def get_chunks_pending_deletion(self) -> list[str]:
+        """Get all chunk hashes marked for deletion in LanceDB.
+
+        Returns chunks marked with 'delete' operation in the sync log.
+        Used for recovery when LanceDB delete fails after SQLite retire.
+
+        Returns:
+            List of chunk hashes to delete from LanceDB
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT chunk_hash
+            FROM lancedb_sync_log
+            WHERE operation = 'delete'
+            ORDER BY synced_at ASC
+            """
+        )
+        rows = cursor.fetchall()
+        return [row["chunk_hash"] for row in rows]
+
     def close(self) -> None:
         """Close the database connection.
 
