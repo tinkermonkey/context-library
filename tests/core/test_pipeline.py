@@ -67,7 +67,7 @@ def differ():
 @pytest.fixture
 def domain_chunker():
     """Create a domain chunker instance."""
-    return NotesDomain(soft_limit=512, hard_limit=1024, min_floor=64)
+    return NotesDomain(soft_limit=512, hard_limit=1024)
 
 
 @pytest.fixture
