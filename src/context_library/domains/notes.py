@@ -67,6 +67,12 @@ class NotesDomain(BaseDomain):
         # Parse markdown to AST
         # mistune returns str | list[dict[str, Any]] but with renderer=None we always get list
         ast_result = self.md(content.markdown)
+        if not isinstance(ast_result, list):
+            logger.warning(
+                "Markdown parser returned unexpected type %s instead of list. "
+                "Document will be skipped (zero chunks produced).",
+                type(ast_result).__name__,
+            )
         ast = ast_result if isinstance(ast_result, list) else []
 
         # Build candidate chunks from AST
@@ -320,14 +326,18 @@ class NotesDomain(BaseDomain):
         """Render a list block to markdown."""
         items = block.get("children", [])
         lines = []
+        is_ordered = block.get("attrs", {}).get("ordered", False)
 
-        for item in items:
+        for index, item in enumerate(items, start=1):
             item_type = item.get("type")
             if item_type == "list_item":
                 # Get text from item children
                 text = self._extract_text_from_children(item.get("children", []))
-                # Check if ordered or unordered (simplify: use - for unordered)
-                lines.append(f"- {text}")
+                # Use numbered prefix for ordered lists, dash for unordered
+                if is_ordered:
+                    lines.append(f"{index}. {text}")
+                else:
+                    lines.append(f"- {text}")
 
         return "\n".join(lines)
 
@@ -506,7 +516,6 @@ class NotesDomain(BaseDomain):
                     if sent_tokens > self.hard_limit:
                         words = sent.split()
                         for word in words:
-                            self._token_count(word)
                             test_chunk = (current_chunk + " " + word).strip()
 
                             if self._token_count(test_chunk) <= self.hard_limit:
