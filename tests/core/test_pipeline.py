@@ -861,7 +861,7 @@ class TestChunkVersioningFixes:
         (temp_markdown_dir / "file1.md").write_text(new_content)
 
         # Re-ingest
-        result_second = pipeline.ingest(adapter, domain_chunker)
+        pipeline.ingest(adapter, domain_chunker)
 
         # Verify new version was created
         versions = pipeline.document_store.get_version_history("file1.md")
