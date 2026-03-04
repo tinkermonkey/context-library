@@ -11,8 +11,8 @@ class TestDifferFirstIngest:
         """First ingest should return all curr_chunk_hashes as added."""
         differ = Differ()
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
-            "def789ghi012def789ghi012def789ghi012def789ghi012def789ghi012def7",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
         }
 
         result = differ.diff(
@@ -39,7 +39,7 @@ class TestDifferUnchangedDocument:
         differ = Differ()
         markdown = "# Document\n\nContent here."
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -62,7 +62,7 @@ class TestDifferUnchangedDocument:
         # Add trailing spaces (but preserve blank line structure)
         curr_markdown = "# Document  \n\nContent here.  "
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -81,7 +81,7 @@ class TestDifferUnchangedDocument:
         prev_markdown = "   # Document\n\nContent   "
         curr_markdown = "# Document\n\nContent"
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -100,9 +100,9 @@ class TestDifferModifiedChunk:
     def test_modified_chunk_appears_in_added_and_removed(self):
         """Modified chunk should appear in both added and removed hashes."""
         differ = Differ()
-        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
-        new_hash = "def789ghi012def789ghi012def789ghi012def789ghi012def789ghi012def7"
-        unchanged_hash = "ghi345jkl678ghi345jkl678ghi345jkl678ghi345jkl678ghi345jkl678ghi3"
+        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc0"
+        new_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        unchanged_hash = "1111111111111111111111111111111111111111111111111111111111111110"
 
         prev_markdown = "# Document\n\nOld content."
         curr_markdown = "# Document\n\nNew content."
@@ -129,8 +129,8 @@ class TestDifferAddedChunk:
     def test_new_chunk_appears_in_added_only(self):
         """New chunk should appear in added_hashes only."""
         differ = Differ()
-        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
-        new_hash = "def789ghi012def789ghi012def789ghi012def789ghi012def789ghi012def7"
+        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc0"
+        new_hash = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
         prev_markdown = "# Document\n\nContent."
         curr_markdown = "# Document\n\nContent.\n\nMore content."
@@ -157,8 +157,8 @@ class TestDifferRemovedChunk:
     def test_removed_chunk_appears_in_removed_only(self):
         """Removed chunk should appear in removed_hashes only."""
         differ = Differ()
-        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
-        remaining_hash = "def789ghi012def789ghi012def789ghi012def789ghi012def789ghi012def7"
+        old_hash = "abc123def456abc123def456abc123def456abc123def456abc123def456abc0"
+        remaining_hash = "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
 
         prev_markdown = "# Document\n\nContent.\n\nExtra content."
         curr_markdown = "# Document\n\nContent."
@@ -188,7 +188,7 @@ class TestDifferWhitespaceNormalization:
         prev = "hello    world\t\ttest"
         curr = "hello world test"
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -206,7 +206,7 @@ class TestDifferWhitespaceNormalization:
         prev = "line one   \nline two\t"
         curr = "line one\nline two"
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -224,7 +224,7 @@ class TestDifferWhitespaceNormalization:
         prev = "line one\n  \nline two"
         curr = "line one\n\nline two"
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(
@@ -246,8 +246,8 @@ class TestDifferHashConsistency:
         result = differ.diff(
             prev_markdown="content",
             curr_markdown="content",
-            prev_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc1"},
-            curr_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc1"},
+            prev_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc0"},
+            curr_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc0"},
         )
 
         # SHA-256 hex digests are 64 characters
@@ -262,8 +262,8 @@ class TestDifferHashConsistency:
         result = differ.diff(
             prev_markdown="content one",
             curr_markdown="content two",
-            prev_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc1"},
-            curr_chunk_hashes={"def789ghi012def789ghi012def789ghi012def789ghi012def789ghi012def7"},
+            prev_chunk_hashes={"abc123def456abc123def456abc123def456abc123def456abc123def456abc0"},
+            curr_chunk_hashes={"1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"},
         )
 
         assert result.prev_hash != result.curr_hash
@@ -291,7 +291,7 @@ class TestDifferEdgeCases:
         differ = Differ()
         large_content = "# Header\n\n" + "Content line.\n" * 10000
         chunk_hashes = {
-            "abc123def456abc123def456abc123def456abc123def456abc123def456abc1",
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
         }
 
         result = differ.diff(

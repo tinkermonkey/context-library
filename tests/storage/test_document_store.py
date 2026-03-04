@@ -239,7 +239,7 @@ class TestSourceVersions:
             source_id="source-1",
             version=1,
             markdown="# Content v1",
-            chunk_hashes=["abc123def456"],
+            chunk_hashes=["abc123def456abc123def456abc123def456abc123def456abc123def456abc0"],
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -255,7 +255,7 @@ class TestSourceVersions:
             source_id="source-1",
             version=1,
             markdown="# Content v1",
-            chunk_hashes=["hash1"],
+            chunk_hashes=["abc123def456abc123def456abc123def456abc123def456abc123def456abc0"],
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -265,7 +265,7 @@ class TestSourceVersions:
             source_id="source-1",
             version=2,
             markdown="# Content v2",
-            chunk_hashes=["hash2"],
+            chunk_hashes=["1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"],
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T11:00:00Z",
@@ -275,19 +275,24 @@ class TestSourceVersions:
         assert latest is not None
         assert latest.version == 2
         assert latest.markdown == "# Content v2"
-        assert latest.chunk_hashes == ["hash2"]
+        assert latest.chunk_hashes == ["1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]
 
     def test_get_version_history_ordering(self, store: DocumentStore) -> None:
         """Test that version history is ordered ascending."""
         self._setup_adapter_and_source(store)
 
         # Create versions in mixed order
+        hash_mapping = {
+            1: "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
+            2: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+            3: "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+        }
         for v in [3, 1, 2]:
             store.create_source_version(
                 source_id="source-1",
                 version=v,
                 markdown=f"# Content v{v}",
-                chunk_hashes=[f"hash{v}"],
+                chunk_hashes=[hash_mapping[v]],
                 adapter_id="adapter-1",
                 normalizer_version="1.0.0",
                 fetch_timestamp=f"2025-03-02T{10+v}:00:00Z",
@@ -334,7 +339,7 @@ class TestChunkWriteAndRead:
             source_id="source-1",
             version=1,
             markdown="# Content",
-            chunk_hashes=["hash1", "hash2"],
+            chunk_hashes=["abc123def456abc123def456abc123def456abc123def456abc123def456abc0", "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"],
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -932,10 +937,10 @@ class TestSyncLog:
         return _make_hash("5")
 
     def test_write_sync_log(self, store: DocumentStore) -> None:
-        """Test writing to sync log with operation type."""
+        """Test writing to sync log."""
         chunk_hash = self._setup_chunk_for_sync(store)
 
-        store.write_sync_log([chunk_hash], "insert")
+        store.write_sync_log([chunk_hash])
 
         # Verify entry exists with correct operation
         cursor = store.conn.cursor()
@@ -952,8 +957,8 @@ class TestSyncLog:
         """Test that writing sync log twice is idempotent."""
         chunk_hash = self._setup_chunk_for_sync(store)
 
-        store.write_sync_log([chunk_hash], "insert")
-        store.write_sync_log([chunk_hash], "insert")
+        store.write_sync_log([chunk_hash])
+        store.write_sync_log([chunk_hash])
 
         # Should only have one row
         cursor = store.conn.cursor()
@@ -968,7 +973,7 @@ class TestSyncLog:
         """Test recording delete operation in sync log."""
         chunk_hash = self._setup_chunk_for_sync(store)
 
-        store.write_sync_log([chunk_hash], "insert")
+        store.write_sync_log([chunk_hash])
         store.delete_sync_log([chunk_hash])
 
         # Verify operation is recorded as delete
@@ -989,7 +994,7 @@ class TestSyncLog:
         """
         # Create a chunk but do NOT sync it first
         chunk_hash = self._setup_chunk_for_sync(store)
-        # Intentionally skip: store.write_sync_log([chunk_hash], "insert")
+        # Intentionally skip: store.write_sync_log([chunk_hash])
 
         # Record a delete for it (chunk exists in chunks table, but no sync log entry)
         store.delete_sync_log([chunk_hash])
@@ -1004,12 +1009,6 @@ class TestSyncLog:
         assert row is not None
         assert row[0] == "delete"
 
-    def test_write_sync_log_invalid_operation(self, store: DocumentStore) -> None:
-        """Test that invalid operation type raises ValueError."""
-        chunk_hash = self._setup_chunk_for_sync(store)
-
-        with pytest.raises(ValueError, match="Invalid operation"):
-            store.write_sync_log([chunk_hash], "invalid")
 
 
 class TestParameterizedQueries:

@@ -157,7 +157,6 @@ class DocumentStore:
         adapter_id: str,
         normalizer_version: str,
         fetch_timestamp: str,
-        prev_version_id: Optional[int] = None,
     ) -> int:
         """Create a new source version.
 
@@ -171,7 +170,6 @@ class DocumentStore:
             adapter_id: ID of the adapter that fetched this version.
             normalizer_version: Version of the normalizer used.
             fetch_timestamp: ISO 8601 timestamp when content was fetched.
-            prev_version_id: Not used in this implementation; for compatibility.
 
         Returns:
             The SQLite rowid of the newly created source_version row.
@@ -316,33 +314,24 @@ class DocumentStore:
                 [(now, h) for h in chunk_hashes],
             )
 
-    def write_sync_log(self, chunk_hashes: list[str], operation: str) -> None:
-        """Log chunk sync state to LanceDB.
+    def write_sync_log(self, chunk_hashes: list[str]) -> None:
+        """Log chunk sync state (insert) to LanceDB.
 
         Inserts entries into lancedb_sync_log to track which chunks have been
         synced to the vector database. Uses INSERT OR REPLACE, so each operation
         creates a new timestamped record. The synced_at column reflects when the
-        most recent operation (insert or delete) was logged.
+        most recent insert operation was logged.
 
         Args:
-            chunk_hashes: List of chunk hashes that were synced.
-            operation: Type of operation ('insert' or 'delete').
-
-        Raises:
-            ValueError: If operation is not 'insert' or 'delete'.
+            chunk_hashes: List of chunk hashes that were synced to the vector database.
         """
-        if operation not in ("insert", "delete"):
-            raise ValueError(
-                f"Invalid operation: {operation}. Must be 'insert' or 'delete'."
-            )
-
         with self.conn:
             self.conn.executemany(
                 """
                 INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
-                VALUES (?, ?)
+                VALUES (?, 'insert')
                 """,
-                [(h, operation) for h in chunk_hashes],
+                [(h,) for h in chunk_hashes],
             )
 
     def delete_sync_log(self, chunk_hashes: list[str]) -> None:

@@ -242,7 +242,7 @@ class IngestionPipeline:
             # Write sync log
             if added_chunks:
                 added_hashes = [c.chunk_hash for c in added_chunks]
-                self.document_store.write_sync_log(added_hashes, "insert")
+                self.document_store.write_sync_log(added_hashes)
 
             if diff_result.removed_hashes:
                 removed_list = list(diff_result.removed_hashes)

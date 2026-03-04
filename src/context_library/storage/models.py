@@ -121,6 +121,7 @@ class SourceVersion(BaseModel):
 
     Immutable records enable full history tracking for provenance and change detection.
     chunk_hashes is stored as a serialized list (in SQLite as JSON string).
+    All chunk_hashes are validated as SHA-256 hex strings.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -128,7 +129,7 @@ class SourceVersion(BaseModel):
     source_id: str
     version: int
     markdown: str
-    chunk_hashes: list[str]
+    chunk_hashes: list[Sha256Hash]
     adapter_id: str
     normalizer_version: str
     fetch_timestamp: str
@@ -139,16 +140,58 @@ class DiffResult(BaseModel):
 
     Set-based diffing enables efficient re-embedding: only new/modified chunks need embedding.
     prev_hash and curr_hash are full-document SHA-256 hashes for quick unchanged detection.
+
+    Invariants:
+    - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint sets
+    - If changed=False: added_hashes and removed_hashes must be empty
+    - If changed=True: at least one of added_hashes or removed_hashes must be non-empty
+    - All chunk_hashes are validated as SHA-256 hex strings
     """
 
     model_config = ConfigDict(frozen=True)
 
     changed: bool
-    added_hashes: set[str]
-    removed_hashes: set[str]
-    unchanged_hashes: set[str]
+    added_hashes: set[Sha256Hash]
+    removed_hashes: set[Sha256Hash]
+    unchanged_hashes: set[Sha256Hash]
     prev_hash: str | None = None
     curr_hash: str | None = None
+
+    def model_post_init(self, __context) -> None:
+        """Validate DiffResult invariants after model construction.
+
+        Enforces:
+        - Set disjointness: added_hashes, removed_hashes, and unchanged_hashes have no overlap
+        - Flag consistency: changed=False implies no added or removed hashes
+        """
+        # Check set disjointness
+        added_and_removed = self.added_hashes & self.removed_hashes
+        added_and_unchanged = self.added_hashes & self.unchanged_hashes
+        removed_and_unchanged = self.removed_hashes & self.unchanged_hashes
+
+        if added_and_removed:
+            raise ValueError(
+                f"added_hashes and removed_hashes must be disjoint, "
+                f"but found overlap: {added_and_removed}"
+            )
+        if added_and_unchanged:
+            raise ValueError(
+                f"added_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {added_and_unchanged}"
+            )
+        if removed_and_unchanged:
+            raise ValueError(
+                f"removed_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {removed_and_unchanged}"
+            )
+
+        # Check changed flag consistency: if changed=False, must have no added/removed hashes
+        if not self.changed:
+            if self.added_hashes or self.removed_hashes:
+                raise ValueError(
+                    f"If changed=False, both added_hashes and removed_hashes must be empty. "
+                    f"Got added_hashes={self.added_hashes}, removed_hashes={self.removed_hashes}"
+                )
 
 
 class AdapterConfig(BaseModel):
