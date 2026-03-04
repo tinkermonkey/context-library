@@ -328,14 +328,16 @@ class NotesDomain(BaseDomain):
         lines = []
         is_ordered = block.get("attrs", {}).get("ordered", False)
 
-        for index, item in enumerate(items, start=1):
+        item_number = 0
+        for item in items:
             item_type = item.get("type")
             if item_type == "list_item":
+                item_number += 1
                 # Get text from item children
                 text = self._extract_text_from_children(item.get("children", []))
                 # Use numbered prefix for ordered lists, dash for unordered
                 if is_ordered:
-                    lines.append(f"{index}. {text}")
+                    lines.append(f"{item_number}. {text}")
                 else:
                     lines.append(f"- {text}")
 
