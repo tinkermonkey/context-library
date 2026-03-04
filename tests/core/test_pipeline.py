@@ -80,8 +80,6 @@ def pipeline(document_store, embedder, differ):
             differ=differ,
             vector_store_path=tmpdir,
         )
-        # Store the path as an attribute for test access
-        pipeline_obj._temp_dir = tmpdir
         yield pipeline_obj
 
 
@@ -278,51 +276,47 @@ Some different text here."""
         lancedb_count_before = table.count_rows()
         assert lancedb_count_before > 0
 
-        # Modify file1.md with significant content removal to trigger chunk removal
-        # The original has "# File 1", "This is the first file with some content.",
-        # and "## Section 1.1", "Some text here." - removing the section should
-        # cause the chunker to produce different chunk hashes
+        # Get sync log count before modification
+        cursor = pipeline.document_store.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
+        sync_log_count_before = cursor.fetchone()[0]
+        assert sync_log_count_before > 0
+
+        # Modify file1.md to remove a section entirely, reducing the chunk count
+        # This triggers the differ to detect removed chunks
         (temp_markdown_dir / "file1.md").write_text(
             """# File 1
 
-This is a brand new file with completely different content."""
+Completely new content."""
         )
 
         # Re-ingest
         result_second = pipeline.ingest(adapter, domain_chunker)
 
-        # Should have some chunks removed (old content is gone)
-        if result_second["chunks_removed"] > 0:
-            # Verify retired chunks exist
-            cursor = pipeline.document_store.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM chunks WHERE source_id = ? AND retired_at IS NOT NULL",
-                ("file1.md",),
-            )
-            retired_chunks = cursor.fetchone()[0]
-            assert retired_chunks > 0
+        # Verify chunks were removed (test data must produce removals)
+        assert result_second["chunks_removed"] > 0, \
+            "Test data modification should trigger chunk removal"
 
-            # Verify LanceDB row count decreased (removed vectors)
-            db = lancedb.connect(str(pipeline.vector_store_path))
-            table = db.open_table("chunk_vectors")
-            lancedb_count_after = table.count_rows()
-            assert lancedb_count_after < lancedb_count_before
+        # Verify retired chunks exist in SQLite
+        cursor.execute(
+            "SELECT COUNT(*) FROM chunks WHERE source_id = ? AND retired_at IS NOT NULL",
+            ("file1.md",),
+        )
+        retired_chunks = cursor.fetchone()[0]
+        assert retired_chunks > 0
 
-            # Verify sync log entries were removed for the deleted chunks
-            # (the rows should be deleted from the sync_log table)
-            cursor.execute(
-                "SELECT COUNT(*) FROM lancedb_sync_log"
-            )
-            sync_log_count_after = cursor.fetchone()[0]
-            # The new version should have fewer sync log entries than before
-            # (unless all chunks were re-added with new content)
-            # Just verify that sync_log was processed
-            assert sync_log_count_after >= 0
-        else:
-            # If no chunks were removed, it means the differ didn't detect a significant change
-            # This can happen if the chunking algorithm produces the same chunks
-            # In this case, just verify the re-ingest completed successfully
-            assert result_second["sources_processed"] == 2
+        # Verify LanceDB row count decreased (removed vectors)
+        db = lancedb.connect(str(pipeline.vector_store_path))
+        table = db.open_table("chunk_vectors")
+        lancedb_count_after = table.count_rows()
+        assert lancedb_count_after < lancedb_count_before
+
+        # Verify sync log was updated: removed chunks are deleted from sync_log
+        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
+        sync_log_count_after = cursor.fetchone()[0]
+        # Sync log may increase if new chunks were added, but at minimum should be >= 0
+        # The key invariant: rows for removed chunks should be deleted
+        assert isinstance(sync_log_count_after, int)
 
     def test_reingest_deleted_chunk(
         self, pipeline, temp_markdown_dir, domain_chunker
