@@ -22,11 +22,6 @@ class DocumentStore:
     - Sync state with LanceDB vector store
     """
 
-    # Placeholder for embedding_model_id in Phase 1.
-    # The chunks table does not currently store embedding_model_id from lineage;
-    # this is tracked as future work in Phase 2+.
-    # See: https://github.com/tinkermonkey/context-library/issues/40
-    _EMBEDDING_MODEL_PLACEHOLDER = "unspecified"
 
     def __init__(self, db_path: str | Path) -> None:
         """Initialize the document store and set up the SQLite database.
@@ -84,8 +79,14 @@ class DocumentStore:
     def register_adapter(self, config: AdapterConfig) -> str:
         """Register an adapter configuration.
 
-        Inserts the adapter config into the adapters table. If the adapter_id
-        already exists, returns the existing id without creating a duplicate.
+        Inserts the adapter config into the adapters table, or updates it if the
+        adapter_id already exists with different normalizer_version or config.
+
+        The adapter is identified by adapter_id. On first registration, a new row
+        is created. On subsequent registrations:
+        - If normalizer_version or config has changed, the row is updated (and
+          updated_at timestamp is refreshed via trigger)
+        - If both are identical, the row is unchanged (idempotent)
 
         Args:
             config: AdapterConfig with adapter_id, type, domain, and config dict.
@@ -96,20 +97,59 @@ class DocumentStore:
         config_json = json.dumps(config.config) if config.config else None
 
         with self.conn:
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO adapters
-                (adapter_id, domain, adapter_type, normalizer_version, config)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    config.adapter_id,
-                    config.domain.value,
-                    config.adapter_type,
-                    config.normalizer_version,
-                    config_json,
-                ),
+            cursor = self.conn.cursor()
+
+            # Check if adapter already exists
+            cursor.execute(
+                "SELECT normalizer_version, config FROM adapters WHERE adapter_id = ?",
+                (config.adapter_id,),
             )
+            existing = cursor.fetchone()
+
+            if existing is None:
+                # New adapter - insert it
+                self.conn.execute(
+                    """
+                    INSERT INTO adapters
+                    (adapter_id, domain, adapter_type, normalizer_version, config)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        config.adapter_id,
+                        config.domain.value,
+                        config.adapter_type,
+                        config.normalizer_version,
+                        config_json,
+                    ),
+                )
+            else:
+                # Adapter exists - check if config has changed
+                existing_normalizer_version = existing["normalizer_version"]
+                existing_config_json = existing["config"]
+
+                # Determine if we need to update
+                normalizer_version_changed = (
+                    existing_normalizer_version != config.normalizer_version
+                )
+                config_changed = existing_config_json != config_json
+
+                if normalizer_version_changed or config_changed:
+                    # Config has changed - update the row
+                    # The trigger will refresh updated_at
+                    self.conn.execute(
+                        """
+                        UPDATE adapters
+                        SET domain = ?, adapter_type = ?, normalizer_version = ?, config = ?
+                        WHERE adapter_id = ?
+                        """,
+                        (
+                            config.domain.value,
+                            config.adapter_type,
+                            config.normalizer_version,
+                            config_json,
+                            config.adapter_id,
+                        ),
+                    )
 
         return config.adapter_id
 
@@ -215,7 +255,9 @@ class DocumentStore:
     ) -> None:
         """Write chunks and lineage records to storage.
 
-        Performs batch INSERT OR IGNORE for chunks (deduplicates by chunk_hash).
+        Inserts chunks into the database. Deduplicates by chunk_hash (content-addressed identity).
+        If a chunk_hash already exists, it is skipped silently (content already stored).
+
         Chunks are linked to their sources and versions via lineage records.
 
         Args:
@@ -224,7 +266,8 @@ class DocumentStore:
 
         Raises:
             ValueError: If a chunk has no matching lineage record.
-            sqlite3.IntegrityError: If foreign key constraints are violated.
+            sqlite3.IntegrityError: If foreign key or UNIQUE constraint violations occur
+                (other than chunk_hash PRIMARY KEY which is content deduplication).
         """
         # Create a map of chunk_hash to lineage for quick lookup
         lineage_map = {lr.chunk_hash: lr for lr in lineage_records}
@@ -250,29 +293,42 @@ class DocumentStore:
                 # Get lineage info for this chunk (guaranteed non-None due to validation above)
                 lineage = lineage_map[chunk.chunk_hash]
 
-                self.conn.execute(
-                    """
-                    INSERT OR IGNORE INTO chunks
-                    (chunk_hash, source_id, source_version, chunk_index, content,
-                     context_header, domain, adapter_id, fetch_timestamp,
-                     normalizer_version, domain_metadata, chunk_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chunk.chunk_hash,
-                        lineage.source_id,
-                        lineage.source_version_id,
-                        chunk.chunk_index,
-                        chunk.content,
-                        chunk.context_header,
-                        lineage.domain.value,
-                        lineage.adapter_id,
-                        batch_timestamp,
-                        lineage.normalizer_version,
-                        domain_metadata_json,
-                        chunk.chunk_type,
-                    ),
-                )
+                try:
+                    self.conn.execute(
+                        """
+                        INSERT INTO chunks
+                        (chunk_hash, source_id, source_version, chunk_index, content,
+                         context_header, domain, adapter_id, fetch_timestamp,
+                         normalizer_version, embedding_model_id, domain_metadata, chunk_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            chunk.chunk_hash,
+                            lineage.source_id,
+                            lineage.source_version_id,
+                            chunk.chunk_index,
+                            chunk.content,
+                            chunk.context_header,
+                            lineage.domain.value,
+                            lineage.adapter_id,
+                            batch_timestamp,
+                            lineage.normalizer_version,
+                            lineage.embedding_model_id,
+                            domain_metadata_json,
+                            chunk.chunk_type,
+                        ),
+                    )
+                except sqlite3.IntegrityError as e:
+                    # PRIMARY KEY collision (chunk_hash): content already stored (deduplication by hash)
+                    # UNIQUE index collision (source_id, source_version, chunk_index): same chunk position in same version
+                    # Both are expected and silent - the chunk is already in the database
+                    error_msg = str(e)
+                    if "UNIQUE constraint failed: chunks.chunk_hash" in error_msg or \
+                       "UNIQUE constraint failed: chunks.source_id, chunks.source_version, chunks.chunk_index" in error_msg:
+                        # Chunk already exists (either by hash or by position); skip silently
+                        continue
+                    # For any other constraint violation (foreign key, CHECK), re-raise
+                    raise
 
     def retire_chunks(self, chunk_hashes: set[str]) -> None:
         """Mark chunks as retired.
@@ -510,23 +566,20 @@ class DocumentStore:
     def get_lineage(self, chunk_hash: str) -> Optional[LineageRecord]:
         """Get the lineage record for a chunk.
 
+        Retrieves the full provenance information for a chunk, including the
+        embedding model ID that was used when the chunk was vectorized.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
 
         Returns:
-            LineageRecord with provenance information, or None if not found.
-
-        Note:
-            The embedding_model_id field is set to a placeholder in Phase 1,
-            as the chunks table does not yet store this value. The original
-            embedding_model_id from write_chunks is not persisted. This is
-            tracked for future phases (https://github.com/tinkermonkey/context-library/issues/40).
+            LineageRecord with complete provenance information, or None if not found.
         """
         cursor = self.conn.cursor()
         cursor.execute(
             """
             SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                   normalizer_version
+                   normalizer_version, embedding_model_id
             FROM chunks
             WHERE chunk_hash = ?
             LIMIT 1
@@ -545,7 +598,7 @@ class DocumentStore:
             adapter_id=row["adapter_id"],
             domain=Domain(row["domain"]),
             normalizer_version=row["normalizer_version"],
-            embedding_model_id=self._EMBEDDING_MODEL_PLACEHOLDER,
+            embedding_model_id=row["embedding_model_id"],
         )
 
     def get_adapter(self, adapter_id: str) -> Optional[AdapterConfig]:
