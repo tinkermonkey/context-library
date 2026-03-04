@@ -320,7 +320,9 @@ class DocumentStore:
         """Log chunk sync state to LanceDB.
 
         Inserts entries into lancedb_sync_log to track which chunks have been
-        synced to the vector database.
+        synced to the vector database. Uses INSERT OR REPLACE, so each operation
+        creates a new timestamped record. The synced_at column reflects when the
+        most recent operation (insert or delete) was logged.
 
         Args:
             chunk_hashes: List of chunk hashes that were synced.
@@ -348,6 +350,9 @@ class DocumentStore:
 
         Updates lancedb_sync_log entries to record that chunks have been deleted
         from the vector database. Marks the operation as 'delete' for audit trail.
+        Uses INSERT OR REPLACE, so each operation creates a new timestamped record.
+        The synced_at column reflects when the delete operation was logged, not the
+        original insert time.
 
         Args:
             chunk_hashes: List of chunk hashes that were deleted from LanceDB.

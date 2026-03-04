@@ -20,11 +20,11 @@ class ChunkVector(LanceModel):
     LanceDB is derived and disposable; it can be fully rebuilt from SQLite.
     Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
 
-    IMPORTANT: This schema is NOT used by the pipeline. The pipeline writes plain dicts to
-    LanceDB and uses an explicit pyarrow schema with model-driven dimensions for table
-    creation (see IngestionPipeline.ingest()). The vector field cannot be parameterized in
-    Pydantic v2, so this class exists only for documentation. Runtime validation occurs
-    in the pipeline via validate_embedding_dimension() calls before every write.
+    IMPORTANT: This schema IS used by the pipeline for field validation (e.g., created_at
+    ISO 8601 format). See IngestionPipeline.ingest() pipeline.py:191-199 where each chunk
+    vector is instantiated as ChunkVector for validation before being converted to a dict
+    for LanceDB. The vector field dimension is still enforced by the pyarrow schema during
+    table creation, not by Pydantic (since vector length cannot be parameterized in v2).
     """
 
     model_config = ConfigDict(frozen=True)

@@ -982,15 +982,19 @@ class TestSyncLog:
         assert row[0] == "delete"
 
     def test_delete_sync_log_non_existent(self, store: DocumentStore) -> None:
-        """Test deleting chunk that wasn't previously synced."""
-        # First create and sync a chunk
-        chunk_hash = self._setup_chunk_for_sync(store)
-        store.write_sync_log([chunk_hash], "insert")
+        """Test deleting chunk that exists but was never previously synced.
 
-        # Now record a delete for it (chunk exists, but wasn't in sync log before)
+        Verifies that delete_sync_log creates a new sync log entry for a chunk
+        that exists in the chunks table but has no prior sync log record.
+        """
+        # Create a chunk but do NOT sync it first
+        chunk_hash = self._setup_chunk_for_sync(store)
+        # Intentionally skip: store.write_sync_log([chunk_hash], "insert")
+
+        # Record a delete for it (chunk exists in chunks table, but no sync log entry)
         store.delete_sync_log([chunk_hash])
 
-        # Verify delete record was created
+        # Verify delete record was created (no prior sync log entry existed)
         cursor = store.conn.cursor()
         cursor.execute(
             "SELECT operation FROM lancedb_sync_log WHERE chunk_hash = ?",
