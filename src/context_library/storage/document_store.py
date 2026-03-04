@@ -79,12 +79,14 @@ class DocumentStore:
     def register_adapter(self, config: AdapterConfig) -> str:
         """Register an adapter configuration.
 
-        Inserts the adapter config into the adapters table, or updates it if the
-        adapter_id already exists with different normalizer_version or config.
+        Inserts the adapter config into the adapters table. If the adapter_id
+        already exists, returns the existing adapter_id without modifying any
+        configuration (idempotent operation as per ADR-003).
 
         The adapter is identified by adapter_id. On first registration, a new row
-        is created. On subsequent registrations, the row is updated with the new
-        configuration. The trigger refreshes updated_at on any UPDATE.
+        is created with the provided configuration. On subsequent registrations
+        with the same adapter_id, the existing row is returned unchanged, preserving
+        the original domain, adapter_type, normalizer_version, and config.
 
         Args:
             config: AdapterConfig with adapter_id, type, domain, and config dict.
@@ -95,28 +97,30 @@ class DocumentStore:
         config_json = json.dumps(config.config) if config.config else None
 
         with self.conn:
-            # Use INSERT ... ON CONFLICT ... DO UPDATE for atomic upsert
-            # This handles both insert (new adapter) and update (changed config)
-            self.conn.execute(
-                """
-                INSERT INTO adapters
-                (adapter_id, domain, adapter_type, normalizer_version, config)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(adapter_id)
-                DO UPDATE SET
-                    domain = excluded.domain,
-                    adapter_type = excluded.adapter_type,
-                    normalizer_version = excluded.normalizer_version,
-                    config = excluded.config
-                """,
-                (
-                    config.adapter_id,
-                    config.domain.value,
-                    config.adapter_type,
-                    config.normalizer_version,
-                    config_json,
-                ),
+            cursor = self.conn.cursor()
+            # Check if adapter already exists
+            cursor.execute(
+                "SELECT adapter_id FROM adapters WHERE adapter_id = ?",
+                (config.adapter_id,),
             )
+            existing = cursor.fetchone()
+
+            if existing is None:
+                # Insert new adapter
+                self.conn.execute(
+                    """
+                    INSERT INTO adapters
+                    (adapter_id, domain, adapter_type, normalizer_version, config)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        config.adapter_id,
+                        config.domain.value,
+                        config.adapter_type,
+                        config.normalizer_version,
+                        config_json,
+                    ),
+                )
 
         return config.adapter_id
 
@@ -201,7 +205,10 @@ class DocumentStore:
 
             # Capture the rowid of the inserted row
             source_version_id = cursor.lastrowid
-            assert source_version_id is not None
+            if source_version_id is None:
+                raise RuntimeError(
+                    "Failed to insert source_version: cursor.lastrowid is None"
+                )
 
             # Update sources.current_version
             self.conn.execute(
@@ -303,16 +310,23 @@ class DocumentStore:
 
         Args:
             chunk_hashes: Set of chunk hashes to retire.
+
+        Raises:
+            RuntimeError: If any chunk hash does not exist.
         """
         now = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
-            self.conn.executemany(
-                """
-                UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?
-                """,
-                [(now, h) for h in chunk_hashes],
-            )
+            cursor = self.conn.cursor()
+            for chunk_hash in chunk_hashes:
+                cursor.execute(
+                    "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+                    (now, chunk_hash),
+                )
+                if cursor.rowcount == 0:
+                    raise RuntimeError(
+                        f"Chunk '{chunk_hash}' does not exist"
+                    )
 
     def write_sync_log(self, chunk_hashes: list[str]) -> None:
         """Record insert operations for chunks in an append-only sync log.
@@ -506,11 +520,13 @@ class DocumentStore:
     def get_chunk_by_hash(self, chunk_hash: str) -> Optional[Chunk]:
         """Get a chunk by its hash.
 
+        Only returns non-retired chunks. Retired chunks are not returned.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
 
         Returns:
-            Chunk object, or None if not found.
+            Chunk object, or None if not found or if the chunk is retired.
         """
         cursor = self.conn.cursor()
         cursor.execute(
@@ -518,7 +534,7 @@ class DocumentStore:
             SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
                    domain_metadata
             FROM chunks
-            WHERE chunk_hash = ?
+            WHERE chunk_hash = ? AND retired_at IS NULL
             LIMIT 1
             """,
             (chunk_hash,),
@@ -620,13 +636,21 @@ class DocumentStore:
 
         Args:
             source_id: The source to update.
+
+        Raises:
+            RuntimeError: If the source_id does not exist.
         """
         now = datetime.now(timezone.utc).isoformat()
         with self.conn:
-            self.conn.execute(
+            cursor = self.conn.cursor()
+            cursor.execute(
                 "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
                 (now, source_id),
             )
+            if cursor.rowcount == 0:
+                raise RuntimeError(
+                    f"Source '{source_id}' does not exist"
+                )
 
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log audit trail.
