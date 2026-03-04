@@ -49,16 +49,11 @@ class StorageError(PipelineError):
         self.inconsistent = inconsistent
 
 
-class ValidationError(PipelineError):
-    """Error during data validation."""
+class AllSourcesFailedError(PipelineError):
+    """Error raised when all sources fail during ingestion.
 
-    pass
-
-
-class PartialIngestionError(PipelineError):
-    """Error indicating that all sources failed to ingest.
-
-    This is raised when the pipeline completes but no sources were successfully processed.
+    This exception is raised when the pipeline completes but every single source
+    failed to process successfully (sources_failed > 0 AND sources_processed == 0).
     """
 
     pass

@@ -1070,8 +1070,6 @@ class TestPipelineErrorHandling:
         (temp_markdown_dir / "file2.md").write_text("# MODIFIED\n\nNew content.")
 
         # Mock document store to raise error on write
-        original_write = pipeline.document_store.write_chunks
-
         def mock_write_chunks_error(*args, **kwargs):
             raise RuntimeError("Database write failed")
 
@@ -1114,7 +1112,6 @@ class TestPipelineErrorHandling:
 
         def mock_connect_with_lancedb_failure(path):
             db = original_connect(path)
-            original_add = None
 
             def create_mock_table_with_add_failure(real_table):
                 original_table_add = real_table.add
@@ -1189,9 +1186,9 @@ class TestPipelineErrorHandling:
             with patch.object(
                 pipeline.embedder, "embed", side_effect=mock_embed_always_fails
             ):
-                # Should raise PartialIngestionError because the only source failed
-                from context_library.core.exceptions import PartialIngestionError
-                with pytest.raises(PartialIngestionError):
+                # Should raise AllSourcesFailedError because the only source failed
+                from context_library.core.exceptions import AllSourcesFailedError
+                with pytest.raises(AllSourcesFailedError):
                     pipeline.ingest(single_adapter, domain_chunker)
 
     def test_multiple_source_errors_accumulated(

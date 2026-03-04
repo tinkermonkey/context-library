@@ -9,7 +9,7 @@ import pyarrow as pa
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
-from context_library.core.exceptions import EmbeddingError, StorageError, PartialIngestionError
+from context_library.core.exceptions import EmbeddingError, StorageError, AllSourcesFailedError
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
@@ -98,7 +98,7 @@ class IngestionPipeline:
             - chunks_unchanged: Total chunks that remained unchanged
             - errors: List of error dicts with keys:
                 - source_id: Source that failed
-                - error_type: Type of error (EmbeddingError, StorageError, ValidationError, etc.)
+                - error_type: Type of error (EmbeddingError, StorageError, etc.)
                 - message: Error message
                 - chunk_hash: (Optional) Hash of affected chunk (for EmbeddingError)
                 - chunk_index: (Optional) Index of affected chunk (for EmbeddingError)
@@ -410,7 +410,7 @@ class IngestionPipeline:
 
         # Raise if all sources failed
         if sources_failed > 0 and sources_processed == 0:
-            raise PartialIngestionError(
+            raise AllSourcesFailedError(
                 f"All sources failed to process. {sources_failed} sources had errors. "
                 f"Check errors list for details."
             )
