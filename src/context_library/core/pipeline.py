@@ -10,7 +10,7 @@ from context_library.core.embedder import Embedder
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Chunk, LineageRecord
+from context_library.storage.models import LineageRecord
 
 
 class IngestionPipeline:
@@ -113,12 +113,7 @@ class IngestionPipeline:
             # Case 1: Content unchanged - just update last_fetched_at, skip writes
             if not diff_result.changed:
                 # Update last_fetched_at to track when we last checked this source
-                now = datetime.now(timezone.utc).isoformat()
-                self.document_store.conn.execute(
-                    "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
-                    (now, content.source_id),
-                )
-                self.document_store.conn.commit()
+                self.document_store.update_last_fetched_at(content.source_id)
                 chunks_unchanged_total += len(chunks)
                 continue
 

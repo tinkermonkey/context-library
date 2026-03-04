@@ -581,6 +581,22 @@ class DocumentStore:
             config=config_dict,
         )
 
+    def update_last_fetched_at(self, source_id: str) -> None:
+        """Update the last_fetched_at timestamp for a source.
+
+        Called when a source is re-fetched but has not changed, to track
+        that we have verified its current state.
+
+        Args:
+            source_id: The source to update.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self.conn:
+            self.conn.execute(
+                "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+                (now, source_id),
+            )
+
     def close(self) -> None:
         """Close the database connection.
 
