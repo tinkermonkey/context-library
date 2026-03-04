@@ -1096,7 +1096,7 @@ class TestLineageValidation:
         assert chunk.content == "Test chunk 1"
 
     def test_write_chunks_lineage_mismatch_raises_error(self, store: DocumentStore) -> None:
-        """Test that write_chunks raises error when lineage count doesn't match chunks."""
+        """Test that write_chunks raises error when chunk hash is missing from lineage."""
         source_id, adapter_id, version_id = self._setup_with_version(store)
 
         chunks = [
@@ -1125,9 +1125,8 @@ class TestLineageValidation:
             # Missing lineage for chunk b
         ]
 
-        # Should raise because lineage count (1) doesn't match chunks count (2)
-        import sqlite3
-        with pytest.raises((ValueError, sqlite3.IntegrityError)):
+        # Should raise ValueError because chunk "b"*64 has no corresponding lineage record
+        with pytest.raises(ValueError, match="No lineage record found"):
             store.write_chunks(chunks, lineage)
 
     def test_write_chunks_lineage_with_mismatched_hash_raises_error(
@@ -1156,14 +1155,6 @@ class TestLineageValidation:
             ),
         ]
 
-        # The write should attempt but may fail due to data inconsistency
-        # or may succeed if validation is not strict at write time
-        # We test that the operation is attempted
-        try:
+        # Should raise ValueError because chunk "a"*64 has no corresponding lineage record
+        with pytest.raises(ValueError, match="No lineage record found"):
             store.write_chunks(chunks, lineage)
-            # If it succeeds, verify the data was stored
-            chunk = store.get_chunk_by_hash("a" * 64)
-            assert chunk is not None
-        except (ValueError, Exception):
-            # If it raises (good - strict validation), that's acceptable
-            pass
