@@ -10,6 +10,9 @@ Covers:
 - Version history ordering
 - Chunk retirement
 - Sync log operations
+- Recovery mechanisms for SQLite/LanceDB inconsistency:
+  - get_chunks_pending_sync: retrieves chunks needing insertion in LanceDB
+  - get_chunks_pending_deletion: retrieves chunks needing deletion from LanceDB
 """
 
 import pytest
@@ -1220,3 +1223,600 @@ class TestLineageValidation:
         # Should raise ValueError because chunk "a"*64 has no corresponding lineage record
         with pytest.raises(ValueError, match="No lineage record found"):
             store.write_chunks(chunks, lineage)
+
+
+class TestRecoveryMechanisms:
+    """Tests for recovery methods that handle SQLite/LanceDB inconsistency.
+
+    These methods are critical for recovering from failed sync operations by
+    identifying chunks that need to be re-inserted or deleted in LanceDB.
+    """
+
+    def _setup_recovery_scenario(self, store: DocumentStore) -> tuple[str, str, int]:
+        """Helper to set up adapter, source, and version for recovery testing.
+
+        Returns:
+            Tuple of (source_id, adapter_id, version_id)
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("a"), _make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        return "source-1", "adapter-1", version_id
+
+    def test_get_chunks_pending_sync_single_chunk(self, store: DocumentStore) -> None:
+        """Test retrieving a single chunk pending sync."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Chunk A content",
+            chunk_index=0,
+            chunk_type="standard",
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.write_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_sync()
+
+        assert len(pending) == 1
+        assert pending[0]["chunk_hash"] == _make_hash("a")
+        assert pending[0]["content"] == "Chunk A content"
+        assert pending[0]["source_id"] == source_id
+        assert pending[0]["source_version"] == 1
+        assert "created_at" in pending[0]
+
+    def test_get_chunks_pending_sync_multiple_chunks(self, store: DocumentStore) -> None:
+        """Test retrieving multiple chunks pending sync."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunks = [
+            Chunk(
+                chunk_hash=_make_hash("a"),
+                content="Content A",
+                chunk_index=0,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("b"),
+                content="Content B",
+                chunk_index=1,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("c"),
+                content="Content C",
+                chunk_index=2,
+            ),
+        ]
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=h,
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            for h in [_make_hash("a"), _make_hash("b"), _make_hash("c")]
+        ]
+
+        store.write_chunks(chunks, lineage)
+        store.write_sync_log([_make_hash("a"), _make_hash("b"), _make_hash("c")])
+
+        pending = store.get_chunks_pending_sync()
+
+        assert len(pending) == 3
+        hashes = {p["chunk_hash"] for p in pending}
+        assert hashes == {_make_hash("a"), _make_hash("b"), _make_hash("c")}
+
+    def test_get_chunks_pending_sync_empty_when_no_inserts(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that no chunks are returned when sync log has no insert operations."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content A",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        # Don't write to sync log (no insert operation)
+
+        pending = store.get_chunks_pending_sync()
+
+        assert len(pending) == 0
+
+    def test_get_chunks_pending_sync_ordered_by_synced_at(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that pending chunks are ordered by synced_at ascending."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunks = [
+            Chunk(
+                chunk_hash=_make_hash("a"),
+                content="First",
+                chunk_index=0,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("b"),
+                content="Second",
+                chunk_index=1,
+            ),
+        ]
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=h,
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            for h in [_make_hash("a"), _make_hash("b")]
+        ]
+
+        store.write_chunks(chunks, lineage)
+
+        # Write sync logs in different order to test ordering
+        store.write_sync_log([_make_hash("b")])
+        store.write_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_sync()
+
+        # Should be ordered by synced_at, not insertion order
+        assert len(pending) == 2
+        # Both chunks should be present, in order
+        hashes = [p["chunk_hash"] for p in pending]
+        assert _make_hash("b") in hashes
+        assert _make_hash("a") in hashes
+
+    def test_get_chunks_pending_sync_deduplicates_by_chunk_hash(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that chunks are deduplicated by chunk_hash (GROUP BY).
+
+        When the same chunk_hash exists in multiple rows (different sources/versions),
+        GROUP BY chunk_hash consolidates them to prevent duplicate sync attempts.
+        """
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        # Create another version of the same source
+        version_id_2 = store.create_source_version(
+            source_id=source_id,
+            version=2,
+            markdown="# Content v2 with chunk a again",
+            chunk_hashes=[_make_hash("a")],  # Same chunk hash in different version!
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        # Write the same chunk to both versions
+        chunk_a = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Shared content across versions",
+            chunk_index=0,
+        )
+
+        lineage_1 = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        lineage_2 = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id_2,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        # Write the same chunk to both versions (different source_version)
+        store.write_chunks([chunk_a], [lineage_1])
+        store.write_chunks([chunk_a], [lineage_2])
+
+        # Mark for sync (this updates the same chunk_hash)
+        store.write_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_sync()
+
+        # Should have only one entry despite chunk existing in multiple rows
+        # (one row per source_version due to composite PK)
+        assert len(pending) == 1
+        assert pending[0]["chunk_hash"] == _make_hash("a")
+
+    def test_get_chunks_pending_sync_includes_required_fields(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that returned dicts include all required fields."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Test content",
+            context_header="Context",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.write_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_sync()
+
+        assert len(pending) == 1
+        result = pending[0]
+
+        # Verify all required fields are present
+        required_fields = {
+            "chunk_hash",
+            "content",
+            "domain",
+            "source_id",
+            "source_version",
+            "created_at",
+        }
+        assert set(result.keys()) >= required_fields
+
+    def test_get_chunks_pending_deletion_single_chunk(self, store: DocumentStore) -> None:
+        """Test retrieving a single chunk pending deletion."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="To be deleted",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.delete_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_deletion()
+
+        assert len(pending) == 1
+        assert _make_hash("a") in pending
+
+    def test_get_chunks_pending_deletion_multiple_chunks(
+        self, store: DocumentStore
+    ) -> None:
+        """Test retrieving multiple chunks pending deletion."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunks = [
+            Chunk(
+                chunk_hash=_make_hash("a"),
+                content="Delete A",
+                chunk_index=0,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("b"),
+                content="Delete B",
+                chunk_index=1,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("c"),
+                content="Delete C",
+                chunk_index=2,
+            ),
+        ]
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=h,
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            for h in [_make_hash("a"), _make_hash("b"), _make_hash("c")]
+        ]
+
+        store.write_chunks(chunks, lineage)
+        store.delete_sync_log(
+            [_make_hash("a"), _make_hash("b"), _make_hash("c")]
+        )
+
+        pending = store.get_chunks_pending_deletion()
+
+        assert len(pending) == 3
+        assert set(pending) == {_make_hash("a"), _make_hash("b"), _make_hash("c")}
+
+    def test_get_chunks_pending_deletion_empty_when_no_deletes(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that no chunks are returned when sync log has no delete operations."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Keep this",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        # Don't write delete to sync log
+
+        pending = store.get_chunks_pending_deletion()
+
+        assert len(pending) == 0
+
+    def test_get_chunks_pending_deletion_ordered_by_synced_at(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that pending deletions are ordered by synced_at ascending."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunks = [
+            Chunk(
+                chunk_hash=_make_hash("a"),
+                content="First",
+                chunk_index=0,
+            ),
+            Chunk(
+                chunk_hash=_make_hash("b"),
+                content="Second",
+                chunk_index=1,
+            ),
+        ]
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=h,
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            for h in [_make_hash("a"), _make_hash("b")]
+        ]
+
+        store.write_chunks(chunks, lineage)
+
+        # Record deletes in different order
+        store.delete_sync_log([_make_hash("b")])
+        store.delete_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_deletion()
+
+        # Should be ordered by synced_at
+        assert len(pending) == 2
+        assert _make_hash("a") in pending
+        assert _make_hash("b") in pending
+
+    def test_get_chunks_pending_deletion_returns_chunk_hash_strings(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that returned values are chunk hash strings, not dicts or objects."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Test",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.delete_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_deletion()
+
+        assert len(pending) == 1
+        assert isinstance(pending[0], str)
+        assert pending[0] == _make_hash("a")
+
+    def test_both_insert_and_delete_operations_on_same_chunk(
+        self, store: DocumentStore
+    ) -> None:
+        """Test recovery when sync log has both insert and delete for same chunk.
+
+        The UNIQUE (chunk_hash, operation) constraint allows a chunk to have
+        both an 'insert' and a 'delete' row simultaneously, representing
+        a case where one failed and needs retry while the other is pending.
+        """
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Chunk with dual state",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+
+        # Record both insert and delete for same chunk
+        store.write_sync_log([_make_hash("a")])
+        store.delete_sync_log([_make_hash("a")])
+
+        # Both methods should return the chunk
+        pending_syncs = store.get_chunks_pending_sync()
+        pending_deletes = store.get_chunks_pending_deletion()
+
+        assert len(pending_syncs) == 1
+        assert pending_syncs[0]["chunk_hash"] == _make_hash("a")
+
+        assert len(pending_deletes) == 1
+        assert _make_hash("a") in pending_deletes
+
+    def test_get_chunks_pending_sync_inner_join_prevents_orphaned_sync_logs(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that INNER JOIN filters out orphaned sync log entries.
+
+        If a chunk is deleted from the chunks table but a sync log entry remains,
+        get_chunks_pending_sync should not return it (INNER JOIN enforces chunks exist).
+        """
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Will be deleted",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.write_sync_log([_make_hash("a")])
+
+        # Manually delete the chunk from chunks table (simulating orphaned sync log)
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "DELETE FROM chunks WHERE chunk_hash = ?",
+            (_make_hash("a"),),
+        )
+
+        # get_chunks_pending_sync should NOT return it due to INNER JOIN
+        pending = store.get_chunks_pending_sync()
+        assert len(pending) == 0
+
+    def test_get_chunks_pending_sync_returns_correct_content_fields(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that returned content and metadata fields are correct and not corrupted."""
+        source_id, adapter_id, version_id = self._setup_recovery_scenario(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="This is the actual content\nWith multiple lines\nAnd special chars: !@#$%^&*()",
+            context_header="Section Header",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.MESSAGES,
+            normalizer_version="2.0.0",
+            embedding_model_id="test-model-v2",
+        )
+
+        store.write_chunks([chunk], [lineage])
+        store.write_sync_log([_make_hash("a")])
+
+        pending = store.get_chunks_pending_sync()
+
+        assert len(pending) == 1
+        result = pending[0]
+
+        # Verify exact content preservation
+        assert result["content"] == "This is the actual content\nWith multiple lines\nAnd special chars: !@#$%^&*()"
+        assert result["domain"] == Domain.MESSAGES.value
+        assert result["source_id"] == source_id
+        assert result["source_version"] == 1
