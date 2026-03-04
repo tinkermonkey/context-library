@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import lancedb
+import pyarrow as pa
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
@@ -205,7 +206,18 @@ class IngestionPipeline:
                 else:
                     # Use embedder's actual dimension for table schema
                     embedding_dim = get_embedding_dimension(self.embedder)
-                    db.create_table("chunk_vectors", data=chunk_vector_dicts)
+
+                    # Build schema with explicit vector dimension
+                    schema = pa.schema([
+                        ("chunk_hash", pa.string()),
+                        ("content", pa.string()),
+                        ("vector", pa.list_(pa.float32(), embedding_dim)),
+                        ("domain", pa.string()),
+                        ("source_id", pa.string()),
+                        ("source_version", pa.int32()),
+                        ("created_at", pa.string()),
+                    ])
+                    db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
 
             # Retire removed chunks
             if diff_result.removed_hashes:

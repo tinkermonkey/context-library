@@ -19,51 +19,64 @@ from context_library.storage.validators import (
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
 
 
-def get_embedding_dimension(embedder: Embedder | None = None) -> int:
-    """Get the embedding dimension from the embedder or default embedder.
+def get_embedding_dimension(embedder: Embedder) -> int:
+    """Get the embedding dimension from the embedder.
 
     Args:
-        embedder: Optional Embedder instance. If None, creates a default Embedder.
+        embedder: Embedder instance to query for dimension.
 
     Returns:
         The embedding dimension as an integer.
     """
-    if embedder is None:
-        embedder = Embedder()
     return embedder.dimension
 
 
-class ChunkVector(LanceModel):
-    """Schema for the LanceDB chunk_vectors table.
+def make_chunk_vector_schema(embedding_dim: int) -> type[LanceModel]:
+    """Factory function to create a ChunkVector schema with the specified embedding dimension.
 
-    chunk_hash is the join key to the SQLite chunks table.
-    LanceDB is derived and disposable; it can be fully rebuilt from SQLite.
-    Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
+    This factory allows the vector dimension to be driven by the configured embedding model,
+    not hardcoded as a compile-time constant. Each configured embedder dimension gets its own
+    schema class.
+
+    Args:
+        embedding_dim: The embedding dimension to use for the Vector field.
+
+    Returns:
+        A LanceModel class with the specified vector dimension.
     """
+    class ChunkVector(LanceModel):
+        """Schema for the LanceDB chunk_vectors table.
 
-    model_config = ConfigDict(frozen=True)
-
-    chunk_hash: str              # join key to SQLite chunks table
-    content: str                 # denormalized for reranker access without SQLite lookup
-    vector: Vector(384)  # type: ignore[valid-type]  # fixed-size embedding vector (float32 optimized storage)
-    domain: Domain               # supports filtered vector search by domain
-    source_id: str               # supports filtered vector search by source
-    source_version: int          # supports filtered vector search by version
-    created_at: str              # ISO 8601 timestamp
-
-    @field_validator("vector", mode="before")
-    @classmethod
-    def validate_vector(cls, value: Sequence[float]) -> Sequence[float]:
-        """Validate that vector has correct dimension and no NaN/infinity values.
-
-        NaN and infinity corrupt similarity calculations in LanceDB.
+        chunk_hash is the join key to the SQLite chunks table.
+        LanceDB is derived and disposable; it can be fully rebuilt from SQLite.
+        Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
         """
-        validate_embedding_dimension(value)
-        return value
 
-    @field_validator("created_at")
-    @classmethod
-    def validate_created_at(cls, value: str) -> str:
-        """Validate that created_at is a valid ISO 8601 timestamp."""
-        validate_iso8601_timestamp(value)
-        return value
+        model_config = ConfigDict(frozen=True)
+
+        chunk_hash: str              # join key to SQLite chunks table
+        content: str                 # denormalized for reranker access without SQLite lookup
+        vector: Vector(embedding_dim)  # type: ignore[valid-type]  # embedding vector with model-driven dimension
+        domain: Domain               # supports filtered vector search by domain
+        source_id: str               # supports filtered vector search by source
+        source_version: int          # supports filtered vector search by version
+        created_at: str              # ISO 8601 timestamp
+
+        @field_validator("vector", mode="before")
+        @classmethod
+        def validate_vector(cls, value: Sequence[float]) -> Sequence[float]:
+            """Validate that vector has correct dimension and no NaN/infinity values.
+
+            NaN and infinity corrupt similarity calculations in LanceDB.
+            """
+            validate_embedding_dimension(value, embedding_dim)
+            return value
+
+        @field_validator("created_at")
+        @classmethod
+        def validate_created_at(cls, value: str) -> str:
+            """Validate that created_at is a valid ISO 8601 timestamp."""
+            validate_iso8601_timestamp(value)
+            return value
+
+    return ChunkVector
