@@ -50,7 +50,14 @@ class Embedder:
 
         Returns:
             List of embedding vectors, each as a list of floats.
+
+        Raises:
+            ValueError: If texts is empty or contains only empty strings.
         """
+        if not texts:
+            raise ValueError("Cannot embed empty list of texts")
+        if all(not text or not text.strip() for text in texts):
+            raise ValueError("Cannot embed list containing only empty or whitespace-only strings")
         embeddings = self._model.encode(texts, convert_to_numpy=True)
         return cast(list[list[float]], embeddings.tolist())
 
@@ -64,6 +71,11 @@ class Embedder:
 
         Returns:
             A single embedding vector as a list of floats.
+
+        Raises:
+            ValueError: If query is empty or contains only whitespace.
         """
+        if not query or not query.strip():
+            raise ValueError("Cannot embed empty or whitespace-only query")
         embedding = self._model.encode(query, convert_to_numpy=True)
         return cast(list[float], embedding.tolist())

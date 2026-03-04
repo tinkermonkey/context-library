@@ -98,3 +98,39 @@ class TestEmbedder:
 
         # Both embeddings should be identical
         assert embedding1 == embedding2
+
+    def test_embed_empty_list_raises_error(self, embedder):
+        """Test that embed() raises ValueError for empty list."""
+        with pytest.raises(ValueError, match="Cannot embed empty list of texts"):
+            embedder.embed([])
+
+    def test_embed_all_empty_strings_raises_error(self, embedder):
+        """Test that embed() raises ValueError when all texts are empty strings."""
+        with pytest.raises(ValueError, match="Cannot embed list containing only empty or whitespace-only strings"):
+            embedder.embed(["", ""])
+
+    def test_embed_all_whitespace_strings_raises_error(self, embedder):
+        """Test that embed() raises ValueError when all texts are whitespace-only."""
+        with pytest.raises(ValueError, match="Cannot embed list containing only empty or whitespace-only strings"):
+            embedder.embed(["   ", "\t", "\n"])
+
+    def test_embed_mixed_content_with_some_empty_works(self, embedder):
+        """Test that embed() works when at least one text is non-empty."""
+        texts = ["Valid text", "", "Another valid text"]
+        embeddings = embedder.embed(texts)
+        assert len(embeddings) == 3
+
+    def test_embed_query_empty_string_raises_error(self, embedder):
+        """Test that embed_query() raises ValueError for empty string."""
+        with pytest.raises(ValueError, match="Cannot embed empty or whitespace-only query"):
+            embedder.embed_query("")
+
+    def test_embed_query_whitespace_only_raises_error(self, embedder):
+        """Test that embed_query() raises ValueError for whitespace-only query."""
+        with pytest.raises(ValueError, match="Cannot embed empty or whitespace-only query"):
+            embedder.embed_query("   ")
+
+    def test_embed_query_whitespace_tabs_raises_error(self, embedder):
+        """Test that embed_query() raises ValueError for tabs and newlines."""
+        with pytest.raises(ValueError, match="Cannot embed empty or whitespace-only query"):
+            embedder.embed_query("\t\n\t")
