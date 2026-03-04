@@ -25,7 +25,7 @@ def retrieve(
         query: The search query text to embed and search for
         embedder: Embedder instance for converting query to vector
         lance_db_path: Path to the LanceDB database directory
-        document_store: DocumentStore for potential future metadata lookups
+        document_store: DocumentStore instance (required by interface contract)
         top_k: Maximum number of results to return (default: 10)
 
     Returns:

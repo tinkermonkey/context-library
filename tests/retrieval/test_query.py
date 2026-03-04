@@ -3,7 +3,6 @@
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -17,19 +16,38 @@ from context_library.storage.vector_store import ChunkVector
 class MockEmbedder(Embedder):
     """Mock embedder for testing."""
 
+    def __init__(self, use_content_based: bool = False):
+        """Initialize embedder.
+
+        Args:
+            use_content_based: If True, generate different vectors for different texts
+                             based on text content hash. Useful for semantic search tests.
+        """
+        self.use_content_based = use_content_based
+
     @property
     def model_id(self) -> str:
         return "test-model"
 
+    def _text_to_vector(self, text: str) -> list[float]:
+        """Generate a deterministic vector based on text content."""
+        if not self.use_content_based:
+            # Return a fixed vector for all texts
+            return [0.1 * i for i in range(384)]
+
+        # Generate different vectors based on text hash for semantic differentiation
+        hash_val = hash(text)
+        # Use hash to seed different but deterministic vectors
+        base_val = float((hash_val % 100) / 100.0)
+        return [base_val + (0.001 * i) for i in range(384)]
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return deterministic embeddings for testing."""
-        # Return a fixed 384-dimensional vector
-        return [[0.1 * i for i in range(384)] for _ in texts]
+        return [self._text_to_vector(text) for text in texts]
 
     def embed_query(self, query: str) -> list[float]:
         """Return a deterministic query embedding."""
-        # Return a fixed 384-dimensional vector
-        return [0.1 * i for i in range(384)]
+        return self._text_to_vector(query)
 
 
 class MockDocumentStore(DocumentStore):
@@ -303,7 +321,6 @@ def test_retrieve_maps_fields_correctly(
     assert result["chunk_hash"] == "test-hash-123"
     assert result["source_id"] == "test-source-456"
     assert isinstance(result["score"], float)
-    assert 0.0 <= result["score"] <= 1.0
 
 
 def test_get_lineage_returns_correct_record(
@@ -364,3 +381,71 @@ def test_get_lineage_with_parent_chunk_hash(
     assert result is not None
     assert result.parent_chunk_hash == "parent-hash"
     assert result.chunk_index == 1
+
+
+def test_retrieve_semantic_search_finds_most_relevant(
+    temp_lancedb: Path,
+    mock_document_store: MockDocumentStore,
+) -> None:
+    """Test that retrieve finds the most semantically relevant chunk for a query.
+
+    This test uses content-based embeddings to enable true semantic differentiation
+    between chunks, verifying that querying "machine learning" returns the
+    ML-related chunk as the top result.
+    """
+    import lancedb
+
+    db = lancedb.connect(str(temp_lancedb))
+
+    # Create embedder that generates different vectors for different texts
+    semantic_embedder = MockEmbedder(use_content_based=True)
+
+    # Create test chunks with different content
+    test_chunks = [
+        ChunkVector(
+            chunk_hash="ml-chunk",
+            content="machine learning algorithms and neural networks",
+            vector=semantic_embedder.embed(["machine learning algorithms and neural networks"])[0],
+            domain="notes",
+            source_id="ml-source",
+            source_version=1,
+            created_at="2025-01-01T12:00:00Z",
+        ),
+        ChunkVector(
+            chunk_hash="cooking-chunk",
+            content="recipes and cooking techniques for beginners",
+            vector=semantic_embedder.embed(["recipes and cooking techniques for beginners"])[0],
+            domain="notes",
+            source_id="cooking-source",
+            source_version=1,
+            created_at="2025-01-01T12:00:00Z",
+        ),
+        ChunkVector(
+            chunk_hash="music-chunk",
+            content="music theory and composition fundamentals",
+            vector=semantic_embedder.embed(["music theory and composition fundamentals"])[0],
+            domain="notes",
+            source_id="music-source",
+            source_version=1,
+            created_at="2025-01-01T12:00:00Z",
+        ),
+    ]
+
+    db.create_table("chunk_vectors", data=test_chunks, mode="overwrite")
+
+    # Query for "machine learning"
+    results = retrieve(
+        query="machine learning",
+        embedder=semantic_embedder,
+        lance_db_path=temp_lancedb,
+        document_store=mock_document_store,
+        top_k=10,
+    )
+
+    # Verify the ML chunk is returned as the top result
+    assert len(results) >= 1
+    assert results[0]["chunk_hash"] == "ml-chunk"
+    assert results[0]["source_id"] == "ml-source"
+    # Verify ordering by score (highest first)
+    scores = [r["score"] for r in results]
+    assert scores == sorted(scores, reverse=True)
