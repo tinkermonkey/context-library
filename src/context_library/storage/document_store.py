@@ -720,9 +720,11 @@ class DocumentStore:
         """Get all chunk hashes with 'delete' operations in the sync log.
 
         Queries the sync log for all chunks with 'delete' operations recorded. The sync log
-        uses last-write-wins semantics (UNIQUE constraint + INSERT OR REPLACE), so only the
-        most recent operation for each chunk_hash is reflected. Use this method to complete
-        LanceDB deletion if a delete operation failed.
+        uses INSERT OR REPLACE with a UNIQUE (chunk_hash, operation) constraint, so repeated
+        deletes of the same chunk overwrite the previous delete entry (last-write-wins within
+        each operation type). A chunk_hash may have both an 'insert' and 'delete' row
+        simultaneously. Use this method to complete LanceDB deletion if a delete operation
+        failed.
 
         Returns:
             List of chunk hashes to delete from LanceDB
