@@ -1,7 +1,5 @@
 """Computes diffs between normalized content versions to detect real changes."""
 
-import hashlib
-
 from context_library.storage.models import DiffResult, compute_chunk_hash
 
 

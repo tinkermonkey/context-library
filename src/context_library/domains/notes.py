@@ -55,7 +55,7 @@ class NotesDomain(BaseDomain):
         5. Generate context headers as heading breadcrumb paths
         6. Respect soft/hard token limits with paragraph-boundary splitting
         7. Compute chunk_hash from normalized content (excluding context header)
-        8. Prepend context header to content field
+        8. Store context header separately from content in Chunk model
         9. Assign sequential chunk_index values
 
         Args:
