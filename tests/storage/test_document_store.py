@@ -69,6 +69,14 @@ class TestDocumentStoreInit:
         # In-memory databases use "memory" mode, file-based use "wal"
         assert mode in ("wal", "memory")
 
+    def test_synchronous_normal_enabled(self) -> None:
+        """Test that synchronous=NORMAL is enforced (value 1 per FR-2.2)."""
+        store = DocumentStore(":memory:")
+        cursor = store.conn.cursor()
+        cursor.execute("PRAGMA synchronous")
+        synchronous = cursor.fetchone()[0]
+        assert synchronous == 1
+
     def test_foreign_keys_enabled(self) -> None:
         """Test that foreign key enforcement is enabled."""
         store = DocumentStore(":memory:")

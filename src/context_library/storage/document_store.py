@@ -49,8 +49,9 @@ class DocumentStore:
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
 
-        # Re-enable foreign key constraints after executescript
-        # (executescript can reset connection state)
+        # Re-apply critical PRAGMAs after executescript
+        # (executescript can reset connection state in some SQLite versions)
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
 
         # Verify foreign keys are enforced
@@ -60,6 +61,14 @@ class DocumentStore:
         if foreign_keys_enabled != 1:
             raise RuntimeError(
                 "Failed to enable foreign key constraints"
+            )
+
+        # Verify synchronous mode is NORMAL (value 1)
+        cursor.execute("PRAGMA synchronous")
+        synchronous_mode = cursor.fetchone()[0]
+        if synchronous_mode != 1:
+            raise RuntimeError(
+                f"Failed to set synchronous=NORMAL (expected 1, got {synchronous_mode})"
             )
 
         # Verify schema version
