@@ -32,7 +32,7 @@ class ChunkVector(LanceModel):
     chunk_hash: str              # join key to SQLite chunks table
     content: str                 # denormalized for reranker access without SQLite lookup
     vector: Vector(EMBEDDING_DIM)  # type: ignore[valid-type]  # fixed-size embedding vector (float32 optimized storage)
-    domain: Domain               # supports filtered vector search by domain
+    domain: str                  # domain type as string (messages|notes|events|tasks)
     source_id: str               # supports filtered vector search by source
     source_version: int          # supports filtered vector search by version
     created_at: str              # ISO 8601 timestamp
