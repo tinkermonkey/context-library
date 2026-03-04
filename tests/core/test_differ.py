@@ -1,6 +1,8 @@
 """Tests for the differ module."""
 
 
+import pytest
+
 from context_library.core.differ import Differ
 
 
@@ -326,3 +328,52 @@ class TestDifferEdgeCases:
         assert len(result.unchanged_hashes) == 1000
         assert len(result.removed_hashes) == 100
         assert len(result.added_hashes) == 0
+
+
+class TestDifferErrorHandling:
+    """Test error handling for invalid inputs."""
+
+    def test_diff_with_prev_markdown_but_no_prev_chunk_hashes_raises_error(self):
+        """Test that providing prev_markdown without prev_chunk_hashes raises ValueError.
+
+        This enforces the invariant that if content has changed, we must know
+        the previous chunk hashes to compute the diff correctly.
+        """
+        differ = Differ()
+        prev_markdown = "# Document\n\nContent."
+        curr_markdown = "# Document\n\nNew content."
+        curr_chunk_hashes = {
+            "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        }
+
+        with pytest.raises(ValueError, match="prev_chunk_hashes must not be None"):
+            differ.diff(
+                prev_markdown=prev_markdown,
+                curr_markdown=curr_markdown,
+                prev_chunk_hashes=None,  # Missing but prev_markdown is provided
+                curr_chunk_hashes=curr_chunk_hashes,
+            )
+
+    def test_diff_error_only_triggers_when_content_changed(self):
+        """Test that error only occurs when content has actually changed.
+
+        If prev_markdown and curr_markdown are identical (after normalization),
+        prev_chunk_hashes=None should not cause an error since we don't need to
+        compute diff operations.
+        """
+        differ = Differ()
+        markdown = "# Document\n\nContent."
+        curr_chunk_hashes = {
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
+        }
+
+        # Should not raise because content is unchanged
+        result = differ.diff(
+            prev_markdown=markdown,
+            curr_markdown=markdown,
+            prev_chunk_hashes=None,  # None is allowed when content unchanged
+            curr_chunk_hashes=curr_chunk_hashes,
+        )
+
+        assert result.changed is False
+        assert result.unchanged_hashes == curr_chunk_hashes

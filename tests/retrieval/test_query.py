@@ -119,7 +119,7 @@ class TestRetrieve:
             source_id="source_1",
             version=1,
             markdown="# Content",
-            chunk_hashes=["hash1", "hash2"],
+            chunk_hashes=["a" * 64, "b" * 64],
             adapter_id="test-adapter",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -726,3 +726,69 @@ class TestRetrieve:
         # Verify that the original exception type (TypeError) is mentioned in the message
         assert "TypeError" in str(exc_info.value)
         assert "Invalid filter type" in str(exc_info.value)
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_missing_distance_field_raises_error(
+        self, mock_connect, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that retrieve() raises RuntimeError when _distance field is missing from search result."""
+        # Set up document store
+        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+
+        # Return search result without _distance field
+        search_results = [
+            {
+                "chunk_hash": _make_hash("a"),
+                # Missing _distance field
+            },
+        ]
+        mock_search.limit.return_value.to_list.return_value = search_results
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        with pytest.raises(RuntimeError, match="Missing _distance field"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_non_numeric_distance_raises_error(
+        self, mock_connect, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that retrieve() raises RuntimeError when _distance is not numeric."""
+        # Set up document store
+        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+
+        # Return search result with non-numeric _distance
+        search_results = [
+            {
+                "chunk_hash": _make_hash("a"),
+                "_distance": "not_a_number",  # Invalid: should be numeric
+            },
+        ]
+        mock_search.limit.return_value.to_list.return_value = search_results
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        with pytest.raises(RuntimeError, match="Invalid _distance type"):
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )

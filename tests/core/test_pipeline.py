@@ -610,3 +610,225 @@ class TestFixtureIntegration:
             assert "source_id" in result, "Result must contain 'source_id' field"
             # LanceDB returns similarity as "_distance" for vector search
             assert "_distance" in result, "Result must contain '_distance' score field"
+
+
+class TestPipelineEmbeddingValidation:
+    """Tests for embedding dimension validation in the pipeline."""
+
+    def test_pipeline_embedding_validation_failure_logs_error(
+        self, pipeline, temp_markdown_dir, domain_chunker, caplog
+    ):
+        """Test that pipeline logs error when embedding dimension validation fails.
+
+        The pipeline catches validation errors and logs them per-source while
+        continuing with other sources, per the error isolation design.
+        """
+        from unittest.mock import patch
+        import logging
+
+        caplog.set_level(logging.ERROR)
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate the store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify content to trigger re-ingest with added chunks
+        (temp_markdown_dir / "file1.md").write_text("# NEW CONTENT\n\nThis is completely different.")
+
+        # Mock the embedder to return invalid dimension embeddings
+        def mock_embed_invalid_dimension(texts):
+            return [[0.1] * 100 for _ in texts]
+
+        with patch.object(
+            pipeline.embedder, "embed", side_effect=mock_embed_invalid_dimension
+        ):
+            # Pipeline catches errors and logs them, doesn't raise
+            result = pipeline.ingest(adapter, domain_chunker)
+            # Source processing was attempted but failed, so not counted in success
+            assert "Error processing source 'file1.md'" in caplog.text
+
+    def test_pipeline_embedding_validation_with_nan_logs_error(
+        self, pipeline, temp_markdown_dir, domain_chunker, caplog
+    ):
+        """Test that pipeline logs error when embedding contains NaN values."""
+        from unittest.mock import patch
+        import logging
+
+        caplog.set_level(logging.ERROR)
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate the store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify content to trigger re-ingest with added chunks
+        (temp_markdown_dir / "file1.md").write_text("# MODIFIED CONTENT\n\nNew content here.")
+
+        # Mock the embedder to return embeddings with NaN
+        def create_embeddings_with_nan(texts):
+            embeddings = [[0.1] * 384 for _ in texts]
+            embeddings[0][100] = float("nan")
+            return embeddings
+
+        with patch.object(
+            pipeline.embedder, "embed", side_effect=create_embeddings_with_nan
+        ):
+            result = pipeline.ingest(adapter, domain_chunker)
+            # Error should be logged
+            assert "Error processing source" in caplog.text or "non-finite" in caplog.text
+
+    def test_pipeline_embedding_validation_with_infinity_logs_error(
+        self, pipeline, temp_markdown_dir, domain_chunker, caplog
+    ):
+        """Test that pipeline logs error when embedding contains infinity values."""
+        from unittest.mock import patch
+        import logging
+
+        caplog.set_level(logging.ERROR)
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate the store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify content to trigger re-ingest with added chunks
+        (temp_markdown_dir / "file1.md").write_text("# DIFFERENT CONTENT\n\nAnother change here.")
+
+        # Mock the embedder to return embeddings with infinity
+        def create_embeddings_with_inf(texts):
+            embeddings = [[0.1] * 384 for _ in texts]
+            embeddings[0][50] = float("inf")
+            return embeddings
+
+        with patch.object(
+            pipeline.embedder, "embed", side_effect=create_embeddings_with_inf
+        ):
+            result = pipeline.ingest(adapter, domain_chunker)
+            # Error should be logged
+            assert "Error processing source" in caplog.text or "non-finite" in caplog.text
+
+
+class TestEndToEndIngestReIngestRetrieval:
+    """End-to-end integration test for complete pipeline: Ingest → Re-ingest → Retrieval.
+
+    This test exercises the full lifecycle of the ingestion system:
+    1. Initial ingest of markdown documents
+    2. Re-ingest with content modifications
+    3. Semantic retrieval to verify consistency
+    """
+
+    def test_complete_ingest_reingest_retrieval_cycle(
+        self, temp_markdown_dir, pipeline, domain_chunker
+    ):
+        """Test complete cycle: ingest → modify → re-ingest → retrieve.
+
+        Verifies:
+        - First ingest creates chunks and vectors
+        - Re-ingest detects changes and updates versions
+        - Retrieval returns correct results from updated store
+        - Chunk consistency between SQLite and LanceDB is maintained
+        """
+        from context_library.retrieval.query import retrieve
+
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # Phase 1: Initial Ingest
+        result_first = pipeline.ingest(adapter, domain_chunker)
+        assert result_first["sources_processed"] > 0, "Should process sources on first ingest"
+        assert result_first["chunks_added"] > 0, "Should add chunks on first ingest"
+        assert result_first["chunks_removed"] == 0, "Should not remove chunks on first ingest"
+
+        # Verify chunks were written to both stores
+        cursor = pipeline.document_store.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM chunks WHERE retired_at IS NULL")
+        chunks_in_sqlite_phase1 = cursor.fetchone()[0]
+        assert chunks_in_sqlite_phase1 == result_first["chunks_added"]
+
+        # Verify vectors were written to LanceDB
+        db = lancedb.connect(str(pipeline.vector_store_path))
+        table = db.open_table("chunk_vectors")
+        vectors_in_lancedb_phase1 = table.count_rows()
+        assert vectors_in_lancedb_phase1 == result_first["chunks_added"]
+
+        # Store version info from phase 1
+        versions_phase1 = pipeline.document_store.get_version_history("file1.md")
+        assert len(versions_phase1) == 1
+        assert versions_phase1[0].version == 1
+
+        # Phase 2: Modify content and Re-ingest
+        (temp_markdown_dir / "file1.md").write_text(
+            """# File 1 - Updated
+
+This is the first file with SUBSTANTIALLY modified content.
+
+## New Section
+
+This is entirely new content that should generate new chunks.
+
+## Another New Section
+
+More new content here."""
+        )
+
+        result_second = pipeline.ingest(adapter, domain_chunker)
+        assert result_second["sources_processed"] > 0, "Should process sources on re-ingest"
+        assert result_second["chunks_added"] > 0, "Should add new chunks due to modifications"
+        assert result_second["chunks_removed"] > 0, "Should remove old chunks that were replaced"
+
+        # Verify version was incremented
+        versions_phase2 = pipeline.document_store.get_version_history("file1.md")
+        assert len(versions_phase2) == 2, "Should have 2 versions after modification"
+        assert versions_phase2[1].version == 2
+
+        # Verify chunk state in SQLite after re-ingest
+        cursor.execute("SELECT COUNT(*) FROM chunks WHERE retired_at IS NULL")
+        chunks_in_sqlite_phase2 = cursor.fetchone()[0]
+        # Active chunks = old (many retired) + new added
+        assert chunks_in_sqlite_phase2 >= result_second["chunks_added"]
+
+        # Verify retired chunks are marked
+        cursor.execute("SELECT COUNT(*) FROM chunks WHERE retired_at IS NOT NULL")
+        retired_chunks = cursor.fetchone()[0]
+        assert retired_chunks == result_second["chunks_removed"]
+
+        # Phase 3: Verify retrieval works with updated store
+        # Query for content that should exist in modified version
+        query = "File 1 new section"
+        results = retrieve(
+            query,
+            pipeline.embedder,
+            pipeline.document_store,
+            vector_store_path=pipeline.vector_store_path,
+            top_k=5,
+        )
+
+        # Verify retrieval returns results
+        assert len(results) > 0, "Should retrieve results from modified content"
+
+        # Verify all returned chunks are from active (non-retired) versions
+        for result in results:
+            chunk = pipeline.document_store.get_chunk_by_hash(result.chunk.chunk_hash)
+            assert chunk is not None, f"Retrieved chunk {result.chunk.chunk_hash} should exist"
+            assert chunk.retired_at is None, f"Retrieved chunk should not be retired"
+
+        # Verify consistency: chunks returned by retrieval should have lineage
+        for result in results:
+            lineage = pipeline.document_store.get_lineage(result.chunk.chunk_hash)
+            assert lineage is not None, "Retrieved chunk should have lineage record"
+            assert lineage.source_id == "file1.md", "Lineage should reference correct source"
+
+        # Phase 4: Verify store consistency (no orphaned records)
+        # Count total chunks (active + retired)
+        cursor.execute("SELECT COUNT(*) FROM chunks")
+        total_chunks_phase2 = cursor.fetchone()[0]
+
+        # Count total LanceDB vectors (should only include active chunks)
+        db = lancedb.connect(str(pipeline.vector_store_path))
+        table = db.open_table("chunk_vectors")
+        vectors_in_lancedb_phase2 = table.count_rows()
+
+        # Every vector in LanceDB should correspond to an active chunk
+        assert vectors_in_lancedb_phase2 <= chunks_in_sqlite_phase2, \
+            "LanceDB vectors should not exceed active chunks"
+
+        # Summary of complete lifecycle
+        assert result_first["sources_processed"] + result_second["sources_processed"] > 0
+        assert result_first["chunks_added"] + result_second["chunks_added"] > 0
