@@ -1146,7 +1146,7 @@ class TestPipelineErrorHandling:
             error = result["errors"][0]
             assert error["error_type"] == "StorageError"
             assert error["store_type"] == "lancedb"
-            assert error["inconsistent"] == True
+            assert error["inconsistent"]
 
             # Store consistency should show inconsistency
             source_id = error["source_id"]
