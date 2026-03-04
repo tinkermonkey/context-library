@@ -4,12 +4,15 @@ Enables retrieval of relevant chunks from the vector store via nearest-neighbor 
 Integrates vector similarity with lineage lookup for full provenance tracing.
 """
 
+import logging
 import re
 from pathlib import Path
 from typing import Optional
 
 import lancedb
 from pydantic import BaseModel, ConfigDict
+
+_logger = logging.getLogger(__name__)
 
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
@@ -84,9 +87,12 @@ def retrieve(
         List of RetrievalResult objects ranked by similarity score (highest first).
 
     Raises:
-        ValueError: If top_k <= 0 or if vector store is empty/uninitialized.
+        ValueError: If top_k <= 0, if query is empty/whitespace, or if vector store is empty/uninitialized.
         RuntimeError: If LanceDB connection fails or vector table is missing.
     """
+    if not query or not query.strip():
+        raise ValueError("query must be a non-empty string")
+
     if top_k <= 0:
         raise ValueError(f"top_k must be positive, got {top_k}")
 
@@ -114,9 +120,13 @@ def retrieve(
 
     try:
         table = db.open_table("chunk_vectors")
-    except Exception as e:
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
+        # FileNotFoundError: vector store path doesn't exist
+        # ValueError: table doesn't exist in LanceDB
+        # RuntimeError: LanceDB internal errors
+        # OSError: permission or I/O errors
         raise RuntimeError(
-            f"Failed to open chunk_vectors table in LanceDB at {vector_store_path}: {e}"
+            f"Failed to open chunk_vectors table in LanceDB at {vector_store_path}: {type(e).__name__}: {e}"
         ) from e
 
     # Build the search query with optional filters
@@ -141,8 +151,11 @@ def retrieve(
     # Execute search and get top_k results
     try:
         search_results = search_query.limit(top_k).to_list()
-    except Exception as e:
-        raise RuntimeError(f"Vector search failed: {e}") from e
+    except (ValueError, RuntimeError, TypeError) as e:
+        # ValueError: invalid filter expression or top_k value
+        # RuntimeError: LanceDB query execution errors
+        # TypeError: type mismatch in filter conditions
+        raise RuntimeError(f"Vector search failed: {type(e).__name__}: {e}") from e
 
     if not search_results:
         return []
@@ -177,13 +190,23 @@ def retrieve(
         # Retrieve full chunk from SQLite
         chunk = document_store.get_chunk_by_hash(chunk_hash)
         if chunk is None:
-            # Skip chunks that don't exist in SQLite (shouldn't happen)
+            # Chunk exists in LanceDB but not in SQLite - indicates store desynchronization
+            _logger.warning(
+                "Store inconsistency: chunk_hash=%s exists in LanceDB but not in SQLite. "
+                "This indicates desynchronization between vector store and document store.",
+                chunk_hash,
+            )
             continue
 
         # Retrieve lineage from SQLite
         lineage = document_store.get_lineage(chunk_hash)
         if lineage is None:
-            # Skip chunks without lineage (shouldn't happen)
+            # Lineage missing despite chunk existing - indicates store desynchronization
+            _logger.warning(
+                "Store inconsistency: chunk_hash=%s has no lineage record in SQLite. "
+                "Chunk exists but provenance information is missing.",
+                chunk_hash,
+            )
             continue
 
         results.append(RetrievalResult(chunk=chunk, lineage=lineage, similarity_score=similarity_score))

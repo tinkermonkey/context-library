@@ -155,7 +155,8 @@ class TestRetrieve:
     ) -> None:
         """Test that retrieve() raises RuntimeError when vector table is missing."""
         mock_db = MagicMock()
-        mock_db.open_table.side_effect = Exception("Table not found")
+        # Use ValueError which is one of the caught exceptions
+        mock_db.open_table.side_effect = ValueError("Table not found")
         mock_connect.return_value = mock_db
 
         with pytest.raises(RuntimeError, match="Failed to open chunk_vectors table"):
@@ -556,3 +557,172 @@ class TestRetrieve:
         assert len(results) == 3
         # Verify results are sorted by similarity (lowest distance first = highest similarity)
         assert results[0].similarity_score >= results[1].similarity_score >= results[2].similarity_score
+
+    def test_retrieve_empty_query_raises_error(self, embedder, document_store, tmp_path) -> None:
+        """Test that retrieve() raises ValueError for empty query string."""
+        with pytest.raises(ValueError, match="query must be a non-empty string"):
+            retrieve(
+                "",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+    def test_retrieve_whitespace_only_query_raises_error(self, embedder, document_store, tmp_path) -> None:
+        """Test that retrieve() raises ValueError for whitespace-only query string."""
+        with pytest.raises(ValueError, match="query must be a non-empty string"):
+            retrieve(
+                "   ",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+    def test_retrieve_whitespace_and_newline_query_raises_error(self, embedder, document_store, tmp_path) -> None:
+        """Test that retrieve() raises ValueError for query with only whitespace and newlines."""
+        with pytest.raises(ValueError, match="query must be a non-empty string"):
+            retrieve(
+                "\t\n  \r\n",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_missing_chunk_in_sqlite_logs_warning(
+        self, mock_connect, embedder, document_store, tmp_path, caplog
+    ) -> None:
+        """Test that retrieve() logs warning when chunk exists in LanceDB but not in SQLite."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+
+        # Return result with hash that won't be in document store
+        search_results = [
+            {
+                "chunk_hash": _make_hash("z"),  # Not registered in store
+                "_distance": 0.1,
+            },
+        ]
+        mock_search.limit.return_value.to_list.return_value = search_results
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        results = retrieve(
+            "test query",
+            embedder,
+            document_store,
+            vector_store_path=tmp_path,
+        )
+
+        # Should skip the chunk and return empty results
+        assert results == []
+
+        # Verify warning was logged
+        assert "Store inconsistency" in caplog.text
+        assert _make_hash("z") in caplog.text
+        assert "exists in LanceDB but not in SQLite" in caplog.text
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_missing_lineage_in_sqlite_logs_warning(
+        self, mock_connect, embedder, document_store, tmp_path, caplog
+    ) -> None:
+        """Test that retrieve() logs warning when lineage is missing (mocked scenario)."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        # Set up document store
+        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+
+        # Mock the document_store.get_chunk_by_hash to return a chunk
+        # but get_lineage to return None (simulating missing lineage)
+        chunk = _create_test_chunk("a", chunk_index=0)
+        original_get_lineage = document_store.get_lineage
+        document_store.get_lineage = MagicMock(return_value=None)
+        document_store.get_chunk_by_hash = MagicMock(return_value=chunk)
+
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+
+        search_results = [
+            {
+                "chunk_hash": _make_hash("a"),
+                "_distance": 0.1,
+            },
+        ]
+        mock_search.limit.return_value.to_list.return_value = search_results
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        results = retrieve(
+            "test query",
+            embedder,
+            document_store,
+            vector_store_path=tmp_path,
+        )
+
+        # Should skip the chunk and return empty results
+        assert results == []
+
+        # Verify warning was logged about missing lineage
+        assert "Store inconsistency" in caplog.text
+        assert _make_hash("a") in caplog.text
+        assert "lineage record" in caplog.text
+
+        # Restore original method
+        document_store.get_lineage = original_get_lineage
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_table_open_error_preserves_exception_type(
+        self, mock_connect, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that retrieve() preserves the original exception type in RuntimeError message."""
+        mock_db = MagicMock()
+        mock_db.open_table.side_effect = ValueError("Table 'chunk_vectors' not found")
+        mock_connect.return_value = mock_db
+
+        with pytest.raises(RuntimeError) as exc_info:
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+        # Verify that the original exception type (ValueError) is mentioned in the message
+        assert "ValueError" in str(exc_info.value)
+        assert "Table 'chunk_vectors' not found" in str(exc_info.value)
+
+    @patch("context_library.retrieval.query.lancedb.connect")
+    def test_retrieve_search_error_preserves_exception_type(
+        self, mock_connect, embedder, document_store, tmp_path
+    ) -> None:
+        """Test that retrieve() preserves the original exception type in search error."""
+        mock_db = MagicMock()
+        mock_table = MagicMock()
+        mock_search = MagicMock()
+        mock_search.limit.return_value.to_list.side_effect = TypeError("Invalid filter type")
+
+        mock_table.search.return_value = mock_search
+        mock_db.open_table.return_value = mock_table
+        mock_connect.return_value = mock_db
+
+        with pytest.raises(RuntimeError) as exc_info:
+            retrieve(
+                "test query",
+                embedder,
+                document_store,
+                vector_store_path=tmp_path,
+            )
+
+        # Verify that the original exception type (TypeError) is mentioned in the message
+        assert "TypeError" in str(exc_info.value)
+        assert "Invalid filter type" in str(exc_info.value)
