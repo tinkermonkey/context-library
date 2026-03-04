@@ -717,13 +717,12 @@ class DocumentStore:
         return result
 
     def get_chunks_pending_deletion(self) -> list[str]:
-        """Get all chunk hashes with 'delete' operations in the sync log audit trail.
+        """Get all chunk hashes with 'delete' operations in the sync log.
 
-        Queries the append-only sync log for all chunks with 'delete' operations recorded.
-        The sync log is not cleared on successful LanceDB deletes, so this includes all
-        chunks ever marked for deletion (not just pending ones). Use this method to complete
-        LanceDB deletion if a delete operation failed, or to audit the history of deletion
-        operations.
+        Queries the sync log for all chunks with 'delete' operations recorded. The sync log
+        uses last-write-wins semantics (UNIQUE constraint + INSERT OR REPLACE), so only the
+        most recent operation for each chunk_hash is reflected. Use this method to complete
+        LanceDB deletion if a delete operation failed.
 
         Returns:
             List of chunk hashes to delete from LanceDB
