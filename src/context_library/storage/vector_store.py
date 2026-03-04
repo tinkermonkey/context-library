@@ -9,14 +9,28 @@ from lancedb.pydantic import (  # type: ignore[import-untyped]
 )
 from pydantic import ConfigDict, field_validator
 
+from context_library.core.embedder import Embedder
 from context_library.storage.models import Domain
 from context_library.storage.validators import (
-    EMBEDDING_DIM,
     validate_embedding_dimension,
     validate_iso8601_timestamp,
 )
 
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
+
+
+def get_embedding_dimension(embedder: Embedder | None = None) -> int:
+    """Get the embedding dimension from the embedder or default embedder.
+
+    Args:
+        embedder: Optional Embedder instance. If None, creates a default Embedder.
+
+    Returns:
+        The embedding dimension as an integer.
+    """
+    if embedder is None:
+        embedder = Embedder()
+    return embedder.dimension
 
 
 class ChunkVector(LanceModel):
@@ -31,7 +45,7 @@ class ChunkVector(LanceModel):
 
     chunk_hash: str              # join key to SQLite chunks table
     content: str                 # denormalized for reranker access without SQLite lookup
-    vector: Vector(EMBEDDING_DIM)  # type: ignore[valid-type]  # fixed-size embedding vector (float32 optimized storage)
+    vector: Vector(384)  # type: ignore[valid-type]  # fixed-size embedding vector (float32 optimized storage)
     domain: Domain               # supports filtered vector search by domain
     source_id: str               # supports filtered vector search by source
     source_version: int          # supports filtered vector search by version

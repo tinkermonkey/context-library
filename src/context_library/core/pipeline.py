@@ -11,6 +11,8 @@ from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord
+from context_library.storage.validators import validate_embedding_dimension
+from context_library.storage.vector_store import get_embedding_dimension
 
 
 class IngestionPipeline:
@@ -151,6 +153,16 @@ class IngestionPipeline:
             chunk_contents = [c.content for c in added_chunks]
             vectors = self.embedder.embed(chunk_contents) if chunk_contents else []
 
+            # Validate all embeddings for correct dimension and finite values
+            expected_dim = self.embedder.dimension
+            for i, vector in enumerate(vectors):
+                try:
+                    validate_embedding_dimension(vector, expected_dim)
+                except ValueError as e:
+                    raise ValueError(
+                        f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}"
+                    ) from e
+
             # Build LineageRecord for each added chunk
             lineage_records: list[LineageRecord] = []
             for added_chunk in added_chunks:
@@ -191,6 +203,8 @@ class IngestionPipeline:
                     table = db.open_table("chunk_vectors")
                     table.add(chunk_vector_dicts)
                 else:
+                    # Use embedder's actual dimension for table schema
+                    embedding_dim = get_embedding_dimension(self.embedder)
                     db.create_table("chunk_vectors", data=chunk_vector_dicts)
 
             # Retire removed chunks

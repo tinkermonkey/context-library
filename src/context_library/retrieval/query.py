@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain, LineageRecord
+from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import VECTOR_DIR
 
 # Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
@@ -100,6 +101,13 @@ def retrieve(
 
     # Step 1: Embed the query
     query_vector = embedder.embed_query(query)
+
+    # Validate query embedding for correct dimension and finite values
+    expected_dim = embedder.dimension
+    try:
+        validate_embedding_dimension(query_vector, expected_dim)
+    except ValueError as e:
+        raise ValueError(f"Query embedding validation failed: {e}") from e
 
     # Step 2: Connect to LanceDB and search
     db = lancedb.connect(str(vector_store_path))
