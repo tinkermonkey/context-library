@@ -211,7 +211,10 @@ class IngestionPipeline:
                 for unchanged_chunk in unchanged_chunks:
                     # Fetch original lineage to preserve the embedding model that created the vectors
                     # (not the current embedder's model, which may have changed since the chunk was created)
-                    original_lineage = self.document_store.get_lineage(unchanged_chunk.chunk_hash)
+                    # Pass source_id to scope lookup correctly in case of cross-source dedup
+                    original_lineage = self.document_store.get_lineage(
+                        unchanged_chunk.chunk_hash, source_id=content.source_id
+                    )
                     original_embedding_model = (
                         original_lineage.embedding_model_id
                         if original_lineage

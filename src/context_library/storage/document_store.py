@@ -561,7 +561,7 @@ class DocumentStore:
             domain_metadata=domain_metadata,
         )
 
-    def get_lineage(self, chunk_hash: str) -> Optional[LineageRecord]:
+    def get_lineage(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[LineageRecord]:
         """Get the lineage record for a chunk.
 
         Retrieves the full provenance information for a chunk, including the
@@ -569,21 +569,37 @@ class DocumentStore:
 
         Args:
             chunk_hash: SHA-256 hash of the chunk.
+            source_id: Optional source ID to scope the lookup. If provided, returns the lineage
+                       for this specific source. Important for cross-source dedup where the same
+                       hash can appear in multiple sources—callers should pass source_id to get
+                       the correct record.
 
         Returns:
             LineageRecord with complete provenance information, or None if not found.
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                   normalizer_version, embedding_model_id
-            FROM chunks
-            WHERE chunk_hash = ?
-            LIMIT 1
-            """,
-            (chunk_hash,),
-        )
+        if source_id:
+            cursor.execute(
+                """
+                SELECT chunk_hash, source_id, source_version, adapter_id, domain,
+                       normalizer_version, embedding_model_id
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ?
+                LIMIT 1
+                """,
+                (chunk_hash, source_id),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT chunk_hash, source_id, source_version, adapter_id, domain,
+                       normalizer_version, embedding_model_id
+                FROM chunks
+                WHERE chunk_hash = ?
+                LIMIT 1
+                """,
+                (chunk_hash,),
+            )
         row = cursor.fetchone()
 
         if not row:
