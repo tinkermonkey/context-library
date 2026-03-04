@@ -289,6 +289,26 @@ class TestFilesystemAdapterStructuralHints:
 
         assert results[0].structural_hints.has_lists is True
 
+    def test_structural_hints_has_lists_with_ordered_list(self, tmp_path):
+        """has_lists is True with ordered list markers."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("1. Item 1\n2. Item 2\n3. Item 3", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_lists is True
+
+    def test_structural_hints_has_lists_with_ordered_list_double_digit(self, tmp_path):
+        """has_lists is True with ordered lists using double-digit numbers."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("9. Item 9\n10. Item 10\n11. Item 11", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_lists is True
+
     def test_structural_hints_has_lists_false(self, tmp_path):
         """has_lists is False without list markers."""
         md_file = tmp_path / "test.md"

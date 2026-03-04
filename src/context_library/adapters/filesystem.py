@@ -87,7 +87,7 @@ class FilesystemAdapter(BaseAdapter):
                     re.search(r"^#{1,6}\s", markdown, re.MULTILINE)
                 )
                 has_lists = bool(
-                    re.search(r"^[\-\*\+]\s", markdown, re.MULTILINE)
+                    re.search(r"^(?:[\-\*\+]|\d+\.)\s", markdown, re.MULTILINE)
                 )
                 has_tables = bool(
                     re.search(r"^\|.+\|$", markdown, re.MULTILINE)
