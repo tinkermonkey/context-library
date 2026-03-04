@@ -1,6 +1,5 @@
 """Tests for the differ module."""
 
-import pytest
 
 from context_library.core.differ import Differ
 
