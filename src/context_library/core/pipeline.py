@@ -150,9 +150,16 @@ class IngestionPipeline:
                 c for c in chunks if c.chunk_hash in diff_result.added_hashes
             ]
 
-            # Embed added chunks
-            chunk_contents = [c.content for c in added_chunks]
-            vectors = self.embedder.embed(chunk_contents) if chunk_contents else []
+            # Embed added chunks with context headers for semantic enrichment
+            # Context header is prepended only for embedding, not stored in content field
+            chunk_contents_for_embedding = []
+            for c in added_chunks:
+                text = c.content
+                if c.context_header:
+                    text = f"{c.context_header}\n\n{text}"
+                chunk_contents_for_embedding.append(text)
+
+            vectors = self.embedder.embed(chunk_contents_for_embedding) if chunk_contents_for_embedding else []
 
             # Validate all embeddings for correct dimension and finite values
             expected_dim = self.embedder.dimension

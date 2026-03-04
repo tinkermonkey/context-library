@@ -78,17 +78,12 @@ class NotesDomain(BaseDomain):
         # Compute hashes and assign indices
         chunks = []
         for index, candidate in enumerate(final_chunks):
-            # Content hash is computed before prepending context header
+            # Content hash is computed from content alone (excluding context header)
             chunk_hash = compute_chunk_hash(candidate["content"])
-
-            # Prepend context header to content
-            full_content = candidate["content"]
-            if candidate["context_header"]:
-                full_content = f"{candidate['context_header']}\n\n{full_content}"
 
             chunk = Chunk(
                 chunk_hash=chunk_hash,
-                content=full_content,
+                content=candidate["content"],
                 context_header=candidate["context_header"],
                 chunk_index=index,
                 chunk_type=candidate["chunk_type"],

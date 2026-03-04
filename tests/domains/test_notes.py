@@ -390,19 +390,10 @@ Short second section."""
         # We should have multiple chunks to respect hard_limit
         assert len(chunks) > 1
 
-        # Each chunk (excluding context header) should respect hard_limit
+        # Each chunk should respect hard_limit
         for chunk in chunks:
-            # For the content check, we count the actual content tokens
-            # The hash was computed on the raw content without context header
-            if chunk.context_header:
-                # Strip the context header and extra newlines to get raw content
-                content_only = chunk.content.replace(
-                    chunk.context_header + "\n\n", "", 1
-                )
-            else:
-                content_only = chunk.content
-
-            token_count = len(content_only.split())
+            # Context header is stored separately; content field doesn't include it
+            token_count = len(chunk.content.split())
             assert token_count <= notes_domain.hard_limit
 
 
@@ -694,11 +685,11 @@ code
         assert "block_code" in types
 
 
-class TestContextHeaderPrepended:
-    """Tests for context header prepending to content."""
+class TestContextHeaderSeparation:
+    """Tests for context header separation from content."""
 
-    def test_context_header_in_content_field(self, notes_domain, base_structural_hints):
-        """Context header is prepended to the content field."""
+    def test_context_header_separate_from_content(self, notes_domain, base_structural_hints):
+        """Context header is stored separately from the content field."""
         markdown = "# Heading\n\nContent text."
 
         content = NormalizedContent(
@@ -712,13 +703,13 @@ class TestContextHeaderPrepended:
 
         chunk = chunks[0]
         assert chunk.context_header is not None
-        assert "# Heading" in chunk.content
-        assert "Content text" in chunk.content
-        # Context header should come before content
-        assert chunk.content.startswith(chunk.context_header)
+        assert chunk.context_header == "# Heading"
+        # Content field should NOT include the context header
+        assert chunk.content == "Content text."
+        assert "# Heading" not in chunk.content
 
-    def test_context_header_none_without_prepend(self, notes_domain):
-        """Content without heading context_header is None and not prepended."""
+    def test_context_header_none_without_heading(self, notes_domain):
+        """Content without heading has context_header as None."""
         # Create content without any headings
         structural_hints = StructuralHints(
             has_headings=False,

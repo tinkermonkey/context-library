@@ -1,9 +1,8 @@
 """Computes diffs between normalized content versions to detect real changes."""
 
 import hashlib
-import re
 
-from context_library.storage.models import DiffResult
+from context_library.storage.models import DiffResult, compute_chunk_hash
 
 
 class Differ:
@@ -13,33 +12,17 @@ class Differ:
     1. Computing full-document SHA-256 hashes (with normalization)
     2. Comparing chunk hash sets to identify added/removed/unchanged chunks
     3. Treating whitespace-only changes as no-change
+
+    IMPORTANT: Uses the same normalization as compute_chunk_hash() to ensure
+    consistency between document-level and chunk-level hashing.
     """
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        """Normalize whitespace in text for consistent hashing.
-
-        Normalization:
-        - Collapse runs of spaces/tabs to single space
-        - Strip trailing whitespace from each line
-        - Strip leading/trailing whitespace from entire text
-
-        Args:
-            text: The text to normalize
-
-        Returns:
-            Normalized text
-        """
-        # Collapse runs of spaces and tabs to single space
-        text = re.sub(r"[ \t]+", " ", text)
-        # Strip trailing whitespace from each line
-        text = "\n".join(line.rstrip() for line in text.splitlines())
-        # Strip leading/trailing whitespace from entire text
-        return text.strip()
 
     @staticmethod
     def _compute_hash(text: str) -> str:
         """Compute SHA-256 hash of normalized text.
+
+        Uses the same normalization as compute_chunk_hash() to ensure
+        consistency across the pipeline.
 
         Args:
             text: The text to hash
@@ -47,8 +30,8 @@ class Differ:
         Returns:
             SHA-256 hash as lowercase hex string
         """
-        normalized = Differ._normalize(text)
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        # Use compute_chunk_hash for normalization to ensure consistency
+        return compute_chunk_hash(text)
 
     def diff(
         self,

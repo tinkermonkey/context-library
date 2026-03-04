@@ -212,8 +212,9 @@ def compute_chunk_hash(content: str) -> str:
     """Compute SHA-256 hash of normalized chunk content.
 
     Whitespace normalization:
-    - Collapse runs of whitespace to single space
+    - Collapse runs of spaces/tabs to single space (not newlines)
     - Strip trailing whitespace per line
+    - Strip leading/trailing whitespace from entire text
     - Normalize line endings to \\n
 
     Args:
@@ -225,10 +226,14 @@ def compute_chunk_hash(content: str) -> str:
     # Normalize line endings to \n
     normalized = content.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Strip trailing whitespace per line and collapse internal whitespace runs
-    lines = normalized.split("\n")
-    lines = [re.sub(r"\s+", " ", line.rstrip()) for line in lines]
-    normalized = "\n".join(lines)
+    # Collapse runs of spaces and tabs to single space (not newlines)
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+
+    # Strip trailing whitespace from each line
+    normalized = "\n".join(line.rstrip() for line in normalized.splitlines())
+
+    # Strip leading/trailing whitespace from entire text
+    normalized = normalized.strip()
 
     # Compute SHA-256
     return hashlib.sha256(normalized.encode()).hexdigest()
