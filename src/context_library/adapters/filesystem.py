@@ -83,11 +83,15 @@ class FilesystemAdapter(BaseAdapter):
                 stat = md_file.stat()
 
                 # Compute structural hints from content
-                has_headings = "#" in markdown
+                has_headings = bool(
+                    re.search(r"^#{1,6}\s", markdown, re.MULTILINE)
+                )
                 has_lists = bool(
                     re.search(r"^[\-\*\+]\s", markdown, re.MULTILINE)
                 )
-                has_tables = "|" in markdown
+                has_tables = bool(
+                    re.search(r"^\|.+\|$", markdown, re.MULTILINE)
+                )
 
                 # Compute modified_at in ISO 8601 format
                 modified_at = datetime.fromtimestamp(

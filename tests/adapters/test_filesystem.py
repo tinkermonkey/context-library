@@ -319,6 +319,74 @@ class TestFilesystemAdapterStructuralHints:
 
         assert results[0].structural_hints.has_tables is False
 
+    def test_structural_hints_has_headings_no_false_positive_hash_in_code(self, tmp_path):
+        """has_headings is False when # is in code blocks or inline code."""
+        md_file = tmp_path / "test.md"
+        # Hash in code block and inline code should not match
+        md_file.write_text(
+            "Some text\n\n`#hashtag`\n\n```\n#define SOMETHING\n```\n\nEnd",
+            encoding="utf-8"
+        )
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_headings is False
+
+    def test_structural_hints_has_headings_no_false_positive_hash_in_issue_ref(self, tmp_path):
+        """has_headings is False when # is in issue references like #123."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text(
+            "This fixes #123 and references #456\n\nNo actual headings here",
+            encoding="utf-8"
+        )
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_headings is False
+
+    def test_structural_hints_has_headings_no_false_positive_csharp_mention(self, tmp_path):
+        """has_headings is False when # is in C# mention."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text(
+            "This is about C# programming language\n\nNo markdown headings",
+            encoding="utf-8"
+        )
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_headings is False
+
+    def test_structural_hints_has_tables_no_false_positive_pipe_in_code(self, tmp_path):
+        """has_tables is False when pipes are in code blocks."""
+        md_file = tmp_path / "test.md"
+        # Pipes in code block should not match
+        md_file.write_text(
+            "Some text\n\n```\necho 'pipe | grep something'\n```\n\nEnd",
+            encoding="utf-8"
+        )
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_tables is False
+
+    def test_structural_hints_has_tables_no_false_positive_pipe_in_shell_command(self, tmp_path):
+        """has_tables is False when pipes are in shell commands."""
+        md_file = tmp_path / "test.md"
+        # Pipes in inline code should not match
+        md_file.write_text(
+            "Run `cat file | grep pattern` to filter\n\nNo tables here",
+            encoding="utf-8"
+        )
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert results[0].structural_hints.has_tables is False
+
     def test_structural_hints_natural_boundaries_empty(self, tmp_path):
         """natural_boundaries is an empty list."""
         md_file = tmp_path / "test.md"
