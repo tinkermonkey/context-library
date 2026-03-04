@@ -13,7 +13,6 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
-from context_library.storage.vector_store import get_embedding_dimension
 
 
 class IngestionPipeline:
@@ -204,14 +203,11 @@ class IngestionPipeline:
                     table = db.open_table("chunk_vectors")
                     table.add(chunk_vector_dicts)
                 else:
-                    # Use embedder's actual dimension for table schema
-                    embedding_dim = get_embedding_dimension(self.embedder)
-
-                    # Build schema with explicit vector dimension
+                    # Build schema with embedder's actual dimension
                     schema = pa.schema([
                         ("chunk_hash", pa.string()),
                         ("content", pa.string()),
-                        ("vector", pa.list_(pa.float32(), embedding_dim)),
+                        ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
                         ("domain", pa.string()),
                         ("source_id", pa.string()),
                         ("source_version", pa.int32()),
