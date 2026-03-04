@@ -644,7 +644,7 @@ class TestPipelineEmbeddingValidation:
             # Pipeline catches errors and logs them, doesn't raise
             pipeline.ingest(adapter, domain_chunker)
             # Source processing was attempted but failed, so not counted in success
-            assert "Error processing source 'file1.md'" in caplog.text
+            assert "Embedding error for source 'file1.md'" in caplog.text
 
     def test_pipeline_embedding_validation_with_nan_logs_error(
         self, pipeline, temp_markdown_dir, domain_chunker, caplog
@@ -990,3 +990,242 @@ Some shared text here."""
         cursor = pipeline.document_store.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'insert'")
         return cursor.fetchone()[0]
+
+
+class TestPipelineErrorHandling:
+    """Tests for pipeline error handling and caller feedback."""
+
+    def test_ingest_return_dict_includes_error_fields(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that return dict includes error tracking fields."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        result = pipeline.ingest(adapter, domain_chunker)
+
+        # Check that all required fields are present
+        assert "sources_processed" in result
+        assert "sources_failed" in result
+        assert "chunks_added" in result
+        assert "chunks_removed" in result
+        assert "chunks_unchanged" in result
+        assert "errors" in result
+        assert "store_consistency" in result
+
+    def test_ingest_no_errors_when_successful(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that successful ingest has zero errors and store_consistency=success."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        result = pipeline.ingest(adapter, domain_chunker)
+
+        # On successful ingest, no errors
+        assert result["sources_failed"] == 0
+        assert len(result["errors"]) == 0
+
+        # All sources should have successful consistency status
+        for source_id, status in result["store_consistency"].items():
+            assert status == "success"
+
+    def test_embedding_error_tracked_and_reported(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that embedding errors are tracked and reported in return dict."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify file to trigger re-ingest
+        (temp_markdown_dir / "file1.md").write_text("# MODIFIED\n\nNew content.")
+
+        # Mock embedder to return invalid dimension
+        def mock_embed_invalid_dimension(texts):
+            return [[0.1] * 100 for _ in texts]  # Wrong dimension
+
+        with patch.object(
+            pipeline.embedder, "embed", side_effect=mock_embed_invalid_dimension
+        ):
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should have error tracked
+            assert result["sources_failed"] > 0
+            assert len(result["errors"]) > 0
+
+            # Check error details
+            error = result["errors"][0]
+            assert error["error_type"] == "EmbeddingError"
+            assert "chunk_hash" in error
+            assert "chunk_index" in error
+
+    def test_storage_error_tracked_and_reported(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that storage errors are tracked and reported in return dict."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify file to trigger re-ingest
+        (temp_markdown_dir / "file2.md").write_text("# MODIFIED\n\nNew content.")
+
+        # Mock document store to raise error on write
+        original_write = pipeline.document_store.write_chunks
+
+        def mock_write_chunks_error(*args, **kwargs):
+            raise RuntimeError("Database write failed")
+
+        with patch.object(
+            pipeline.document_store, "write_chunks", side_effect=mock_write_chunks_error
+        ):
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should have storage error tracked
+            assert result["sources_failed"] > 0
+            assert len(result["errors"]) > 0
+
+            # Check error details
+            error = result["errors"][0]
+            assert error["error_type"] == "StorageError"
+            assert error["store_type"] == "sqlite"
+
+    def test_lancedb_inconsistency_detected_and_marked(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that SQLite/LanceDB inconsistency is detected and marked."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate store
+        pipeline.ingest(adapter, domain_chunker)
+
+        # Modify file to trigger re-ingest with new chunks (add significant new content)
+        (temp_markdown_dir / "file1.md").write_text(
+            "# MODIFIED\n\n"
+            "Additional new content for second version. "
+            "This is a much longer text to ensure new chunks are created. "
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
+            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+        )
+
+        # Mock LanceDB table.add to fail (this is called when vectors already exist)
+        original_connect = lancedb.connect
+        fail_count = {"count": 0}
+
+        def mock_connect_with_lancedb_failure(path):
+            db = original_connect(path)
+            original_add = None
+
+            def create_mock_table_with_add_failure(real_table):
+                original_table_add = real_table.add
+
+                def mock_add(*args, **kwargs):
+                    # Fail on first add attempt (when called for this test)
+                    fail_count["count"] += 1
+                    if fail_count["count"] > 0:  # First add will be from first ingest, second will be from reingest
+                        raise RuntimeError("LanceDB write failed during add")
+                    return original_table_add(*args, **kwargs)
+
+                real_table.add = mock_add
+                return real_table
+
+            original_open = db.open_table
+
+            def mock_open_table(name, *args, **kwargs):
+                table = original_open(name, *args, **kwargs)
+                return create_mock_table_with_add_failure(table)
+
+            db.open_table = mock_open_table
+            return db
+
+        with patch("context_library.core.pipeline.lancedb.connect", side_effect=mock_connect_with_lancedb_failure):
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should have error tracked and marked as inconsistent
+            assert result["sources_failed"] > 0
+            assert len(result["errors"]) > 0
+
+            # Check error indicates inconsistency
+            error = result["errors"][0]
+            assert error["error_type"] == "StorageError"
+            assert error["store_type"] == "lancedb"
+            assert error["inconsistent"] == True
+
+            # Store consistency should show inconsistency
+            source_id = error["source_id"]
+            assert result["store_consistency"][source_id] == "inconsistent"
+
+    def test_distinguishes_no_sources_from_all_sources_failed(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that return dict distinguishes 'no sources' from 'all sources failed'."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # Successfully ingest
+        result1 = pipeline.ingest(adapter, domain_chunker)
+        assert result1["sources_processed"] > 0
+        assert result1["sources_failed"] == 0
+
+        # Create adapter with no files
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            empty_adapter = FilesystemAdapter(tmpdir)
+            result2 = pipeline.ingest(empty_adapter, domain_chunker)
+
+            # No sources case: both should be 0
+            assert result2["sources_processed"] == 0
+            assert result2["sources_failed"] == 0
+            assert len(result2["errors"]) == 0
+
+        # Now test all sources failed by creating a single-file directory and mocking embedder to fail
+        with tempfile.TemporaryDirectory() as single_file_tmpdir:
+            single_file_path = Path(single_file_tmpdir)
+            (single_file_path / "only_file.md").write_text("# SINGLE FILE\n\nUnique content.")
+            single_adapter = FilesystemAdapter(single_file_path)
+
+            def mock_embed_always_fails(texts):
+                raise RuntimeError("Embedding service down")
+
+            with patch.object(
+                pipeline.embedder, "embed", side_effect=mock_embed_always_fails
+            ):
+                # Should raise PartialIngestionError because the only source failed
+                from context_library.core.exceptions import PartialIngestionError
+                with pytest.raises(PartialIngestionError):
+                    pipeline.ingest(single_adapter, domain_chunker)
+
+    def test_multiple_source_errors_accumulated(
+        self, pipeline, domain_chunker
+    ):
+        """Test that errors from multiple sources are accumulated and reported."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_path = Path(tmpdir)
+
+            # Create multiple files
+            (temp_path / "file1.md").write_text("# File 1\n\nContent 1")
+            (temp_path / "file2.md").write_text("# File 2\n\nContent 2")
+            (temp_path / "file3.md").write_text("# File 3\n\nContent 3")
+
+            adapter = FilesystemAdapter(temp_path)
+
+            # Mock embedder to fail randomly (deterministically based on content)
+            def mock_embed_selective_fail(texts):
+                if "File 2" in texts[0] or "Content 2" in texts[0]:
+                    raise RuntimeError("Embedding failed for file 2")
+                return [[0.1] * 384 for _ in texts]
+
+            with patch.object(
+                pipeline.embedder, "embed", side_effect=mock_embed_selective_fail
+            ):
+                result = pipeline.ingest(adapter, domain_chunker)
+
+                # Should have processed some sources but some failed
+                assert result["sources_failed"] > 0
+                # Number of errors should match number of failed sources
+                assert len(result["errors"]) == result["sources_failed"]
+
+                # Verify error sources are tracked
+                error_sources = {error["source_id"] for error in result["errors"]}
+                assert len(error_sources) == result["sources_failed"]

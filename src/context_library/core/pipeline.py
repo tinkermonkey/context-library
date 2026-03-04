@@ -9,6 +9,7 @@ import pyarrow as pa
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
+from context_library.core.exceptions import EmbeddingError, StorageError, PartialIngestionError
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
@@ -62,7 +63,7 @@ class IngestionPipeline:
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain
-    ) -> dict[str, int]:
+    ) -> dict:
         """Ingest content from an adapter, orchestrating the full pipeline.
 
         Algorithm:
@@ -74,14 +75,14 @@ class IngestionPipeline:
            d. Diff against previous version
            e. If unchanged: update last_fetched_at only
            f. If changed: process added/removed/unchanged chunks
-        3. Return summary dict
+        3. Return summary dict with error tracking
 
         Consistency model:
         - Each source is processed independently with per-source error isolation
         - Writes to SQLite and LanceDB are sequential, not transactional
         - If a source fails after SQLite writes but before LanceDB, the stores
-          may be inconsistent for that source. LanceDB can be fully rebuilt from
-          SQLite via external sync tooling if needed.
+          may be inconsistent for that source. This is tracked in store_consistency.
+          LanceDB can be fully rebuilt from SQLite via external sync tooling if needed.
         - Failed sources are logged and skipped; pipeline continues with next source
 
         Args:
@@ -91,9 +92,22 @@ class IngestionPipeline:
         Returns:
             Dict with keys:
             - sources_processed: Number of sources successfully processed
+            - sources_failed: Number of sources that failed processing
             - chunks_added: Total chunks added across all sources
             - chunks_removed: Total chunks removed across all sources
             - chunks_unchanged: Total chunks that remained unchanged
+            - errors: List of error dicts with keys:
+                - source_id: Source that failed
+                - error_type: Type of error (EmbeddingError, StorageError, ValidationError, etc.)
+                - message: Error message
+                - chunk_hash: (Optional) Hash of affected chunk (for EmbeddingError)
+                - chunk_index: (Optional) Index of affected chunk (for EmbeddingError)
+                - store_type: (Optional) Type of store that failed (for StorageError)
+                - inconsistent: (Optional) Whether inconsistency was detected (for StorageError)
+            - store_consistency: Dict mapping source_id to status:
+                - "inconsistent": SQLite write succeeded but LanceDB failed
+                - "error": Storage operation failed
+                - "success": All writes succeeded
         """
         # Register adapter (idempotent)
         adapter.register(self.document_store)
@@ -103,9 +117,12 @@ class IngestionPipeline:
 
         # Statistics
         sources_processed = 0
+        sources_failed = 0
         chunks_added_total = 0
         chunks_removed_total = 0
         chunks_unchanged_total = 0
+        errors: list[dict] = []
+        store_consistency: dict[str, str] = {}
 
         # Iterate over normalized content from adapter
         for content in adapter.fetch(""):
@@ -187,8 +204,10 @@ class IngestionPipeline:
                     try:
                         validate_embedding_dimension(vector, expected_dim)
                     except ValueError as e:
-                        raise ValueError(
-                            f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}"
+                        raise EmbeddingError(
+                            f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}",
+                            chunk_hash=added_chunks[i].chunk_hash,
+                            chunk_index=i,
                         ) from e
 
                 # Build LineageRecord for each added chunk
@@ -236,13 +255,22 @@ class IngestionPipeline:
                 all_chunks_to_write = added_chunks + unchanged_chunks
                 all_lineage_records = added_lineage_records + unchanged_lineage_records
 
+                sqlite_write_succeeded = False
                 if all_chunks_to_write:
-                    self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
-                    # Record pending sync operations before attempting LanceDB writes
-                    # Only for added chunks (unchanged ones already have vectors)
-                    added_hashes = [c.chunk_hash for c in added_chunks]
-                    if added_hashes:
-                        self.document_store.write_sync_log(added_hashes)
+                    try:
+                        self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
+                        sqlite_write_succeeded = True
+                        # Record pending sync operations before attempting LanceDB writes
+                        # Only for added chunks (unchanged ones already have vectors)
+                        added_hashes = [c.chunk_hash for c in added_chunks]
+                        if added_hashes:
+                            self.document_store.write_sync_log(added_hashes)
+                    except Exception as e:
+                        raise StorageError(
+                            f"Failed to write chunks to SQLite for source '{content.source_id}': {e}",
+                            store_type="sqlite",
+                            inconsistent=False,
+                        ) from e
 
                 # Retire removed chunks from SQLite first
                 # Note: retire chunks from the old version (prev_version), not the new one
@@ -254,74 +282,145 @@ class IngestionPipeline:
                     self.document_store.delete_sync_log(removed_list)
 
                 # Write vectors to LanceDB (get or create table)
-                # If this fails, sync log has the recovery information
+                # If this fails and SQLite write succeeded, mark as inconsistent
                 if vectors:
-                    # Build chunk vector data as dicts for LanceDB (enum -> string)
-                    chunk_vector_dicts = []
-                    for added_chunk, vector in zip(added_chunks, vectors):
-                        # Validate using ChunkVector schema to ensure field validators run
-                        chunk_vector = ChunkVector(
-                            chunk_hash=added_chunk.chunk_hash,
-                            content=added_chunk.content,
-                            vector=vector,
-                            domain=adapter.domain,  # Pass enum directly
-                            source_id=content.source_id,
-                            source_version=new_version,
-                            created_at=fetch_timestamp,
-                        )
-                        # Convert to dict with enum values serialized
-                        chunk_vector_dicts.append({
-                            "chunk_hash": chunk_vector.chunk_hash,
-                            "content": chunk_vector.content,
-                            "vector": chunk_vector.vector,
-                            "domain": chunk_vector.domain.value,  # Convert enum to string
-                            "source_id": chunk_vector.source_id,
-                            "source_version": chunk_vector.source_version,
-                            "created_at": chunk_vector.created_at,
-                        })
+                    try:
+                        # Build chunk vector data as dicts for LanceDB (enum -> string)
+                        chunk_vector_dicts = []
+                        for added_chunk, vector in zip(added_chunks, vectors):
+                            # Validate using ChunkVector schema to ensure field validators run
+                            chunk_vector = ChunkVector(
+                                chunk_hash=added_chunk.chunk_hash,
+                                content=added_chunk.content,
+                                vector=vector,
+                                domain=adapter.domain,  # Pass enum directly
+                                source_id=content.source_id,
+                                source_version=new_version,
+                                created_at=fetch_timestamp,
+                            )
+                            # Convert to dict with enum values serialized
+                            chunk_vector_dicts.append({
+                                "chunk_hash": chunk_vector.chunk_hash,
+                                "content": chunk_vector.content,
+                                "vector": chunk_vector.vector,
+                                "domain": chunk_vector.domain.value,  # Convert enum to string
+                                "source_id": chunk_vector.source_id,
+                                "source_version": chunk_vector.source_version,
+                                "created_at": chunk_vector.created_at,
+                            })
 
-                    # Create or append to table
-                    # Check if table exists to avoid broad exception handling
-                    existing_tables = db.list_tables().tables
-                    if "chunk_vectors" in existing_tables:
-                        table = db.open_table("chunk_vectors")
-                        table.add(chunk_vector_dicts)
-                    else:
-                        # Build schema with embedder's actual dimension
-                        schema = pa.schema([
-                            ("chunk_hash", pa.string()),
-                            ("content", pa.string()),
-                            ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
-                            ("domain", pa.string()),
-                            ("source_id", pa.string()),
-                            ("source_version", pa.int32()),
-                            ("created_at", pa.string()),
-                        ])
-                        db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
+                        # Create or append to table
+                        # Check if table exists to avoid broad exception handling
+                        existing_tables = db.list_tables().tables
+                        if "chunk_vectors" in existing_tables:
+                            table = db.open_table("chunk_vectors")
+                            table.add(chunk_vector_dicts)
+                        else:
+                            # Build schema with embedder's actual dimension
+                            schema = pa.schema([
+                                ("chunk_hash", pa.string()),
+                                ("content", pa.string()),
+                                ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
+                                ("domain", pa.string()),
+                                ("source_id", pa.string()),
+                                ("source_version", pa.int32()),
+                                ("created_at", pa.string()),
+                            ])
+                            db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
+                    except Exception as e:
+                        # If SQLite write succeeded but LanceDB fails, mark as inconsistent
+                        inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
+                        if inconsistency_detected:
+                            logger.warning(
+                                f"CRITICAL: SQLite write succeeded but LanceDB write failed for source "
+                                f"'{content.source_id}'. Stores may be inconsistent. "
+                                f"Recovery: Use sync logs to rebuild LanceDB. Error: {e}"
+                            )
+                        raise StorageError(
+                            f"Failed to write vectors to LanceDB for source '{content.source_id}': {e}",
+                            store_type="lancedb",
+                            inconsistent=inconsistency_detected,
+                        ) from e
 
                 # Remove from LanceDB (if table exists and chunks were removed)
                 if diff_result.removed_hashes:
-                    existing_tables = db.list_tables().tables
-                    if "chunk_vectors" in existing_tables:
-                        table = db.open_table("chunk_vectors")
-                        # Build proper SQL IN clause with quoted hash values
-                        quoted_hashes = ", ".join(f"'{h}'" for h in diff_result.removed_hashes)
-                        table.delete(f"chunk_hash IN ({quoted_hashes})")
+                    try:
+                        existing_tables = db.list_tables().tables
+                        if "chunk_vectors" in existing_tables:
+                            table = db.open_table("chunk_vectors")
+                            # Build proper SQL IN clause with quoted hash values
+                            quoted_hashes = ", ".join(f"'{h}'" for h in diff_result.removed_hashes)
+                            table.delete(f"chunk_hash IN ({quoted_hashes})")
+                    except Exception as e:
+                        # LanceDB delete is less critical than add, but still log warning
+                        logger.warning(
+                            f"Failed to delete chunks from LanceDB for source '{content.source_id}': {e}"
+                        )
+                        # Don't raise here, as the sync log already has the delete operation recorded
 
                 # Update statistics
                 chunks_added_total += len(added_chunks)
                 chunks_removed_total += len(diff_result.removed_hashes)
                 chunks_unchanged_total += len(diff_result.unchanged_hashes)
 
-            except Exception:
-                # Log error and continue processing next source
-                logger.error(f"Error processing source '{content.source_id}'", exc_info=True)
+                # Mark store consistency as successful for this source
+                store_consistency[content.source_id] = "success"
+
+            except EmbeddingError as e:
+                # Handle embedding-specific errors
+                logger.error(f"Embedding error for source '{content.source_id}': {e}", exc_info=True)
                 sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "EmbeddingError",
+                    "message": str(e),
+                    "chunk_hash": e.chunk_hash,
+                    "chunk_index": e.chunk_index,
+                })
+                store_consistency[content.source_id] = "error"
                 continue
+            except StorageError as e:
+                # Handle storage-specific errors
+                logger.error(f"Storage error for source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                consistency_status = "inconsistent" if e.inconsistent else "error"
+                store_consistency[content.source_id] = consistency_status
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "StorageError",
+                    "message": str(e),
+                    "store_type": e.store_type,
+                    "inconsistent": e.inconsistent,
+                })
+                continue
+            except Exception as e:
+                # Handle any other unexpected errors
+                logger.error(f"Unexpected error processing source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                })
+                store_consistency[content.source_id] = "error"
+                continue
+
+        # Raise if all sources failed
+        if sources_failed > 0 and sources_processed == 0:
+            raise PartialIngestionError(
+                f"All sources failed to process. {sources_failed} sources had errors. "
+                f"Check errors list for details."
+            )
 
         return {
             "sources_processed": sources_processed,
+            "sources_failed": sources_failed,
             "chunks_added": chunks_added_total,
             "chunks_removed": chunks_removed_total,
             "chunks_unchanged": chunks_unchanged_total,
+            "errors": errors,
+            "store_consistency": store_consistency,
         }
