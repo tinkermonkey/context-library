@@ -227,8 +227,10 @@ class DocumentStore:
     ) -> None:
         """Write chunks and lineage records to storage.
 
-        Inserts chunks into the database. Deduplicates by chunk_hash (content-addressed identity).
-        If a chunk_hash already exists, it is skipped silently (content already stored).
+        Inserts chunks into the database. Each chunk is stored once per (source_id, source_version)
+        combination to support:
+        - Unchanged chunks appearing in multiple versions of the same source
+        - The same content (identical chunk_hash) appearing in different sources
 
         Chunks are linked to their sources and versions via lineage records.
 
@@ -238,8 +240,7 @@ class DocumentStore:
 
         Raises:
             ValueError: If a chunk has no matching lineage record.
-            sqlite3.IntegrityError: If foreign key or UNIQUE constraint violations occur
-                (other than chunk_hash PRIMARY KEY which is content deduplication).
+            sqlite3.IntegrityError: If foreign key or CHECK constraint violations occur.
         """
         # Create a map of chunk_hash to lineage for quick lookup
         lineage_map = {lr.chunk_hash: lr for lr in lineage_records}
@@ -291,13 +292,11 @@ class DocumentStore:
                         ),
                     )
                 except sqlite3.IntegrityError as e:
-                    # PRIMARY KEY collision (chunk_hash): content already stored (deduplication by hash)
-                    # UNIQUE index collision (source_id, source_version, chunk_index): same chunk position in same version
-                    # Both are expected and silent - the chunk is already in the database
+                    # UNIQUE index collision on (source_id, source_version, chunk_index):
+                    # Same chunk position in same version was already written
                     error_msg = str(e)
-                    if "UNIQUE constraint failed: chunks.chunk_hash" in error_msg or \
-                       "UNIQUE constraint failed: chunks.source_id, chunks.source_version, chunks.chunk_index" in error_msg:
-                        # Chunk already exists (either by hash or by position); skip silently
+                    if "UNIQUE constraint failed: chunks.source_id, chunks.source_version, chunks.chunk_index" in error_msg:
+                        # Chunk at this position in this version already exists; skip silently
                         continue
                     # For any other constraint violation (foreign key, CHECK), re-raise
                     raise

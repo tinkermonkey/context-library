@@ -162,9 +162,12 @@ class IngestionPipeline:
                     fetch_timestamp=fetch_timestamp,
                 )
 
-                # Filter to added chunks only (need re-embedding)
+                # Separate added and unchanged chunks
                 added_chunks = [
                     c for c in chunks if c.chunk_hash in diff_result.added_hashes
+                ]
+                unchanged_chunks = [
+                    c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
                 ]
 
                 # Embed added chunks with context headers for semantic enrichment
@@ -189,7 +192,7 @@ class IngestionPipeline:
                         ) from e
 
                 # Build LineageRecord for each added chunk
-                lineage_records: list[LineageRecord] = []
+                added_lineage_records: list[LineageRecord] = []
                 for added_chunk in added_chunks:
                     lineage = LineageRecord(
                         chunk_hash=added_chunk.chunk_hash,
@@ -200,14 +203,34 @@ class IngestionPipeline:
                         normalizer_version=content.normalizer_version,
                         embedding_model_id=self.embedder.model_id,
                     )
-                    lineage_records.append(lineage)
+                    added_lineage_records.append(lineage)
 
-                # Write chunks + lineage to SQLite
-                if added_chunks:
-                    self.document_store.write_chunks(added_chunks, lineage_records)
+                # Build LineageRecord for each unchanged chunk
+                # Unchanged chunks are re-written to the new version to be queryable via get_chunks_by_source()
+                unchanged_lineage_records: list[LineageRecord] = []
+                for unchanged_chunk in unchanged_chunks:
+                    lineage = LineageRecord(
+                        chunk_hash=unchanged_chunk.chunk_hash,
+                        source_id=content.source_id,
+                        source_version_id=new_version,  # Same version as added chunks
+                        adapter_id=adapter.adapter_id,
+                        domain=adapter.domain,
+                        normalizer_version=content.normalizer_version,
+                        embedding_model_id=self.embedder.model_id,  # Preserve original embedding model
+                    )
+                    unchanged_lineage_records.append(lineage)
+
+                # Write all chunks (both added and unchanged) + lineage to SQLite
+                all_chunks_to_write = added_chunks + unchanged_chunks
+                all_lineage_records = added_lineage_records + unchanged_lineage_records
+
+                if all_chunks_to_write:
+                    self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
                     # Record pending sync operations before attempting LanceDB writes
+                    # Only for added chunks (unchanged ones already have vectors)
                     added_hashes = [c.chunk_hash for c in added_chunks]
-                    self.document_store.write_sync_log(added_hashes)
+                    if added_hashes:
+                        self.document_store.write_sync_log(added_hashes)
 
                 # Retire removed chunks from SQLite first
                 if diff_result.removed_hashes:
