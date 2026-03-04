@@ -194,7 +194,14 @@ def retrieve(
             if document_store.is_chunk_retired(chunk_hash):
                 # Chunk is retired in SQLite but still searchable in LanceDB.
                 # This is normal behavior: LanceDB deletion is lazy, and post-retrieval filtering
-                # catches stale results. No warning needed; this is expected in normal operation.
+                # catches stale results. Log at debug level so operators can diagnose why fewer
+                # results are returned than requested. (See issue #72 for higher-level caller feedback.)
+                _logger.debug(
+                    "Skipping retired chunk (chunk_hash=%s) during retrieval. "
+                    "Chunk exists in vector store but is marked retired in document store. "
+                    "This is normal pipeline behavior (lazy cleanup).",
+                    chunk_hash,
+                )
                 continue
             else:
                 # Chunk exists in LanceDB but doesn't exist in SQLite at all.
