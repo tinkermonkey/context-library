@@ -12,13 +12,13 @@ from typing import Optional
 import lancedb
 from pydantic import BaseModel, ConfigDict
 
-_logger = logging.getLogger(__name__)
-
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain, LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import VECTOR_DIR
+
+_logger = logging.getLogger(__name__)
 
 # Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
 _SAFE_SOURCE_FILTER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./]+$")
