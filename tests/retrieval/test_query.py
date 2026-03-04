@@ -35,11 +35,59 @@ class MockEmbedder(Embedder):
             # Return a fixed vector for all texts
             return [0.1 * i for i in range(384)]
 
-        # Generate different vectors based on text hash for semantic differentiation
+        # Generate vectors where semantic similarity is reflected in vector proximity
+        # Extract words from text and create a semantic vector representation
+        words = text.lower().split()
+
+        # Create a simple semantic space where we assign positions to common ML-related terms
+        semantic_dimensions = {
+            "machine": 0.9,
+            "learning": 0.85,
+            "neural": 0.8,
+            "networks": 0.82,
+            "algorithms": 0.75,
+            "deep": 0.88,
+            "cooking": -0.9,
+            "recipes": -0.85,
+            "techniques": -0.7,
+            "music": -0.8,
+            "theory": -0.7,
+            "composition": -0.75,
+            "fundamentals": 0.3,
+        }
+
+        # Start with a base vector influenced by the presence of semantic terms
+        vector = [0.0] * 384
+
+        # Calculate semantic coordinates based on words present
+        semantic_score = 0.0
+        for word in words:
+            if word in semantic_dimensions:
+                semantic_score += semantic_dimensions[word]
+
+        # Normalize semantic score
+        if words:
+            semantic_score = semantic_score / len(words)
+
+        # Create deterministic but varied vectors
+        # First few dimensions encode semantic information
         hash_val = hash(text)
-        # Use hash to seed different but deterministic vectors
-        base_val = float((hash_val % 100) / 100.0)
-        return [base_val + (0.001 * i) for i in range(384)]
+
+        # Use semantic score and hash to create a vector that preserves semantic distance
+        for i in range(384):
+            # Combine semantic score with hash-based variation
+            # This ensures texts with similar semantic scores (like "machine learning" and
+            # "machine learning algorithms") produce closer vectors
+            base = semantic_score
+            variation = ((hash_val ^ (i * 7919)) % 1000) / 10000.0  # Small random variation
+            vector[i] = base + variation - 0.05
+
+        # Normalize to unit vector for L2 distance calculations
+        magnitude = sum(x * x for x in vector) ** 0.5
+        if magnitude > 0:
+            vector = [x / magnitude for x in vector]
+
+        return vector
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Return deterministic embeddings for testing."""
