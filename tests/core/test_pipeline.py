@@ -314,9 +314,10 @@ Completely new content."""
         # Verify sync log was updated: removed chunks are deleted from sync_log
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
         sync_log_count_after = cursor.fetchone()[0]
-        # Sync log may increase if new chunks were added, but at minimum should be >= 0
-        # The key invariant: rows for removed chunks should be deleted
-        assert isinstance(sync_log_count_after, int)
+        # The key invariant: sync log entries for removed chunks are deleted
+        # Since we removed chunks and added fewer replacements, sync log should shrink
+        assert sync_log_count_after < sync_log_count_before, \
+            f"Sync log should shrink when chunks are removed (before: {sync_log_count_before}, after: {sync_log_count_after})"
 
     def test_reingest_deleted_chunk(
         self, pipeline, temp_markdown_dir, domain_chunker
