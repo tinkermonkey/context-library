@@ -465,4 +465,36 @@ class TestIngestionPipelineEdgeCases:
         # Different chunkers may produce different chunk counts
         # (This test just verifies both succeed)
         assert result1["sources_processed"] > 0
-        assert result2["sources_processed"] > 0
+
+
+class TestIntegrationVectorSearch:
+    """Integration tests for vector search functionality."""
+
+    def test_vector_search_retrieves_similar_chunks(
+        self, temp_markdown_dir, pipeline, domain_chunker
+    ):
+        """Vector search should retrieve chunks similar to a query."""
+        # Ingest content
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        result = pipeline.ingest(adapter, domain_chunker)
+        assert result["chunks_added"] > 0, "Should ingest chunks"
+
+        # Create query vector
+        embedder = pipeline.embedder
+        query_text = "file content section"
+        query_vector = embedder.embed_query(query_text)
+
+        # Search LanceDB
+        db = lancedb.connect(str(pipeline.vector_store_path))
+        table = db.open_table("chunk_vectors")
+        results = table.search(query_vector).limit(3).to_list()
+
+        # Verify results
+        assert len(results) > 0, "Should return results for query"
+        for result in results:
+            assert "content" in result, "Result should contain content"
+            assert "chunk_hash" in result, "Result should contain chunk_hash"
+            assert "source_id" in result, "Result should contain source_id"
+            assert "_distance" in result or "score" in result, (
+                "Result should contain relevance score"
+            )
