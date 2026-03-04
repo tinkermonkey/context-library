@@ -11,7 +11,9 @@ import re
 from enum import Enum
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
+
+from context_library.storage.validators import validate_iso8601_timestamp
 
 
 class Domain(str, Enum):
@@ -80,6 +82,14 @@ class StructuralHints(BaseModel):
     modified_at: str | None = None
     file_size_bytes: int | None = None
 
+    @field_validator("modified_at")
+    @classmethod
+    def validate_modified_at(cls, value: str | None) -> str | None:
+        """Validate that modified_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
 
 class NormalizedContent(BaseModel):
     """Content after adapter normalization (e.g., markdown extraction, deduplication).
@@ -139,6 +149,7 @@ class SourceVersion(BaseModel):
     Immutable records enable full history tracking for provenance and change detection.
     chunk_hashes is stored as a serialized list (in SQLite as JSON string).
     All chunk_hashes are validated as SHA-256 hex strings.
+    fetch_timestamp is validated as ISO 8601 format for consistency across the system.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -151,6 +162,13 @@ class SourceVersion(BaseModel):
     normalizer_version: str
     fetch_timestamp: str
 
+    @field_validator("fetch_timestamp")
+    @classmethod
+    def validate_fetch_timestamp(cls, value: str) -> str:
+        """Validate that fetch_timestamp is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
 
 class DiffResult(BaseModel):
     """Result of comparing two versions of content by chunk hashes.
@@ -161,7 +179,7 @@ class DiffResult(BaseModel):
     Invariants:
     - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint sets
     - If changed=False: added_hashes and removed_hashes must be empty
-    - All chunk_hashes are validated as SHA-256 hex strings
+    - All chunk_hashes and document hashes are validated as SHA-256 hex strings
     """
 
     model_config = ConfigDict(frozen=True)
@@ -170,8 +188,8 @@ class DiffResult(BaseModel):
     added_hashes: set[Sha256Hash]
     removed_hashes: set[Sha256Hash]
     unchanged_hashes: set[Sha256Hash]
-    prev_hash: str | None = None
-    curr_hash: str | None = None
+    prev_hash: Sha256Hash | None = None
+    curr_hash: Sha256Hash | None = None
 
     def model_post_init(self, __context) -> None:
         """Validate DiffResult invariants after model construction.

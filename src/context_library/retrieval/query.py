@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import lancedb
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
@@ -28,6 +28,7 @@ class RetrievalResult(BaseModel):
     """A single result from semantic query with relevance score and lineage.
 
     Immutable data class capturing a chunk, its provenance lineage, and relevance score.
+    Enforces invariants: similarity_score is in [0, 1], chunk and lineage refer to the same content.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -35,6 +36,29 @@ class RetrievalResult(BaseModel):
     chunk: Chunk
     lineage: LineageRecord
     similarity_score: float
+
+    @field_validator("similarity_score")
+    @classmethod
+    def validate_similarity_score(cls, value: float) -> float:
+        """Validate that similarity_score is in the valid range [0, 1]."""
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(
+                f"similarity_score must be in range [0, 1], got {value}"
+            )
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate RetrievalResult invariants after model construction.
+
+        Enforces:
+        - chunk.chunk_hash == lineage.chunk_hash: chunk and lineage refer to the same content
+        """
+        if self.chunk.chunk_hash != self.lineage.chunk_hash:
+            raise ValueError(
+                f"chunk-lineage hash mismatch: chunk.chunk_hash={self.chunk.chunk_hash} "
+                f"!= lineage.chunk_hash={self.lineage.chunk_hash}. "
+                "Chunk and lineage must refer to the same content."
+            )
 
     def to_dict(self) -> dict[str, object]:
         """Convert result to dictionary format.

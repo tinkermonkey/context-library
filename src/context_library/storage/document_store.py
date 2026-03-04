@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, SourceVersion
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, Sha256Hash, SourceVersion
 
 
 class DocumentStore:
@@ -157,7 +157,7 @@ class DocumentStore:
         source_id: str,
         version: int,
         markdown: str,
-        chunk_hashes: list[str],
+        chunk_hashes: list[Sha256Hash],
         adapter_id: str,
         normalizer_version: str,
         fetch_timestamp: str,
@@ -170,7 +170,7 @@ class DocumentStore:
             source_id: ID of the source.
             version: Version number (monotonically increasing per source).
             markdown: Full normalized content as markdown.
-            chunk_hashes: List of chunk hashes in this version.
+            chunk_hashes: List of validated SHA-256 chunk hashes in this version.
             adapter_id: ID of the adapter that fetched this version.
             normalizer_version: Version of the normalizer used.
             fetch_timestamp: ISO 8601 timestamp when content was fetched.
@@ -301,7 +301,7 @@ class DocumentStore:
                     # For any other constraint violation (foreign key, CHECK), re-raise
                     raise
 
-    def retire_chunks(self, chunk_hashes: set[str], source_id: str, source_version: int) -> None:
+    def retire_chunks(self, chunk_hashes: set[Sha256Hash], source_id: str, source_version: int) -> None:
         """Mark chunks as retired for a specific source and version.
 
         Updates the retired_at timestamp for matching chunks, indicating
@@ -313,7 +313,7 @@ class DocumentStore:
         identical content in other sources.
 
         Args:
-            chunk_hashes: Set of chunk hashes to retire.
+            chunk_hashes: Set of validated SHA-256 chunk hashes to retire.
             source_id: Source ID to scope retirement to (prevents cross-source retirement).
             source_version: Source version to scope retirement to.
 
@@ -334,7 +334,7 @@ class DocumentStore:
                         f"Chunk '{chunk_hash}' does not exist for source '{source_id}' version {source_version}"
                     )
 
-    def write_sync_log(self, chunk_hashes: list[str]) -> None:
+    def write_sync_log(self, chunk_hashes: list[Sha256Hash]) -> None:
         """Record insert operations for chunks in the sync log.
 
         Inserts entries into lancedb_sync_log before LanceDB write attempts. The sync log
@@ -346,7 +346,7 @@ class DocumentStore:
         timestamp reflects when the operation was last recorded.
 
         Args:
-            chunk_hashes: List of chunk hashes marked for vector database insertion.
+            chunk_hashes: List of validated SHA-256 chunk hashes marked for vector database insertion.
         """
         with self.conn:
             self.conn.executemany(
@@ -357,7 +357,7 @@ class DocumentStore:
                 [(h,) for h in chunk_hashes],
             )
 
-    def delete_sync_log(self, chunk_hashes: list[str]) -> None:
+    def delete_sync_log(self, chunk_hashes: list[Sha256Hash]) -> None:
         """Record delete operations for chunks in the sync log.
 
         Inserts entries into lancedb_sync_log before LanceDB delete attempts. The sync log
@@ -369,7 +369,7 @@ class DocumentStore:
         timestamp reflects when the operation was last logged.
 
         Args:
-            chunk_hashes: List of chunk hashes marked for deletion from LanceDB.
+            chunk_hashes: List of validated SHA-256 chunk hashes marked for deletion from LanceDB.
         """
         with self.conn:
             self.conn.executemany(
