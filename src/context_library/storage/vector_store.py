@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pyarrow as pa
 from lancedb.pydantic import LanceModel  # type: ignore[import-untyped]
 from pydantic import ConfigDict, field_validator
 
@@ -46,3 +47,26 @@ class ChunkVector(LanceModel):
         """Validate that created_at is a valid ISO 8601 timestamp."""
         validate_iso8601_timestamp(value)
         return value
+
+
+def create_chunk_vector_schema(embedding_dimension: int) -> pa.Schema:
+    """Create a PyArrow schema for the chunk_vectors LanceDB table.
+
+    The schema defines fields for storing embeddings with vector dimension
+    determined by the configured embedder model.
+
+    Args:
+        embedding_dimension: The dimension of the embedding vectors.
+
+    Returns:
+        A PyArrow schema matching the ChunkVector LanceModel structure.
+    """
+    return pa.schema([
+        ("chunk_hash", pa.string()),
+        ("content", pa.string()),
+        ("vector", pa.list_(pa.float32(), embedding_dimension)),
+        ("domain", pa.string()),
+        ("source_id", pa.string()),
+        ("source_version", pa.int32()),
+        ("created_at", pa.string()),
+    ])

@@ -26,8 +26,8 @@ class DocumentStore:
     def __init__(self, db_path: str | Path) -> None:
         """Initialize the document store and set up the SQLite database.
 
-        Connects to SQLite, enables WAL mode, enforces foreign keys,
-        executes the schema, and verifies the user_version.
+        Connects to SQLite, executes the schema (which sets WAL mode, synchronous=NORMAL,
+        and foreign_keys), and verifies the user_version.
 
         Args:
             db_path: Path to SQLite database file. Use ':memory:' for in-memory DB.
@@ -41,16 +41,10 @@ class DocumentStore:
         # Connect to database
         self.conn = sqlite3.connect(db_path_str)
 
-        # Enable WAL mode for better concurrency
-        self.conn.execute("PRAGMA journal_mode=WAL")
-
-        # Set synchronous mode to NORMAL for better performance
-        self.conn.execute("PRAGMA synchronous=NORMAL")
-
         # Set row_factory to access columns by name
         self.conn.row_factory = sqlite3.Row
 
-        # Load and execute schema
+        # Load and execute schema (contains all required PRAGMAs)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)

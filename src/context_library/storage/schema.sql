@@ -1,4 +1,6 @@
 PRAGMA foreign_keys=ON;
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
 PRAGMA user_version=1;
 
 CREATE TABLE IF NOT EXISTS adapters (

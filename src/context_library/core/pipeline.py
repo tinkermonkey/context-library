@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import lancedb
-import pyarrow as pa
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
@@ -20,7 +19,7 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
-from context_library.storage.vector_store import ChunkVector
+from context_library.storage.vector_store import ChunkVector, create_chunk_vector_schema
 
 logger = logging.getLogger(__name__)
 
@@ -321,16 +320,8 @@ class IngestionPipeline:
                             table = db.open_table("chunk_vectors")
                             table.add(chunk_vector_dicts)
                         else:
-                            # Build schema with embedder's actual dimension
-                            schema = pa.schema([
-                                ("chunk_hash", pa.string()),
-                                ("content", pa.string()),
-                                ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
-                                ("domain", pa.string()),
-                                ("source_id", pa.string()),
-                                ("source_version", pa.int32()),
-                                ("created_at", pa.string()),
-                            ])
+                            # Build schema with embedder's actual dimension using vector_store schema
+                            schema = create_chunk_vector_schema(self.embedder.dimension)
                             db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
                     except Exception as e:
                         # If SQLite write succeeded but LanceDB fails, mark as inconsistent
