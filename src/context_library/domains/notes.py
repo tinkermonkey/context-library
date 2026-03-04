@@ -6,10 +6,10 @@ from typing import Any, TypedDict
 
 import mistune
 
-logger = logging.getLogger(__name__)
-
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import Chunk, NormalizedContent, compute_chunk_hash
+
+logger = logging.getLogger(__name__)
 
 
 class CandidateChunk(TypedDict, total=False):
@@ -30,18 +30,16 @@ class NotesDomain(BaseDomain):
     """
 
     def __init__(
-        self, soft_limit: int = 512, hard_limit: int = 1024, min_floor: int = 64
+        self, soft_limit: int = 512, hard_limit: int = 1024
     ):
         """Initialize the NotesDomain chunker.
 
         Args:
             soft_limit: Target token limit for joining adjacent sections (default 512)
             hard_limit: Maximum token limit before forced splitting (default 1024)
-            min_floor: Minimum tokens to preserve atomic blocks (default 64)
         """
         self.soft_limit = soft_limit
         self.hard_limit = hard_limit
-        self.min_floor = min_floor
         # Create markdown parser with renderer=None to get AST output
         # Enable table plugin to recognize markdown tables
         self.md = mistune.create_markdown(renderer=None, plugins=["table"])
@@ -301,14 +299,27 @@ class NotesDomain(BaseDomain):
             return "---"
 
         else:
-            # Log unrecognized block types instead of silently discarding
-            logger.warning(
-                "Unrecognized markdown block type '%s' - content will be discarded. "
-                "Block keys: %s",
-                block_type,
-                list(block.keys()),
-            )
-            return ""
+            # Attempt best-effort content extraction for unrecognized block types
+            content = ""
+
+            # Try to extract from 'raw' field (e.g., block_html, math_block)
+            if "raw" in block:
+                content = block.get("raw", "")
+
+            # Try to extract from 'children' field (e.g., def_list, footnote)
+            elif "children" in block:
+                content = self._extract_text_from_children(block.get("children", []))
+
+            # Log warning if content was unavailable
+            if not content:
+                logger.warning(
+                    "Unrecognized markdown block type '%s' - no content extracted. "
+                    "Block keys: %s",
+                    block_type,
+                    list(block.keys()),
+                )
+
+            return content
 
     def _render_list(self, block: dict[str, Any]) -> str:
         """Render a list block to markdown."""

@@ -16,7 +16,7 @@ from context_library.storage.models import (
 @pytest.fixture
 def notes_domain():
     """Create a NotesDomain instance with default limits."""
-    return NotesDomain(soft_limit=512, hard_limit=1024, min_floor=64)
+    return NotesDomain(soft_limit=512, hard_limit=1024)
 
 
 @pytest.fixture
@@ -39,15 +39,13 @@ class TestNotesDomainBasics:
 
         assert domain.soft_limit == 512
         assert domain.hard_limit == 1024
-        assert domain.min_floor == 64
 
     def test_initialization_with_custom_limits(self):
         """NotesDomain initializes with custom limits."""
-        domain = NotesDomain(soft_limit=256, hard_limit=512, min_floor=32)
+        domain = NotesDomain(soft_limit=256, hard_limit=512)
 
         assert domain.soft_limit == 256
         assert domain.hard_limit == 512
-        assert domain.min_floor == 32
 
     def test_chunk_returns_list(self, notes_domain, base_structural_hints):
         """chunk() returns a list of Chunk instances."""
@@ -345,7 +343,7 @@ class TestSoftHardLimits:
     """Tests for soft and hard token limits."""
 
     def test_adjacent_small_sections_joined(self, notes_domain, base_structural_hints):
-        """Adjacent sections below min_floor are joined if combined size is within hard_limit."""
+        """Adjacent sections below soft_limit are joined if combined size is within hard_limit."""
         # Create content where adjacent H2 sections are each small (< 64 tokens)
         markdown = """# Main
 
