@@ -7,17 +7,29 @@ from typing import Any, TypedDict
 import mistune
 
 from context_library.domains.base import BaseDomain
-from context_library.storage.models import Chunk, NormalizedContent, compute_chunk_hash
+from context_library.storage.models import (
+    Chunk,
+    ChunkType,
+    NormalizedContent,
+    compute_chunk_hash,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class CandidateChunk(TypedDict, total=False):
-    """TypedDict for candidate chunk dictionaries."""
+class CandidateChunk(TypedDict):
+    """TypedDict for candidate chunk dictionaries.
+
+    All fields are required (total=True by default) as every candidate chunk
+    construction site includes all five fields. This strengthens the type contract
+    and prevents accidental omission of required metadata.
+
+    chunk_type is typed as ChunkType to enforce valid chunk type values.
+    """
 
     content: str
     context_header: str | None
-    chunk_type: str
+    chunk_type: ChunkType
     domain_metadata: dict[str, Any] | None
     is_atomic: bool
 
@@ -142,7 +154,7 @@ class NotesDomain(BaseDomain):
                 current_candidate = {
                     "content": "",
                     "context_header": context_header,
-                    "chunk_type": "standard",
+                    "chunk_type": ChunkType.STANDARD,
                     "domain_metadata": {"heading_level": level},
                     "is_atomic": False,
                 }
@@ -161,7 +173,7 @@ class NotesDomain(BaseDomain):
                     {
                         "content": code_content,
                         "context_header": context_header,
-                        "chunk_type": "code",
+                        "chunk_type": ChunkType.CODE,
                         "domain_metadata": None,
                         "is_atomic": True,
                     }
@@ -171,7 +183,7 @@ class NotesDomain(BaseDomain):
                 current_candidate = {
                     "content": "",
                     "context_header": context_header,
-                    "chunk_type": "standard",
+                    "chunk_type": ChunkType.STANDARD,
                     "domain_metadata": (
                         {"heading_level": heading_stack[-1][0]}
                         if heading_stack
@@ -194,7 +206,7 @@ class NotesDomain(BaseDomain):
                     {
                         "content": table_content,
                         "context_header": context_header,
-                        "chunk_type": "table",
+                        "chunk_type": ChunkType.TABLE,
                         "domain_metadata": None,
                         "is_atomic": True,
                     }
@@ -204,7 +216,7 @@ class NotesDomain(BaseDomain):
                 current_candidate = {
                     "content": "",
                     "context_header": context_header,
-                    "chunk_type": "standard",
+                    "chunk_type": ChunkType.STANDARD,
                     "domain_metadata": (
                         {"heading_level": heading_stack[-1][0]}
                         if heading_stack
@@ -222,7 +234,7 @@ class NotesDomain(BaseDomain):
                     current_candidate = {
                         "content": "",
                         "context_header": context_header,
-                        "chunk_type": "standard",
+                        "chunk_type": ChunkType.STANDARD,
                         "domain_metadata": (
                             {"heading_level": heading_stack[-1][0]}
                             if heading_stack

@@ -9,7 +9,7 @@ This module contains:
 import hashlib
 import re
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict
 
@@ -24,6 +24,20 @@ class Domain(str, Enum):
     NOTES = "notes"
     EVENTS = "events"
     TASKS = "tasks"
+
+
+class ChunkType(str, Enum):
+    """Fixed set of chunk types for content classification.
+
+    Aligns with SQLite schema CHECK constraint on chunks.chunk_type.
+    Enforces valid chunk type values at the Python level before database insertion.
+    """
+
+    STANDARD = "standard"
+    OVERSIZED = "oversized"
+    TABLE_PART = "table_part"
+    CODE = "code"
+    TABLE = "table"
 
 
 def _validate_sha256_hex(value: str) -> str:
@@ -87,6 +101,9 @@ class Chunk(BaseModel):
     The chunk_hash is deterministically computed from the content (excluding context header)
     using SHA-256 after whitespace normalization. This enables content-addressed deduplication
     and change detection across multiple sources.
+
+    chunk_type is validated against a fixed set of allowed values (standard, oversized,
+    table_part, code, table) to ensure consistency with SQLite schema constraints.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -95,7 +112,7 @@ class Chunk(BaseModel):
     content: str
     context_header: str | None = None
     chunk_index: int
-    chunk_type: str = "standard"
+    chunk_type: ChunkType = ChunkType.STANDARD
     domain_metadata: dict[str, object] | None = None
 
 

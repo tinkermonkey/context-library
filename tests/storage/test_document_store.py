@@ -436,32 +436,25 @@ class TestChunkWriteAndRead:
     def test_write_chunks_invalid_chunk_type_raises_error(
         self, store: DocumentStore
     ) -> None:
-        """Test that write_chunks raises IntegrityError for invalid chunk_type."""
-        source_id, adapter_id, version_id = self._setup_with_version(store)
+        """Test that invalid chunk_type raises ValidationError at Pydantic level.
 
-        # Create a chunk with invalid chunk_type that violates CHECK constraint
-        chunk = Chunk(
-            chunk_hash=_make_hash("f"),
-            content="Invalid chunk",
-            chunk_index=0,
-            chunk_type="invalid_type_value",  # Not in ('standard', 'oversized', 'table_part', 'code', 'table')
-        )
+        Validation now happens at Pydantic model instantiation before reaching SQLite,
+        preventing invalid chunk_type values from reaching the database.
+        """
+        from pydantic import ValidationError
 
-        lineage = LineageRecord(
-            chunk_hash=_make_hash("f"),
-            source_id=source_id,
-            source_version_id=version_id,
-            adapter_id=adapter_id,
-            domain=Domain.NOTES,
-            normalizer_version="1.0.0",
-            embedding_model_id="test-model",
-        )
+        # Create a chunk with invalid chunk_type that violates ChunkType enum
+        with pytest.raises(ValidationError) as exc_info:
+            Chunk(
+                chunk_hash=_make_hash("f"),
+                content="Invalid chunk",
+                chunk_index=0,
+                chunk_type="invalid_type_value",  # Not in ChunkType enum
+            )
 
-        # Should raise IntegrityError because chunk_type violates CHECK constraint
-        import sqlite3
-
-        with pytest.raises(sqlite3.IntegrityError):
-            store.write_chunks([chunk], [lineage])
+        # Verify the error message mentions the invalid chunk_type
+        assert "chunk_type" in str(exc_info.value)
+        assert "invalid_type_value" in str(exc_info.value)
 
     def test_write_chunks_invalid_adapter_id_raises_error(
         self, store: DocumentStore
