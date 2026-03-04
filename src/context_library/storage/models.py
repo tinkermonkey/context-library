@@ -9,7 +9,7 @@ This module contains:
 import hashlib
 import re
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict
 
