@@ -676,9 +676,11 @@ class DocumentStore:
         """Get all chunks with 'insert' operations in the sync log.
 
         Queries the sync log for all chunks with 'insert' operations recorded. The sync log
-        uses last-write-wins semantics (UNIQUE constraint + INSERT OR REPLACE), so the most
-        recent operation for each chunk_hash is reflected. Use this method to rebuild LanceDB
-        from SQLite if an insert operation failed.
+        uses INSERT OR REPLACE with a UNIQUE (chunk_hash, operation) constraint, so repeated
+        inserts of the same chunk overwrite the previous insert entry (last-write-wins within
+        each operation type). A chunk_hash may have both an 'insert' and 'delete' row
+        simultaneously. Use this method to rebuild LanceDB from SQLite if an insert operation
+        failed.
 
         With composite PK (chunk_hash, source_id, source_version), the same chunk_hash can
         exist in multiple rows (different sources/versions). This query GROUPs BY chunk_hash
