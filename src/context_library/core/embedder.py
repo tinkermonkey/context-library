@@ -31,8 +31,13 @@ class Embedder:
 
         Returns:
             The embedding dimension as an integer.
+
+        Raises:
+            AssertionError: If the model does not report an embedding dimension.
         """
-        return self._model.get_sentence_embedding_dimension()
+        dim = self._model.get_sentence_embedding_dimension()
+        assert dim is not None, f"Model {self._model_name} did not report an embedding dimension"
+        return dim
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts using the model.

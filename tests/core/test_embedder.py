@@ -1,5 +1,7 @@
 """Tests for the embedder module."""
 
+from unittest.mock import patch, MagicMock
+
 import pytest
 from context_library.core.embedder import Embedder
 
@@ -18,9 +20,10 @@ class TestEmbedder:
 
     def test_model_id_with_custom_model(self):
         """Test that model_id returns the custom model name."""
-        custom_model_name = "all-MiniLM-L6-v2"
-        embedder = Embedder(model_name=custom_model_name)
-        assert embedder.model_id == custom_model_name
+        custom_model_name = "custom-model-xyz"
+        with patch("context_library.core.embedder.SentenceTransformer"):
+            embedder = Embedder(model_name=custom_model_name)
+            assert embedder.model_id == custom_model_name
 
     def test_dimension_property(self, embedder):
         """Test that dimension returns the correct output dimension."""
