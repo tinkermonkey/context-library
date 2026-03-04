@@ -1,12 +1,8 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
-from collections.abc import Sequence
 from pathlib import Path
 
-from lancedb.pydantic import (  # type: ignore[import-untyped]
-    LanceModel,
-    Vector,
-)
+from lancedb.pydantic import LanceModel  # type: ignore[import-untyped]
 from pydantic import ConfigDict, field_validator
 
 from context_library.storage.models import Domain
@@ -24,16 +20,18 @@ class ChunkVector(LanceModel):
     LanceDB is derived and disposable; it can be fully rebuilt from SQLite.
     Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
 
-    Note: This schema is for documentation and potential future use. The pipeline writes
-    plain dicts to LanceDB and uses an explicit pyarrow schema for table creation.
-    Runtime validation occurs in the pipeline via validate_embedding_dimension() calls.
+    IMPORTANT: This schema is NOT used by the pipeline. The pipeline writes plain dicts to
+    LanceDB and uses an explicit pyarrow schema with model-driven dimensions for table
+    creation (see IngestionPipeline.ingest()). The vector field cannot be parameterized in
+    Pydantic v2, so this class exists only for documentation. Runtime validation occurs
+    in the pipeline via validate_embedding_dimension() calls before every write.
     """
 
     model_config = ConfigDict(frozen=True)
 
     chunk_hash: str              # join key to SQLite chunks table
     content: str                 # denormalized for reranker access without SQLite lookup
-    vector: Vector(384)          # type: ignore[valid-type]  # embedding vector; dimension enforced at write time via schema
+    vector: list[float]          # embedding vector; type hint only (dimension enforced by pyarrow schema)
     domain: Domain               # supports filtered vector search by domain
     source_id: str               # supports filtered vector search by source
     source_version: int          # supports filtered vector search by version
