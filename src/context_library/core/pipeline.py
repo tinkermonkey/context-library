@@ -9,7 +9,12 @@ import pyarrow as pa
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
-from context_library.core.exceptions import EmbeddingError, StorageError, AllSourcesFailedError
+from context_library.core.exceptions import (
+    ChunkingError,
+    EmbeddingError,
+    StorageError,
+    AllSourcesFailedError,
+)
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
@@ -366,6 +371,19 @@ class IngestionPipeline:
                 # Mark store consistency as successful for this source
                 store_consistency[content.source_id] = "success"
 
+            except ChunkingError as e:
+                # Handle chunking errors (domain-specific parser/processing failures)
+                logger.error(f"Chunking error for source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "ChunkingError",
+                    "message": str(e),
+                    "source_id_attr": e.source_id,
+                })
+                store_consistency[content.source_id] = "error"
+                continue
             except EmbeddingError as e:
                 # Handle embedding-specific errors
                 logger.error(f"Embedding error for source '{content.source_id}': {e}", exc_info=True)

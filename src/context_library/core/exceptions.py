@@ -49,6 +49,27 @@ class StorageError(PipelineError):
         self.inconsistent = inconsistent
 
 
+class ChunkingError(PipelineError):
+    """Error during content chunking (domain-specific processing).
+
+    Raised when a domain chunker fails to process content, including parser
+    failures, invalid structure, or other domain-specific errors.
+
+    Attributes:
+        source_id: The source identifier of the content that failed
+    """
+
+    def __init__(self, message: str, source_id: str | None = None):
+        """Initialize ChunkingError.
+
+        Args:
+            message: Error message
+            source_id: The source_id of the content that failed to chunk
+        """
+        super().__init__(message)
+        self.source_id = source_id
+
+
 class AllSourcesFailedError(PipelineError):
     """Error raised when all sources fail during ingestion.
 

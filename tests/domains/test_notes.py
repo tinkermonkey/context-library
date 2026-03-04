@@ -881,3 +881,61 @@ console.log("second");
         assert len(chunks) > 0
         # List content should be preserved
         assert any("Item 1" in c.content for c in chunks)
+
+
+class TestNotesDomainParserFailure:
+    """Tests for NotesDomain error handling on parser failures."""
+
+    def test_parser_failure_raises_chunking_error(self, notes_domain, base_structural_hints):
+        """Parser failure raises ChunkingError instead of silently returning empty list.
+
+        This ensures the pipeline can properly track and report chunking failures
+        to users, preventing documents from silently disappearing from the index.
+        """
+        from unittest.mock import MagicMock
+        from context_library.core.exceptions import ChunkingError
+
+        markdown = "# Test\n\nSome content"
+        content = NormalizedContent(
+            markdown=markdown,
+            source_id="test.md",
+            structural_hints=base_structural_hints,
+            normalizer_version="1.0.0",
+        )
+
+        # Create a domain with mocked parser that returns unexpected type
+        domain = NotesDomain()
+        domain.md = MagicMock(return_value="invalid_result")
+
+        with pytest.raises(ChunkingError) as exc_info:
+            domain.chunk(content)
+
+        # Verify error contains appropriate context
+        error = exc_info.value
+        assert "unexpected type" in str(error).lower()
+        assert content.source_id in str(error)
+        assert error.source_id == content.source_id
+
+    def test_chunking_error_attributes(self, base_structural_hints):
+        """ChunkingError includes source_id for pipeline error tracking."""
+        from unittest.mock import MagicMock
+        from context_library.core.exceptions import ChunkingError
+
+        markdown = "# Test\n\nContent"
+        content = NormalizedContent(
+            markdown=markdown,
+            source_id="sources/important_doc.md",
+            structural_hints=base_structural_hints,
+            normalizer_version="1.0.0",
+        )
+
+        # Create a domain with mocked parser that returns int instead of list
+        domain = NotesDomain()
+        domain.md = MagicMock(return_value=123)
+
+        with pytest.raises(ChunkingError) as exc_info:
+            domain.chunk(content)
+
+        error = exc_info.value
+        assert error.source_id == "sources/important_doc.md"
+        assert "int" in str(error).lower()

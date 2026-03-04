@@ -6,6 +6,7 @@ from typing import Any, TypedDict
 
 import mistune
 
+from context_library.core.exceptions import ChunkingError
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import (
     Chunk,
@@ -80,12 +81,12 @@ class NotesDomain(BaseDomain):
         # mistune returns str | list[dict[str, Any]] but with renderer=None we always get list
         ast_result = self.md(content.markdown)
         if not isinstance(ast_result, list):
-            logger.warning(
-                "Markdown parser returned unexpected type %s instead of list. "
-                "Document will be skipped (zero chunks produced).",
-                type(ast_result).__name__,
+            raise ChunkingError(
+                f"Markdown parser returned unexpected type {type(ast_result).__name__} instead of list. "
+                f"Cannot chunk content from source {content.source_id}.",
+                source_id=content.source_id,
             )
-        ast = ast_result if isinstance(ast_result, list) else []
+        ast = ast_result
 
         # Build candidate chunks from AST
         candidates = self._build_candidates(ast)
