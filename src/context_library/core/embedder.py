@@ -1,5 +1,7 @@
 """Wraps the embedding model; converts chunk text to dense vectors."""
 
+from typing import cast
+
 from sentence_transformers import SentenceTransformer
 
 
@@ -50,7 +52,7 @@ class Embedder:
             List of embedding vectors, each as a list of floats.
         """
         embeddings = self._model.encode(texts, convert_to_numpy=True)
-        return embeddings.tolist()
+        return cast(list[list[float]], embeddings.tolist())
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a single query string.
@@ -64,4 +66,4 @@ class Embedder:
             A single embedding vector as a list of floats.
         """
         embedding = self._model.encode(query, convert_to_numpy=True)
-        return embedding.tolist()
+        return cast(list[float], embedding.tolist())
