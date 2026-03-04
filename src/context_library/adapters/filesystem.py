@@ -60,14 +60,16 @@ class FilesystemAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent for each .md file found
+
+        Raises:
+            FileNotFoundError: If the configured directory does not exist
+            NotADirectoryError: If the configured path exists but is not a directory
         """
         if not self._directory.exists():
-            logger.warning(f"Directory does not exist: {self._directory}")
-            return
+            raise FileNotFoundError(f"Directory does not exist: {self._directory}")
 
         if not self._directory.is_dir():
-            logger.warning(f"Path is not a directory: {self._directory}")
-            return
+            raise NotADirectoryError(f"Path is not a directory: {self._directory}")
 
         for md_file in self._directory.rglob("*.md"):
             if not md_file.is_file():
@@ -116,6 +118,12 @@ class FilesystemAdapter(BaseAdapter):
 
             except UnicodeDecodeError:
                 logger.warning(f"Failed to decode file as UTF-8: {md_file}")
+                continue
+            except PermissionError:
+                logger.warning(f"Permission denied reading file: {md_file}")
+                continue
+            except FileNotFoundError:
+                logger.warning(f"File was deleted during iteration: {md_file}")
                 continue
             except OSError as e:
                 logger.warning(f"Error processing file {md_file}: {e}")

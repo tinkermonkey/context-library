@@ -3,6 +3,8 @@
 from pathlib import Path
 from datetime import datetime
 
+import pytest
+
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.storage.models import Domain, NormalizedContent, StructuralHints
 
@@ -153,13 +155,12 @@ class TestFilesystemAdapterFetch:
         assert isinstance(result.structural_hints, StructuralHints)
 
     def test_fetch_nonexistent_directory(self, tmp_path):
-        """fetch() handles nonexistent directory gracefully."""
+        """fetch() raises FileNotFoundError for nonexistent directory."""
         nonexistent = tmp_path / "does_not_exist"
         adapter = FilesystemAdapter(nonexistent)
 
-        results = list(adapter.fetch("unused"))
-
-        assert len(results) == 0
+        with pytest.raises(FileNotFoundError):
+            list(adapter.fetch("unused"))
 
     def test_fetch_empty_directory(self, tmp_path):
         """fetch() yields nothing for empty directory."""
@@ -184,6 +185,15 @@ class TestFilesystemAdapterFetch:
         # Should only get the valid file
         assert len(results) == 1
         assert results[0].source_id == "valid.md"
+
+    def test_fetch_path_is_file_raises_error(self, tmp_path):
+        """fetch() raises NotADirectoryError when path is a file."""
+        file_path = tmp_path / "is_a_file.txt"
+        file_path.write_text("I am a file")
+        adapter = FilesystemAdapter(file_path)
+
+        with pytest.raises(NotADirectoryError):
+            list(adapter.fetch("unused"))
 
 
 class TestFilesystemAdapterStructuralHints:
@@ -318,6 +328,62 @@ class TestFilesystemAdapterStructuralHints:
         results = list(adapter.fetch("unused"))
 
         assert results[0].structural_hints.natural_boundaries == []
+
+
+class TestFilesystemAdapterErrorHandling:
+    """Tests for specific error handling in FilesystemAdapter."""
+
+    def test_fetch_permission_error_skips_file(self, tmp_path, monkeypatch):
+        """fetch() skips files with permission errors and continues."""
+        valid_file = tmp_path / "valid.md"
+        valid_file.write_text("Valid content", encoding="utf-8")
+
+        problem_file = tmp_path / "problem.md"
+        problem_file.write_text("Problem content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+
+        # Mock read_text to raise PermissionError on problem_file
+        original_read_text = Path.read_text
+
+        def mock_read_text(self, encoding="utf-8"):
+            if self.name == "problem.md":
+                raise PermissionError(f"Permission denied: {self}")
+            return original_read_text(self, encoding=encoding)
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        results = list(adapter.fetch("unused"))
+
+        # Should only get the valid file, skipping the one with permission error
+        assert len(results) == 1
+        assert results[0].source_id == "valid.md"
+
+    def test_fetch_file_deleted_during_iteration(self, tmp_path, monkeypatch):
+        """fetch() handles FileNotFoundError during read gracefully."""
+        valid_file = tmp_path / "valid.md"
+        valid_file.write_text("Valid content", encoding="utf-8")
+
+        problem_file = tmp_path / "problem.md"
+        problem_file.write_text("Problem content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+
+        # Mock read_text to simulate file deletion during read
+        original_read_text = Path.read_text
+
+        def mock_read_text(self, encoding="utf-8"):
+            if self.name == "problem.md":
+                raise FileNotFoundError(f"File deleted: {self}")
+            return original_read_text(self, encoding=encoding)
+
+        monkeypatch.setattr(Path, "read_text", mock_read_text)
+
+        results = list(adapter.fetch("unused"))
+
+        # Should get valid file, skip problem.md (deleted during iteration)
+        assert len(results) == 1
+        assert results[0].source_id == "valid.md"
 
 
 class TestFilesystemAdapterIntegration:
