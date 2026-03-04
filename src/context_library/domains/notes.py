@@ -1,9 +1,12 @@
 """NotesDomain: chunking and metadata for freeform notes."""
 
+import logging
 import re
 from typing import Any, TypedDict
 
 import mistune
+
+logger = logging.getLogger(__name__)
 
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import Chunk, NormalizedContent, compute_chunk_hash
@@ -298,7 +301,13 @@ class NotesDomain(BaseDomain):
             return "---"
 
         else:
-            # Fallback
+            # Log unrecognized block types instead of silently discarding
+            logger.warning(
+                "Unrecognized markdown block type '%s' - content will be discarded. "
+                "Block keys: %s",
+                block_type,
+                list(block.keys()),
+            )
             return ""
 
     def _render_list(self, block: dict[str, Any]) -> str:
@@ -383,7 +392,7 @@ class NotesDomain(BaseDomain):
         """Apply soft and hard token limits to candidate chunks.
 
         Algorithm:
-        1. Join short adjacent sections below min_floor if combined size <= hard_limit
+        1. Join short adjacent sections below soft_limit if combined size <= hard_limit
            (but NOT sections with different context headers - those are separate heading sections)
         2. Split oversized sections exceeding hard_limit at paragraph boundaries
 
@@ -403,9 +412,9 @@ class NotesDomain(BaseDomain):
             current = candidates[i].copy()
             current_tokens = self._token_count(current["content"])
 
-            # Try to join with next sections if current is below min_floor
+            # Try to join with next sections if current is below soft_limit
             # BUT: don't join sections with different context headers (different heading sections)
-            if current_tokens < self.min_floor and i + 1 < len(candidates):
+            if current_tokens < self.soft_limit and i + 1 < len(candidates):
                 # Accumulate adjacent sections
                 while (
                     i + 1 < len(candidates)
