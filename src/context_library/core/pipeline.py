@@ -5,7 +5,7 @@ SQLite is the source of truth; LanceDB is derived and fully rebuildable from SQL
 See failure modes below for recovery procedures.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -22,7 +22,6 @@ class PartialFailureReport:
     lancedb_success_count: int = 0
     sqlite_exception: Optional[Exception] = None
     lancedb_exception: Optional[Exception] = None
-    recovered: bool = False  # True if data is safe in SQLite despite downstream failures
 
     @property
     def is_complete_success(self) -> bool:
@@ -88,12 +87,10 @@ class Pipeline:
                 # Simulated vector store write
                 self._write_to_lancedb(chunk)
                 report.lancedb_success_count += 1
-            report.recovered = True
         except Exception as e:
             # LanceDB failure = degraded but not critical
             # Data is safe in SQLite; vector index can be rebuilt later
             report.lancedb_exception = e
-            report.recovered = True  # Data is recoverable from SQLite
 
         return report
 
@@ -108,20 +105,6 @@ class Pipeline:
 
         Raises:
             ValueError: If any hash contains non-hex characters
-
-        UNSAFE PATTERN (❌ DO NOT USE):
-            hashes_str = ", ".join(chunk_hashes)  # User input directly in string
-            vector_store.delete_by_filter(f"chunk_hash IN ({hashes_str})")
-            # Attacker input: ["abc'; DROP TABLE chunks; --"]
-            # Resulting query: DELETE FROM vectors WHERE chunk_hash IN (abc'; DROP TABLE chunks; --)
-
-        SAFE PATTERN (✅ CORRECT):
-            # 1. Validate all hashes contain only hex characters
-            for h in chunk_hashes:
-                if not all(c in "0123456789abcdef" for c in h.lower()):
-                    raise ValueError(f"Invalid hash format: {h}")
-            # 2. Pass as parameter list, never interpolate
-            vector_store.delete_chunks(chunk_hashes)  # Parameterized internally
         """
         # Validate each hash contains only hex characters (0-9, a-f, A-F)
         for hash_value in chunk_hashes:
