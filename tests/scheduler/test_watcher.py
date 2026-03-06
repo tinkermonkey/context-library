@@ -215,8 +215,10 @@ class TestWatcherHandleWebhook:
                 domain_chunker=chunker,
             )
 
-            # Should return None (no explicit return)
-            assert result is None
+            # Should return False to indicate failure
+            assert result is False
+            # Event should be queued for retry
+            assert watcher.get_retry_queue_size() == 1
 
 
 class TestWatcherLifecycle:
@@ -426,3 +428,214 @@ class TestWatcherIntegration:
 
         # Pipeline.ingest should have been called
         pipeline.ingest.assert_called_once_with(adapter, chunker)
+
+
+class TestWatcherCallbackChaining:
+    """Tests for callback chaining to preserve adapter's internal callbacks."""
+
+    def test_register_chains_original_callback(self, pipeline):
+        """register() should chain the original callback before the webhook handler."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Create a mock with an existing callback
+        original_callback = Mock()
+        file_watcher = Mock(spec=FileSystemWatcher)
+        file_watcher._callback = original_callback
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Simulate a filesystem event
+        event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
+        file_watcher._callback(event)
+
+        # Original callback should have been called first
+        original_callback.assert_called_once_with(event)
+
+    def test_register_chains_original_callback_with_webhook(self, pipeline):
+        """register() should call both original callback and webhook handler."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Create a mock with an existing callback
+        original_callback = Mock()
+        file_watcher = Mock(spec=FileSystemWatcher)
+        file_watcher._callback = original_callback
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Patch handle_webhook to verify it's called
+        with patch.object(watcher, "handle_webhook") as mock_webhook:
+            event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
+            file_watcher._callback(event)
+
+            # Both should have been called
+            original_callback.assert_called_once_with(event)
+            mock_webhook.assert_called_once_with(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
+
+    def test_register_handles_original_callback_exception(self, pipeline):
+        """register() should catch exceptions from original callback and continue."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Create a callback that raises
+        original_callback = Mock(side_effect=RuntimeError("Callback failed"))
+        file_watcher = Mock(spec=FileSystemWatcher)
+        file_watcher._callback = original_callback
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Should not raise even though original callback fails
+        with patch("context_library.scheduler.watcher.logger"):
+            with patch.object(watcher, "handle_webhook") as mock_webhook:
+                event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
+                file_watcher._callback(event)
+
+                # Original callback was called and failed
+                original_callback.assert_called_once_with(event)
+                # But webhook handler should still be called
+                mock_webhook.assert_called_once()
+
+
+class TestWatcherRetryMechanism:
+    """Tests for retry queue and failed event handling."""
+
+    def test_failed_event_queued_for_retry(self, pipeline):
+        """Failed events should be queued for retry."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        with patch.object(
+            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
+        ):
+            with patch("context_library.scheduler.watcher.logger"):
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                )
+
+                # Should be in retry queue
+                assert watcher.get_retry_queue_size() == 1
+
+    def test_retry_queue_respects_max_retries(self, pipeline):
+        """Events should be dropped after max_retries is exceeded."""
+        watcher = Watcher(pipeline, max_retries=2)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        with patch.object(
+            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
+        ):
+            with patch("context_library.scheduler.watcher.logger"):
+                # First failure
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                    retry_count=0,
+                )
+                assert watcher.get_retry_queue_size() == 1
+
+                # Second failure (retry 1)
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                    retry_count=1,
+                )
+                assert watcher.get_retry_queue_size() == 2
+
+                # Third failure (retry 2) - should not be queued (exceeds max_retries)
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                    retry_count=2,
+                )
+                assert watcher.get_retry_queue_size() == 2
+
+    def test_flush_retry_queue_retries_events(self, pipeline):
+        """flush_retry_queue() should process queued events."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Queue a failed event
+        with patch.object(
+            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
+        ):
+            with patch("context_library.scheduler.watcher.logger"):
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                )
+
+        assert watcher.get_retry_queue_size() == 1
+
+        # Mock ingest to succeed on retry
+        with patch.object(pipeline, "ingest") as mock_ingest:
+            watcher.flush_retry_queue()
+
+            # Retry queue should be processed and empty
+            assert watcher.get_retry_queue_size() == 0
+            # ingest should have been called during flush
+            mock_ingest.assert_called_once_with(adapter, chunker)
+
+    def test_successful_handle_webhook_not_queued(self, pipeline):
+        """Successful events should not be queued."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        with patch.object(pipeline, "ingest") as mock_ingest:
+            result = watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
+
+            # Should return True for success
+            assert result is True
+            # No retry queue
+            assert watcher.get_retry_queue_size() == 0
+
+    def test_stop_flushes_retry_queue(self, pipeline):
+        """stop() should flush the retry queue before returning."""
+        watcher = Watcher(pipeline)
+        file_watcher = Mock(spec=FileSystemWatcher)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Queue a failed event
+        with patch.object(
+            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
+        ):
+            with patch("context_library.scheduler.watcher.logger"):
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                )
+
+        assert watcher.get_retry_queue_size() == 1
+
+        # Mock ingest to succeed on stop's retry flush
+        with patch.object(pipeline, "ingest"):
+            watcher.stop()
+
+            # Queue should be flushed
+            assert watcher.get_retry_queue_size() == 0
+            # file_watcher.stop() should have been called
+            file_watcher.stop.assert_called_once()

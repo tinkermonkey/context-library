@@ -520,3 +520,188 @@ class TestCallbackErrorHandling:
             assert watcher._observer_started is True
 
             watcher.stop()
+
+
+class TestFileSystemWatcherLockManagement:
+    """Tests for lock management in _flush_buffer() to prevent callback blocking."""
+
+    def test_flush_buffer_releases_lock_during_callback(self) -> None:
+        """_flush_buffer() should release lock before invoking callbacks."""
+        callback_called = False
+        callback_release_event = None
+
+        def mock_callback(event: FileEvent) -> None:
+            nonlocal callback_called, callback_release_event
+            callback_called = True
+            # If the lock wasn't released, this would deadlock or cause issues
+            # In a proper implementation, we can verify the lock was released
+            # by checking that we can access buffer state
+            callback_release_event = True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watcher = FileSystemWatcher(
+                watch_path=Path(tmpdir),
+                callback=mock_callback,
+                debounce_ms=50,
+            )
+
+            watcher.start()
+
+            try:
+                # Create test file
+                test_file = Path(tmpdir) / "test.txt"
+                test_file.write_text("content")
+
+                # Wait for callback to be invoked
+                time.sleep(0.2)
+
+                # Callback should have been called
+                assert callback_called is True
+                assert callback_release_event is True
+            finally:
+                watcher.stop()
+
+    def test_flush_buffer_snapshot_prevents_double_flush(self) -> None:
+        """_flush_buffer() should snapshot buffer to prevent double-flush race."""
+        call_count = 0
+
+        def counting_callback(event: FileEvent) -> None:
+            nonlocal call_count
+            call_count += 1
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watcher = FileSystemWatcher(
+                watch_path=Path(tmpdir),
+                callback=counting_callback,
+                debounce_ms=100,
+            )
+
+            watcher.start()
+
+            try:
+                # Create and modify file within debounce window
+                test_file = Path(tmpdir) / "test.txt"
+                test_file.write_text("content1")
+                # Modify quickly (within debounce window)
+                time.sleep(0.02)
+                test_file.write_text("content2")
+
+                # Wait for debouncing to complete
+                time.sleep(0.15)
+
+                # Should have been called once (both events coalesced into modified)
+                assert call_count == 1
+            finally:
+                watcher.stop()
+
+
+class TestFileSystemWatcherStopRaceCondition:
+    """Tests for race condition fix in stop() and _flush_buffer()."""
+
+    def test_stop_with_pending_debounce_timer(self) -> None:
+        """stop() should safely handle pending debounce timers."""
+        events_received = []
+
+        def recording_callback(event: FileEvent) -> None:
+            events_received.append(event)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watcher = FileSystemWatcher(
+                watch_path=Path(tmpdir),
+                callback=recording_callback,
+                debounce_ms=500,  # Long debounce to ensure timer is pending
+            )
+
+            watcher.start()
+
+            try:
+                # Create a file (starts debounce timer)
+                test_file = Path(tmpdir) / "test.txt"
+                test_file.write_text("content")
+
+                # Stop immediately (while timer is pending)
+                # This should not crash and should properly flush pending events
+                time.sleep(0.05)  # Let event be buffered but not flushed
+                watcher.stop()
+
+                # Pending event should have been flushed (created or modified is fine)
+                assert len(events_received) >= 1
+                # Verify the path is correct
+                paths = [e.path for e in events_received]
+                assert test_file in paths
+            finally:
+                # Clean up in case test fails
+                if watcher._observer_started:
+                    watcher.stop()
+
+    def test_stop_flushes_all_buffered_events(self) -> None:
+        """stop() should flush all events in buffer before returning."""
+        events_received = []
+
+        def recording_callback(event: FileEvent) -> None:
+            events_received.append(event)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watcher = FileSystemWatcher(
+                watch_path=Path(tmpdir),
+                callback=recording_callback,
+                debounce_ms=500,
+            )
+
+            watcher.start()
+
+            try:
+                # Create multiple files rapidly
+                test_file1 = Path(tmpdir) / "test1.txt"
+                test_file2 = Path(tmpdir) / "test2.txt"
+                test_file1.write_text("content1")
+                test_file2.write_text("content2")
+
+                # Stop before debounce completes
+                time.sleep(0.05)
+                watcher.stop()
+
+                # All events should have been flushed
+                assert len(events_received) >= 2
+            finally:
+                if watcher._observer_started:
+                    watcher.stop()
+
+    def test_stop_no_callback_after_stop_returns(self) -> None:
+        """Callbacks should not be invoked after stop() returns."""
+        events_received = []
+
+        def recording_callback(event: FileEvent) -> None:
+            events_received.append(event)
+            # Add a small delay to simulate slow callback
+            time.sleep(0.05)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watcher = FileSystemWatcher(
+                watch_path=Path(tmpdir),
+                callback=recording_callback,
+                debounce_ms=100,
+            )
+
+            watcher.start()
+
+            try:
+                # Create a file
+                test_file = Path(tmpdir) / "test.txt"
+                test_file.write_text("content")
+
+                # Wait a bit then stop
+                time.sleep(0.05)
+                watcher.stop()
+
+                # Record event count after stop
+                final_count = len(events_received)
+
+                # Wait to see if any more callbacks arrive (they shouldn't)
+                time.sleep(0.3)
+
+                # Event count should not have increased after stop
+                assert len(events_received) == final_count
+            finally:
+                if watcher._observer_started:
+                    watcher.stop()

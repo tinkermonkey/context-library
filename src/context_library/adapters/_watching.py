@@ -126,7 +126,14 @@ class FileSystemWatcher:
         logger.debug(f"Started watching {self._watch_path} with watchdog")
 
     def _stop_watchdog(self) -> None:
-        """Stop watchdog observer and flush pending events."""
+        """Stop watchdog observer and flush pending events.
+
+        Ensures that:
+        1. The observer is stopped (no new raw events can arrive)
+        2. The debounce timer is cancelled (no pending flush from timer thread)
+        3. Any buffered events are dispatched exactly once
+        4. No callbacks are invoked after this method returns
+        """
         if not self._observer_started or self._observer is None:
             return
 
@@ -134,15 +141,31 @@ class FileSystemWatcher:
         self._observer.join(timeout=2)
         self._observer_started = False
 
-        # Cancel any pending debounce timer before flushing to prevent
-        # the timer thread from firing concurrently or after stop() returns
+        # Cancel any pending debounce timer and extract buffer atomically
+        # This prevents the timer thread from calling _flush_buffer() after we return
         with self._buffer_lock:
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
                 self._debounce_timer = None
 
-        # Flush any pending buffered events
-        self._flush_buffer()
+            # Snapshot the buffer and clear it to prevent double-flush
+            buffer_snapshot = dict(self._event_buffer)
+            self._event_buffer.clear()
+
+        # Flush buffered events outside the lock to allow new events to be buffered
+        # (though the observer is stopped, so no new events should arrive)
+        # and to prevent blocking callback execution
+        if buffer_snapshot:
+            for path, event_type in buffer_snapshot.items():
+                event = FileEvent(path=path, event_type=event_type)
+                try:
+                    self._callback(event)
+                except Exception as e:
+                    logger.error(
+                        f"Error in filesystem watcher callback for {path}: {e}",
+                        exc_info=True,
+                    )
+
         logger.debug(f"Stopped watching {self._watch_path}")
 
     def _start_watchfiles(self) -> None:
@@ -198,20 +221,30 @@ class FileSystemWatcher:
             self._debounce_timer.start()
 
     def _flush_buffer(self) -> None:
-        """Dispatch all buffered events and clear the buffer."""
-        with self._buffer_lock:
-            for path, event_type in self._event_buffer.items():
-                event = FileEvent(path=path, event_type=event_type)
-                try:
-                    self._callback(event)
-                except Exception as e:
-                    logger.error(
-                        f"Error in filesystem watcher callback for {path}: {e}",
-                        exc_info=True,
-                    )
+        """Dispatch all buffered events and clear the buffer.
 
+        Acquires lock only to snapshot and clear the buffer. Callbacks are invoked
+        outside the lock to:
+        1. Allow new events to be buffered during callback execution
+        2. Prevent slow callbacks from blocking the raw event handler
+        3. Avoid deadlocks if callback tries to acquire the lock
+        """
+        with self._buffer_lock:
+            # Snapshot buffer and clear it atomically
+            buffer_snapshot = dict(self._event_buffer)
             self._event_buffer.clear()
             self._debounce_timer = None
+
+        # Invoke callbacks outside the lock
+        for path, event_type in buffer_snapshot.items():
+            event = FileEvent(path=path, event_type=event_type)
+            try:
+                self._callback(event)
+            except Exception as e:
+                logger.error(
+                    f"Error in filesystem watcher callback for {path}: {e}",
+                    exc_info=True,
+                )
 
 
 if HAS_WATCHDOG:
