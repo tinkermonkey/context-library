@@ -18,7 +18,7 @@ class Poller:
 
     Key features:
     - Reads poll_interval_sec and last_fetched_at from DocumentStore to identify due sources
-    - Invokes adapter.fetch() for each due source and passes results to IngestionPipeline
+    - Delegates to IngestionPipeline which invokes adapter.fetch() for each due source
     - Updates last_fetched_at after successful ingestion
     - Isolates per-source failures — one failing source doesn't prevent others from being polled
     - Only processes sources with poll_strategy = 'pull'

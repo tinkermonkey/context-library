@@ -1,9 +1,8 @@
 """Tests for the scheduler poller."""
 
 import tempfile
-import threading
 import time
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -14,7 +13,7 @@ from context_library.core.differ import Differ
 from context_library.domains.base import BaseDomain
 from context_library.scheduler.poller import Poller
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Domain, NormalizedContent, StructuralHints
+from context_library.storage.models import Domain, NormalizedContent
 
 
 class MockAdapter(BaseAdapter):
@@ -311,12 +310,16 @@ class TestPollerTicking:
             # Make first ingest raise, second succeed
             pipeline.ingest = Mock(side_effect=[Exception("Test error"), {}])
 
-            with patch.object(document_store, "update_last_fetched_at"):
+            with patch.object(
+                document_store, "update_last_fetched_at"
+            ) as mock_update:
                 # Should not raise
                 poller._tick()
 
                 # Both sources should have been attempted
                 assert pipeline.ingest.call_count == 2
+                # update_last_fetched_at should only be called for the successful source
+                mock_update.assert_called_once_with("source-2")
 
     def test_tick_logs_exception_on_failure(self, pipeline, document_store):
         """_tick() should log exceptions with logger.exception()."""
