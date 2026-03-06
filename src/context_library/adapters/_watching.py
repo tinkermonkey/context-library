@@ -134,20 +134,30 @@ class FileSystemWatcher:
         self._observer.join(timeout=2)
         self._observer_started = False
 
+        # Cancel any pending debounce timer before flushing to prevent
+        # the timer thread from firing concurrently or after stop() returns
+        with self._buffer_lock:
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+
         # Flush any pending buffered events
         self._flush_buffer()
         logger.debug(f"Stopped watching {self._watch_path}")
 
     def _start_watchfiles(self) -> None:
         """Start watchfiles observer in a background thread."""
-        # This is a placeholder for watchfiles fallback
-        # In practice, watchfiles requires its own event loop handling
-        logger.warning("watchfiles fallback not yet implemented")
+        raise NotImplementedError(
+            "watchfiles backend is not yet implemented. "
+            "Please install watchdog: pip install watchdog"
+        )
 
     def _stop_watchfiles(self) -> None:
         """Stop watchfiles observer."""
-        # Placeholder for watchfiles cleanup
-        pass
+        raise NotImplementedError(
+            "watchfiles backend is not yet implemented. "
+            "Please install watchdog: pip install watchdog"
+        )
 
     def _on_raw_event(self, path: Path, event_type: str) -> None:
         """Handle a raw filesystem event with debouncing.
