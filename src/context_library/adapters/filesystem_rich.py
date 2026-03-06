@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
-from context_library.adapters._watching import FileEvent, FileSystemWatcher
+from context_library.adapters._watching import (
+    FileEvent,
+    FileSystemWatcher,
+    HAS_WATCHDOG,
+    HAS_WATCHFILES,
+)
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -258,11 +263,14 @@ class RichFilesystemAdapter(BaseAdapter):
         """Handle filesystem changes in push mode.
 
         Called by FileSystemWatcher when a file is created, modified, or deleted.
-        In a real implementation, this would re-ingest the changed file.
 
         Args:
             event: FileEvent containing the path and event type
+
+        Note:
+            This method is currently a placeholder for future implementation.
+            Full push-mode support will require integration with the document store
+            framework to trigger re-ingestion on file changes. The watcher is created
+            and available via self._watcher for framework-level lifecycle management.
         """
         logger.debug(f"File change detected: {event.path} ({event.event_type})")
-        # In a full implementation, this would trigger re-ingestion of the file
-        # by calling fetch() on the specific file and updating the document store

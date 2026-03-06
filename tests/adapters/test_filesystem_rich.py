@@ -1,5 +1,6 @@
 """Tests for the RichFilesystemAdapter."""
 
+import subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
@@ -326,18 +327,22 @@ class TestRichFilesystemAdapterFetch:
 class TestPushModeInitialization:
     """Tests for push-mode (FileSystemWatcher) initialization."""
 
-    def test_push_mode_creates_watcher(self, tmp_path):
-        """When poll_strategy=PUSH, a FileSystemWatcher instance is created."""
-        adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PUSH)
-
-        assert adapter._watcher is not None
-
     def test_pull_mode_does_not_create_watcher(self, tmp_path):
         """When poll_strategy=PULL (default), no watcher is created."""
         adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PULL)
 
         assert adapter._watcher is None
 
+    @patch("context_library.adapters.filesystem_rich.HAS_WATCHDOG", True)
+    @patch("context_library.adapters.filesystem_rich.HAS_WATCHFILES", False)
+    def test_push_mode_creates_watcher(self, tmp_path):
+        """When poll_strategy=PUSH, a FileSystemWatcher instance is created."""
+        adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PUSH)
+
+        assert adapter._watcher is not None
+
+    @patch("context_library.adapters.filesystem_rich.HAS_WATCHDOG", True)
+    @patch("context_library.adapters.filesystem_rich.HAS_WATCHFILES", False)
     def test_push_mode_watcher_configured_correctly(self, tmp_path):
         """Watcher is configured with correct path and callback."""
         adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PUSH)
@@ -391,7 +396,3 @@ class TestConversionFunctions:
             result = _convert_with_pandoc(file_path)
 
         assert result is None
-
-
-# Import subprocess for test
-import subprocess
