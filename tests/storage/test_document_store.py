@@ -16,6 +16,7 @@ Covers:
 """
 
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
@@ -23,6 +24,7 @@ from context_library.storage.models import (
     Chunk,
     Domain,
     LineageRecord,
+    PollStrategy,
 )
 
 
@@ -1846,8 +1848,6 @@ class TestSourceScheduling:
 
     def test_register_source_with_pull_strategy_and_interval(self, store: DocumentStore) -> None:
         """Test registering a source with pull strategy and poll interval."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -1873,8 +1873,6 @@ class TestSourceScheduling:
 
     def test_register_source_with_push_strategy(self, store: DocumentStore) -> None:
         """Test registering a source with push strategy (no interval)."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -1898,8 +1896,6 @@ class TestSourceScheduling:
 
     def test_register_source_with_webhook_strategy(self, store: DocumentStore) -> None:
         """Test registering a source with webhook strategy (no interval)."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -1947,8 +1943,6 @@ class TestSourceScheduling:
         self, store: DocumentStore
     ) -> None:
         """Test that idempotency is preserved when registering source twice."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         # First registration
@@ -1994,8 +1988,6 @@ class TestSourceScheduling:
         """Test that sources with last_fetched_at IS NULL are returned."""
         self._setup_adapter(store)
 
-        from context_library.storage.models import PollStrategy
-
         store.register_source(
             source_id="unfetched-source",
             adapter_id="poll-adapter",
@@ -2016,9 +2008,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_interval_passed(self, store: DocumentStore) -> None:
         """Test that sources whose interval has passed are returned."""
-        from datetime import datetime, timedelta, timezone
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         # Register source with 1-hour interval
@@ -2048,9 +2037,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_interval_not_passed(self, store: DocumentStore) -> None:
         """Test that sources whose interval has not passed are NOT returned."""
-        from datetime import datetime, timedelta, timezone
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         # Register source with 1-hour interval
@@ -2079,8 +2065,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_excludes_push_strategy(self, store: DocumentStore) -> None:
         """Test that sources with push strategy are NOT returned."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -2099,8 +2083,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_excludes_webhook_strategy(self, store: DocumentStore) -> None:
         """Test that sources with webhook strategy are NOT returned."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -2119,8 +2101,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_excludes_null_interval(self, store: DocumentStore) -> None:
         """Test that sources with poll_interval_sec IS NULL are NOT returned."""
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         store.register_source(
@@ -2140,9 +2120,6 @@ class TestSourceScheduling:
 
     def test_get_sources_due_for_poll_mixed_sources(self, store: DocumentStore) -> None:
         """Test that only eligible sources are returned when mixed with ineligible ones."""
-        from datetime import datetime, timedelta, timezone
-        from context_library.storage.models import PollStrategy
-
         self._setup_adapter(store)
 
         # 1. Create source due for poll (never fetched)
