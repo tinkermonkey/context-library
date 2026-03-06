@@ -2,6 +2,8 @@
 
 import re
 
+from pydantic import ValidationError
+
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import (
     Chunk,
@@ -30,7 +32,7 @@ def _strip_quoted_content(text: str) -> str:
     for line in lines:
         # Skip lines starting with '>' (quoted material)
         stripped = line.strip()
-        if line.startswith(">"):
+        if stripped.startswith(">"):
             continue
         # Only strip lines matching the pattern "On ... wrote:" (attribution lines)
         if re.match(r'^On .+ wrote:$', stripped):
@@ -83,7 +85,13 @@ class MessagesDomain(BaseDomain):
             )
 
         meta_dict = content.structural_hints.extra_metadata
-        meta = MessageMetadata(**meta_dict)  # type: ignore[arg-type]
+        try:
+            meta = MessageMetadata(**meta_dict)  # type: ignore[arg-type]
+        except ValidationError as e:
+            raise ValueError(
+                f"Invalid MessageMetadata for source {content.source_id}: "
+                f"{e.error_count()} validation error(s) — {[err['msg'] for err in e.errors()]}"
+            ) from e
 
         # Build context_header
         subject = meta.subject or "(no subject)"
