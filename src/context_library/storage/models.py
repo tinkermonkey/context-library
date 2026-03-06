@@ -117,9 +117,9 @@ class MessageMetadata(BaseModel):
     sender: str
     recipients: list[str]
     timestamp: str
-    in_reply_to: str | None = None
-    subject: str | None = None
-    is_thread_root: bool = False
+    in_reply_to: str | None
+    subject: str | None
+    is_thread_root: bool
 
     @field_validator("timestamp")
     @classmethod
