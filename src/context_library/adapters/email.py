@@ -160,7 +160,7 @@ class EmailAdapter(BaseAdapter):
         Raises:
             httpx.HTTPError: If the API request fails
         """
-        params = {"pageSize": self._max_messages}
+        params: dict[str, int | str] = {"pageSize": self._max_messages}
         if since:
             params["search[since]"] = since
 
@@ -173,7 +173,8 @@ class EmailAdapter(BaseAdapter):
 
         # EmailEngine returns messages in nested structure: {"messages": {"messages": [...]}}
         data = response.json()
-        return data.get("messages", {}).get("messages", [])
+        messages = data.get("messages", {}).get("messages", [])
+        return list(messages) if isinstance(messages, list) else []
 
     def _fetch_message_body(self, message_id: str) -> str:
         """Fetch the full message body (HTML) from EmailEngine API.
