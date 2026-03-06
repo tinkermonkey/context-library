@@ -179,7 +179,7 @@ class ObsidianAdapter(BaseAdapter):
                 "frontmatter": fm_data,
             }
             return markdown, metadata
-        except (ValueError, KeyError, AttributeError) as e:
+        except (ValueError, KeyError, AttributeError):
             # Frontmatter parsing failed; attempt raw file read as fallback
             try:
                 raw_content = note_path.read_text(encoding="utf-8")

@@ -109,8 +109,9 @@ class NotesDomain(BaseDomain):
             # Merge domain metadata from candidate with extra metadata from adapter
             # Candidate metadata (e.g., heading_level) takes precedence over extra metadata
             domain_metadata = dict(extra_metadata)
-            if candidate.get("domain_metadata"):
-                domain_metadata.update(candidate["domain_metadata"])
+            candidate_metadata = candidate.get("domain_metadata")
+            if candidate_metadata:
+                domain_metadata.update(candidate_metadata)
 
             chunk = Chunk(
                 chunk_hash=chunk_hash,
