@@ -1,7 +1,5 @@
 """EmailAdapter for ingesting email from EmailEngine's REST API."""
 
-import html2text
-import httpx
 import logging
 from datetime import datetime
 from typing import Iterator
@@ -15,6 +13,24 @@ from context_library.storage.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Try to import optional dependencies
+HAS_HTTPX = False
+HAS_HTML2TEXT = False
+
+try:
+    import httpx
+
+    HAS_HTTPX = True
+except ImportError:
+    pass
+
+try:
+    import html2text
+
+    HAS_HTML2TEXT = True
+except ImportError:
+    pass
 
 
 class EmailAdapter(BaseAdapter):
@@ -40,7 +56,21 @@ class EmailAdapter(BaseAdapter):
             emailengine_url: Base URL of the EmailEngine API (will strip trailing slash)
             account_id: EmailEngine account identifier
             max_messages: Maximum number of messages to fetch per request (default: 100)
+
+        Raises:
+            ImportError: If httpx or html2text are not installed.
         """
+        if not HAS_HTTPX:
+            raise ImportError(
+                "httpx is required for EmailAdapter. "
+                "Install with: pip install context-library[email]"
+            )
+        if not HAS_HTML2TEXT:
+            raise ImportError(
+                "html2text is required for EmailAdapter. "
+                "Install with: pip install context-library[email]"
+            )
+
         self._emailengine_url = emailengine_url.rstrip("/")
         self._account_id = account_id
         self._max_messages = max_messages

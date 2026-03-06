@@ -1,8 +1,8 @@
 """Tests for the EmailAdapter."""
 
 import pytest
-import json
-from datetime import datetime, timezone
+
+import httpx
 
 from context_library.adapters.email import EmailAdapter
 from context_library.storage.models import Domain, NormalizedContent, MessageMetadata
@@ -83,16 +83,22 @@ class TestEmailAdapterFetch:
     def mock_httpx(self, monkeypatch):
         """Fixture for mocking httpx requests."""
         class MockResponse:
-            def __init__(self, json_data, status_code=200):
+            def __init__(self, json_data, status_code=200, url=""):
                 self._json_data = json_data
                 self.status_code = status_code
+                self.url = url
 
             def json(self):
                 return self._json_data
 
             def raise_for_status(self):
                 if self.status_code >= 400:
-                    raise Exception(f"HTTP {self.status_code}")
+                    # Raise httpx.HTTPStatusError to match real httpx behavior
+                    raise httpx.HTTPStatusError(
+                        f"HTTP {self.status_code}",
+                        request=None,
+                        response=self,
+                    )
 
         class MockHTTPX:
             def __init__(self):
@@ -101,10 +107,10 @@ class TestEmailAdapterFetch:
 
             def get(self, url, params=None, timeout=None):
                 self.requests.append({"url": url, "params": params, "timeout": timeout})
-                return self.responses.get(url, MockResponse({}))
+                return self.responses.get(url, MockResponse({}, url=url))
 
             def set_response(self, url, data, status_code=200):
-                self.responses[url] = MockResponse(data, status_code)
+                self.responses[url] = MockResponse(data, status_code, url=url)
 
         mock_httpx = MockHTTPX()
         monkeypatch.setattr("context_library.adapters.email.httpx.get", mock_httpx.get)
@@ -572,6 +578,53 @@ class TestEmailAdapterFetch:
         assert "localhost:3000" not in content_str or "localhost:3000" in adapter._emailengine_url
         # The actual markdown should not contain the URL
         assert "localhost:3000" not in normalized_content.markdown
+
+    def test_fetch_messages_http_error_raises(self, mock_httpx):
+        """fetch() raises HTTPStatusError when initial message list request fails."""
+        httpx_mock_response = mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/messages",
+            {},
+            status_code=500,
+        )
+
+        adapter = EmailAdapter("http://localhost:3000", "acct1")
+        with pytest.raises(httpx.HTTPStatusError):
+            list(adapter.fetch(""))
+
+    def test_fetch_message_body_http_error_skips_message(self, mock_httpx):
+        """fetch() logs and skips individual messages when body fetch fails."""
+        # Mock message list response
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/messages",
+            {
+                "messages": {
+                    "messages": [
+                        {
+                            "id": "msg1",
+                            "threadId": "thread1",
+                            "from": {"address": "sender@example.com"},
+                            "to": [{"address": "recipient@example.com"}],
+                            "subject": "Test",
+                            "date": "2026-03-06T12:00:00Z",
+                            "messageId": "<msg1@example.com>",
+                        }
+                    ]
+                }
+            },
+        )
+
+        # Mock body fetch to fail with 500
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/message/msg1",
+            {},
+            status_code=500,
+        )
+
+        adapter = EmailAdapter("http://localhost:3000", "acct1")
+        results = list(adapter.fetch(""))
+
+        # Message body fetch failed, so no results are yielded
+        assert len(results) == 0
 
 
 class TestEmailAdapterHTMLConversion:
