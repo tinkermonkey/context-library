@@ -2,7 +2,7 @@
 
 import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -16,7 +16,6 @@ from context_library.storage.models import (
     Domain,
     NormalizedContent,
     PollStrategy,
-    StructuralHints,
 )
 
 

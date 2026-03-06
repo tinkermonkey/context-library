@@ -36,7 +36,7 @@ COPY pyproject.toml ./
 # (source code is mounted at runtime, not included in image)
 RUN mkdir -p src/context_library && \
     touch src/context_library/__init__.py && \
-    pip install --no-cache-dir ".[dev]" && \
+    pip install --no-cache-dir ".[dev,rich-fs]" && \
     rm -rf src/context_library
 
 # ============================================================================
@@ -52,7 +52,7 @@ RUN claude --version && \
     gh --version && \
     python3 --version && \
     pip --version && \
-    python3 -c "import watchdog; import watchfiles; import mypy"
+    python3 -c "import watchdog; import watchfiles; import mypy; import markitdown"
 
 # ============================================================================
 # Default command
