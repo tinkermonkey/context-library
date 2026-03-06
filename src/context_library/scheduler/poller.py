@@ -98,7 +98,7 @@ class Poller:
         due_sources = self._document_store.get_sources_due_for_poll()
         for source in due_sources:
             adapter, chunker = self._find_adapter(source["adapter_id"])
-            if adapter is None:
+            if adapter is None or chunker is None:
                 logger.warning(
                     "Poller: no registered adapter found for adapter_id=%s",
                     source["adapter_id"],

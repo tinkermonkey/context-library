@@ -418,7 +418,6 @@ class TestPollerIntegration:
 
         # Mock document_store to return a due source on first call
         call_count = {"count": 0}
-        original_get_due = document_store.get_sources_due_for_poll
 
         def counting_get_due():
             call_count["count"] += 1
