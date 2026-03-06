@@ -1,4 +1,6 @@
 PRAGMA foreign_keys=ON;
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
 PRAGMA user_version=1;
 
 CREATE TABLE IF NOT EXISTS adapters (
@@ -47,7 +49,7 @@ CREATE TABLE IF NOT EXISTS source_versions (
 CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id);
 
 CREATE TABLE IF NOT EXISTS chunks (
-    chunk_hash          TEXT PRIMARY KEY,
+    chunk_hash          TEXT NOT NULL,
     source_id           TEXT NOT NULL,
     source_version      INTEGER NOT NULL,
     chunk_index         INTEGER NOT NULL,
@@ -57,11 +59,13 @@ CREATE TABLE IF NOT EXISTS chunks (
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,
+    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
     parent_chunk_hash   TEXT,
     domain_metadata     TEXT,
-    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part')),
+    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
     retired_at          DATETIME,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chunk_hash, source_id, source_version),
     FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
     UNIQUE (source_id, source_version, chunk_index)
@@ -92,9 +96,11 @@ BEGIN
 END;
 
 CREATE TABLE IF NOT EXISTS lancedb_sync_log (
-    chunk_hash      TEXT PRIMARY KEY,
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    chunk_hash      TEXT NOT NULL,
+    operation       TEXT NOT NULL CHECK (operation IN ('insert', 'delete')),
     synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (chunk_hash) REFERENCES chunks(chunk_hash)
+    UNIQUE (chunk_hash, operation)
 );
 
 CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);

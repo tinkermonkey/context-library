@@ -1,1 +1,435 @@
 """Orchestrates the full ingestion pipeline: fetch → normalize → diff → chunk → embed → store."""
+
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+import lancedb
+
+from context_library.core.differ import Differ
+from context_library.core.embedder import Embedder
+from context_library.core.exceptions import (
+    ChunkingError,
+    EmbeddingError,
+    StorageError,
+    AllSourcesFailedError,
+)
+from context_library.adapters.base import BaseAdapter
+from context_library.domains.base import BaseDomain
+from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import LineageRecord
+from context_library.storage.validators import validate_embedding_dimension
+from context_library.storage.vector_store import ChunkVector, create_chunk_vector_schema
+
+logger = logging.getLogger(__name__)
+
+
+class IngestionPipeline:
+    """Orchestrates the full ingestion pipeline from adapter through storage.
+
+    Coordinates fetching, normalizing, chunking, embedding, and storing of content
+    across both SQLite (DocumentStore) and LanceDB (vector storage).
+
+    Key responsibilities:
+    - Register adapters with the document store (idempotent)
+    - Fetch and normalize content via adapters
+    - Detect changes via the Differ
+    - Chunk content via domain-specific chunkers
+    - Embed new/modified chunks
+    - Write to SQLite and LanceDB sequentially with per-source error isolation
+    - Retire deleted chunks from both stores
+
+    Error handling:
+    - Per-source failures are caught and logged; pipeline continues with next source
+    - If a source's write to SQLite succeeds but LanceDB fails, SQLite and LanceDB
+      may be left inconsistent. LanceDB can be rebuilt from SQLite via full re-sync.
+    """
+
+    def __init__(
+        self,
+        document_store: DocumentStore,
+        embedder: Embedder,
+        differ: Differ,
+        vector_store_path: str | Path,
+    ) -> None:
+        """Initialize the ingestion pipeline.
+
+        Args:
+            document_store: DocumentStore instance for SQLite operations
+            embedder: Embedder instance for computing vectors
+            differ: Differ instance for change detection
+            vector_store_path: Path to LanceDB directory
+        """
+        self.document_store = document_store
+        self.embedder = embedder
+        self.differ = differ
+        self.vector_store_path = Path(vector_store_path)
+
+    def ingest(
+        self, adapter: BaseAdapter, domain_chunker: BaseDomain
+    ) -> dict:
+        """Ingest content from an adapter, orchestrating the full pipeline.
+
+        Algorithm:
+        1. Register adapter (idempotent)
+        2. For each NormalizedContent item from adapter.fetch():
+           a. Look up latest version
+           b. Chunk content
+           c. Compute chunk hashes
+           d. Diff against previous version
+           e. If unchanged: update last_fetched_at only
+           f. If changed: process added/removed/unchanged chunks
+        3. Return summary dict with error tracking
+
+        Consistency model:
+        - Each source is processed independently with per-source error isolation
+        - Writes to SQLite and LanceDB are sequential, not transactional
+        - If a source fails after SQLite writes but before LanceDB, the stores
+          may be inconsistent for that source. This is tracked in store_consistency.
+          LanceDB can be fully rebuilt from SQLite via external sync tooling if needed.
+        - Failed sources are logged and skipped; pipeline continues with next source
+
+        Args:
+            adapter: BaseAdapter instance providing content
+            domain_chunker: BaseDomain instance for chunking
+
+        Returns:
+            Dict with keys:
+            - sources_processed: Number of sources successfully processed
+            - sources_failed: Number of sources that failed processing
+            - chunks_added: Total chunks added across all sources
+            - chunks_removed: Total chunks removed across all sources
+            - chunks_unchanged: Total chunks that remained unchanged
+            - errors: List of error dicts with keys:
+                - source_id: Source that failed
+                - error_type: Type of error (EmbeddingError, StorageError, etc.)
+                - message: Error message
+                - chunk_hash: (Optional) Hash of affected chunk (for EmbeddingError)
+                - chunk_index: (Optional) Index of affected chunk (for EmbeddingError)
+                - store_type: (Optional) Type of store that failed (for StorageError)
+                - inconsistent: (Optional) Whether inconsistency was detected (for StorageError)
+            - store_consistency: Dict mapping source_id to status:
+                - "inconsistent": SQLite write succeeded but LanceDB failed
+                - "error": Storage operation failed
+                - "success": All writes succeeded
+        """
+        # Register adapter (idempotent)
+        adapter.register(self.document_store)
+
+        # Open LanceDB connection
+        db = lancedb.connect(str(self.vector_store_path))
+
+        # Statistics
+        sources_processed = 0
+        sources_failed = 0
+        chunks_added_total = 0
+        chunks_removed_total = 0
+        chunks_unchanged_total = 0
+        errors: list[dict] = []
+        store_consistency: dict[str, str] = {}
+
+        # Iterate over normalized content from adapter
+        for content in adapter.fetch(""):
+            try:
+                sources_processed += 1
+
+                # Look up latest version for this source
+                prev_version = self.document_store.get_latest_version(content.source_id)
+
+                # Chunk the current content
+                chunks = domain_chunker.chunk(content)
+
+                # Compute current chunk hashes
+                curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
+
+                # Get previous version data (if exists)
+                prev_markdown = prev_version.markdown if prev_version else None
+                prev_chunk_hashes = set(prev_version.chunk_hashes) if prev_version else None
+
+                # Run the differ
+                diff_result = self.differ.diff(
+                    prev_markdown, content.markdown, prev_chunk_hashes, curr_chunk_hashes
+                )
+
+                # Case 1: Content unchanged - just update last_fetched_at, skip writes
+                if not diff_result.changed:
+                    # Update last_fetched_at to track when we last checked this source
+                    self.document_store.update_last_fetched_at(content.source_id)
+                    chunks_unchanged_total += len(chunks)
+                    continue
+
+                # Case 2: Content changed - process added/removed/unchanged chunks
+                # Register source if new
+                if prev_version is None:
+                    self.document_store.register_source(
+                        source_id=content.source_id,
+                        adapter_id=adapter.adapter_id,
+                        domain=adapter.domain,
+                        origin_ref=content.structural_hints.file_path or content.source_id,
+                    )
+
+                # Determine version number
+                new_version = (prev_version.version + 1) if prev_version else 1
+
+                # Create source version
+                fetch_timestamp = datetime.now(timezone.utc).isoformat()
+                self.document_store.create_source_version(
+                    source_id=content.source_id,
+                    version=new_version,
+                    markdown=content.markdown,
+                    chunk_hashes=[chunk.chunk_hash for chunk in chunks],
+                    adapter_id=adapter.adapter_id,
+                    normalizer_version=content.normalizer_version,
+                    fetch_timestamp=fetch_timestamp,
+                )
+
+                # Separate added and unchanged chunks
+                added_chunks = [
+                    c for c in chunks if c.chunk_hash in diff_result.added_hashes
+                ]
+                unchanged_chunks = [
+                    c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
+                ]
+
+                # Embed added chunks with context headers for semantic enrichment
+                # Context header is prepended only for embedding, not stored in content field
+                chunk_contents_for_embedding = []
+                for c in added_chunks:
+                    text = c.content
+                    if c.context_header:
+                        text = f"{c.context_header}\n\n{text}"
+                    chunk_contents_for_embedding.append(text)
+
+                vectors = self.embedder.embed(chunk_contents_for_embedding) if chunk_contents_for_embedding else []
+
+                # Validate all embeddings for correct dimension and finite values
+                expected_dim = self.embedder.dimension
+                for i, vector in enumerate(vectors):
+                    try:
+                        validate_embedding_dimension(vector, expected_dim)
+                    except ValueError as e:
+                        raise EmbeddingError(
+                            f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}",
+                            chunk_hash=added_chunks[i].chunk_hash,
+                            chunk_index=i,
+                        ) from e
+
+                # Build LineageRecord for each added chunk
+                added_lineage_records: list[LineageRecord] = []
+                for added_chunk in added_chunks:
+                    lineage = LineageRecord(
+                        chunk_hash=added_chunk.chunk_hash,
+                        source_id=content.source_id,
+                        source_version_id=new_version,  # Use version number (not rowid), for FK to source_versions.version
+                        adapter_id=adapter.adapter_id,
+                        domain=adapter.domain,
+                        normalizer_version=content.normalizer_version,
+                        embedding_model_id=self.embedder.model_id,
+                    )
+                    added_lineage_records.append(lineage)
+
+                # Build LineageRecord for each unchanged chunk
+                # Unchanged chunks are re-written to the new version to be queryable via get_chunks_by_source()
+                unchanged_lineage_records: list[LineageRecord] = []
+                for unchanged_chunk in unchanged_chunks:
+                    # Fetch original lineage to preserve the embedding model that created the vectors
+                    # (not the current embedder's model, which may have changed since the chunk was created)
+                    # Pass source_id to scope lookup correctly in case of cross-source dedup
+                    original_lineage = self.document_store.get_lineage(
+                        unchanged_chunk.chunk_hash, source_id=content.source_id
+                    )
+                    original_embedding_model = (
+                        original_lineage.embedding_model_id
+                        if original_lineage
+                        else self.embedder.model_id
+                    )
+
+                    lineage = LineageRecord(
+                        chunk_hash=unchanged_chunk.chunk_hash,
+                        source_id=content.source_id,
+                        source_version_id=new_version,  # Same version as added chunks
+                        adapter_id=adapter.adapter_id,
+                        domain=adapter.domain,
+                        normalizer_version=content.normalizer_version,
+                        embedding_model_id=original_embedding_model,  # Use original embedding model
+                    )
+                    unchanged_lineage_records.append(lineage)
+
+                # Write all chunks (both added and unchanged) + lineage to SQLite
+                all_chunks_to_write = added_chunks + unchanged_chunks
+                all_lineage_records = added_lineage_records + unchanged_lineage_records
+
+                sqlite_write_succeeded = False
+                if all_chunks_to_write:
+                    try:
+                        self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
+                        sqlite_write_succeeded = True
+                        # Record pending sync operations before attempting LanceDB writes
+                        # Only for added chunks (unchanged ones already have vectors)
+                        added_hashes = [c.chunk_hash for c in added_chunks]
+                        if added_hashes:
+                            self.document_store.write_sync_log(added_hashes)
+                    except Exception as e:
+                        raise StorageError(
+                            f"Failed to write chunks to SQLite for source '{content.source_id}': {e}",
+                            store_type="sqlite",
+                            inconsistent=False,
+                        ) from e
+
+                # Retire removed chunks from SQLite first
+                # Note: retire chunks from the old version (prev_version), not the new one
+                if diff_result.removed_hashes:
+                    old_version = prev_version.version if prev_version else 1
+                    self.document_store.retire_chunks(diff_result.removed_hashes, content.source_id, old_version)
+                    removed_list = list(diff_result.removed_hashes)
+                    # Record pending delete operations before attempting LanceDB deletes
+                    self.document_store.delete_sync_log(removed_list)
+
+                # Write vectors to LanceDB (get or create table)
+                # If this fails and SQLite write succeeded, mark as inconsistent
+                if vectors:
+                    try:
+                        # Build chunk vector data as dicts for LanceDB (enum -> string)
+                        chunk_vector_dicts = []
+                        for added_chunk, vector in zip(added_chunks, vectors):
+                            # Validate using ChunkVector schema to ensure field validators run
+                            chunk_vector = ChunkVector(
+                                chunk_hash=added_chunk.chunk_hash,
+                                content=added_chunk.content,
+                                vector=vector,
+                                domain=adapter.domain,  # Pass enum directly
+                                source_id=content.source_id,
+                                source_version=new_version,
+                                created_at=fetch_timestamp,
+                            )
+                            # Convert to dict with enum values serialized
+                            chunk_vector_dicts.append({
+                                "chunk_hash": chunk_vector.chunk_hash,
+                                "content": chunk_vector.content,
+                                "vector": chunk_vector.vector,
+                                "domain": chunk_vector.domain.value,  # Convert enum to string
+                                "source_id": chunk_vector.source_id,
+                                "source_version": chunk_vector.source_version,
+                                "created_at": chunk_vector.created_at,
+                            })
+
+                        # Create or append to table
+                        # Check if table exists to avoid broad exception handling
+                        existing_tables = db.list_tables().tables
+                        if "chunk_vectors" in existing_tables:
+                            table = db.open_table("chunk_vectors")
+                            table.add(chunk_vector_dicts)
+                        else:
+                            # Build schema with embedder's actual dimension using vector_store schema
+                            schema = create_chunk_vector_schema(self.embedder.dimension)
+                            db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
+                    except Exception as e:
+                        # If SQLite write succeeded but LanceDB fails, mark as inconsistent
+                        inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
+                        if inconsistency_detected:
+                            logger.warning(
+                                f"CRITICAL: SQLite write succeeded but LanceDB write failed for source "
+                                f"'{content.source_id}'. Stores may be inconsistent. "
+                                f"Recovery: Use sync logs to rebuild LanceDB. Error: {e}"
+                            )
+                        raise StorageError(
+                            f"Failed to write vectors to LanceDB for source '{content.source_id}': {e}",
+                            store_type="lancedb",
+                            inconsistent=inconsistency_detected,
+                        ) from e
+
+                # Remove from LanceDB (if table exists and chunks were removed)
+                if diff_result.removed_hashes:
+                    try:
+                        existing_tables = db.list_tables().tables
+                        if "chunk_vectors" in existing_tables:
+                            table = db.open_table("chunk_vectors")
+                            # Build proper SQL IN clause with quoted hash values
+                            quoted_hashes = ", ".join(f"'{h}'" for h in diff_result.removed_hashes)
+                            table.delete(f"chunk_hash IN ({quoted_hashes})")
+                    except Exception as e:
+                        # LanceDB delete is less critical than add, but still log warning
+                        logger.warning(
+                            f"Failed to delete chunks from LanceDB for source '{content.source_id}': {e}"
+                        )
+                        # Don't raise here, as the sync log already has the delete operation recorded
+
+                # Update statistics
+                chunks_added_total += len(added_chunks)
+                chunks_removed_total += len(diff_result.removed_hashes)
+                chunks_unchanged_total += len(diff_result.unchanged_hashes)
+
+                # Mark store consistency as successful for this source
+                store_consistency[content.source_id] = "success"
+
+            except ChunkingError as e:
+                # Handle chunking errors (domain-specific parser/processing failures)
+                logger.error(f"Chunking error for source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "ChunkingError",
+                    "message": str(e),
+                    "source_id_attr": e.source_id,
+                })
+                store_consistency[content.source_id] = "error"
+                continue
+            except EmbeddingError as e:
+                # Handle embedding-specific errors
+                logger.error(f"Embedding error for source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "EmbeddingError",
+                    "message": str(e),
+                    "chunk_hash": e.chunk_hash,
+                    "chunk_index": e.chunk_index,
+                })
+                store_consistency[content.source_id] = "error"
+                continue
+            except StorageError as e:
+                # Handle storage-specific errors
+                logger.error(f"Storage error for source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                consistency_status = "inconsistent" if e.inconsistent else "error"
+                store_consistency[content.source_id] = consistency_status
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": "StorageError",
+                    "message": str(e),
+                    "store_type": e.store_type,
+                    "inconsistent": e.inconsistent,
+                })
+                continue
+            except Exception as e:
+                # Handle any other unexpected errors
+                logger.error(f"Unexpected error processing source '{content.source_id}': {e}", exc_info=True)
+                sources_processed -= 1
+                sources_failed += 1
+                errors.append({
+                    "source_id": content.source_id,
+                    "error_type": type(e).__name__,
+                    "message": str(e),
+                })
+                store_consistency[content.source_id] = "error"
+                continue
+
+        # Raise if all sources failed
+        if sources_failed > 0 and sources_processed == 0:
+            raise AllSourcesFailedError(
+                f"All sources failed to process. {sources_failed} sources had errors. "
+                f"Check errors list for details."
+            )
+
+        return {
+            "sources_processed": sources_processed,
+            "sources_failed": sources_failed,
+            "chunks_added": chunks_added_total,
+            "chunks_removed": chunks_removed_total,
+            "chunks_unchanged": chunks_unchanged_total,
+            "errors": errors,
+            "store_consistency": store_consistency,
+        }
