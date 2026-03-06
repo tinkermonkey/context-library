@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, Sha256Hash, SourceVersion, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, _validate_sha256_hex
 
 
 class DocumentStore:
@@ -133,6 +133,8 @@ class DocumentStore:
         adapter_id: str,
         domain: Domain,
         origin_ref: str,
+        poll_strategy: PollStrategy = PollStrategy.PULL,
+        poll_interval_sec: int | None = None,
     ) -> None:
         """Register a source.
 
@@ -144,15 +146,19 @@ class DocumentStore:
             adapter_id: ID of the adapter handling this source.
             domain: Domain classification (messages, notes, events, tasks).
             origin_ref: URL, path, or reference to the original source.
+            poll_strategy: Strategy for polling this source (push, pull, or webhook).
+                          Defaults to PollStrategy.PULL.
+            poll_interval_sec: Interval in seconds between polls for PULL strategy.
+                              None if not applicable for this strategy.
         """
         with self.conn:
             self.conn.execute(
                 """
                 INSERT OR IGNORE INTO sources
-                (source_id, adapter_id, domain, origin_ref, poll_strategy)
-                VALUES (?, ?, ?, ?, ?)
+                (source_id, adapter_id, domain, origin_ref, poll_strategy, poll_interval_sec)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (source_id, adapter_id, domain.value, origin_ref, "pull"),
+                (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
             )
 
     def create_source_version(
@@ -730,6 +736,45 @@ class DocumentStore:
                 raise RuntimeError(
                     f"Source '{source_id}' does not exist"
                 )
+
+    def get_sources_due_for_poll(self) -> list[dict]:
+        """Get all sources due for polling.
+
+        Queries sources where poll_strategy = 'pull' and either:
+        - last_fetched_at IS NULL (never fetched), or
+        - last_fetched_at + poll_interval_sec < now (interval has passed)
+
+        Sources with poll_interval_sec IS NULL are excluded (no interval configured).
+
+        Returns:
+            List of dicts with keys: source_id, adapter_id, poll_interval_sec,
+                                     last_fetched_at
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT source_id, adapter_id, poll_interval_sec, last_fetched_at
+            FROM sources
+            WHERE poll_strategy = 'pull'
+              AND poll_interval_sec IS NOT NULL
+              AND (
+                last_fetched_at IS NULL
+                OR datetime(last_fetched_at, '+' || poll_interval_sec || ' seconds') < datetime('now')
+              )
+            """
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "source_id": row["source_id"],
+                "adapter_id": row["adapter_id"],
+                "poll_interval_sec": row["poll_interval_sec"],
+                "last_fetched_at": row["last_fetched_at"],
+            })
+
+        return result
 
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.

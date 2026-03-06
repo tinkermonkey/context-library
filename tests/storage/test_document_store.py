@@ -1828,3 +1828,419 @@ class TestRecoveryMechanisms:
         assert result["domain"] == Domain.MESSAGES.value
         assert result["source_id"] == source_id
         assert result["source_version"] == 1
+
+
+class TestSourceScheduling:
+    """Tests for source scheduling parameters and polling."""
+
+    def _setup_adapter(self, store: DocumentStore, adapter_id: str = "poll-adapter") -> str:
+        """Helper to set up an adapter."""
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        return adapter_id
+
+    def test_register_source_with_pull_strategy_and_interval(self, store: DocumentStore) -> None:
+        """Test registering a source with pull strategy and poll interval."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="poll-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Verify source was created with correct poll_strategy and poll_interval_sec
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("poll-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["source_id"] == "poll-source-1"
+        assert row["poll_strategy"] == "pull"
+        assert row["poll_interval_sec"] == 3600
+
+    def test_register_source_with_push_strategy(self, store: DocumentStore) -> None:
+        """Test registering a source with push strategy (no interval)."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="push-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Verify source was created with push strategy and no interval
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("push-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "push"
+        assert row["poll_interval_sec"] is None
+
+    def test_register_source_with_webhook_strategy(self, store: DocumentStore) -> None:
+        """Test registering a source with webhook strategy (no interval)."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="webhook-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        # Verify source was created with webhook strategy
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("webhook-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "webhook"
+        assert row["poll_interval_sec"] is None
+
+    def test_register_source_default_is_pull(self, store: DocumentStore) -> None:
+        """Test that default poll_strategy is PULL when not specified."""
+        self._setup_adapter(store)
+
+        # Register without specifying poll_strategy
+        store.register_source(
+            source_id="default-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        # Verify default is 'pull'
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT poll_strategy FROM sources WHERE source_id = ?",
+            ("default-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "pull"
+
+    def test_register_source_idempotency_preserved_with_poll_params(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that idempotency is preserved when registering source twice."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        # First registration
+        store.register_source(
+            source_id="idempotent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Second registration with different parameters (should be idempotent - no update)
+        store.register_source(
+            source_id="idempotent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+            poll_interval_sec=7200,
+        )
+
+        # Verify original values are preserved (idempotent behavior)
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("idempotent-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "pull"  # Original value
+        assert row["poll_interval_sec"] == 3600  # Original value
+
+        # Verify only one row exists
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE source_id = ?",
+            ("idempotent-source",),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 1
+
+    def test_get_sources_due_for_poll_never_fetched(self, store: DocumentStore) -> None:
+        """Test that sources with last_fetched_at IS NULL are returned."""
+        self._setup_adapter(store)
+
+        from context_library.storage.models import PollStrategy
+
+        store.register_source(
+            source_id="unfetched-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        assert due[0]["source_id"] == "unfetched-source"
+        assert due[0]["adapter_id"] == "poll-adapter"
+        assert due[0]["poll_interval_sec"] == 3600
+        assert due[0]["last_fetched_at"] is None
+
+    def test_get_sources_due_for_poll_interval_passed(self, store: DocumentStore) -> None:
+        """Test that sources whose interval has passed are returned."""
+        from datetime import datetime, timedelta, timezone
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        # Register source with 1-hour interval
+        store.register_source(
+            source_id="overdue-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Manually set last_fetched_at to 2 hours ago (interval has passed)
+        two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (two_hours_ago, "overdue-source"),
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        assert due[0]["source_id"] == "overdue-source"
+        assert due[0]["last_fetched_at"] == two_hours_ago
+
+    def test_get_sources_due_for_poll_interval_not_passed(self, store: DocumentStore) -> None:
+        """Test that sources whose interval has not passed are NOT returned."""
+        from datetime import datetime, timedelta, timezone
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        # Register source with 1-hour interval
+        store.register_source(
+            source_id="recent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Manually set last_fetched_at to 30 minutes ago (interval has NOT passed)
+        thirty_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (thirty_min_ago, "recent-source"),
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include this source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_push_strategy(self, store: DocumentStore) -> None:
+        """Test that sources with push strategy are NOT returned."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="push-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include push source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_webhook_strategy(self, store: DocumentStore) -> None:
+        """Test that sources with webhook strategy are NOT returned."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="webhook-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include webhook source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_null_interval(self, store: DocumentStore) -> None:
+        """Test that sources with poll_interval_sec IS NULL are NOT returned."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="no-interval-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=None,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include source with no interval
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_mixed_sources(self, store: DocumentStore) -> None:
+        """Test that only eligible sources are returned when mixed with ineligible ones."""
+        from datetime import datetime, timedelta, timezone
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        # 1. Create source due for poll (never fetched)
+        store.register_source(
+            source_id="due-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # 2. Create source due for poll (interval passed)
+        store.register_source(
+            source_id="due-source-2",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source2",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (two_hours_ago, "due-source-2"),
+        )
+
+        # 3. Create source NOT due (interval not passed)
+        store.register_source(
+            source_id="not-due-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source3",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        thirty_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (thirty_min_ago, "not-due-source"),
+        )
+
+        # 4. Create push strategy source (should be excluded)
+        store.register_source(
+            source_id="push-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source4",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # 5. Create source with no interval (should be excluded)
+        store.register_source(
+            source_id="no-interval-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source5",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=None,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should only return the two eligible sources
+        assert len(due) == 2
+        source_ids = {source["source_id"] for source in due}
+        assert source_ids == {"due-source-1", "due-source-2"}
+
+    def test_get_sources_due_for_poll_returns_correct_fields(self, store: DocumentStore) -> None:
+        """Test that returned dicts contain all required fields."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        result = due[0]
+
+        # Verify all required fields are present
+        assert "source_id" in result
+        assert "adapter_id" in result
+        assert "poll_interval_sec" in result
+        assert "last_fetched_at" in result
+
+        # Verify field values
+        assert result["source_id"] == "test-source"
+        assert result["adapter_id"] == "poll-adapter"
+        assert result["poll_interval_sec"] == 3600
+        assert result["last_fetched_at"] is None
