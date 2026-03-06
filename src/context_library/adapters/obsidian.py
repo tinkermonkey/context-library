@@ -257,18 +257,19 @@ class ObsidianAdapter(BaseAdapter):
 
         return graph_data
 
-    def _extract_timestamps(self, note_path: Path) -> tuple[str, str]:
-        """Extract creation and modification timestamps from a note.
+    def _extract_timestamps(self, note_path: Path) -> tuple[str, str, int]:
+        """Extract creation and modification timestamps and file size from a note.
 
-        Returns file timestamps in ISO 8601 format. If extraction fails, returns
-        current time for both timestamps (not ideal, but allows processing to
-        continue; see developer notes about data integrity implications).
+        Returns file timestamps in ISO 8601 format and file size in bytes. If extraction
+        fails, returns current time for timestamps and 0 for file size (not ideal, but
+        allows processing to continue; see developer notes about data integrity implications).
 
         Args:
             note_path: Path to the note file
 
         Returns:
-            Tuple of (created_at, modified_at) in ISO 8601 format (UTC)
+            Tuple of (created_at, modified_at, file_size_bytes) where timestamps are
+            in ISO 8601 format (UTC) and file_size_bytes is an integer
 
         Note:
             On Linux, st_ctime is the inode metadata change time, not the file creation
@@ -285,23 +286,23 @@ class ObsidianAdapter(BaseAdapter):
             modified_at = datetime.fromtimestamp(
                 stat.st_mtime, tz=timezone.utc
             ).isoformat()
-            return created_at, modified_at
+            return created_at, modified_at, stat.st_size
         except FileNotFoundError:
             logger.warning(f"File disappeared during timestamp extraction: {note_path}")
             now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now
+            return now, now, 0
         except OSError as e:
             logger.warning(f"Cannot stat file {note_path}: {e}")
             now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now
+            return now, now, 0
         except (ValueError, OverflowError) as e:
             logger.warning(f"Invalid timestamp value in {note_path}: {e}")
             now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now
+            return now, now, 0
         except Exception as e:
             logger.error(f"Unexpected error extracting timestamps from {note_path}: {e}", exc_info=True)
             now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now
+            return now, now, 0
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize notes from the Obsidian vault.
@@ -346,15 +347,8 @@ class ObsidianAdapter(BaseAdapter):
                 # Extract graph metadata
                 graph_metadata = self._extract_graph_metadata(note_name, vault)
 
-                # Extract timestamps (calls stat() once)
-                created_at, modified_at = self._extract_timestamps(note_path)
-
-                # Get file stats for file_size_bytes (already have stat object from timestamps)
-                try:
-                    stat = note_path.stat()
-                    file_size = stat.st_size
-                except (FileNotFoundError, OSError):
-                    file_size = 0
+                # Extract timestamps and file size (single stat() call)
+                created_at, modified_at, file_size = self._extract_timestamps(note_path)
 
                 # Compute relative path from vault root for source_id
                 source_id = str(note_path.relative_to(self._vault_path))
