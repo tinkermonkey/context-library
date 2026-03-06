@@ -1942,7 +1942,7 @@ class TestSourceScheduling:
     def test_register_source_idempotency_preserved_with_poll_params(
         self, store: DocumentStore
     ) -> None:
-        """Test that idempotency is preserved when registering source twice."""
+        """Test that poll settings are updated on re-registration."""
         self._setup_adapter(store)
 
         # First registration
@@ -1955,7 +1955,7 @@ class TestSourceScheduling:
             poll_interval_sec=3600,
         )
 
-        # Second registration with different parameters (should be idempotent - no update)
+        # Second registration with different parameters (should update poll settings)
         store.register_source(
             source_id="idempotent-source",
             adapter_id="poll-adapter",
@@ -1965,7 +1965,7 @@ class TestSourceScheduling:
             poll_interval_sec=7200,
         )
 
-        # Verify original values are preserved (idempotent behavior)
+        # Verify new values are persisted (updated on re-registration)
         cursor = store.conn.cursor()
         cursor.execute(
             "SELECT poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
@@ -1973,8 +1973,8 @@ class TestSourceScheduling:
         )
         row = cursor.fetchone()
         assert row is not None
-        assert row["poll_strategy"] == "pull"  # Original value
-        assert row["poll_interval_sec"] == 3600  # Original value
+        assert row["poll_strategy"] == "push"  # Updated value
+        assert row["poll_interval_sec"] == 7200  # Updated value
 
         # Verify only one row exists
         cursor.execute(
