@@ -93,6 +93,7 @@ class StructuralHints(BaseModel):
     file_path: str | None = None
     modified_at: str | None = None
     file_size_bytes: int | None = None
+    extra_metadata: dict[str, object] | None = None
 
     @field_validator("modified_at")
     @classmethod
