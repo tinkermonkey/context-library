@@ -14,6 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+email = ["httpx", "html2text"]
 gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
