@@ -747,13 +747,13 @@ class DocumentStore:
         Sources with poll_interval_sec IS NULL are excluded (no interval configured).
 
         Returns:
-            List of dicts with keys: source_id, adapter_id, poll_interval_sec,
+            List of dicts with keys: source_id, adapter_id, origin_ref, poll_interval_sec,
                                      last_fetched_at
         """
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT source_id, adapter_id, poll_interval_sec, last_fetched_at
+            SELECT source_id, adapter_id, origin_ref, poll_interval_sec, last_fetched_at
             FROM sources
             WHERE poll_strategy = 'pull'
               AND poll_interval_sec IS NOT NULL
@@ -770,6 +770,7 @@ class DocumentStore:
             result.append({
                 "source_id": row["source_id"],
                 "adapter_id": row["adapter_id"],
+                "origin_ref": row["origin_ref"],
                 "poll_interval_sec": row["poll_interval_sec"],
                 "last_fetched_at": row["last_fetched_at"],
             })

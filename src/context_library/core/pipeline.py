@@ -66,13 +66,13 @@ class IngestionPipeline:
         self.vector_store_path = Path(vector_store_path)
 
     def ingest(
-        self, adapter: BaseAdapter, domain_chunker: BaseDomain
+        self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
     ) -> dict:
         """Ingest content from an adapter, orchestrating the full pipeline.
 
         Algorithm:
         1. Register adapter (idempotent)
-        2. For each NormalizedContent item from adapter.fetch():
+        2. For each NormalizedContent item from adapter.fetch(source_ref):
            a. Look up latest version
            b. Chunk content
            c. Compute chunk hashes
@@ -92,6 +92,10 @@ class IngestionPipeline:
         Args:
             adapter: BaseAdapter instance providing content
             domain_chunker: BaseDomain instance for chunking
+            source_ref: Source-specific reference (e.g., directory path, email address).
+                       Passed to adapter.fetch() to enable incremental ingestion and
+                       source-specific filtering. Defaults to empty string for adapters
+                       that fetch all sources.
 
         Returns:
             Dict with keys:
@@ -128,8 +132,8 @@ class IngestionPipeline:
         errors: list[dict] = []
         store_consistency: dict[str, str] = {}
 
-        # Iterate over normalized content from adapter
-        for content in adapter.fetch(""):
+        # Iterate over normalized content from adapter, passing source_ref for incremental ingestion
+        for content in adapter.fetch(source_ref):
             try:
                 sources_processed += 1
 

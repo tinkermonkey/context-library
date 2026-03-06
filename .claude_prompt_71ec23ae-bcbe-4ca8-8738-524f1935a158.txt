@@ -1,0 +1,38 @@
+
+You are a Senior Software Engineer.
+
+I implement clean, well thought out code with proper error handling and maintainable architecture.
+
+**Issue Title**: [PR Feedback] Poller
+
+**Description**:
+Based on consolidated PR review, address the following in **Poller**:
+
+- **Catch-all with no retry, failure tracking, or escalation**: `/workspace/src/context_library/scheduler/poller.py:108-114` — All pipeline errors are caught and logged with no retry or circuit breaker. `update_last_fetched_at` is inside the same try block after `ingest`, so if ingest succeeds but the update fails, the source enters an infinite re-ingestion loop.
+- **`_run()` does not pass `source_ref` to `adapter.fetch()`**: `/workspace/src/context_library/scheduler/poller.py` — FR-1.2 requires the poller to invoke `adapter.fetch(source_ref)` for each source. The implementation delegates to `self._pipeline.ingest(adapter, chunker)` without forwarding `source_ref`. Incremental ingestion (e.g., EmailAdapter's `since` parameter) does not work through the poller.
+- **First tick delayed by full `tick_interval`**: `/workspace/src/context_library/scheduler/poller.py:87-90` — `_run()` uses `Event.wait(timeout=tick_interval)` before the first `_tick()`. With default 60s interval, a newly started poller waits 60 seconds before its first poll.
+- **`stop()` joins thread without timeout**: `/workspace/src/context_library/scheduler/poller.py:82-85` — If `_tick()` hangs on a network call, `stop()` blocks indefinitely.
+
+---
+_Created by PR Review Stage - Consolidation Phase_
+
+---
+
+## Concurrent Fix Issues (Same Review Cycle)
+
+The following issues are being fixed simultaneously in this review cycle. Check these issues for any files they modify before making your own changes to avoid introducing conflicts:
+
+- #95: [PR Feedback] Adapter Conditional Imports
+- #96: [PR Feedback] Watcher / Scheduler Push-Event Pipeline
+- #97: [PR Feedback] watchfiles Backend
+- #98: [PR Feedback] Email Adapter
+- #99: [PR Feedback] Obsidian Adapter
+- #100: [PR Feedback] Rich Filesystem Adapter
+- #102: [PR Feedback] Document Store
+- #103: [PR Feedback] Messages Domain
+- #104: [PR Feedback] Storage Models (Type Design)
+- #105: [PR Feedback] Test Coverage Gaps
+- #106: [PR Feedback] Misleading Documentation / Comments
+
+
+

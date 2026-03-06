@@ -157,43 +157,54 @@ class TestPollerLifecycle:
     def test_stop_clears_stop_event(self, pipeline, document_store):
         """After stop(), calling start() again should work (event cleared)."""
         poller = Poller(pipeline, document_store, tick_interval=0.1)
-        poller.start()
-        poller.stop()
 
-        # Should be able to start again
-        poller.start()
-        try:
-            assert poller._thread is not None
-            assert poller._thread.is_alive()
-        finally:
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            poller.start()
             poller.stop()
+
+            # Should be able to start again
+            poller.start()
+            try:
+                assert poller._thread is not None
+                assert poller._thread.is_alive()
+            finally:
+                poller.stop()
 
     def test_start_already_running_is_noop(self, pipeline, document_store):
         """Calling start() when thread is already running should be a no-op."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.start()
 
-        thread1 = poller._thread
-        time.sleep(0.1)
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            poller.start()
 
-        # Call start again
-        poller.start()
-        thread2 = poller._thread
+            thread1 = poller._thread
+            time.sleep(0.1)
 
-        # Should be the same thread
-        assert thread1 is thread2
+            # Call start again
+            poller.start()
+            thread2 = poller._thread
 
-        poller.stop()
+            # Should be the same thread
+            assert thread1 is thread2
+
+            poller.stop()
 
     def test_start_stop_cycle_repeatable(self, pipeline, document_store):
         """Poller should be restartable after stop()."""
         poller = Poller(pipeline, document_store, tick_interval=0.1)
 
-        for _ in range(3):
-            poller.start()
-            time.sleep(0.05)
-            poller.stop()
-            assert poller._thread is None
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            for _ in range(3):
+                poller.start()
+                time.sleep(0.05)
+                poller.stop()
+                assert poller._thread is None
 
 
 class TestPollerTicking:
@@ -211,7 +222,7 @@ class TestPollerTicking:
             mock_get_due.assert_called_once()
 
     def test_tick_ingests_due_sources(self, pipeline, document_store):
-        """_tick() should call pipeline.ingest() for each due source."""
+        """_tick() should call pipeline.ingest() for each due source with source_ref."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
@@ -222,6 +233,7 @@ class TestPollerTicking:
         due_source = {
             "source_id": "source-1",
             "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
             "poll_interval_sec": 60,
             "last_fetched_at": None,
         }
@@ -232,7 +244,9 @@ class TestPollerTicking:
             with patch.object(pipeline, "ingest") as mock_ingest:
                 poller._tick()
 
-                mock_ingest.assert_called_once_with(adapter, chunker)
+                mock_ingest.assert_called_once_with(
+                    adapter, chunker, source_ref="/path/to/source"
+                )
 
     def test_tick_updates_last_fetched_at_on_success(self, pipeline, document_store):
         """_tick() should call update_last_fetched_at() after successful ingest."""
@@ -245,6 +259,7 @@ class TestPollerTicking:
         due_source = {
             "source_id": "source-1",
             "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
             "poll_interval_sec": 60,
             "last_fetched_at": None,
         }
@@ -267,6 +282,7 @@ class TestPollerTicking:
         due_source = {
             "source_id": "source-1",
             "adapter_id": "missing-adapter",
+            "origin_ref": "/path/to/source",
             "poll_interval_sec": 60,
             "last_fetched_at": None,
         }
@@ -293,12 +309,14 @@ class TestPollerTicking:
             {
                 "source_id": "source-1",
                 "adapter_id": "test-adapter",
+                "origin_ref": "/path/to/source-1",
                 "poll_interval_sec": 60,
                 "last_fetched_at": None,
             },
             {
                 "source_id": "source-2",
                 "adapter_id": "test-adapter",
+                "origin_ref": "/path/to/source-2",
                 "poll_interval_sec": 60,
                 "last_fetched_at": None,
             },
@@ -321,8 +339,10 @@ class TestPollerTicking:
                 # update_last_fetched_at should only be called for the successful source
                 mock_update.assert_called_once_with("source-2")
 
-    def test_tick_logs_exception_on_failure(self, pipeline, document_store):
-        """_tick() should log exceptions with logger.exception()."""
+    def test_tick_logs_failure_at_info_level_on_first_failure(
+        self, pipeline, document_store
+    ):
+        """_tick() should log at INFO level on first/second failure (transient)."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
@@ -332,6 +352,7 @@ class TestPollerTicking:
         due_source = {
             "source_id": "source-1",
             "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
             "poll_interval_sec": 60,
             "last_fetched_at": None,
         }
@@ -343,9 +364,11 @@ class TestPollerTicking:
                 with patch("context_library.scheduler.poller.logger") as mock_logger:
                     poller._tick()
 
-                    mock_logger.exception.assert_called_once()
-                    call_args = mock_logger.exception.call_args[0]
-                    assert "source-1" in str(call_args)
+                    # First failure should log at INFO level (transient)
+                    mock_logger.info.assert_called_once()
+                    call_args = str(mock_logger.info.call_args)
+                    assert "source-1" in call_args
+                    assert "transient" in call_args
 
 
 class TestPollerBackgroundThread:
@@ -426,6 +449,7 @@ class TestPollerIntegration:
                     {
                         "source_id": "source-1",
                         "adapter_id": "test-adapter",
+                        "origin_ref": "/path/to/source",
                         "poll_interval_sec": 60,
                         "last_fetched_at": None,
                     }
