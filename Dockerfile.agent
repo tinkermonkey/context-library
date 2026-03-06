@@ -51,7 +51,8 @@ RUN claude --version && \
     git --version && \
     gh --version && \
     python3 --version && \
-    pip --version
+    pip --version && \
+    python3 -c "import watchdog; import watchfiles; import mypy"
 
 # ============================================================================
 # Default command

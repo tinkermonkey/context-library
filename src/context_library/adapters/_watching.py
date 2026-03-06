@@ -9,7 +9,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from context_library.storage.models import PollStrategy
 
@@ -28,7 +28,7 @@ except ImportError:
 
 if not HAS_WATCHDOG:
     try:
-        import watchfiles
+        import watchfiles as _watchfiles  # noqa: F401
         HAS_WATCHFILES = True
     except ImportError:
         pass
@@ -93,7 +93,7 @@ class FileSystemWatcher:
         self._debounce_timer: threading.Timer | None = None
 
         # Observer state (only used with watchdog)
-        self._observer: Observer | None = None
+        self._observer: Any = None
         self._observer_started = False
 
     def start(self) -> None:
@@ -231,22 +231,22 @@ if HAS_WATCHDOG:
         def on_created(self, event: FileSystemEvent) -> None:
             """Handle file/directory creation."""
             if not event.is_directory:
-                self._buffer_callback(Path(event.src_path), "created")
+                self._buffer_callback(Path(str(event.src_path)), "created")
 
         def on_modified(self, event: FileSystemEvent) -> None:
             """Handle file/directory modification."""
             if not event.is_directory:
-                self._buffer_callback(Path(event.src_path), "modified")
+                self._buffer_callback(Path(str(event.src_path)), "modified")
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             """Handle file/directory deletion."""
             if not event.is_directory:
-                self._buffer_callback(Path(event.src_path), "deleted")
+                self._buffer_callback(Path(str(event.src_path)), "deleted")
 
         def on_moved(self, event: FileSystemEvent) -> None:
             """Handle file/directory move (treat as modified on destination)."""
             if not event.is_directory:
-                self._buffer_callback(Path(event.dest_path), "modified")
+                self._buffer_callback(Path(str(event.dest_path)), "modified")
 else:
     # Placeholder class when watchdog is not available
     class _WatchdogHandler:  # type: ignore
