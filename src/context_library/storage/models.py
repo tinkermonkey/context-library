@@ -42,6 +42,18 @@ class ChunkType(str, Enum):
     TABLE = "table"
 
 
+class PollStrategy(str, Enum):
+    """Fixed set of polling strategies for source ingestion.
+
+    Aligns with SQLite schema CHECK constraint on sources.poll_strategy.
+    Enforces valid poll strategy values at the Python level before database insertion.
+    """
+
+    PUSH = "push"
+    PULL = "pull"
+    WEBHOOK = "webhook"
+
+
 def _validate_sha256_hex(value: str) -> str:
     """Validate that a string is a valid SHA-256 hex hash (64 lowercase hex chars).
 
@@ -88,6 +100,32 @@ class StructuralHints(BaseModel):
         """Validate that modified_at is a valid ISO 8601 timestamp if provided."""
         if value is not None:
             validate_iso8601_timestamp(value)
+        return value
+
+
+class MessageMetadata(BaseModel):
+    """Message metadata for email and messaging domains.
+
+    Captures email headers and thread context for message-based chunking and threading.
+    All timestamps must be valid ISO 8601 format.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    thread_id: str
+    message_id: str
+    sender: str
+    recipients: list[str]
+    timestamp: str
+    in_reply_to: str | None = None
+    subject: str | None = None
+    is_thread_root: bool = False
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_timestamp(cls, value: str) -> str:
+        """Validate that timestamp is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
         return value
 
 
