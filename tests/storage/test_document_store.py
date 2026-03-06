@@ -810,6 +810,37 @@ class TestChunkRetirement:
         # Non-existent chunk should return False (not retired, just doesn't exist)
         assert store.is_chunk_retired(_make_hash("z")) is False
 
+    def test_retire_chunks_raises_runtime_error_for_nonexistent(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that retire_chunks raises RuntimeError when chunk doesn't exist.
+
+        Data integrity guard: ensures we don't silently accept retirement
+        requests for non-existent chunks, which could mask logic errors.
+        """
+        # Setup initial chunks for a source
+        hashes = self._setup_chunks_for_retirement(store)
+
+        # Attempt to retire a non-existent chunk for the same source/version
+        # This should raise RuntimeError as a data integrity guard
+        # Use 'f' instead of 'z' to create a valid hex hash
+        non_existent_hash = _make_hash("f")
+        with pytest.raises(RuntimeError):
+            store.retire_chunks(
+                {non_existent_hash},
+                source_id="source-1",
+                source_version=1,
+            )
+
+        # Verify existing chunks are still not retired
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM chunks WHERE chunk_hash IN (?, ?) AND retired_at IS NOT NULL",
+            tuple(hashes),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 0
+
 
 class TestChunksBySource:
     """Tests for retrieving chunks by source."""
@@ -2221,3 +2252,46 @@ class TestSourceScheduling:
         assert result["adapter_id"] == "poll-adapter"
         assert result["poll_interval_sec"] == 3600
         assert result["last_fetched_at"] is None
+
+    def test_update_last_fetched_at_success(self, store: DocumentStore) -> None:
+        """Test updating last_fetched_at for an existing source."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        # Verify initially None
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT last_fetched_at FROM sources WHERE source_id = ?",
+            ("test-source",),
+        )
+        row = cursor.fetchone()
+        assert row["last_fetched_at"] is None
+
+        # Update last_fetched_at
+        store.update_last_fetched_at("test-source")
+
+        # Verify it's now set
+        cursor.execute(
+            "SELECT last_fetched_at FROM sources WHERE source_id = ?",
+            ("test-source",),
+        )
+        row = cursor.fetchone()
+        assert row["last_fetched_at"] is not None
+
+    def test_update_last_fetched_at_raises_runtime_error_for_nonexistent(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that update_last_fetched_at raises RuntimeError for non-existent source.
+
+        Data integrity guard: ensures we don't silently accept updates for
+        sources that don't exist, which could mask logic errors.
+        """
+        # Attempt to update a non-existent source
+        with pytest.raises(RuntimeError):
+            store.update_last_fetched_at("nonexistent-source")

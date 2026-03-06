@@ -527,6 +527,39 @@ class TestObsidianAdapterPushMode:
 
         assert adapter._watcher is None
 
+    def test_on_file_changed_invalidates_vault_cache(self, vault_with_notes):
+        """_on_file_changed invalidates vault cache so next fetch rebuilds graph.
+
+        This is the linchpin of push-mode correctness: when a file changes,
+        the vault cache must be cleared so that the next fetch() call
+        rebuilds the wikilink graph to reflect the change.
+        """
+        from context_library.adapters._watching import FileEvent, EventType
+
+        adapter = ObsidianAdapter(vault_with_notes, poll_strategy=PollStrategy.PUSH)
+
+        # Trigger lazy-load of vault by accessing it
+        _ = adapter._get_vault()
+
+        # Verify vault is now cached (not None)
+        assert adapter._vault is not None
+        cached_vault = adapter._vault
+
+        # Simulate a file change event
+        event = FileEvent(
+            path=vault_with_notes / "note1.md",
+            event_type=EventType.MODIFIED,
+        )
+        adapter._on_file_changed(event)
+
+        # Verify vault cache was invalidated (set to None)
+        assert adapter._vault is None
+
+        # Verify it's a fresh instance on next access
+        _ = adapter._get_vault()
+        assert adapter._vault is not None
+        assert adapter._vault is not cached_vault
+
 
 class TestObsidianAdapterImportErrors:
     """Tests for graceful handling of missing optional dependencies."""
