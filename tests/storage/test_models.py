@@ -590,6 +590,99 @@ class TestMessageMetadata:
         )
         assert metadata.recipients == ()
 
+    def test_message_metadata_empty_thread_id_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty thread_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="",
+                message_id="m1",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "thread_id must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_empty_message_id_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty message_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "message_id must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_empty_sender_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty sender."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="m1",
+                sender="",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "sender must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_is_thread_root_and_in_reply_to_mutually_exclusive(
+        self,
+    ) -> None:
+        """Test that is_thread_root=True and in_reply_to are mutually exclusive."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="m1",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to="msg-0",
+                subject=None,
+                is_thread_root=True,
+            )
+        error_msg = str(exc_info.value)
+        assert "is_thread_root=True and in_reply_to must be mutually exclusive" in error_msg
+
+    def test_message_metadata_thread_root_without_in_reply_to_succeeds(self) -> None:
+        """Test that is_thread_root=True succeeds when in_reply_to is None."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=["c@d.com"],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject=None,
+            is_thread_root=True,
+        )
+        assert metadata.is_thread_root is True
+        assert metadata.in_reply_to is None
+
+    def test_message_metadata_reply_without_thread_root_succeeds(self) -> None:
+        """Test that in_reply_to succeeds when is_thread_root=False."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m2",
+            sender="b@b.com",
+            recipients=["a@b.com"],
+            timestamp="2024-01-01T01:00:00Z",
+            in_reply_to="m1",
+            subject=None,
+            is_thread_root=False,
+        )
+        assert metadata.is_thread_root is False
+        assert metadata.in_reply_to == "m1"
+
 
 class TestComputeChunkHash:
     """Tests for compute_chunk_hash function."""

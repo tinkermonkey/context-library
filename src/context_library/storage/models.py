@@ -94,6 +94,16 @@ class StructuralHints(BaseModel):
 
     Captures formatting characteristics (headings, lists, tables) and filesystem metadata
     for content-specific chunking strategies and filtering.
+
+    extra_metadata is a domain-specific contract between adapters and chunkers:
+    - Adapters populate it with domain-specific metadata (e.g., EmailAdapter provides MessageMetadata fields)
+    - Chunkers extract and validate it according to their domain's expectations
+    - For EmailMessages domain: extra_metadata must be deserializable to MessageMetadata
+    - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
+
+    Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
+    Type safety for specific domains is achieved through validation in domain chunkers
+    (e.g., MessageMetadata(**meta_dict) with ValidationError handling).
     """
 
     model_config = ConfigDict(frozen=True)

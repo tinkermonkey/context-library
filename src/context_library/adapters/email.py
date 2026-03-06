@@ -148,7 +148,7 @@ class EmailAdapter(BaseAdapter):
                     has_headings=False,
                     has_lists=False,
                     has_tables=False,
-                    natural_boundaries=[],
+                    natural_boundaries=(),
                     extra_metadata=metadata.model_dump(),
                 )
 

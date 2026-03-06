@@ -86,6 +86,10 @@ class MessagesDomain(BaseDomain):
 
         meta_dict = content.structural_hints.extra_metadata
         try:
+            # Type contract: extra_metadata must be deserializable to MessageMetadata.
+            # This is enforced at validation time rather than in the type system
+            # because StructuralHints.extra_metadata is domain-agnostic (dict[str, object]).
+            # See StructuralHints docstring for design rationale.
             meta = MessageMetadata(**meta_dict)  # type: ignore[arg-type]
         except ValidationError as e:
             raise ValueError(
