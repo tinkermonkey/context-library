@@ -254,7 +254,7 @@ class TestQuotedContentStripping:
         assert "original message" not in result
 
     def test_strip_quoted_content_removes_attribution_lines(self):
-        """_strip_quoted_content removes lines ending with 'wrote:'."""
+        """_strip_quoted_content removes lines matching 'On ... wrote:'."""
         text = """My response.
 
 On Mon, Jan 15, 2025 at 10:30 AM alice@example.com wrote:
@@ -263,7 +263,8 @@ On Mon, Jan 15, 2025 at 10:30 AM alice@example.com wrote:
         result = _strip_quoted_content(text)
 
         assert "My response." in result
-        assert "wrote:" not in result
+        # The attribution line "On Mon, Jan 15, 2025 at 10:30 AM alice@example.com wrote:" should be gone
+        assert "alice@example.com wrote:" not in result
 
     def test_strip_quoted_content_preserves_normal_text(self):
         """_strip_quoted_content preserves regular message content."""
@@ -275,6 +276,25 @@ And this one adds more detail."""
         result = _strip_quoted_content(text)
 
         assert result == text
+
+    def test_strip_quoted_content_preserves_wrote_in_prose(self):
+        """_strip_quoted_content preserves 'wrote:' within prose context."""
+        text = "I discussed what Einstein wrote: the theory was groundbreaking."
+
+        result = _strip_quoted_content(text)
+
+        # The line should be preserved because it doesn't match "On ... wrote:"
+        assert "Einstein wrote:" in result
+
+    def test_strip_quoted_content_handles_all_quoted_content(self):
+        """_strip_quoted_content returns empty string when all content is quoted."""
+        text = """> Original message line 1
+> Original message line 2
+> Original message line 3"""
+
+        result = _strip_quoted_content(text)
+
+        assert result == ""
 
     def test_chunk_with_quoted_content_strips_quotes(
         self, messages_domain, sample_message_metadata
@@ -306,6 +326,35 @@ And this one adds more detail."""
         assert ">" not in chunks[0].content
         assert "original message" not in chunks[0].content
         assert "Here is my response." in chunks[0].content
+
+    def test_chunk_with_only_quoted_content_returns_empty_list(
+        self, messages_domain, sample_message_metadata
+    ):
+        """chunk() returns empty list when message is entirely quoted."""
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=sample_message_metadata.model_dump(),
+        )
+
+        # Message with only quoted content (forwarded email with no new text)
+        markdown = """> Original message from alice
+> Second line of original
+> Third line of original"""
+
+        content = NormalizedContent(
+            markdown=markdown,
+            source_id="msg-001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = messages_domain.chunk(content)
+
+        # Should return empty list, not a chunk with empty content
+        assert chunks == []
 
 
 class TestLongMessageSplitting:

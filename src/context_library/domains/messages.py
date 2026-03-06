@@ -1,7 +1,6 @@
 """MessagesDomain: chunking and metadata for email, chat, and forum content."""
 
 import re
-from typing import Any
 
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import (
@@ -30,10 +29,11 @@ def _strip_quoted_content(text: str) -> str:
 
     for line in lines:
         # Skip lines starting with '>' (quoted material)
-        # Also skip attribution lines that end with "wrote:"
+        stripped = line.strip()
         if line.startswith(">"):
             continue
-        if line.strip().endswith("wrote:"):
+        # Only strip lines matching the pattern "On ... wrote:" (attribution lines)
+        if re.match(r'^On .+ wrote:$', stripped):
             continue
         result.append(line)
 
@@ -91,6 +91,10 @@ class MessagesDomain(BaseDomain):
 
         # Strip quoted content
         text = _strip_quoted_content(content.markdown)
+
+        # Guard against empty content after stripping (all content was quoted)
+        if not text.strip():
+            return []
 
         # Split if over hard_limit
         segments = self._split_if_needed(text)
