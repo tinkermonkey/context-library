@@ -1,7 +1,7 @@
 """Push/webhook-based ingestion trigger for real-time adapter events."""
 
 import logging
-from dataclasses import dataclass
+import threading
 from typing import NamedTuple
 from context_library.core.pipeline import IngestionPipeline
 from context_library.adapters.base import BaseAdapter
@@ -43,6 +43,7 @@ class Watcher:
         self._pipeline = pipeline
         self._registrations: list[tuple[BaseAdapter, BaseDomain, FileSystemWatcher]] = []
         self._retry_queue: list[FailedPushEvent] = []
+        self._retry_queue_lock = threading.Lock()
         self._max_retries = max_retries
 
     def register(
@@ -102,7 +103,8 @@ class Watcher:
             source_ref: Reference to the changed source (typically file path)
             adapter: BaseAdapter instance providing content
             domain_chunker: BaseDomain instance for chunking
-            retry_count: Internal counter for retry attempts (not meant to be set by callers)
+            retry_count: Internal counter for retry attempts (not meant to be set by callers).
+                         This is an implementation detail and should not be set by external callers.
 
         Returns:
             True if ingestion succeeded, False if failed and queued for retry
@@ -119,14 +121,15 @@ class Watcher:
             )
             # Queue for retry if we haven't exceeded max retries
             if retry_count < self._max_retries:
-                self._retry_queue.append(
-                    FailedPushEvent(
-                        source_ref=source_ref,
-                        adapter=adapter,
-                        domain_chunker=domain_chunker,
-                        retry_count=retry_count + 1,
+                with self._retry_queue_lock:
+                    self._retry_queue.append(
+                        FailedPushEvent(
+                            source_ref=source_ref,
+                            adapter=adapter,
+                            domain_chunker=domain_chunker,
+                            retry_count=retry_count + 1,
+                        )
                     )
-                )
                 logger.debug(
                     f"Queued {source_ref} for retry (attempt {retry_count + 1}/{self._max_retries})"
                 )
@@ -141,12 +144,18 @@ class Watcher:
 
         Attempts to re-ingest any events that previously failed. Can be called
         periodically or as part of stop() to ensure events aren't permanently lost.
-        """
-        if not self._retry_queue:
-            return
 
-        original_queue = self._retry_queue
-        self._retry_queue = []
+        NOTE: Retries are executed immediately with no delay or backoff. If the underlying
+        failure is transient (e.g., network timeout, temporary resource exhaustion), immediate
+        retry may not succeed. For persistent failures, events will be discarded after
+        max_retries is exceeded. This is a best-effort mechanism suitable for handling
+        application-level failures in the ingestion pipeline rather than transient I/O errors.
+        """
+        with self._retry_queue_lock:
+            if not self._retry_queue:
+                return
+            original_queue = self._retry_queue
+            self._retry_queue = []
 
         for failed_event in original_queue:
             success = self.handle_webhook(
@@ -159,14 +168,16 @@ class Watcher:
                 # Event was re-queued for another retry
                 pass
 
-        if self._retry_queue:
-            logger.debug(
-                f"Retry queue still has {len(self._retry_queue)} events after flush"
-            )
+        with self._retry_queue_lock:
+            if self._retry_queue:
+                logger.debug(
+                    f"Retry queue still has {len(self._retry_queue)} events after flush"
+                )
 
     def get_retry_queue_size(self) -> int:
         """Return the current number of events in the retry queue."""
-        return len(self._retry_queue)
+        with self._retry_queue_lock:
+            return len(self._retry_queue)
 
     def start(self) -> None:
         """Start all registered FileSystemWatcher instances.

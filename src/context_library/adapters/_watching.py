@@ -141,30 +141,16 @@ class FileSystemWatcher:
         self._observer.join(timeout=2)
         self._observer_started = False
 
-        # Cancel any pending debounce timer and extract buffer atomically
+        # Cancel any pending debounce timer atomically
         # This prevents the timer thread from calling _flush_buffer() after we return
         with self._buffer_lock:
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
                 self._debounce_timer = None
 
-            # Snapshot the buffer and clear it to prevent double-flush
-            buffer_snapshot = dict(self._event_buffer)
-            self._event_buffer.clear()
-
-        # Flush buffered events outside the lock to allow new events to be buffered
-        # (though the observer is stopped, so no new events should arrive)
-        # and to prevent blocking callback execution
-        if buffer_snapshot:
-            for path, event_type in buffer_snapshot.items():
-                event = FileEvent(path=path, event_type=event_type)
-                try:
-                    self._callback(event)
-                except Exception as e:
-                    logger.error(
-                        f"Error in filesystem watcher callback for {path}: {e}",
-                        exc_info=True,
-                    )
+        # Flush any buffered events using the standard _flush_buffer path
+        # This ensures consistent callback invocation and error handling
+        self._flush_buffer()
 
         logger.debug(f"Stopped watching {self._watch_path}")
 
