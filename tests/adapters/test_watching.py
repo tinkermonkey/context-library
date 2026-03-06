@@ -4,7 +4,7 @@ import pytest
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from context_library.adapters._watching import FileEvent, FileSystemWatcher, PollStrategy
 

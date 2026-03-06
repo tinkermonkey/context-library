@@ -17,7 +17,7 @@ dependencies = [
 gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
-dev = ["ruff", "mypy", "pytest", "watchdog"]
+dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
 
 [tool.mypy]
 python_version = "3.10"
