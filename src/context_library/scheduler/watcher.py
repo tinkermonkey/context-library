@@ -112,7 +112,7 @@ class Watcher:
         try:
             self._pipeline.ingest(adapter, domain_chunker)
             return True
-        except Exception as e:
+        except Exception:
             logger.exception(
                 "Watcher: failed to handle webhook for source_ref %s (retry %d/%d)",
                 source_ref,

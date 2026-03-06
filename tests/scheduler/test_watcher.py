@@ -597,7 +597,7 @@ class TestWatcherRetryMechanism:
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        with patch.object(pipeline, "ingest") as mock_ingest:
+        with patch.object(pipeline, "ingest"):
             result = watcher.handle_webhook(
                 source_ref="/test/file.txt",
                 adapter=adapter,
