@@ -224,7 +224,7 @@ class ObsidianAdapter(BaseAdapter):
         Returns:
             Dictionary with keys: wikilinks (list of forward links), backlinks (list of back-references)
         """
-        graph_data = {
+        graph_data: dict[str, Any] = {
             "wikilinks": [],
             "backlinks": [],
         }
