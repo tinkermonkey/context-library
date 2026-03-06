@@ -425,7 +425,7 @@ class TestLongMessageSplitting:
         self, messages_domain, sample_message_metadata
     ):
         """Split messages have sequential chunk_index values."""
-        domain = MessagesDomain(hard_limit=30)
+        MessagesDomain(hard_limit=30)
 
         hints = StructuralHints(
             has_headings=False,
