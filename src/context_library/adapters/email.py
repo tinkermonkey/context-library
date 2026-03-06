@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Iterator
+from typing import Iterator, Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -99,7 +99,7 @@ class EmailAdapter(BaseAdapter):
         """Context manager entry: return self for use in with statement."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> Literal[False]:
         """Context manager exit: clean up httpx.Client session."""
         self._client.close()
         return False

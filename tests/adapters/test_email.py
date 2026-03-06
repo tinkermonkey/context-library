@@ -121,7 +121,6 @@ class TestEmailAdapterFetch:
         mock_client = MockClient()
 
         # Patch httpx.Client constructor to return our mock client
-        original_client = httpx.Client
         monkeypatch.setattr(
             "context_library.adapters.email.httpx.Client",
             lambda *args, **kwargs: mock_client
