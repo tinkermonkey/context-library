@@ -547,3 +547,59 @@ class TestComputeChunkHash:
         expected_hash = compute_chunk_hash(content)
         for _ in range(10):
             assert compute_chunk_hash(content) == expected_hash
+
+    def test_whitespace_normalization_consecutive_blank_lines_double(self) -> None:
+        """Test that multiple consecutive blank lines are collapsed to single blank line.
+
+        This test ensures FR-6.4 compliance: blank-line-only changes are treated as unchanged.
+        A change from two blank lines to three blank lines should produce the same hash.
+        """
+        content1 = "Line 1\n\nLine 2"
+        content2 = "Line 1\n\n\nLine 2"
+        assert compute_chunk_hash(content1) == compute_chunk_hash(content2)
+
+    def test_whitespace_normalization_consecutive_blank_lines_many(self) -> None:
+        """Test that many consecutive blank lines are collapsed to single blank line."""
+        content1 = "Line 1\n\nLine 2"
+        content5 = "Line 1\n\n\n\n\nLine 2"
+        assert compute_chunk_hash(content1) == compute_chunk_hash(content5)
+
+    def test_whitespace_normalization_blank_lines_at_start(self) -> None:
+        """Test that leading blank lines are stripped (part of strip())."""
+        content1 = "Content here"
+        content2 = "\n\n\nContent here"
+        assert compute_chunk_hash(content1) == compute_chunk_hash(content2)
+
+    def test_whitespace_normalization_blank_lines_at_end(self) -> None:
+        """Test that trailing blank lines are stripped (part of strip())."""
+        content1 = "Content here"
+        content2 = "Content here\n\n\n"
+        assert compute_chunk_hash(content1) == compute_chunk_hash(content2)
+
+    def test_whitespace_normalization_multiple_blank_line_sections(self) -> None:
+        """Test that all consecutive blank line sections are normalized independently."""
+        content1 = "Line 1\n\nSection 2\n\nLine 3"
+        content2 = "Line 1\n\n\nSection 2\n\n\n\nLine 3"
+        assert compute_chunk_hash(content1) == compute_chunk_hash(content2)
+
+    def test_whitespace_normalization_preserves_single_blank_lines(self) -> None:
+        """Test that single blank lines between paragraphs are preserved."""
+        # Single blank line should remain a single blank line
+        content = "Paragraph 1\n\nParagraph 2\n\nParagraph 3"
+        hash1 = compute_chunk_hash(content)
+        hash2 = compute_chunk_hash(content)
+        assert hash1 == hash2  # Deterministic
+
+    def test_blank_line_only_change_treated_as_unchanged(self) -> None:
+        """Integration test: blank-line-only changes produce identical hashes.
+
+        This directly addresses FR-6.4 requirement: whitespace-only changes
+        should produce an unchanged result.
+        """
+        prev_content = "Content\n\nMore content"
+        curr_content = "Content\n\n\nMore content"
+
+        prev_hash = compute_chunk_hash(prev_content)
+        curr_hash = compute_chunk_hash(curr_content)
+
+        assert prev_hash == curr_hash, "Blank-line-only changes should not produce different hashes"

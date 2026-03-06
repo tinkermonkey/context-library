@@ -238,6 +238,30 @@ class TestDifferWhitespaceNormalization:
 
         assert result.changed is False
 
+    def test_normalize_collapses_consecutive_blank_lines(self):
+        """Multiple consecutive blank lines should collapse to single blank line (FR-6.4).
+
+        This test verifies that changing from two blank lines to three blank lines
+        (or any number of blank lines) is treated as an unchanged document, as required
+        by FR-6.4: blank-line-only changes should produce an unchanged result.
+        """
+        differ = Differ()
+        prev = "line one\n\nline two"
+        curr = "line one\n\n\nline two"
+        chunk_hashes = {
+            "abc123def456abc123def456abc123def456abc123def456abc123def456abc0",
+        }
+
+        result = differ.diff(
+            prev_markdown=prev,
+            curr_markdown=curr,
+            prev_chunk_hashes=chunk_hashes,
+            curr_chunk_hashes=chunk_hashes,
+        )
+
+        assert result.changed is False
+        assert result.prev_hash == result.curr_hash
+
 
 class TestDifferHashConsistency:
     """Test hash computation consistency."""

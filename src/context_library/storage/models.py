@@ -249,6 +249,7 @@ def compute_chunk_hash(content: str) -> str:
     Whitespace normalization:
     - Collapse runs of spaces/tabs to single space (not newlines)
     - Strip trailing whitespace per line
+    - Collapse consecutive blank lines to single blank line
     - Strip leading/trailing whitespace from entire text
     - Normalize line endings to \\n
 
@@ -266,6 +267,9 @@ def compute_chunk_hash(content: str) -> str:
 
     # Strip trailing whitespace from each line
     normalized = "\n".join(line.rstrip() for line in normalized.splitlines())
+
+    # Collapse consecutive blank lines (2 or more newlines) to single blank line
+    normalized = re.sub(r"\n\n+", "\n\n", normalized)
 
     # Strip leading/trailing whitespace from entire text
     normalized = normalized.strip()
