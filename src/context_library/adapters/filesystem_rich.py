@@ -210,7 +210,7 @@ class RichFilesystemAdapter(BaseAdapter):
                 source_id = str(relative)
 
                 # Build extra metadata with MIME type, creation timestamp, and directory hierarchy
-                extra_metadata = {
+                extra_metadata: dict[str, object] = {
                     "mime_type": mime_type,
                     "created_at": created_at,
                     "directory_hierarchy": list(relative.parent.parts),
