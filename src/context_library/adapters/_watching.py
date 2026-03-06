@@ -28,10 +28,10 @@ except ImportError:
 
 if not HAS_WATCHDOG:
     try:
-        import watchfiles as _watchfiles  # noqa: F401
+        import watchfiles as _watchfiles
         HAS_WATCHFILES = True
     except ImportError:
-        pass
+        _watchfiles = None  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -96,6 +96,10 @@ class FileSystemWatcher:
         self._observer: Any = None
         self._observer_started = False
 
+        # Watchfiles state (only used with watchfiles)
+        self._watchfiles_thread: threading.Thread | None = None
+        self._watchfiles_stop_event: threading.Event | None = None
+
     def start(self) -> None:
         """Start observing the watch_path for filesystem changes."""
         if HAS_WATCHDOG:
@@ -156,17 +160,90 @@ class FileSystemWatcher:
 
     def _start_watchfiles(self) -> None:
         """Start watchfiles observer in a background thread."""
-        raise NotImplementedError(
-            "watchfiles backend is not yet implemented. "
-            "Please install watchdog: pip install watchdog"
+        if self._watchfiles_thread is not None and self._watchfiles_thread.is_alive():
+            return
+
+        self._watchfiles_stop_event = threading.Event()
+        self._watchfiles_thread = threading.Thread(
+            target=self._watchfiles_loop,
+            daemon=True,
         )
+        self._watchfiles_thread.start()
+        logger.debug(f"Started watching {self._watch_path} with watchfiles")
 
     def _stop_watchfiles(self) -> None:
-        """Stop watchfiles observer."""
-        raise NotImplementedError(
-            "watchfiles backend is not yet implemented. "
-            "Please install watchdog: pip install watchdog"
-        )
+        """Stop watchfiles observer and flush pending events.
+
+        Ensures that:
+        1. The watchfiles thread is signaled to stop
+        2. The debounce timer is cancelled (no pending flush from timer thread)
+        3. Any buffered events are dispatched exactly once
+        4. No callbacks are invoked after this method returns
+        """
+        if self._watchfiles_thread is None or not self._watchfiles_thread.is_alive():
+            return
+
+        # Signal the watchfiles thread to stop
+        if self._watchfiles_stop_event is not None:
+            self._watchfiles_stop_event.set()
+
+        # Wait for the thread to finish (with timeout as safety measure)
+        if self._watchfiles_thread is not None:
+            self._watchfiles_thread.join(timeout=2)
+            self._watchfiles_thread = None
+
+        # Cancel any pending debounce timer atomically
+        # This prevents the timer thread from calling _flush_buffer() after we return
+        with self._buffer_lock:
+            if self._debounce_timer is not None:
+                self._debounce_timer.cancel()
+                self._debounce_timer = None
+
+        # Flush any buffered events using the standard _flush_buffer path
+        # This ensures consistent callback invocation and error handling
+        self._flush_buffer()
+
+        logger.debug(f"Stopped watching {self._watch_path}")
+
+    def _watchfiles_loop(self) -> None:
+        """Background thread loop that watches for filesystem changes using watchfiles.
+
+        This runs in a separate thread and translates watchfiles changes into
+        standardized FileEvent types. The loop runs until _watchfiles_stop_event
+        is set, then exits cleanly.
+
+        watchfiles.watch() yields sets of (change_type, path) tuples where
+        change_type is a Change enum (1=added, 2=modified, 3=deleted).
+        """
+        try:
+            if _watchfiles is None:
+                logger.error("watchfiles module not available in watchfiles loop")
+                return
+
+            for changes in _watchfiles.watch(
+                str(self._watch_path),
+                watch_filter=None,
+                stop_event=self._watchfiles_stop_event,
+            ):
+                # Process each change in the batch
+                for change_type_int, changed_path in changes:
+                    # watchfiles returns change_type as an int (Change enum)
+                    # Convert to our standard event types: 'added' -> 'created', etc.
+                    if change_type_int == 1:  # Change.Added
+                        event_type = "created"
+                    elif change_type_int == 2:  # Change.Modified
+                        event_type = "modified"
+                    elif change_type_int == 3:  # Change.Deleted
+                        event_type = "deleted"
+                    else:
+                        # Unknown change type, skip
+                        continue
+
+                    # Process the event through our debouncing system
+                    self._on_raw_event(Path(changed_path), event_type)
+
+        except Exception as e:
+            logger.error(f"Error in watchfiles loop: {e}", exc_info=True)
 
     def _on_raw_event(self, path: Path, event_type: str) -> None:
         """Handle a raw filesystem event with debouncing.
