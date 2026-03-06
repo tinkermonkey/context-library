@@ -492,8 +492,8 @@ class TestEmailAdapterFetch:
 
         results = list(adapter.fetch(""))
         extra_metadata = results[0].structural_hints.extra_metadata
-        # Timestamp should be valid ISO 8601
-        assert extra_metadata["timestamp"] == iso_timestamp
+        # Timestamp should be valid ISO 8601, normalized with +00:00 offset (Z is converted)
+        assert extra_metadata["timestamp"] == "2026-03-06T10:30:45+00:00"
 
     def test_structural_hints_always_false(self, mock_httpx):
         """fetch() always sets has_headings, has_lists, has_tables to False."""
