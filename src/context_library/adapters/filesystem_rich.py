@@ -53,7 +53,7 @@ def _convert_with_markitdown(file_path: Path) -> str | None:
         result = md.convert(str(file_path))
         return result.text_content
     except Exception as e:
-        logger.debug(f"MarkItDown conversion failed for {file_path}: {e}")
+        logger.warning(f"MarkItDown conversion failed for {file_path}: {e}")
         return None
 
 
@@ -261,14 +261,16 @@ class RichFilesystemAdapter(BaseAdapter):
         """Handle filesystem changes in push mode.
 
         Called by FileSystemWatcher when a file is created, modified, or deleted.
+        Logs the event at warning level for visibility. The framework is responsible
+        for detecting this event and triggering re-ingestion through the Watcher class.
 
         Args:
             event: FileEvent containing the path and event type
 
         Note:
-            This method is currently a placeholder for future implementation.
-            Full push-mode support will require integration with the document store
-            framework to trigger re-ingestion on file changes. The watcher is created
-            and available via self._watcher for framework-level lifecycle management.
+            This method logs push events for observability. Actual re-ingestion is triggered
+            by the framework's Watcher class, which chains this callback with the ingestion
+            pipeline. The watcher is created and available via self._watcher for framework-level
+            lifecycle management.
         """
-        logger.debug(f"File change detected: {event.path} ({event.event_type})")
+        logger.warning(f"File change detected in watched directory: {event.path} ({event.event_type})")
