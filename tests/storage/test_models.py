@@ -39,7 +39,7 @@ class TestStructuralHints:
         assert hints.has_headings is True
         assert hints.has_lists is False
         assert hints.has_tables is False
-        assert hints.natural_boundaries == [10, 20, 30]
+        assert hints.natural_boundaries == (10, 20, 30)
         assert hints.file_path is None
         assert hints.modified_at is None
         assert hints.file_size_bytes is None
@@ -252,7 +252,7 @@ class TestSourceVersion:
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
         assert version.version == 1
-        assert version.chunk_hashes == hashes
+        assert version.chunk_hashes == tuple(hashes)
         assert len(version.chunk_hashes) == 3
 
     def test_source_version_empty_hashes(self) -> None:
@@ -266,7 +266,7 @@ class TestSourceVersion:
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
-        assert version.chunk_hashes == []
+        assert version.chunk_hashes == ()
 
     def test_frozen_immutability(self) -> None:
         """Test that SourceVersion is frozen."""
@@ -295,8 +295,8 @@ class TestDiffResult:
             unchanged_hashes={"a" * 64, "b" * 64},
         )
         assert result.changed is False
-        assert result.added_hashes == set()
-        assert result.removed_hashes == set()
+        assert result.added_hashes == frozenset()
+        assert result.removed_hashes == frozenset()
         assert len(result.unchanged_hashes) == 2
 
     def test_changed_with_diff(self) -> None:
@@ -497,7 +497,7 @@ class TestMessageMetadata:
         assert metadata.thread_id == "thread-123"
         assert metadata.message_id == "msg-456"
         assert metadata.sender == "alice@example.com"
-        assert metadata.recipients == ["bob@example.com", "charlie@example.com"]
+        assert metadata.recipients == ("bob@example.com", "charlie@example.com")
         assert metadata.timestamp == "2024-01-15T10:30:00Z"
         assert metadata.in_reply_to == "msg-455"
         assert metadata.subject == "Re: Project Discussion"
@@ -518,7 +518,7 @@ class TestMessageMetadata:
         assert metadata.thread_id == "t1"
         assert metadata.message_id == "m1"
         assert metadata.sender == "a@b.com"
-        assert metadata.recipients == ["c@d.com"]
+        assert metadata.recipients == ("c@d.com",)
         assert metadata.timestamp == "2024-01-01T00:00:00Z"
         assert metadata.in_reply_to is None
         assert metadata.subject is None
@@ -570,7 +570,7 @@ class TestMessageMetadata:
         assert dumped["thread_id"] == "t1"
         assert dumped["message_id"] == "m1"
         assert dumped["sender"] == "a@b.com"
-        assert dumped["recipients"] == ["c@d.com"]
+        assert dumped["recipients"] == ("c@d.com",)
         assert dumped["timestamp"] == "2024-01-01T00:00:00Z"
         assert dumped["in_reply_to"] is None
         assert dumped["subject"] == "Test"
@@ -588,7 +588,7 @@ class TestMessageMetadata:
             subject=None,
             is_thread_root=False,
         )
-        assert metadata.recipients == []
+        assert metadata.recipients == ()
 
 
 class TestComputeChunkHash:

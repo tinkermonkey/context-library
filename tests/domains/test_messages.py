@@ -208,7 +208,7 @@ class TestSingleMessageChunk:
         assert chunks[0].domain_metadata["thread_id"] == "thread-001"
         assert chunks[0].domain_metadata["message_id"] == "msg-001"
         assert chunks[0].domain_metadata["sender"] == "alice@example.com"
-        assert chunks[0].domain_metadata["recipients"] == ["bob@example.com"]
+        assert chunks[0].domain_metadata["recipients"] == ("bob@example.com",)
         assert chunks[0].domain_metadata["timestamp"] == "2025-01-15T10:30:00Z"
         assert chunks[0].domain_metadata["in_reply_to"] is None
         assert chunks[0].domain_metadata["subject"] == "Meeting Notes"

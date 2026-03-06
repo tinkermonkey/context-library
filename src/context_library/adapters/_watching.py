@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from context_library.storage.models import PollStrategy
+from context_library.storage.models import EventType, PollStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,10 @@ class FileEvent:
 
     Attributes:
         path: The filesystem path affected by the event
-        event_type: Type of event ('created', 'modified', 'deleted')
+        event_type: Type of event (created, modified, or deleted)
     """
     path: Path
-    event_type: str  # 'created', 'modified', 'deleted'
+    event_type: EventType
 
 
 class FileSystemWatcher:
@@ -69,7 +69,7 @@ class FileSystemWatcher:
 
         Args:
             watch_path: Root directory to watch for changes
-            callback: Function to invoke for each coalesced event
+            callback: Function to invoke for each coalesced FileEvent
             extensions: Optional set of file extensions to watch (e.g., {'.md', '.txt'}).
                        If None, all events are included. Extensions should include
                        the leading dot (e.g., '.md').
@@ -88,7 +88,7 @@ class FileSystemWatcher:
         self._debounce_ms = debounce_ms
 
         # Event buffering for debouncing
-        self._event_buffer: dict[Path, str] = {}  # path -> event_type
+        self._event_buffer: dict[Path, EventType] = {}  # path -> event_type
         self._buffer_lock = threading.Lock()
         self._debounce_timer: threading.Timer | None = None
 
@@ -228,13 +228,13 @@ class FileSystemWatcher:
                 # Process each change in the batch
                 for change_type_int, changed_path in changes:
                     # watchfiles returns change_type as an int (Change enum)
-                    # Convert to our standard event types: 'added' -> 'created', etc.
+                    # Convert to our standard event types: 1=Added -> CREATED, etc.
                     if change_type_int == 1:  # Change.Added
-                        event_type = "created"
+                        event_type = EventType.CREATED
                     elif change_type_int == 2:  # Change.Modified
-                        event_type = "modified"
+                        event_type = EventType.MODIFIED
                     elif change_type_int == 3:  # Change.Deleted
-                        event_type = "deleted"
+                        event_type = EventType.DELETED
                     else:
                         # Unknown change type, skip
                         continue
@@ -245,12 +245,12 @@ class FileSystemWatcher:
         except Exception as e:
             logger.error(f"Error in watchfiles loop: {e}", exc_info=True)
 
-    def _on_raw_event(self, path: Path, event_type: str) -> None:
+    def _on_raw_event(self, path: Path, event_type: EventType) -> None:
         """Handle a raw filesystem event with debouncing.
 
         Args:
             path: Path that triggered the event
-            event_type: Type of event ('created', 'modified', 'deleted')
+            event_type: Type of event (created, modified, or deleted)
         """
         # Filter by extension if configured
         if self._extensions is not None:
@@ -265,11 +265,11 @@ class FileSystemWatcher:
             # Handle atomic-save pattern: deleted + created -> modified
             # If we already have a deleted event for this path, and a created event
             # arrives, coalesce to modified
-            if event_type == "created" and path in self._event_buffer:
+            if event_type == EventType.CREATED and path in self._event_buffer:
                 existing_type = self._event_buffer[path]
-                if existing_type == "deleted":
+                if existing_type == EventType.DELETED:
                     # Atomic save detected: convert to modified
-                    self._event_buffer[path] = "modified"
+                    self._event_buffer[path] = EventType.MODIFIED
                 else:
                     # Normal case: later event overwrites earlier one
                     self._event_buffer[path] = event_type
@@ -314,12 +314,12 @@ if HAS_WATCHDOG:
     class _WatchdogHandler(FileSystemEventHandler):
         """Internal watchdog event handler that feeds events to the debouncing buffer."""
 
-        def __init__(self, buffer_callback: Callable[[Path, str], None]) -> None:
+        def __init__(self, buffer_callback: Callable[[Path, EventType], None]) -> None:
             """Initialize the handler.
 
             Args:
                 buffer_callback: Function to call for each raw event.
-                               Called with (path: Path, event_type: str).
+                               Called with (path: Path, event_type: EventType).
             """
             super().__init__()
             self._buffer_callback = buffer_callback
@@ -327,29 +327,29 @@ if HAS_WATCHDOG:
         def on_created(self, event: FileSystemEvent) -> None:
             """Handle file/directory creation."""
             if not event.is_directory:
-                self._buffer_callback(Path(str(event.src_path)), "created")
+                self._buffer_callback(Path(str(event.src_path)), EventType.CREATED)
 
         def on_modified(self, event: FileSystemEvent) -> None:
             """Handle file/directory modification."""
             if not event.is_directory:
-                self._buffer_callback(Path(str(event.src_path)), "modified")
+                self._buffer_callback(Path(str(event.src_path)), EventType.MODIFIED)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
             """Handle file/directory deletion."""
             if not event.is_directory:
-                self._buffer_callback(Path(str(event.src_path)), "deleted")
+                self._buffer_callback(Path(str(event.src_path)), EventType.DELETED)
 
         def on_moved(self, event: FileSystemEvent) -> None:
             """Handle file/directory move (treat as modified on destination)."""
             if not event.is_directory:
-                self._buffer_callback(Path(str(event.dest_path)), "modified")
+                self._buffer_callback(Path(str(event.dest_path)), EventType.MODIFIED)
 else:
     # Placeholder class when watchdog is not available
     class _WatchdogHandler:  # type: ignore
         """Placeholder handler when watchdog is not available."""
-        def __init__(self, buffer_callback: Callable[[Path, str], None]) -> None:
+        def __init__(self, buffer_callback: Callable[[Path, EventType], None]) -> None:
             pass
 
 
 # Export public API
-__all__ = ["FileEvent", "FileSystemWatcher", "PollStrategy"]
+__all__ = ["EventType", "FileEvent", "FileSystemWatcher", "PollStrategy"]

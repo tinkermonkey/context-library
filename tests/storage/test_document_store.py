@@ -289,7 +289,7 @@ class TestSourceVersions:
         assert latest is not None
         assert latest.version == 2
         assert latest.markdown == "# Content v2"
-        assert latest.chunk_hashes == ["1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]
+        assert latest.chunk_hashes == ("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",)
 
     def test_get_version_history_ordering(self, store: DocumentStore) -> None:
         """Test that version history is ordered ascending."""

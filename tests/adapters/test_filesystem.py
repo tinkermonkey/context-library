@@ -415,7 +415,7 @@ class TestFilesystemAdapterStructuralHints:
         adapter = FilesystemAdapter(tmp_path)
         results = list(adapter.fetch("unused"))
 
-        assert results[0].structural_hints.natural_boundaries == []
+        assert results[0].structural_hints.natural_boundaries == ()
 
 
 class TestFilesystemAdapterErrorHandling:

@@ -16,6 +16,18 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 from context_library.storage.validators import validate_iso8601_timestamp
 
 
+class EventType(str, Enum):
+    """Fixed set of filesystem event types for watcher operations.
+
+    Represents the type of filesystem change detected by file watchers.
+    Enforces valid event type values at the Python level.
+    """
+
+    CREATED = "created"
+    MODIFIED = "modified"
+    DELETED = "deleted"
+
+
 class Domain(str, Enum):
     """Fixed set of domain types for vector metadata.
 
@@ -89,7 +101,7 @@ class StructuralHints(BaseModel):
     has_headings: bool
     has_lists: bool
     has_tables: bool
-    natural_boundaries: list[int]
+    natural_boundaries: tuple[int, ...]
     file_path: str | None = None
     modified_at: str | None = None
     file_size_bytes: int | None = None
@@ -109,6 +121,10 @@ class MessageMetadata(BaseModel):
 
     Captures email headers and thread context for message-based chunking and threading.
     All timestamps must be valid ISO 8601 format.
+
+    Invariants:
+    - is_thread_root and in_reply_to are mutually exclusive
+    - thread_id, message_id, and sender must be non-empty strings
     """
 
     model_config = ConfigDict(frozen=True)
@@ -116,11 +132,35 @@ class MessageMetadata(BaseModel):
     thread_id: str
     message_id: str
     sender: str
-    recipients: list[str]
+    recipients: tuple[str, ...]
     timestamp: str
     in_reply_to: str | None
     subject: str | None
     is_thread_root: bool
+
+    @field_validator("thread_id")
+    @classmethod
+    def validate_thread_id(cls, value: str) -> str:
+        """Validate that thread_id is not empty."""
+        if not value:
+            raise ValueError("thread_id must be a non-empty string")
+        return value
+
+    @field_validator("message_id")
+    @classmethod
+    def validate_message_id(cls, value: str) -> str:
+        """Validate that message_id is not empty."""
+        if not value:
+            raise ValueError("message_id must be a non-empty string")
+        return value
+
+    @field_validator("sender")
+    @classmethod
+    def validate_sender(cls, value: str) -> str:
+        """Validate that sender is not empty."""
+        if not value:
+            raise ValueError("sender must be a non-empty string")
+        return value
 
     @field_validator("timestamp")
     @classmethod
@@ -128,6 +168,18 @@ class MessageMetadata(BaseModel):
         """Validate that timestamp is a valid ISO 8601 timestamp."""
         validate_iso8601_timestamp(value)
         return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate MessageMetadata invariants after model construction.
+
+        Enforces:
+        - is_thread_root=True and in_reply_to must be mutually exclusive
+        """
+        if self.is_thread_root and self.in_reply_to is not None:
+            raise ValueError(
+                "is_thread_root=True and in_reply_to must be mutually exclusive. "
+                f"Got is_thread_root={self.is_thread_root}, in_reply_to={self.in_reply_to!r}"
+            )
 
 
 class NormalizedContent(BaseModel):
@@ -186,7 +238,7 @@ class SourceVersion(BaseModel):
     """A versioned snapshot of a source's content and its chunks.
 
     Immutable records enable full history tracking for provenance and change detection.
-    chunk_hashes is stored as a serialized list (in SQLite as JSON string).
+    chunk_hashes is stored as a serialized tuple (in SQLite as JSON string).
     All chunk_hashes are validated as SHA-256 hex strings.
     fetch_timestamp is validated as ISO 8601 format for consistency across the system.
     """
@@ -196,7 +248,7 @@ class SourceVersion(BaseModel):
     source_id: str
     version: int
     markdown: str
-    chunk_hashes: list[Sha256Hash]
+    chunk_hashes: tuple[Sha256Hash, ...]
     adapter_id: str
     normalizer_version: str
     fetch_timestamp: str
@@ -224,9 +276,9 @@ class DiffResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     changed: bool
-    added_hashes: set[Sha256Hash]
-    removed_hashes: set[Sha256Hash]
-    unchanged_hashes: set[Sha256Hash]
+    added_hashes: frozenset[Sha256Hash]
+    removed_hashes: frozenset[Sha256Hash]
+    unchanged_hashes: frozenset[Sha256Hash]
     prev_hash: Sha256Hash | None = None
     curr_hash: Sha256Hash | None = None
 
@@ -237,7 +289,7 @@ class DiffResult(BaseModel):
         - Set disjointness: added_hashes, removed_hashes, and unchanged_hashes have no overlap
         - Flag consistency: changed=False implies no added or removed hashes
         """
-        # Check set disjointness
+        # Check set disjointness using frozenset operations
         added_and_removed = self.added_hashes & self.removed_hashes
         added_and_unchanged = self.added_hashes & self.unchanged_hashes
         removed_and_unchanged = self.removed_hashes & self.unchanged_hashes

@@ -271,6 +271,7 @@ class EmailAdapter(BaseAdapter):
         Raises:
             KeyError: If required fields are missing
             TypeError: If fields have unexpected types
+            ValueError: If identity fields cannot be populated
         """
         # Extract sender address (required field)
         if "from" not in msg:
@@ -305,14 +306,19 @@ class EmailAdapter(BaseAdapter):
             else:
                 raise TypeError(f"'to[{i}]' must be dict or str, got {type(recipient).__name__}")
 
-        # Extract thread context (required fields)
-        if "threadId" not in msg:
-            raise KeyError("Message missing required 'threadId' field")
-        thread_id = msg["threadId"]
+        # Extract thread context (identity fields)
+        # Use threadId/messageId from EmailEngine, fallback to message 'id' if empty
+        thread_id = msg.get("threadId") or ""
+        message_id = msg.get("messageId") or ""
 
-        if "messageId" not in msg:
-            raise KeyError("Message missing required 'messageId' field")
-        message_id = msg["messageId"]
+        if "id" not in msg:
+            raise KeyError("Message missing required 'id' field for fallback identity")
+
+        # If threadId or messageId are empty, use the message id as fallback
+        if not thread_id:
+            thread_id = msg["id"]
+        if not message_id:
+            message_id = msg["id"]
 
         # Extract optional fields
         in_reply_to = msg.get("inReplyTo")

@@ -456,7 +456,7 @@ class TestEmailAdapterFetch:
         extra_metadata = results[0].structural_hints.extra_metadata
         assert extra_metadata["subject"] is None
         assert extra_metadata["in_reply_to"] is None
-        assert extra_metadata["recipients"] == []
+        assert extra_metadata["recipients"] == ()
 
     def test_timestamp_iso8601_format(self, mock_httpx):
         """fetch() includes timestamp in ISO 8601 format."""
@@ -530,7 +530,7 @@ class TestEmailAdapterFetch:
         assert hints.has_headings is False
         assert hints.has_lists is False
         assert hints.has_tables is False
-        assert hints.natural_boundaries == []
+        assert hints.natural_boundaries == ()
 
     def test_no_credentials_in_output(self, mock_httpx):
         """fetch() does not include credentials in NormalizedContent or StructuralHints."""
@@ -712,7 +712,7 @@ class TestEmailAdapterMetadataExtraction:
         assert metadata.thread_id == "thread1"
         assert metadata.message_id == "<msg1@example.com>"
         assert metadata.sender == "sender@example.com"
-        assert metadata.recipients == ["recipient@example.com"]
+        assert metadata.recipients == ("recipient@example.com",)
         assert metadata.subject == "Test Subject"
         assert metadata.is_thread_root is True
         assert metadata.in_reply_to is None
