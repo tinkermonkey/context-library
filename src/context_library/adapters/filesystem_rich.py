@@ -17,8 +17,6 @@ from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import (
     FileEvent,
     FileSystemWatcher,
-    HAS_WATCHDOG,
-    HAS_WATCHFILES,
 )
 from context_library.storage.models import (
     Domain,

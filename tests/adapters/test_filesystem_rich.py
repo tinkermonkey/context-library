@@ -333,16 +333,16 @@ class TestPushModeInitialization:
 
         assert adapter._watcher is None
 
-    @patch("context_library.adapters.filesystem_rich.HAS_WATCHDOG", True)
-    @patch("context_library.adapters.filesystem_rich.HAS_WATCHFILES", False)
+    @patch("context_library.adapters._watching.HAS_WATCHDOG", True)
+    @patch("context_library.adapters._watching.HAS_WATCHFILES", False)
     def test_push_mode_creates_watcher(self, tmp_path):
         """When poll_strategy=PUSH, a FileSystemWatcher instance is created."""
         adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PUSH)
 
         assert adapter._watcher is not None
 
-    @patch("context_library.adapters.filesystem_rich.HAS_WATCHDOG", True)
-    @patch("context_library.adapters.filesystem_rich.HAS_WATCHFILES", False)
+    @patch("context_library.adapters._watching.HAS_WATCHDOG", True)
+    @patch("context_library.adapters._watching.HAS_WATCHFILES", False)
     def test_push_mode_watcher_configured_correctly(self, tmp_path):
         """Watcher is configured with correct path and callback."""
         adapter = RichFilesystemAdapter(tmp_path, poll_strategy=PollStrategy.PUSH)
