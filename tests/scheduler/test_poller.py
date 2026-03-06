@@ -525,7 +525,6 @@ class TestPollerBackgroundThread:
         resume_event = thread_module.Event()
 
         # Patch _run to hang instead of the normal loop
-        original_run = poller._run
 
         def hanging_run():
             # Signal that we're about to hang
