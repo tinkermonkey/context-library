@@ -141,7 +141,7 @@ class ObsidianAdapter(BaseAdapter):
         double I/O. Handles flexible tag/alias formats:
         - Accepts tags as string or list, normalizes to list
         - Accepts aliases as string or list, normalizes to list
-        - Returns empty markdown/frontmatter if file cannot be parsed
+        - Raises exception if file cannot be parsed or read
 
         Args:
             note_path: Path to the note file
@@ -149,6 +149,11 @@ class ObsidianAdapter(BaseAdapter):
         Returns:
             Tuple of (markdown_body, metadata_dict) where metadata_dict has keys:
             tags (list), aliases (list), frontmatter (dict of all YAML)
+
+        Raises:
+            FileNotFoundError: If file does not exist or is inaccessible
+            OSError: If file cannot be read (permission, encoding, I/O errors)
+            ValueError: If YAML frontmatter is malformed or cannot be parsed
         """
         try:
             post = frontmatter.load(str(note_path))
@@ -175,9 +180,8 @@ class ObsidianAdapter(BaseAdapter):
             }
             return markdown, metadata
         except (ValueError, KeyError, AttributeError) as e:
-            logger.warning(f"Failed to parse note {note_path}: {e}")
+            # Frontmatter parsing failed; attempt raw file read as fallback
             try:
-                # Fallback: raw file read without frontmatter parsing
                 raw_content = note_path.read_text(encoding="utf-8")
                 return raw_content, {
                     "tags": [],
@@ -185,19 +189,14 @@ class ObsidianAdapter(BaseAdapter):
                     "frontmatter": {},
                 }
             except (FileNotFoundError, PermissionError, OSError, UnicodeDecodeError) as e2:
-                logger.error(f"Cannot read file {note_path}: {e2}")
-                return "", {
-                    "tags": [],
-                    "aliases": [],
-                    "frontmatter": {},
-                }
+                # File cannot be read; raise to caller
+                raise OSError(f"Cannot read file {note_path}: {e2}") from e2
+        except (FileNotFoundError, PermissionError, OSError, UnicodeDecodeError) as e:
+            # File access errors: raise explicitly
+            raise OSError(f"Cannot access file {note_path}: {e}") from e
         except Exception as e:
-            logger.error(f"Unexpected error parsing note {note_path}: {e}", exc_info=True)
-            return "", {
-                "tags": [],
-                "aliases": [],
-                "frontmatter": {},
-            }
+            # Unexpected errors: wrap and raise
+            raise ValueError(f"Unexpected error parsing note {note_path}: {e}") from e
 
     def _get_note_name(self, note_path: Path) -> str:
         """Get the note name (stem) from a note path.
@@ -329,12 +328,16 @@ class ObsidianAdapter(BaseAdapter):
             try:
                 # Parse note once to extract both markdown and frontmatter metadata
                 markdown, fm_metadata = self._parse_note(note_path)
+            except (OSError, ValueError) as e:
+                logger.warning(f"Skipping unparseable note: {e}")
+                continue
 
-                # Skip files that could not be parsed (empty markdown means parse failure)
-                if not markdown.strip():
-                    logger.warning(f"Skipping note with no readable content: {note_path}")
-                    continue
+            # Skip intentionally empty notes (valid in Obsidian for placeholders)
+            if not markdown.strip():
+                logger.debug(f"Skipping empty note: {note_path}")
+                continue
 
+            try:
                 # Get note name for graph lookups
                 note_name = self._get_note_name(note_path)
 
