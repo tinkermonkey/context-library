@@ -260,9 +260,7 @@ class ObsidianAdapter(BaseAdapter):
     def _extract_timestamps(self, note_path: Path) -> tuple[str, str, int]:
         """Extract creation and modification timestamps and file size from a note.
 
-        Returns file timestamps in ISO 8601 format and file size in bytes. If extraction
-        fails, returns current time for timestamps and 0 for file size (not ideal, but
-        allows processing to continue; see developer notes about data integrity implications).
+        Returns file timestamps in ISO 8601 format and file size in bytes.
 
         Args:
             note_path: Path to the note file
@@ -271,38 +269,29 @@ class ObsidianAdapter(BaseAdapter):
             Tuple of (created_at, modified_at, file_size_bytes) where timestamps are
             in ISO 8601 format (UTC) and file_size_bytes is an integer
 
+        Raises:
+            FileNotFoundError: If the file does not exist
+            OSError: If stat() fails due to permissions or other OS-level errors
+            ValueError: If timestamp values are invalid or cannot be converted
+
         Note:
             On Linux, st_ctime is the inode metadata change time, not the file creation
             time. True file creation time (st_birthtime) is only available on macOS/Windows
             and some modern Linux filesystems. This is a known platform limitation.
         """
+        stat = note_path.stat()
+        # st_ctime is platform-dependent: creation time on macOS/Windows,
+        # but inode change time on Linux (see docstring note)
         try:
-            stat = note_path.stat()
-            # st_ctime is platform-dependent: creation time on macOS/Windows,
-            # but inode change time on Linux (see docstring note)
             created_at = datetime.fromtimestamp(
                 stat.st_ctime, tz=timezone.utc
             ).isoformat()
             modified_at = datetime.fromtimestamp(
                 stat.st_mtime, tz=timezone.utc
             ).isoformat()
-            return created_at, modified_at, stat.st_size
-        except FileNotFoundError:
-            logger.warning(f"File disappeared during timestamp extraction: {note_path}")
-            now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now, 0
-        except OSError as e:
-            logger.warning(f"Cannot stat file {note_path}: {e}")
-            now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now, 0
         except (ValueError, OverflowError) as e:
-            logger.warning(f"Invalid timestamp value in {note_path}: {e}")
-            now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now, 0
-        except Exception as e:
-            logger.error(f"Unexpected error extracting timestamps from {note_path}: {e}", exc_info=True)
-            now = datetime.now(tz=timezone.utc).isoformat()
-            return now, now, 0
+            raise ValueError(f"Invalid timestamp value in {note_path}: {e}") from e
+        return created_at, modified_at, stat.st_size
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize notes from the Obsidian vault.
@@ -341,6 +330,11 @@ class ObsidianAdapter(BaseAdapter):
                 # Parse note once to extract both markdown and frontmatter metadata
                 markdown, fm_metadata = self._parse_note(note_path)
 
+                # Skip files that could not be parsed (empty markdown means parse failure)
+                if not markdown.strip():
+                    logger.warning(f"Skipping note with no readable content: {note_path}")
+                    continue
+
                 # Get note name for graph lookups
                 note_name = self._get_note_name(note_path)
 
@@ -348,7 +342,14 @@ class ObsidianAdapter(BaseAdapter):
                 graph_metadata = self._extract_graph_metadata(note_name, vault)
 
                 # Extract timestamps and file size (single stat() call)
-                created_at, modified_at, file_size = self._extract_timestamps(note_path)
+                try:
+                    created_at, modified_at, file_size = self._extract_timestamps(note_path)
+                except FileNotFoundError:
+                    logger.warning(f"File disappeared during timestamp extraction: {note_path}")
+                    continue
+                except (OSError, ValueError) as e:
+                    logger.warning(f"Cannot extract metadata from file {note_path}: {e}")
+                    continue
 
                 # Compute relative path from vault root for source_id
                 source_id = str(note_path.relative_to(self._vault_path))
