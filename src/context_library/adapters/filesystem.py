@@ -106,7 +106,7 @@ class FilesystemAdapter(BaseAdapter):
                     has_headings=has_headings,
                     has_lists=has_lists,
                     has_tables=has_tables,
-                    natural_boundaries=[],
+                    natural_boundaries=(),
                     file_path=str(md_file.resolve()),
                     modified_at=modified_at,
                     file_size_bytes=stat.st_size,

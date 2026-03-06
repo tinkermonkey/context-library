@@ -284,7 +284,7 @@ class IngestionPipeline:
                 # Note: retire chunks from the old version (prev_version), not the new one
                 if diff_result.removed_hashes:
                     old_version = prev_version.version if prev_version else 1
-                    self.document_store.retire_chunks(diff_result.removed_hashes, content.source_id, old_version)
+                    self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
                     removed_list = list(diff_result.removed_hashes)
                     # Record pending delete operations before attempting LanceDB deletes
                     self.document_store.delete_sync_log(removed_list)

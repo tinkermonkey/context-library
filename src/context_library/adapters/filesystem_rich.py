@@ -232,7 +232,7 @@ class RichFilesystemAdapter(BaseAdapter):
                     has_headings=has_headings,
                     has_lists=has_lists,
                     has_tables=has_tables,
-                    natural_boundaries=[],
+                    natural_boundaries=(),
                     file_path=str(file_path.resolve()),
                     modified_at=modified_at,
                     file_size_bytes=stat.st_size,

@@ -54,9 +54,9 @@ class Differ:
             curr_hash = self._compute_hash(curr_markdown)
             return DiffResult(
                 changed=True,
-                added_hashes=curr_chunk_hashes,
-                removed_hashes=set(),
-                unchanged_hashes=set(),
+                added_hashes=frozenset(curr_chunk_hashes),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
                 prev_hash=None,
                 curr_hash=curr_hash,
             )
@@ -69,9 +69,9 @@ class Differ:
         if prev_hash == curr_hash:
             return DiffResult(
                 changed=False,
-                added_hashes=set(),
-                removed_hashes=set(),
-                unchanged_hashes=curr_chunk_hashes,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(curr_chunk_hashes),
                 prev_hash=prev_hash,
                 curr_hash=curr_hash,
             )
@@ -85,9 +85,9 @@ class Differ:
 
         return DiffResult(
             changed=True,
-            added_hashes=added,
-            removed_hashes=removed,
-            unchanged_hashes=unchanged,
+            added_hashes=frozenset(added),
+            removed_hashes=frozenset(removed),
+            unchanged_hashes=frozenset(unchanged),
             prev_hash=prev_hash,
             curr_hash=curr_hash,
         )

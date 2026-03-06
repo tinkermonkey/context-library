@@ -353,7 +353,7 @@ class EmailAdapter(BaseAdapter):
             thread_id=thread_id,
             message_id=message_id,
             sender=sender,
-            recipients=recipients,
+            recipients=tuple(recipients),
             timestamp=normalized_timestamp,
             in_reply_to=in_reply_to,
             subject=subject,
