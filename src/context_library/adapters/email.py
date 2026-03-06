@@ -95,8 +95,17 @@ class EmailAdapter(BaseAdapter):
         """Return the normalizer version."""
         return "1.0.0"
 
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit: clean up httpx.Client session."""
+        self._client.close()
+        return False
+
     def __del__(self) -> None:
-        """Clean up httpx.Client session when adapter is destroyed."""
+        """Clean up httpx.Client session when adapter is destroyed (safety net)."""
         if hasattr(self, "_client"):
             self._client.close()
 
@@ -151,7 +160,7 @@ class EmailAdapter(BaseAdapter):
                     normalizer_version=self.normalizer_version,
                 )
 
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, TypeError) as e:
                 logger.error(f"Failed to process message {msg.get('id')}: {e}")
                 continue
             except httpx.HTTPError as e:
@@ -314,7 +323,7 @@ class EmailAdapter(BaseAdapter):
 
         # Validate timestamp is present and attempt normalization if needed
         if not timestamp:
-            raise ValueError(f"Message missing 'date' field")
+            raise ValueError("Message missing 'date' field")
 
         # If timestamp ends with 'Z', it's already in ISO 8601 UTC format
         if timestamp.endswith("Z"):

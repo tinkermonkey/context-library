@@ -81,7 +81,7 @@ class TestEmailAdapterFetch:
 
     @pytest.fixture
     def mock_httpx(self, monkeypatch):
-        """Fixture for mocking httpx requests."""
+        """Fixture for mocking httpx requests via httpx.Client."""
         class MockResponse:
             def __init__(self, json_data, status_code=200, url=""):
                 self._json_data = json_data
@@ -100,8 +100,9 @@ class TestEmailAdapterFetch:
                         response=self,
                     )
 
-        class MockHTTPX:
-            def __init__(self):
+        class MockClient:
+            """Mock httpx.Client that tracks requests and returns configured responses."""
+            def __init__(self, *args, **kwargs):
                 self.requests = []
                 self.responses = {}
 
@@ -112,9 +113,21 @@ class TestEmailAdapterFetch:
             def set_response(self, url, data, status_code=200):
                 self.responses[url] = MockResponse(data, status_code, url=url)
 
-        mock_httpx = MockHTTPX()
-        monkeypatch.setattr("context_library.adapters.email.httpx.get", mock_httpx.get)
-        return mock_httpx
+            def close(self):
+                """No-op for mock client."""
+                pass
+
+        # Create a shared mock client instance that will be used for all adapters
+        mock_client = MockClient()
+
+        # Patch httpx.Client constructor to return our mock client
+        original_client = httpx.Client
+        monkeypatch.setattr(
+            "context_library.adapters.email.httpx.Client",
+            lambda *args, **kwargs: mock_client
+        )
+
+        return mock_client
 
     def test_fetch_single_message(self, mock_httpx):
         """fetch() yields NormalizedContent for a single message."""
@@ -126,20 +139,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test Subject",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test Subject",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -164,30 +175,28 @@ class TestEmailAdapterFetch:
         # Mock message list response with 2 messages
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender1@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Subject 1",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    },
-                    {
-                        "id": "msg2",
-                        "threadId": "thread1",
-                        "messageId": "<msg2@example.com>",
-                        "from": {"address": "sender2@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Subject 2",
-                        "date": "2026-03-06T11:00:00Z",
-                        "inReplyTo": "<msg1@example.com>",
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender1@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Subject 1",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                },
+                {
+                    "id": "msg2",
+                    "threadId": "thread1",
+                    "messageId": "<msg2@example.com>",
+                    "from": {"address": "sender2@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Subject 2",
+                    "date": "2026-03-06T11:00:00Z",
+                    "inReplyTo": "<msg1@example.com>",
+                }
+            ]
         })
 
         # Mock message body responses
@@ -214,7 +223,7 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {"messages": []}
+            "messages": []
         })
 
         list(adapter.fetch(since))
@@ -235,7 +244,7 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {"messages": []}
+            "messages": []
         })
 
         list(adapter.fetch(""))
@@ -255,7 +264,7 @@ class TestEmailAdapterFetch:
         # Mock empty message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {"messages": []}
+            "messages": []
         })
 
         results = list(adapter.fetch(""))
@@ -271,20 +280,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response with HTML
@@ -308,20 +315,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test Subject",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test Subject",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -352,20 +357,18 @@ class TestEmailAdapterFetch:
         # Mock message list response with reply message
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": "<original@example.com>",
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": "<original@example.com>",
+                }
+            ]
         })
 
         # Mock message body response
@@ -389,24 +392,22 @@ class TestEmailAdapterFetch:
         # Mock message list response with multiple recipients
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [
-                            {"address": "recipient1@example.com"},
-                            {"address": "recipient2@example.com"},
-                            {"address": "recipient3@example.com"},
-                        ],
-                        "subject": "Test",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [
+                        {"address": "recipient1@example.com"},
+                        {"address": "recipient2@example.com"},
+                        {"address": "recipient3@example.com"},
+                    ],
+                    "subject": "Test",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -432,19 +433,17 @@ class TestEmailAdapterFetch:
         # Mock message list response with minimal fields
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "",
-                        "messageId": "",
-                        "from": {"address": "sender@example.com"},
-                        "to": [],
-                        "date": "2026-03-06T10:00:00Z",
-                        # subject and inReplyTo are absent
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "",
+                    "messageId": "",
+                    "from": {"address": "sender@example.com"},
+                    "to": [],
+                    "date": "2026-03-06T10:00:00Z",
+                    # subject and inReplyTo are absent
+                }
+            ]
         })
 
         # Mock message body response
@@ -472,20 +471,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test",
-                        "date": iso_timestamp,
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test",
+                    "date": iso_timestamp,
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -509,20 +506,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -548,20 +543,18 @@ class TestEmailAdapterFetch:
         # Mock message list response
         messages_url = "http://localhost:3000/v1/account/acct1/messages"
         mock_httpx.set_response(messages_url, {
-            "messages": {
-                "messages": [
-                    {
-                        "id": "msg1",
-                        "threadId": "thread1",
-                        "messageId": "<msg1@example.com>",
-                        "from": {"address": "sender@example.com"},
-                        "to": [{"address": "recipient@example.com"}],
-                        "subject": "Test",
-                        "date": "2026-03-06T10:00:00Z",
-                        "inReplyTo": None,
-                    }
-                ]
-            }
+            "messages": [
+                {
+                    "id": "msg1",
+                    "threadId": "thread1",
+                    "messageId": "<msg1@example.com>",
+                    "from": {"address": "sender@example.com"},
+                    "to": [{"address": "recipient@example.com"}],
+                    "subject": "Test",
+                    "date": "2026-03-06T10:00:00Z",
+                    "inReplyTo": None,
+                }
+            ]
         })
 
         # Mock message body response
@@ -591,25 +584,23 @@ class TestEmailAdapterFetch:
         with pytest.raises(httpx.HTTPStatusError):
             list(adapter.fetch(""))
 
-    def test_fetch_message_body_http_error_skips_message(self, mock_httpx):
-        """fetch() logs and skips individual messages when body fetch fails."""
+    def test_fetch_message_body_http_error_raises(self, mock_httpx):
+        """fetch() raises HTTPStatusError when body fetch fails (not skipped)."""
         # Mock message list response
         mock_httpx.set_response(
             "http://localhost:3000/v1/account/acct1/messages",
             {
-                "messages": {
-                    "messages": [
-                        {
-                            "id": "msg1",
-                            "threadId": "thread1",
-                            "from": {"address": "sender@example.com"},
-                            "to": [{"address": "recipient@example.com"}],
-                            "subject": "Test",
-                            "date": "2026-03-06T12:00:00Z",
-                            "messageId": "<msg1@example.com>",
-                        }
-                    ]
-                }
+                "messages": [
+                    {
+                        "id": "msg1",
+                        "threadId": "thread1",
+                        "from": {"address": "sender@example.com"},
+                        "to": [{"address": "recipient@example.com"}],
+                        "subject": "Test",
+                        "date": "2026-03-06T12:00:00Z",
+                        "messageId": "<msg1@example.com>",
+                    }
+                ]
             },
         )
 
@@ -621,10 +612,10 @@ class TestEmailAdapterFetch:
         )
 
         adapter = EmailAdapter("http://localhost:3000", "acct1")
-        results = list(adapter.fetch(""))
 
-        # Message body fetch failed, so no results are yielded
-        assert len(results) == 0
+        # The fetch should raise HTTPStatusError for the body fetch failure
+        with pytest.raises(httpx.HTTPStatusError):
+            list(adapter.fetch(""))
 
 
 class TestEmailAdapterHTMLConversion:
