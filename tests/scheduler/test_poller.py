@@ -126,26 +126,35 @@ class TestPollerLifecycle:
     def test_start_spawns_daemon_thread(self, pipeline, document_store):
         """start() should spawn a daemon thread."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.start()
 
-        try:
-            assert poller._thread is not None
-            assert poller._thread.is_alive()
-            assert poller._thread.daemon is True
-        finally:
-            poller.stop()
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            poller.start()
+
+            try:
+                assert poller._thread is not None
+                assert poller._thread.is_alive()
+                assert poller._thread.daemon is True
+            finally:
+                poller.stop()
 
     def test_stop_joins_thread(self, pipeline, document_store):
         """stop() should wait for thread to exit."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.start()
 
-        assert poller._thread is not None
-        assert poller._thread.is_alive()
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            poller.start()
 
-        poller.stop()
+            assert poller._thread is not None
+            assert poller._thread.is_alive()
 
-        assert poller._thread is None
+            poller.stop()
+
+            # After stop(), thread should have exited and _thread should be None
+            assert poller._thread is None
 
     def test_stop_before_start_no_error(self, pipeline, document_store):
         """Calling stop() before start() should not raise."""
@@ -506,19 +515,25 @@ class TestPollerBackgroundThread:
             assert not thread.is_alive()
 
     def test_stop_timeout_on_hung_thread(self, pipeline, document_store):
-        """stop() should timeout if thread is hung on network call."""
-        poller = Poller(pipeline, document_store, tick_interval=0.1)
-
-        # Create a thread that will hang
+        """stop() should timeout if thread is hung on network call and log error."""
         import threading as thread_module
 
+        poller = Poller(pipeline, document_store, tick_interval=0.1)
+
+        # Use an event to make the background thread hang indefinitely during _run
         hung_event = thread_module.Event()
         resume_event = thread_module.Event()
 
-        def hanging_tick():
-            # Simulate a hung network call
+        # Patch _run to hang instead of the normal loop
+        original_run = poller._run
+
+        def hanging_run():
+            # Signal that we're about to hang
             hung_event.set()
-            resume_event.wait(timeout=10.0)  # Will timeout, simulating hung state
+            # Hang indefinitely - simulating thread stuck in network call
+            resume_event.wait(timeout=10.0)
+
+        poller._run = hanging_run
 
         with patch.object(
             document_store, "get_sources_due_for_poll", return_value=[]
@@ -526,13 +541,10 @@ class TestPollerBackgroundThread:
             poller.start()
             thread = poller._thread
 
-            # Wait for thread to be in _tick
+            # Wait for thread to be hanging
             hung_event.wait(timeout=2.0)
 
-            # Patch _tick to hang
-            poller._tick = hanging_tick
-
-            # Call stop - should timeout and not clear _thread reference
+            # Call stop - should timeout since thread is hung
             with patch("context_library.scheduler.poller.logger") as mock_logger:
                 poller.stop()
 
