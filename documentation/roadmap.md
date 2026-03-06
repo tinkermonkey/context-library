@@ -30,17 +30,19 @@ Phase 1 establishes the core architecture for semantic document retrieval from m
 
 ## Phase 2: Scheduler and Multi-Source Adapters
 
-Phase 2 adds automated ingestion scheduling and support for additional cloud-based data sources beyond filesystem.
+Phase 2 adds automated ingestion scheduling and support for additional data sources beyond plain markdown files on disk.
 
 ### Planned Features
 
 - **Scheduler Components** (`src/context_library/scheduler/poller.py`, `src/context_library/scheduler/watcher.py`) — Automated polling and file system watching for continuous ingestion of new and modified content.
 
-- **Gmail Adapter** — Integration for ingesting and indexing email content as a retrievable source.
+- **Email Adapter** — Integration for ingesting and indexing email content as a retrievable source. Uses [EmailEngine](https://github.com/postalsys/emailengine), a headless email client that exposes a unified REST API over IMAP, SMTP, Gmail API, and MS Graph API, abstracting provider-specific auth flows. For direct IMAP/SMTP access, [email-oauth2-proxy](https://github.com/simonrob/email-oauth2-proxy) provides transparent OAuth 2.0 (SASL XOAUTH2) proxying for providers including Gmail, Outlook, Yahoo, and Fastmail, with support for headless deployments and secrets-manager-backed credential storage. Credentials are never stored in plaintext; short-lived access tokens and refresh tokens are managed by the OAuth layer.
 
-- **Spotify Adapter** — Integration for ingesting and indexing playlist metadata and track information.
+- **Shared Filesystem Watcher** (`src/context_library/adapters/_watching.py`) — Internal utility module shared by the Filesystem and Obsidian adapters. Wraps [watchdog](https://github.com/gorakhargosh/watchdog) (cross-platform, event-driven) or [watchfiles](https://github.com/samuelcolvin/watchfiles) (Rust-backed, lower latency) behind a thin adapter-facing interface: each adapter instantiates its own watcher pointed at its own path scope — there is no shared singleton. The module encapsulates watchdog `Observer` lifecycle, translates `FileSystemEvent` objects into `SourceRef` values the pipeline understands, and maps to `PollStrategy.PUSH` so the Scheduler routes events through its existing `handle_webhook` path rather than a polling loop. Code is shared at import time; OS-level watchers remain independent per adapter.
 
-- **Todoist Adapter** — Integration for ingesting tasks and project structures as retrievable documents.
+- **Filesystem Adapter** (`src/context_library/adapters/filesystem_rich.py`) — Extends the MVP filesystem adapter to handle non-markdown file formats by converting them to markdown at ingestion time. [MarkItDown](https://github.com/microsoft/markitdown) (Microsoft) converts PDFs, Office documents (docx, xlsx, pptx), images, HTML, and audio files into LLM-ready markdown; [Pandoc](https://pandoc.org/) serves as a fallback for formats MarkItDown does not cover (e.g. LaTeX, EPUB, RST, ODT). Uses `_watching.py` for filesystem event capture. Filesystem metadata — MIME type, file size, creation/modification timestamps, and directory hierarchy — is captured and stored as chunk metadata to augment retrieval.
+
+- **Obsidian Adapter** (`src/context_library/adapters/obsidian.py`) — Ingests an Obsidian vault using `_watching.py` for filesystem event capture, without any format conversion since vault notes are already markdown. Vault-specific metadata is extracted using [obsidiantools](https://github.com/mfarragher/obsidiantools) (graph-level analytics: backlinks, wikilinks, note connectivity) and [obsidianmd-parser](https://pypi.org/project/obsidianmd-parser/) (per-note: YAML frontmatter, tags, Dataview fields, aliases). Extracted metadata — tags, aliases, frontmatter properties, wikilink graph edges, and creation/modification dates — is stored alongside chunks to enable metadata-filtered retrieval and graph-aware ranking.
 
 - **Messages Domain** (`src/context_library/domains/messages.py`) — Domain implementation for chunking and indexing conversational message content with thread and author preservation.
 
