@@ -18,6 +18,7 @@ gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
 rich-fs = ["markitdown", "watchdog"]
+obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
 dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
 
 [tool.mypy]

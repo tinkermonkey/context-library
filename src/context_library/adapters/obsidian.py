@@ -1,0 +1,438 @@
+"""ObsidianAdapter for ingesting Obsidian vaults.
+
+Extracts per-note YAML frontmatter metadata and vault-level wikilink graph data
+using obsidiantools. Yields NormalizedContent with rich structural hints including:
+- YAML frontmatter properties (tags, aliases, custom fields)
+- Wikilink relationships (forward links, backlinks)
+- File timestamps (creation, modification) in ISO 8601 format
+- Markdown structure detection (headings, lists, tables)
+
+Supports both pull-based (periodic directory walking) and push-based (filesystem
+watching) ingestion strategies.
+
+Dependencies:
+- obsidiantools: For vault parsing and wikilink graph construction
+- python-frontmatter: For YAML frontmatter parsing
+- watchdog: For filesystem watching in push mode (optional, only if PollStrategy.PUSH is used)
+"""
+
+import logging
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterator, Any
+
+from context_library.adapters.base import BaseAdapter
+from context_library.adapters._watching import (
+    FileEvent,
+    FileSystemWatcher,
+)
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+    StructuralHints,
+)
+
+logger = logging.getLogger(__name__)
+
+# Try to import obsidiantools and frontmatter
+HAS_OBSIDIANTOOLS = False
+HAS_FRONTMATTER = False
+
+try:
+    import obsidiantools.api as otools
+
+    HAS_OBSIDIANTOOLS = True
+except ImportError:
+    pass
+
+try:
+    import frontmatter
+
+    HAS_FRONTMATTER = True
+except ImportError:
+    pass
+
+
+class ObsidianAdapter(BaseAdapter):
+    """Adapter that ingests an Obsidian vault.
+
+    Discovers all .md notes in a vault, extracts per-note YAML frontmatter metadata
+    and vault-level wikilink graph data using obsidiantools, and yields NormalizedContent
+    with rich structural hints including tags, aliases, frontmatter properties, and
+    wikilink edges.
+
+    Supports both pull-based (periodic directory walking) and push-based (filesystem
+    watching) ingestion strategies.
+    """
+
+    def __init__(
+        self,
+        vault_path: Path | str,
+        poll_strategy: PollStrategy = PollStrategy.PULL,
+    ) -> None:
+        """Initialize ObsidianAdapter.
+
+        Args:
+            vault_path: Path to the Obsidian vault directory
+            poll_strategy: How to discover changes (PULL for directory walk, PUSH for watcher)
+
+        Raises:
+            ImportError: If obsidiantools or python-frontmatter are not installed
+        """
+        if not HAS_OBSIDIANTOOLS:
+            raise ImportError(
+                "obsidiantools is required for ObsidianAdapter. "
+                "Install it with: pip install context-library[obsidian]"
+            )
+        if not HAS_FRONTMATTER:
+            raise ImportError(
+                "python-frontmatter is required for ObsidianAdapter. "
+                "Install it with: pip install context-library[obsidian]"
+            )
+
+        self._vault_path = Path(vault_path).resolve()
+        self._poll_strategy = poll_strategy
+        self._vault = None  # lazy-loaded obsidiantools.Vault
+        self._watcher: FileSystemWatcher | None = None
+
+        if poll_strategy == PollStrategy.PUSH:
+            # Create watcher for push-based ingestion
+            self._watcher = FileSystemWatcher(
+                watch_path=self._vault_path,
+                callback=self._on_file_changed,
+                extensions={".md"},
+            )
+
+    @property
+    def adapter_id(self) -> str:
+        """Return a deterministic adapter ID based on vault path.
+
+        Returns:
+            f"obsidian:{absolute_vault_path}"
+        """
+        return f"obsidian:{self._vault_path}"
+
+    @property
+    def domain(self) -> Domain:
+        """Return the domain this adapter serves."""
+        return Domain.NOTES
+
+    @property
+    def normalizer_version(self) -> str:
+        """Return the normalizer version."""
+        return "1.0.0"
+
+    def _get_vault(self) -> Any:
+        """Lazy-load and return the obsidiantools Vault instance.
+
+        Returns:
+            Connected Vault instance with wikilink graph built
+        """
+        if self._vault is None:
+            self._vault = otools.Vault(self._vault_path).connect()
+        return self._vault
+
+    def _extract_frontmatter_metadata(self, note_path: Path) -> dict[str, Any]:
+        """Extract YAML frontmatter metadata from a note.
+
+        Handles flexible tag/alias formats:
+        - Accepts tags as string or list, normalizes to list
+        - Accepts aliases as string or list, normalizes to list
+        - Returns empty lists/dict if file cannot be parsed or has no frontmatter
+
+        Args:
+            note_path: Path to the note file
+
+        Returns:
+            Dictionary with keys: tags (list), aliases (list), frontmatter (dict of all YAML)
+        """
+        try:
+            post = frontmatter.load(str(note_path))
+            fm_data = post.metadata
+
+            # Extract tags and aliases, defaulting to empty lists
+            tags = fm_data.get("tags", [])
+            if isinstance(tags, str):
+                tags = [tags]
+            elif not isinstance(tags, list):
+                tags = []
+
+            aliases = fm_data.get("aliases", [])
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            elif not isinstance(aliases, list):
+                aliases = []
+
+            return {
+                "tags": tags,
+                "aliases": aliases,
+                "frontmatter": fm_data,
+            }
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.warning(f"Failed to extract frontmatter from {note_path}: {e}")
+            return {
+                "tags": [],
+                "aliases": [],
+                "frontmatter": {},
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error extracting frontmatter from {note_path}: {e}", exc_info=True)
+            return {
+                "tags": [],
+                "aliases": [],
+                "frontmatter": {},
+            }
+
+    def _get_note_name(self, note_path: Path) -> str:
+        """Get the note name (stem) from a note path.
+
+        Args:
+            note_path: Path to the note file
+
+        Returns:
+            Note name without .md extension
+        """
+        return note_path.stem
+
+    def _extract_graph_metadata(self, note_name: str, vault: Any) -> dict[str, Any]:
+        """Extract wikilink graph metadata for a note.
+
+        Extracts both forward links (notes this note links TO) and backlinks
+        (notes that link TO this note) from the vault's wikilink graph. Errors
+        in graph extraction are logged with appropriate severity.
+
+        Args:
+            note_name: Name of the note (stem without .md)
+            vault: Connected Vault instance
+
+        Returns:
+            Dictionary with keys: wikilinks (list of forward links), backlinks (list of back-references)
+        """
+        graph_data = {
+            "wikilinks": [],
+            "backlinks": [],
+        }
+
+        try:
+            # Get forward wikilinks (notes this note links TO)
+            wikilinks = vault.get_wikilinks(note_name)
+            if wikilinks:
+                try:
+                    graph_data["wikilinks"] = list(wikilinks)
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"Cannot convert wikilinks to list for {note_name}: {e}")
+        except KeyError:
+            logger.debug(f"Note '{note_name}' not found in vault graph for wikilinks")
+        except Exception as e:
+            logger.warning(f"Failed to extract wikilinks for {note_name}: {e}")
+
+        try:
+            # Get backlinks (notes that link TO this note)
+            backlinks = vault.get_backlinks(note_name)
+            if backlinks:
+                try:
+                    graph_data["backlinks"] = list(backlinks)
+                except (TypeError, ValueError) as e:
+                    logger.warning(f"Cannot convert backlinks to list for {note_name}: {e}")
+        except KeyError:
+            logger.debug(f"Note '{note_name}' not found in vault graph for backlinks")
+        except Exception as e:
+            logger.warning(f"Failed to extract backlinks for {note_name}: {e}")
+
+        return graph_data
+
+    def _extract_timestamps(self, note_path: Path) -> tuple[str, str]:
+        """Extract creation and modification timestamps from a note.
+
+        Returns file timestamps in ISO 8601 format. If extraction fails, returns
+        current time for both timestamps (not ideal, but allows processing to
+        continue; see developer notes about data integrity implications).
+
+        Args:
+            note_path: Path to the note file
+
+        Returns:
+            Tuple of (created_at, modified_at) in ISO 8601 format (UTC)
+        """
+        try:
+            stat = note_path.stat()
+            created_at = datetime.fromtimestamp(
+                stat.st_ctime, tz=timezone.utc
+            ).isoformat()
+            modified_at = datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat()
+            return created_at, modified_at
+        except FileNotFoundError:
+            logger.warning(f"File disappeared during timestamp extraction: {note_path}")
+            now = datetime.now(tz=timezone.utc).isoformat()
+            return now, now
+        except OSError as e:
+            logger.warning(f"Cannot stat file {note_path}: {e}")
+            now = datetime.now(tz=timezone.utc).isoformat()
+            return now, now
+        except (ValueError, OverflowError) as e:
+            logger.warning(f"Invalid timestamp value in {note_path}: {e}")
+            now = datetime.now(tz=timezone.utc).isoformat()
+            return now, now
+        except Exception as e:
+            logger.error(f"Unexpected error extracting timestamps from {note_path}: {e}", exc_info=True)
+            now = datetime.now(tz=timezone.utc).isoformat()
+            return now, now
+
+    def _extract_markdown_body(self, note_path: Path) -> str:
+        """Extract markdown body without YAML frontmatter.
+
+        Attempts to extract body using frontmatter parser first, falls back to
+        raw file read if parsing fails. Returns empty string only if all
+        extraction methods fail.
+
+        Args:
+            note_path: Path to the note file
+
+        Returns:
+            Markdown content without frontmatter block
+        """
+        try:
+            post = frontmatter.load(str(note_path))
+            return post.content
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.warning(f"Failed to parse frontmatter in {note_path}, attempting raw read: {e}")
+            try:
+                return note_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as ue:
+                logger.error(f"File encoding error in {note_path}: {ue}")
+                return ""
+            except (FileNotFoundError, PermissionError, OSError) as oe:
+                logger.error(f"Cannot read file {note_path}: {oe}")
+                return ""
+        except Exception as e:
+            logger.error(f"Unexpected error extracting markdown body from {note_path}: {e}", exc_info=True)
+            return ""
+
+    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+        """Fetch and normalize notes from the Obsidian vault.
+
+        Recursively discovers all .md files in the vault and yields NormalizedContent
+        for each one with YAML frontmatter metadata and wikilink graph data.
+
+        Args:
+            source_ref: Unused for Obsidian adapter (uses self._vault_path)
+
+        Yields:
+            NormalizedContent for each note found
+
+        Raises:
+            FileNotFoundError: If the vault directory does not exist
+            NotADirectoryError: If the vault path exists but is not a directory
+        """
+        if not self._vault_path.exists():
+            raise FileNotFoundError(f"Vault directory does not exist: {self._vault_path}")
+
+        if not self._vault_path.is_dir():
+            raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
+
+        # Get the vault instance (lazy-loaded with graph built)
+        vault = self._get_vault()
+
+        for note_path in self._vault_path.rglob("*.md"):
+            if not note_path.is_file():
+                continue
+
+            try:
+                # Extract markdown body (without frontmatter)
+                markdown = self._extract_markdown_body(note_path)
+
+                # Extract frontmatter metadata
+                fm_metadata = self._extract_frontmatter_metadata(note_path)
+
+                # Get note name for graph lookups
+                note_name = self._get_note_name(note_path)
+
+                # Extract graph metadata
+                graph_metadata = self._extract_graph_metadata(note_name, vault)
+
+                # Extract timestamps
+                created_at, modified_at = self._extract_timestamps(note_path)
+
+                # Compute relative path from vault root for source_id
+                source_id = str(note_path.relative_to(self._vault_path))
+
+                # Build extra metadata combining frontmatter, graph, and timestamps
+                extra_metadata: dict[str, object] = {
+                    "tags": fm_metadata["tags"],
+                    "aliases": fm_metadata["aliases"],
+                    "frontmatter": fm_metadata["frontmatter"],
+                    "wikilinks": graph_metadata["wikilinks"],
+                    "backlinks": graph_metadata["backlinks"],
+                    "created_at": created_at,
+                    "modified_at": modified_at,
+                }
+
+                # Compute structural hints from markdown
+                # Detect ATX-style headings (# through ######)
+                has_headings = bool(
+                    re.search(r"^#{1,6}\s", markdown, re.MULTILINE)
+                )
+                # Detect unordered lists (-, *, +) and ordered lists (1., 2., etc.)
+                has_lists = bool(
+                    re.search(r"^(?:[\-\*\+]|\d+\.)\s", markdown, re.MULTILINE)
+                )
+                # Detect pipe-delimited table rows
+                has_tables = bool(
+                    re.search(r"^\|.+\|$", markdown, re.MULTILINE)
+                )
+
+                # Get file stats
+                stat = note_path.stat()
+
+                # Build structural hints
+                structural_hints = StructuralHints(
+                    has_headings=has_headings,
+                    has_lists=has_lists,
+                    has_tables=has_tables,
+                    natural_boundaries=[],
+                    file_path=str(note_path.resolve()),
+                    modified_at=modified_at,
+                    file_size_bytes=stat.st_size,
+                    extra_metadata=extra_metadata,
+                )
+
+                # Yield normalized content
+                yield NormalizedContent(
+                    markdown=markdown,
+                    source_id=source_id,
+                    structural_hints=structural_hints,
+                    normalizer_version=self.normalizer_version,
+                )
+
+            except UnicodeDecodeError:
+                logger.warning(f"Failed to decode file as UTF-8: {note_path}")
+                continue
+            except PermissionError:
+                logger.warning(f"Permission denied reading file: {note_path}")
+                continue
+            except FileNotFoundError:
+                logger.warning(f"File was deleted during iteration: {note_path}")
+                continue
+            except OSError as e:
+                logger.warning(f"Error processing file {note_path}: {e}")
+                continue
+
+    def _on_file_changed(self, event: FileEvent) -> None:
+        """Handle filesystem changes in push mode.
+
+        Called by FileSystemWatcher when a file is created, modified, or deleted.
+
+        Args:
+            event: FileEvent containing the path and event type
+
+        Note:
+            This method currently only logs file change events. Full push-mode support
+            would require integration with the document store framework to trigger
+            re-ingestion on file changes. The watcher is created and available via
+            self._watcher for framework-level lifecycle management.
+        """
+        logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
