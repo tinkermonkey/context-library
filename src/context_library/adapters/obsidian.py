@@ -134,23 +134,26 @@ class ObsidianAdapter(BaseAdapter):
             self._vault = otools.Vault(self._vault_path).connect()
         return self._vault
 
-    def _extract_frontmatter_metadata(self, note_path: Path) -> dict[str, Any]:
-        """Extract YAML frontmatter metadata from a note.
+    def _parse_note(self, note_path: Path) -> tuple[str, dict[str, Any]]:
+        """Parse note file and extract both markdown body and frontmatter metadata.
 
-        Handles flexible tag/alias formats:
+        Consolidates file reading into a single frontmatter.load() call to avoid
+        double I/O. Handles flexible tag/alias formats:
         - Accepts tags as string or list, normalizes to list
         - Accepts aliases as string or list, normalizes to list
-        - Returns empty lists/dict if file cannot be parsed or has no frontmatter
+        - Returns empty markdown/frontmatter if file cannot be parsed
 
         Args:
             note_path: Path to the note file
 
         Returns:
-            Dictionary with keys: tags (list), aliases (list), frontmatter (dict of all YAML)
+            Tuple of (markdown_body, metadata_dict) where metadata_dict has keys:
+            tags (list), aliases (list), frontmatter (dict of all YAML)
         """
         try:
             post = frontmatter.load(str(note_path))
             fm_data = post.metadata
+            markdown = post.content
 
             # Extract tags and aliases, defaulting to empty lists
             tags = fm_data.get("tags", [])
@@ -165,21 +168,32 @@ class ObsidianAdapter(BaseAdapter):
             elif not isinstance(aliases, list):
                 aliases = []
 
-            return {
+            metadata = {
                 "tags": tags,
                 "aliases": aliases,
                 "frontmatter": fm_data,
             }
+            return markdown, metadata
         except (ValueError, KeyError, AttributeError) as e:
-            logger.warning(f"Failed to extract frontmatter from {note_path}: {e}")
-            return {
-                "tags": [],
-                "aliases": [],
-                "frontmatter": {},
-            }
+            logger.warning(f"Failed to parse note {note_path}: {e}")
+            try:
+                # Fallback: raw file read without frontmatter parsing
+                raw_content = note_path.read_text(encoding="utf-8")
+                return raw_content, {
+                    "tags": [],
+                    "aliases": [],
+                    "frontmatter": {},
+                }
+            except (FileNotFoundError, PermissionError, OSError, UnicodeDecodeError) as e2:
+                logger.error(f"Cannot read file {note_path}: {e2}")
+                return "", {
+                    "tags": [],
+                    "aliases": [],
+                    "frontmatter": {},
+                }
         except Exception as e:
-            logger.error(f"Unexpected error extracting frontmatter from {note_path}: {e}", exc_info=True)
-            return {
+            logger.error(f"Unexpected error parsing note {note_path}: {e}", exc_info=True)
+            return "", {
                 "tags": [],
                 "aliases": [],
                 "frontmatter": {},
@@ -255,9 +269,16 @@ class ObsidianAdapter(BaseAdapter):
 
         Returns:
             Tuple of (created_at, modified_at) in ISO 8601 format (UTC)
+
+        Note:
+            On Linux, st_ctime is the inode metadata change time, not the file creation
+            time. True file creation time (st_birthtime) is only available on macOS/Windows
+            and some modern Linux filesystems. This is a known platform limitation.
         """
         try:
             stat = note_path.stat()
+            # st_ctime is platform-dependent: creation time on macOS/Windows,
+            # but inode change time on Linux (see docstring note)
             created_at = datetime.fromtimestamp(
                 stat.st_ctime, tz=timezone.utc
             ).isoformat()
@@ -282,41 +303,14 @@ class ObsidianAdapter(BaseAdapter):
             now = datetime.now(tz=timezone.utc).isoformat()
             return now, now
 
-    def _extract_markdown_body(self, note_path: Path) -> str:
-        """Extract markdown body without YAML frontmatter.
-
-        Attempts to extract body using frontmatter parser first, falls back to
-        raw file read if parsing fails. Returns empty string only if all
-        extraction methods fail.
-
-        Args:
-            note_path: Path to the note file
-
-        Returns:
-            Markdown content without frontmatter block
-        """
-        try:
-            post = frontmatter.load(str(note_path))
-            return post.content
-        except (ValueError, KeyError, AttributeError) as e:
-            logger.warning(f"Failed to parse frontmatter in {note_path}, attempting raw read: {e}")
-            try:
-                return note_path.read_text(encoding="utf-8")
-            except UnicodeDecodeError as ue:
-                logger.error(f"File encoding error in {note_path}: {ue}")
-                return ""
-            except (FileNotFoundError, PermissionError, OSError) as oe:
-                logger.error(f"Cannot read file {note_path}: {oe}")
-                return ""
-        except Exception as e:
-            logger.error(f"Unexpected error extracting markdown body from {note_path}: {e}", exc_info=True)
-            return ""
-
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize notes from the Obsidian vault.
 
         Recursively discovers all .md files in the vault and yields NormalizedContent
         for each one with YAML frontmatter metadata and wikilink graph data.
+
+        Rebuilds the vault graph on each fetch() call to reflect added/modified notes
+        and wikilinks, ensuring wikilink data is always current.
 
         Args:
             source_ref: Unused for Obsidian adapter (uses self._vault_path)
@@ -334,7 +328,8 @@ class ObsidianAdapter(BaseAdapter):
         if not self._vault_path.is_dir():
             raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
 
-        # Get the vault instance (lazy-loaded with graph built)
+        # Rebuild vault graph on each fetch to reflect changes
+        self._vault = None
         vault = self._get_vault()
 
         for note_path in self._vault_path.rglob("*.md"):
@@ -342,11 +337,8 @@ class ObsidianAdapter(BaseAdapter):
                 continue
 
             try:
-                # Extract markdown body (without frontmatter)
-                markdown = self._extract_markdown_body(note_path)
-
-                # Extract frontmatter metadata
-                fm_metadata = self._extract_frontmatter_metadata(note_path)
+                # Parse note once to extract both markdown and frontmatter metadata
+                markdown, fm_metadata = self._parse_note(note_path)
 
                 # Get note name for graph lookups
                 note_name = self._get_note_name(note_path)
@@ -354,8 +346,15 @@ class ObsidianAdapter(BaseAdapter):
                 # Extract graph metadata
                 graph_metadata = self._extract_graph_metadata(note_name, vault)
 
-                # Extract timestamps
+                # Extract timestamps (calls stat() once)
                 created_at, modified_at = self._extract_timestamps(note_path)
+
+                # Get file stats for file_size_bytes (already have stat object from timestamps)
+                try:
+                    stat = note_path.stat()
+                    file_size = stat.st_size
+                except (FileNotFoundError, OSError):
+                    file_size = 0
 
                 # Compute relative path from vault root for source_id
                 source_id = str(note_path.relative_to(self._vault_path))
@@ -385,9 +384,6 @@ class ObsidianAdapter(BaseAdapter):
                     re.search(r"^\|.+\|$", markdown, re.MULTILINE)
                 )
 
-                # Get file stats
-                stat = note_path.stat()
-
                 # Build structural hints
                 structural_hints = StructuralHints(
                     has_headings=has_headings,
@@ -396,7 +392,7 @@ class ObsidianAdapter(BaseAdapter):
                     natural_boundaries=[],
                     file_path=str(note_path.resolve()),
                     modified_at=modified_at,
-                    file_size_bytes=stat.st_size,
+                    file_size_bytes=file_size,
                     extra_metadata=extra_metadata,
                 )
 
@@ -425,14 +421,19 @@ class ObsidianAdapter(BaseAdapter):
         """Handle filesystem changes in push mode.
 
         Called by FileSystemWatcher when a file is created, modified, or deleted.
+        Invalidates the vault graph cache so that the next fetch() rebuilds the graph
+        and reflects the changed note's wikilinks and backlinks.
 
         Args:
             event: FileEvent containing the path and event type
 
         Note:
-            This method currently only logs file change events. Full push-mode support
-            would require integration with the document store framework to trigger
-            re-ingestion on file changes. The watcher is created and available via
-            self._watcher for framework-level lifecycle management.
+            This method invalidates the vault cache but does not trigger re-ingestion.
+            Full push-mode support (triggering selective re-ingestion of a single changed note)
+            requires integration with the document store framework. For now, the framework
+            should call fetch() after detecting a file change, which will rebuild the vault
+            and return current wikilink graph data.
         """
         logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
+        # Invalidate vault cache so next fetch() rebuilds the graph
+        self._vault = None
