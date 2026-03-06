@@ -1,8 +1,8 @@
 """Shared filesystem watcher utility for adapters.
 
 Provides a unified interface for watching filesystem events with debouncing,
-extension filtering, and atomic-save protection. Wraps watchdog with optional
-watchfiles fallback.
+extension filtering, and atomic-save protection. Uses watchdog if available,
+otherwise falls back to watchfiles.
 """
 
 import logging
@@ -325,22 +325,22 @@ if HAS_WATCHDOG:
             self._buffer_callback = buffer_callback
 
         def on_created(self, event: FileSystemEvent) -> None:
-            """Handle file/directory creation."""
+            """Handle file creation (directories are filtered out)."""
             if not event.is_directory:
                 self._buffer_callback(Path(str(event.src_path)), EventType.CREATED)
 
         def on_modified(self, event: FileSystemEvent) -> None:
-            """Handle file/directory modification."""
+            """Handle file modification (directories are filtered out)."""
             if not event.is_directory:
                 self._buffer_callback(Path(str(event.src_path)), EventType.MODIFIED)
 
         def on_deleted(self, event: FileSystemEvent) -> None:
-            """Handle file/directory deletion."""
+            """Handle file deletion (directories are filtered out)."""
             if not event.is_directory:
                 self._buffer_callback(Path(str(event.src_path)), EventType.DELETED)
 
         def on_moved(self, event: FileSystemEvent) -> None:
-            """Handle file/directory move (treat as modified on destination)."""
+            """Handle file move (treat as modified on destination, directories are filtered out)."""
             if not event.is_directory:
                 self._buffer_callback(Path(str(event.dest_path)), EventType.MODIFIED)
 else:

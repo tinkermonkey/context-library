@@ -105,7 +105,8 @@ class RichFilesystemAdapter(BaseAdapter):
             directory: Root directory to scan for non-markdown files
             poll_strategy: How to discover changes (PULL for directory walk, PUSH for watcher)
             extensions: Optional set of file extensions to include (e.g., {'.pdf', '.docx'}).
-                       If None, all supported non-markdown formats are included.
+                       If None, all non-markdown files are processed (conversion attempts are made
+                       for all file types; files that cannot be converted are skipped with a warning).
         """
         self._directory = Path(directory)
         self._poll_strategy = poll_strategy
