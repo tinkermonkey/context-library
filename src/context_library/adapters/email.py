@@ -74,6 +74,7 @@ class EmailAdapter(BaseAdapter):
         self._emailengine_url = emailengine_url.rstrip("/")
         self._account_id = account_id
         self._max_messages = max_messages
+        self._client = httpx.Client(timeout=30.0)
 
     @property
     def adapter_id(self) -> str:
@@ -94,6 +95,11 @@ class EmailAdapter(BaseAdapter):
         """Return the normalizer version."""
         return "1.0.0"
 
+    def __del__(self) -> None:
+        """Clean up httpx.Client session when adapter is destroyed."""
+        if hasattr(self, "_client"):
+            self._client.close()
+
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize email messages from EmailEngine.
 
@@ -108,6 +114,7 @@ class EmailAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
+            ValueError: If EmailEngine returns unexpected response schema
         """
         # Extract last_fetched_at from source_ref if provided
         since = source_ref if source_ref else None
@@ -144,9 +151,12 @@ class EmailAdapter(BaseAdapter):
                     normalizer_version=self.normalizer_version,
                 )
 
-            except Exception as e:
-                logger.warning(f"Failed to process message {msg.get('id')}: {e}")
+            except (ValueError, KeyError) as e:
+                logger.error(f"Failed to process message {msg.get('id')}: {e}")
                 continue
+            except httpx.HTTPError as e:
+                logger.error(f"API error while processing message: {e}")
+                raise
 
     def _fetch_messages(self, since: str | None) -> list[dict]:
         """Fetch message list from EmailEngine API.
@@ -159,22 +169,35 @@ class EmailAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
+            ValueError: If EmailEngine returns unexpected response schema
         """
         params: dict[str, int | str] = {"pageSize": self._max_messages}
         if since:
             params["search[since]"] = since
 
-        response = httpx.get(
+        response = self._client.get(
             f"{self._emailengine_url}/v1/account/{self._account_id}/messages",
             params=params,
-            timeout=30.0
         )
         response.raise_for_status()
 
-        # EmailEngine returns messages in nested structure: {"messages": {"messages": [...]}}
         data = response.json()
-        messages = data.get("messages", {}).get("messages", [])
-        return list(messages) if isinstance(messages, list) else []
+
+        # EmailEngine API should return {"messages": [...]} as top-level structure
+        if "messages" not in data:
+            raise ValueError(
+                f"EmailEngine API response missing 'messages' key. Got keys: {list(data.keys())}"
+            )
+
+        messages = data["messages"]
+
+        # Validate that messages is a list
+        if not isinstance(messages, list):
+            raise ValueError(
+                f"EmailEngine API 'messages' field must be a list, got {type(messages).__name__}"
+            )
+
+        return messages
 
     def _fetch_message_body(self, message_id: str) -> str:
         """Fetch the full message body (HTML) from EmailEngine API.
@@ -187,17 +210,32 @@ class EmailAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
+            KeyError: If the response is missing the 'text' field
         """
-        response = httpx.get(
+        response = self._client.get(
             f"{self._emailengine_url}/v1/account/{self._account_id}/message/{message_id}",
             params={"textType": "html"},
-            timeout=30.0
         )
         response.raise_for_status()
 
         data = response.json()
-        # EmailEngine returns text content under 'text' key
-        return data.get("text", "") or ""
+
+        # EmailEngine must return 'text' field with HTML body
+        if "text" not in data:
+            raise KeyError(
+                f"EmailEngine API response for message {message_id} missing 'text' field. "
+                f"Got keys: {list(data.keys())}"
+            )
+
+        body = data["text"]
+
+        # Validate that text is a string
+        if not isinstance(body, str):
+            raise ValueError(
+                f"EmailEngine API 'text' field must be a string, got {type(body).__name__}"
+            )
+
+        return body
 
     def _html_to_markdown(self, html: str) -> str:
         """Convert HTML to markdown.
@@ -220,34 +258,78 @@ class EmailAdapter(BaseAdapter):
 
         Returns:
             MessageMetadata object with extracted fields
+
+        Raises:
+            KeyError: If required fields are missing
+            TypeError: If fields have unexpected types
         """
-        # Extract sender address
-        from_header = msg.get("from", {})
-        sender = from_header.get("address", "") if isinstance(from_header, dict) else str(from_header)
+        # Extract sender address (required field)
+        if "from" not in msg:
+            raise KeyError("Message missing required 'from' field")
 
-        # Extract recipient addresses
-        to_header = msg.get("to", [])
-        if isinstance(to_header, list):
-            recipients = [r.get("address", "") if isinstance(r, dict) else str(r) for r in to_header]
+        from_header = msg["from"]
+        if isinstance(from_header, dict):
+            if "address" not in from_header:
+                raise KeyError("'from' field missing required 'address' subfield")
+            sender = from_header["address"]
+        elif isinstance(from_header, str):
+            sender = from_header
         else:
-            recipients = []
+            raise TypeError(f"'from' field must be dict or str, got {type(from_header).__name__}")
 
-        # Extract thread context
-        thread_id = msg.get("threadId", "")
-        message_id = msg.get("messageId", "")
+        # Extract recipient addresses (required field)
+        if "to" not in msg:
+            raise KeyError("Message missing required 'to' field")
+
+        to_header = msg["to"]
+        if not isinstance(to_header, list):
+            raise TypeError(f"'to' field must be a list, got {type(to_header).__name__}")
+
+        recipients = []
+        for i, recipient in enumerate(to_header):
+            if isinstance(recipient, dict):
+                if "address" not in recipient:
+                    raise KeyError(f"'to[{i}]' missing required 'address' subfield")
+                recipients.append(recipient["address"])
+            elif isinstance(recipient, str):
+                recipients.append(recipient)
+            else:
+                raise TypeError(f"'to[{i}]' must be dict or str, got {type(recipient).__name__}")
+
+        # Extract thread context (required fields)
+        if "threadId" not in msg:
+            raise KeyError("Message missing required 'threadId' field")
+        thread_id = msg["threadId"]
+
+        if "messageId" not in msg:
+            raise KeyError("Message missing required 'messageId' field")
+        message_id = msg["messageId"]
+
+        # Extract optional fields
         in_reply_to = msg.get("inReplyTo")
         subject = msg.get("subject")
 
         # Timestamp should be ISO 8601 format from EmailEngine
         timestamp = msg.get("date", "")
-        if timestamp and not timestamp.endswith("Z") and "T" not in timestamp:
-            # If timestamp is not ISO 8601, attempt to parse and reformat
+
+        # Validate timestamp is present and attempt normalization if needed
+        if not timestamp:
+            raise ValueError(f"Message missing 'date' field")
+
+        # If timestamp ends with 'Z', it's already in ISO 8601 UTC format
+        if timestamp.endswith("Z"):
+            # Python's fromisoformat doesn't handle 'Z', convert to '+00:00'
+            normalized_timestamp = timestamp[:-1] + "+00:00"
+        elif "T" in timestamp:
+            # Already ISO 8601 format
+            normalized_timestamp = timestamp
+        else:
+            # Non-ISO 8601 format, attempt to parse and reformat
             try:
-                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                timestamp = parsed.isoformat()
-            except (ValueError, AttributeError):
-                # If parsing fails, use as-is and let validation handle it
-                pass
+                parsed = datetime.fromisoformat(timestamp)
+                normalized_timestamp = parsed.isoformat()
+            except ValueError as e:
+                raise ValueError(f"Unable to parse timestamp '{timestamp}': {e}")
 
         # Determine if this is a thread root (no in_reply_to)
         is_thread_root = in_reply_to is None
@@ -257,7 +339,7 @@ class EmailAdapter(BaseAdapter):
             message_id=message_id,
             sender=sender,
             recipients=recipients,
-            timestamp=timestamp,
+            timestamp=normalized_timestamp,
             in_reply_to=in_reply_to,
             subject=subject,
             is_thread_root=is_thread_root,
