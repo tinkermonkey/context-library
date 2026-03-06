@@ -5,7 +5,7 @@ import pytest
 import httpx
 
 from context_library.adapters.email import EmailAdapter
-from context_library.storage.models import Domain, NormalizedContent, MessageMetadata
+from context_library.storage.models import Domain, NormalizedContent
 
 
 class TestEmailAdapterProperties:
@@ -581,7 +581,7 @@ class TestEmailAdapterFetch:
 
     def test_fetch_messages_http_error_raises(self, mock_httpx):
         """fetch() raises HTTPStatusError when initial message list request fails."""
-        httpx_mock_response = mock_httpx.set_response(
+        mock_httpx.set_response(
             "http://localhost:3000/v1/account/acct1/messages",
             {},
             status_code=500,

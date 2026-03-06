@@ -1,18 +1,10 @@
 """Adapters module for content normalization from various sources."""
 
+import importlib.util
+
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.adapters.obsidian import ObsidianAdapter
-
-# Try to import optional adapters
-HAS_EMAIL = False
-
-try:
-    from context_library.adapters.email import EmailAdapter
-
-    HAS_EMAIL = True
-except ImportError:
-    pass
 
 __all__ = [
     "BaseAdapter",
@@ -20,5 +12,8 @@ __all__ = [
     "ObsidianAdapter",
 ]
 
-if HAS_EMAIL:
+# Check if email adapter is available
+if importlib.util.find_spec("context_library.adapters.email") is not None:
+    from context_library.adapters.email import EmailAdapter as EmailAdapter  # noqa: F401
+
     __all__.append("EmailAdapter")
