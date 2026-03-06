@@ -22,17 +22,14 @@ class SourceErrorTracker:
     def __init__(self) -> None:
         """Initialize error tracking."""
         self.consecutive_failures = 0
-        self.last_error_msg = ""
 
-    def record_failure(self, error_msg: str) -> None:
+    def record_failure(self) -> None:
         """Record a failure and increment the consecutive failure count."""
         self.consecutive_failures += 1
-        self.last_error_msg = error_msg
 
     def clear(self) -> None:
         """Clear error tracking on successful ingestion."""
         self.consecutive_failures = 0
-        self.last_error_msg = ""
 
     def should_log_at_error_level(self) -> bool:
         """Return True if failures have escalated to ERROR level (6+ failures)."""
@@ -166,7 +163,12 @@ class Poller:
         due_sources = self._document_store.get_sources_due_for_poll()
         due_source_ids = {source["source_id"] for source in due_sources}
 
-        # Clean up error tracker entries for sources no longer due for polling
+        # Clean up error tracker entries for sources no longer due for polling.
+        # Note: A source that just succeeded and updated last_fetched_at won't appear in
+        # due_sources until its poll interval elapses again, so its error tracker entry will
+        # be pruned here. This is the desired behavior since clear() already resets state on success.
+        # Entries for removed/deleted sources are also pruned here, allowing failure history
+        # to be implicitly forgotten when sources are no longer in the system.
         # (prevents unbounded growth of _error_tracker dict)
         sources_to_remove = set(self._error_tracker.keys()) - due_source_ids
         for source_id in sources_to_remove:
@@ -193,7 +195,7 @@ class Poller:
             except Exception as e:
                 error_tracker = self._error_tracker[source_id]
                 error_msg = f"ingest failed: {e}"
-                error_tracker.record_failure(error_msg)
+                error_tracker.record_failure()
 
                 # Log at escalated level based on failure count
                 if error_tracker.should_log_at_error_level():

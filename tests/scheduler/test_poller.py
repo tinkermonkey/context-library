@@ -370,6 +370,91 @@ class TestPollerTicking:
                     assert "source-1" in call_args
                     assert "transient" in call_args
 
+    def test_tick_logs_failure_at_warning_level_after_3_failures(
+        self, pipeline, document_store
+    ):
+        """_tick() should log at WARNING level after 3 consecutive failures."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
+
+        due_source = {
+            "source_id": "source-1",
+            "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
+            "poll_interval_sec": 60,
+            "last_fetched_at": None,
+        }
+
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[due_source]
+        ):
+            with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
+                with patch("context_library.scheduler.poller.logger") as mock_logger:
+                    # First tick: failure 1 (INFO level)
+                    poller._tick()
+                    mock_logger.info.assert_called_once()
+                    mock_logger.warning.assert_not_called()
+
+                    # Second tick: failure 2 (INFO level)
+                    mock_logger.reset_mock()
+                    poller._tick()
+                    mock_logger.info.assert_called_once()
+                    mock_logger.warning.assert_not_called()
+
+                    # Third tick: failure 3 (WARNING level)
+                    mock_logger.reset_mock()
+                    poller._tick()
+                    mock_logger.warning.assert_called_once()
+                    call_args = str(mock_logger.warning.call_args)
+                    assert "source-1" in call_args
+                    assert "WARNING level" in call_args
+
+    def test_tick_logs_failure_at_error_level_after_6_failures(
+        self, pipeline, document_store
+    ):
+        """_tick() should log at ERROR level after 6 consecutive failures."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
+
+        due_source = {
+            "source_id": "source-1",
+            "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
+            "poll_interval_sec": 60,
+            "last_fetched_at": None,
+        }
+
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[due_source]
+        ):
+            with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
+                with patch("context_library.scheduler.poller.logger") as mock_logger:
+                    # Simulate 6 failures (ticks 1-6)
+                    for tick_num in range(6):
+                        mock_logger.reset_mock()
+                        poller._tick()
+
+                        if tick_num < 2:
+                            # Failures 1-2: INFO level
+                            mock_logger.info.assert_called_once()
+                            mock_logger.error.assert_not_called()
+                        elif tick_num < 5:
+                            # Failures 3-5: WARNING level
+                            mock_logger.warning.assert_called_once()
+                            mock_logger.error.assert_not_called()
+                        else:
+                            # Failure 6+: ERROR level
+                            mock_logger.error.assert_called_once()
+                            call_args = str(mock_logger.error.call_args)
+                            assert "source-1" in call_args
+                            assert "ERROR level" in call_args
+
 
 class TestPollerBackgroundThread:
     """Tests for background thread behavior."""
@@ -419,6 +504,49 @@ class TestPollerBackgroundThread:
             # Thread should have joined quickly (much less than tick_interval)
             assert elapsed < 3.0
             assert not thread.is_alive()
+
+    def test_stop_timeout_on_hung_thread(self, pipeline, document_store):
+        """stop() should timeout if thread is hung on network call."""
+        poller = Poller(pipeline, document_store, tick_interval=0.1)
+
+        # Create a thread that will hang
+        import threading as thread_module
+
+        hung_event = thread_module.Event()
+        resume_event = thread_module.Event()
+
+        def hanging_tick():
+            # Simulate a hung network call
+            hung_event.set()
+            resume_event.wait(timeout=10.0)  # Will timeout, simulating hung state
+
+        with patch.object(
+            document_store, "get_sources_due_for_poll", return_value=[]
+        ):
+            poller.start()
+            thread = poller._thread
+
+            # Wait for thread to be in _tick
+            hung_event.wait(timeout=2.0)
+
+            # Patch _tick to hang
+            poller._tick = hanging_tick
+
+            # Call stop - should timeout and not clear _thread reference
+            with patch("context_library.scheduler.poller.logger") as mock_logger:
+                poller.stop()
+
+                # Should have logged an error about timeout
+                mock_logger.error.assert_called_once()
+                error_call = str(mock_logger.error.call_args)
+                assert "timeout" in error_call.lower() or "did not exit" in error_call
+
+            # _thread should NOT be cleared because thread didn't exit
+            assert poller._thread is not None
+
+            # Clean up: resume the hung thread
+            resume_event.set()
+            thread.join(timeout=1.0)
 
 
 class TestPollerIntegration:
