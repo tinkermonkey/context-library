@@ -738,5 +738,176 @@ END:VCALENDAR""".encode("utf-8")
         assert "Personal/personal1" in source_ids
 
 
+class TestCalDAVAdapterAllDayEvents:
+    """Tests for all-day event handling (date vs datetime)."""
+
+    @pytest.fixture
+    def mock_caldav_client(self):
+        """Mock CalDAV client and related objects."""
+        mock_calendar = MagicMock()
+        mock_calendar.name = "Default"
+
+        mock_principal = MagicMock()
+        mock_principal.calendars.return_value = [mock_calendar]
+
+        mock_client = MagicMock()
+        mock_client.principal.return_value = mock_principal
+
+        return mock_client, mock_calendar
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_fetch_all_day_event(self, mock_dav_client_class, mock_caldav_client):
+        """fetch() handles all-day events (date objects) correctly."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create an all-day event (uses DATE format, not DATETIME)
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:allday1
+SUMMARY:All-Day Conference
+DTSTART;VALUE=DATE:20260307
+DTEND;VALUE=DATE:20260308
+DESCRIPTION:All-day event
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+
+        # Verify event was not silently dropped
+        extra_metadata = results[0].structural_hints.extra_metadata
+        assert extra_metadata["event_id"] == "allday1"
+        assert extra_metadata["title"] == "All-Day Conference"
+
+        # Verify start_date and end_date are valid ISO 8601 timestamps
+        assert extra_metadata["start_date"] is not None
+        assert extra_metadata["end_date"] is not None
+        # Should have time component for all-day events (midnight UTC)
+        assert "T" in extra_metadata["start_date"]
+        assert "T" in extra_metadata["end_date"]
+
+        # Verify duration computation works (1 day = 1440 minutes)
+        assert extra_metadata["duration_minutes"] == 1440
+
+        # Verify EventMetadata validation passes
+        event_data = {
+            "event_id": extra_metadata["event_id"],
+            "title": extra_metadata["title"],
+            "start_date": extra_metadata["start_date"],
+            "end_date": extra_metadata["end_date"],
+            "duration_minutes": extra_metadata["duration_minutes"],
+            "host": extra_metadata["host"],
+            "invitees": extra_metadata["invitees"],
+            "date_first_observed": extra_metadata["date_first_observed"],
+            "source_type": extra_metadata["source_type"],
+        }
+        validated = EventMetadata.model_validate(event_data)
+        assert validated.event_id == "allday1"
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_fetch_mixed_all_day_and_timed_events(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """fetch() handles both all-day and timed events in same calendar."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create one all-day event and one timed event
+        all_day_event = MagicMock()
+        all_day_event.data = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:allday1
+SUMMARY:All-Day Event
+DTSTART;VALUE=DATE:20260307
+DTEND;VALUE=DATE:20260308
+END:VEVENT
+END:VCALENDAR""".encode("utf-8")
+
+        timed_event = MagicMock()
+        timed_event.data = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:timed1
+SUMMARY:Timed Meeting
+DTSTART:20260307T100000Z
+DTEND:20260307T110000Z
+END:VEVENT
+END:VCALENDAR""".encode("utf-8")
+
+        mock_calendar.search.return_value = [all_day_event, timed_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 2
+
+        # Verify both events were processed
+        source_ids = [r.source_id for r in results]
+        assert "Default/allday1" in source_ids
+        assert "Default/timed1" in source_ids
+
+        # Verify both have valid ISO 8601 timestamps
+        for result in results:
+            extra_metadata = result.structural_hints.extra_metadata
+            if extra_metadata["start_date"]:
+                assert "T" in extra_metadata["start_date"]
+            if extra_metadata["end_date"]:
+                assert "T" in extra_metadata["end_date"]
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_fetch_all_day_event_duration_zero_minutes(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """fetch() computes zero duration for same-day all-day events."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # All-day event on single day (DTSTART and DTEND are same day)
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:singleday
+SUMMARY:Single Day Event
+DTSTART;VALUE=DATE:20260307
+DTEND;VALUE=DATE:20260307
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+
+        extra_metadata = results[0].structural_hints.extra_metadata
+        # When DTSTART and DTEND are same date, duration should be 0
+        assert extra_metadata["duration_minutes"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

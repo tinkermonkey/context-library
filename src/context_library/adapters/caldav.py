@@ -13,7 +13,7 @@ The adapter uses incremental fetch via CalDAV sync-token for efficient delta syn
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterator
 
 from context_library.adapters.base import BaseAdapter
@@ -297,9 +297,9 @@ class CalDAVAdapter(BaseAdapter):
         end_date: str | None = None
 
         if dtstart:
-            start_date = dtstart.dt.isoformat()
+            start_date = self._normalize_datetime(dtstart.dt)
         if dtend:
-            end_date = dtend.dt.isoformat()
+            end_date = self._normalize_datetime(dtend.dt)
 
         # Compute duration
         duration_minutes = self._compute_duration(vevent, dtstart, dtend)
@@ -389,11 +389,40 @@ class CalDAVAdapter(BaseAdapter):
         if dtstart and dtend:
             start = dtstart.dt
             end = dtend.dt
+            # Normalize date objects to datetime for consistent subtraction
+            if isinstance(start, date) and not isinstance(start, datetime):
+                start = datetime.combine(start, time.min)
+            if isinstance(end, date) and not isinstance(end, datetime):
+                end = datetime.combine(end, time.min)
             delta = end - start
             if isinstance(delta, timedelta):
                 return int(delta.total_seconds() / 60)
 
         return None
+
+    def _normalize_datetime(self, dt_value: date | datetime) -> str:
+        """Normalize date/datetime to ISO 8601 timestamp string.
+
+        Converts all-day events (represented as date objects) to midnight UTC datetimes
+        to ensure consistent ISO 8601 timestamp format (YYYY-MM-DDTHH:MM:SS±HH:MM).
+
+        Args:
+            dt_value: A datetime.date or datetime.datetime object from iCalendar
+
+        Returns:
+            ISO 8601 timestamp string in UTC
+        """
+        if isinstance(dt_value, datetime):
+            # Already a datetime, convert to UTC if needed
+            if dt_value.tzinfo is None:
+                # Naive datetime, assume UTC
+                return dt_value.replace(tzinfo=timezone.utc).isoformat()
+            else:
+                # Aware datetime, convert to UTC and return ISO format
+                return dt_value.astimezone(timezone.utc).isoformat()
+        else:
+            # It's a date object (all-day event), convert to midnight UTC
+            return datetime.combine(dt_value, time.min, timezone.utc).isoformat()
 
     def _is_event_modified_after_cutoff(
         self,
