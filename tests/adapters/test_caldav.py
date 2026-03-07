@@ -66,15 +66,15 @@ class TestCalDAVAdapterProperties:
         assert adapter.adapter_id == "caldav:https://calendar.google.com/caldav/v2/"
 
     def test_adapter_id_with_calendar_name(self):
-        """adapter_id includes calendar_name when provided."""
+        """adapter_id does not include calendar_name (only url)."""
         adapter = CalDAVAdapter(
             url="https://calendar.google.com/caldav/v2/",
             username="user@example.com",
             password="password123",
             calendar_name="Work",
         )
-        expected = "caldav:https://calendar.google.com/caldav/v2/:Work"
-        assert adapter.adapter_id == expected
+        # adapter_id should only include URL, not calendar_name
+        assert adapter.adapter_id == "caldav:https://calendar.google.com/caldav/v2/"
 
     def test_adapter_id_deterministic(self):
         """adapter_id is deterministic for the same configuration."""
@@ -107,6 +107,41 @@ class TestCalDAVAdapterProperties:
             password="password123",
         )
         assert adapter.normalizer_version == "1.0.0"
+
+    def test_poll_strategy_property(self):
+        """poll_strategy property returns PollStrategy.PULL."""
+        from context_library.storage.models import PollStrategy
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.google.com/caldav/v2/",
+            username="user@example.com",
+            password="password123",
+        )
+        assert adapter.poll_strategy == PollStrategy.PULL
+
+
+class TestCalDAVAdapterContextManager:
+    """Tests for CalDAVAdapter context manager protocol."""
+
+    def test_context_manager_enter_returns_self(self):
+        """__enter__ returns self."""
+        adapter = CalDAVAdapter(
+            url="https://calendar.google.com/caldav/v2/",
+            username="user@example.com",
+            password="password123",
+        )
+        with adapter as ctx:
+            assert ctx is adapter
+
+    def test_context_manager_exit_returns_false(self):
+        """__exit__ returns False (does not suppress exceptions)."""
+        adapter = CalDAVAdapter(
+            url="https://calendar.google.com/caldav/v2/",
+            username="user@example.com",
+            password="password123",
+        )
+        result = adapter.__exit__(None, None, None)
+        assert result is False
 
 
 class TestCalDAVAdapterFetch:

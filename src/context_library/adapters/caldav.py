@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     EventMetadata,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -68,12 +69,11 @@ class CalDAVAdapter(BaseAdapter):
         self._username = username
         self._calendar_name = calendar_name
         self._password = password
+        self._client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)  # type: ignore
 
     @property
     def adapter_id(self) -> str:
         """Return a deterministic, unique identifier for this adapter instance."""
-        if self._calendar_name:
-            return f"caldav:{self._url}:{self._calendar_name}"
         return f"caldav:{self._url}"
 
     @property
@@ -82,9 +82,28 @@ class CalDAVAdapter(BaseAdapter):
         return Domain.EVENTS
 
     @property
+    def poll_strategy(self) -> PollStrategy:
+        """Return the polling strategy for this adapter."""
+        return PollStrategy.PULL
+
+    @property
     def normalizer_version(self) -> str:
         """Return the normalizer version."""
         return "1.0.0"
+
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> Literal[False]:
+        """Context manager exit: clean up DAVClient session."""
+        self._client.close()
+        return False
+
+    def __del__(self) -> None:
+        """Clean up DAVClient session when adapter is destroyed (safety net)."""
+        if hasattr(self, "_client"):
+            self._client.close()
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize calendar events from CalDAV server.
@@ -95,8 +114,7 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event with EventMetadata in extra_metadata
         """
-        client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)  # type: ignore
-        principal = client.principal()
+        principal = self._client.principal()
         calendars = principal.calendars()
 
         if not calendars:
