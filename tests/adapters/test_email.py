@@ -757,6 +757,38 @@ class TestEmailAdapterFetch:
         with pytest.raises(TypeError):
             list(adapter.fetch(""))
 
+    def test_fetch_missing_text_field_raises(self, mock_httpx):
+        """fetch() raises ValueError when message body is missing 'text' field (not skipped)."""
+        # Mock message list response
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/messages",
+            {
+                "messages": [
+                    {
+                        "id": "msg1",
+                        "threadId": "thread1",
+                        "from": {"address": "sender@example.com"},
+                        "to": [{"address": "recipient@example.com"}],
+                        "subject": "Test",
+                        "date": "2026-03-06T12:00:00Z",
+                        "messageId": "<msg1@example.com>",
+                    }
+                ]
+            },
+        )
+
+        # Mock message body response WITHOUT 'text' field
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/message/msg1",
+            {"html": "<p>Content</p>"}  # Wrong field, should be 'text'
+        )
+
+        adapter = EmailAdapter("http://localhost:3000", "acct1")
+
+        # The fetch should raise ValueError for missing 'text' field
+        with pytest.raises(ValueError, match="missing 'text' field"):
+            list(adapter.fetch(""))
+
 
 class TestEmailAdapterHTMLConversion:
     """Tests for HTML to markdown conversion."""

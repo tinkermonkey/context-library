@@ -139,16 +139,9 @@ class EmailAdapter(BaseAdapter):
 
         The source_ref can optionally contain a last_fetched_at timestamp in ISO 8601
         format. If provided, only messages newer than that timestamp are fetched.
-
-        Algorithm:
-        1. Determine whether this is initial or incremental ingestion based on source_ref
-        2. Call _fetch_messages with appropriate limit
-        3. For each message, fetch its full body and convert to NormalizedContent
-        4. Errors in individual message processing (schema mismatch, missing fields) are NOT
-           caught — they propagate to caller for visibility. This prevents silent skipping
-           when EmailEngine API format changes.
-        5. HTTP errors in message body fetch propagate (not caught either)
-        6. Errors in the initial message list fetch propagate directly
+        Errors in message processing (schema mismatches, missing fields) are NOT caught —
+        they propagate to caller for visibility. This prevents silent skipping when
+        EmailEngine API format changes.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
@@ -159,8 +152,8 @@ class EmailAdapter(BaseAdapter):
         Raises:
             httpx.HTTPError: If the API request fails
             ValueError: If EmailEngine returns unexpected response schema, or if a message
-                has missing/malformed fields
-            KeyError: If a message is missing required fields (e.g., 'text' in body)
+                has missing/malformed fields (including missing 'text' field)
+            KeyError: If a message is missing required identity/header fields
             TypeError: If a message field has unexpected type
         """
         # Determine whether this is initial or incremental ingestion
@@ -200,12 +193,12 @@ class EmailAdapter(BaseAdapter):
                 normalizer_version=self.normalizer_version,
             )
 
-    def _fetch_messages(self, since: str | None, limit: int | None = None) -> list[dict]:
+    def _fetch_messages(self, since: str | None, limit: int) -> list[dict]:
         """Fetch message list from EmailEngine API.
 
         Args:
             since: Optional ISO 8601 timestamp to fetch only newer messages
-            limit: Optional page size limit (defaults to max_initial_messages if not provided)
+            limit: Page size limit for this fetch (required)
 
         Returns:
             List of message metadata dictionaries
@@ -214,8 +207,6 @@ class EmailAdapter(BaseAdapter):
             httpx.HTTPError: If the API request fails
             ValueError: If EmailEngine returns unexpected response schema
         """
-        if limit is None:
-            limit = self._max_initial_messages
 
         params: dict[str, int | str] = {"pageSize": limit}
         if since:
@@ -256,7 +247,7 @@ class EmailAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
-            KeyError: If the response is missing the 'text' field
+            ValueError: If the response is missing the 'text' field or has unexpected schema
         """
         response = self._client.get(
             f"{self._emailengine_url}/v1/account/{self._account_id}/message/{message_id}",
@@ -268,7 +259,7 @@ class EmailAdapter(BaseAdapter):
 
         # EmailEngine must return 'text' field with HTML body
         if "text" not in data:
-            raise KeyError(
+            raise ValueError(
                 f"EmailEngine API response for message {message_id} missing 'text' field. "
                 f"Got keys: {list(data.keys())}"
             )
