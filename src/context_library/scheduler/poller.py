@@ -31,12 +31,9 @@ class SourceErrorTracker:
         """Clear error tracking on successful ingestion."""
         self._consecutive_failures = 0
 
-    def get_consecutive_failures(self) -> int:
-        """Return the current count of consecutive failures.
-
-        Returns:
-            The number of consecutive failures for this source.
-        """
+    @property
+    def consecutive_failures(self) -> int:
+        """The number of consecutive failures for this source (read-only)."""
         return self._consecutive_failures
 
     def should_log_at_error_level(self) -> bool:
@@ -208,6 +205,9 @@ class Poller:
                 self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
                 # Clear error tracking on successful ingestion
                 self._error_tracker[source_id].clear()
+            except MemoryError:
+                # System-level memory exhaustion is fatal; propagate immediately
+                raise
             except Exception as e:
                 error_tracker = self._error_tracker[source_id]
                 error_msg = f"ingest failed: {e}"
@@ -218,14 +218,14 @@ class Poller:
                     logger.error(
                         "Poller: source %s has failed %d times (ERROR level): %s",
                         source_id,
-                        error_tracker.get_consecutive_failures(),
+                        error_tracker.consecutive_failures,
                         error_msg,
                     )
                 elif error_tracker.should_log_at_warning_level():
                     logger.warning(
                         "Poller: source %s has failed %d times (WARNING level): %s",
                         source_id,
-                        error_tracker.get_consecutive_failures(),
+                        error_tracker.consecutive_failures,
                         error_msg,
                     )
                 else:
