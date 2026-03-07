@@ -22,6 +22,7 @@ rich-fs = ["markitdown", "watchdog"]
 obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
 caldav = ["caldav", "icalendar"]
 apple-reminders = ["httpx"]
+apple-health = ["httpx"]
 dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
 
 [tool.mypy]

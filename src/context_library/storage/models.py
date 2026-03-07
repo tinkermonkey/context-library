@@ -269,9 +269,12 @@ class EventMetadata(BaseModel):
     - event_id and title must be non-empty strings
     - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
     - If both start_date and end_date are present, start_date <= end_date
+
+    Extra fields beyond these standard fields are allowed to support domain-specific metadata
+    (e.g., health-specific metrics like calories, distance, heart rate).
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     event_id: str
     title: str

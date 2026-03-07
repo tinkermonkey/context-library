@@ -45,6 +45,27 @@ def mock_html2text_module():
         sys.modules["html2text"] = mock_module
 
 
+class MockResponse:
+    """Mock httpx.Response for testing."""
+
+    def __init__(self, json_data, status_code=200, url="", text=""):
+        self._json_data = json_data
+        self.status_code = status_code
+        self.url = url
+        self.text = text if text else str(json_data)
+
+    def json(self):
+        return self._json_data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}",
+                request=None,
+                response=self,
+            )
+
+
 @pytest.fixture
 def mock_httpx_client(monkeypatch):
     """Fixture for mocking httpx.Client with request tracking.
@@ -52,22 +73,6 @@ def mock_httpx_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made.
     """
-    class MockResponse:
-        def __init__(self, json_data, status_code=200, url=""):
-            self._json_data = json_data
-            self.status_code = status_code
-            self.url = url
-
-        def json(self):
-            return self._json_data
-
-        def raise_for_status(self):
-            if self.status_code >= 400:
-                raise httpx.HTTPStatusError(
-                    f"HTTP {self.status_code}",
-                    request=None,
-                    response=self,
-                )
 
     class MockClient:
         """Mock httpx.Client that tracks requests and returns configured responses."""
@@ -96,3 +101,35 @@ def mock_httpx_client(monkeypatch):
     )
 
     return mock_client
+
+
+@pytest.fixture
+def mock_httpx_get(monkeypatch):
+    """Fixture for mocking httpx.get() function with request tracking.
+
+    Provides a MockHTTPXGet instance that can be configured with responses
+    and tracks all requests made. Used for adapters that call httpx.get()
+    directly instead of using httpx.Client().
+    """
+
+    class MockHTTPXGet:
+        """Mock httpx.get that tracks requests and returns configured responses."""
+        def __init__(self):
+            self.requests = []
+            self.responses = {}
+
+        def __call__(self, url, params=None, headers=None, timeout=None):
+            self.requests.append({"url": url, "params": params, "headers": headers})
+            return self.responses.get(url, MockResponse({}, url=url))
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code, url=url)
+
+    mock_get = MockHTTPXGet()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_health.httpx.get",
+        mock_get
+    )
+
+    return mock_get
