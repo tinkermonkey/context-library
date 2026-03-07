@@ -95,35 +95,30 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event with EventMetadata in extra_metadata
         """
-        try:
-            client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)  # type: ignore
-            principal = client.principal()
-            calendars = principal.calendars()
+        client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)  # type: ignore
+        principal = client.principal()
+        calendars = principal.calendars()
 
+        if not calendars:
+            logger.warning(
+                f"No calendars found on server {self._url} for user {self._username}"
+            )
+            return
+
+        # Filter calendars by name if specified
+        if self._calendar_name:
+            calendars = [
+                cal for cal in calendars if cal.name == self._calendar_name
+            ]
             if not calendars:
                 logger.warning(
-                    f"No calendars found on server {self._url} for user {self._username}"
+                    f"No calendar named {self._calendar_name!r} found on server"
                 )
                 return
 
-            # Filter calendars by name if specified
-            if self._calendar_name:
-                calendars = [
-                    cal for cal in calendars if cal.name == self._calendar_name
-                ]
-                if not calendars:
-                    logger.warning(
-                        f"No calendar named {self._calendar_name!r} found on server"
-                    )
-                    return
-
-            # Process each calendar
-            for calendar in calendars:
-                yield from self._fetch_from_calendar(calendar, source_ref)
-
-        except Exception as e:
-            logger.error(f"Error fetching events from CalDAV server: {e}")
-            raise
+        # Process each calendar
+        for calendar in calendars:
+            yield from self._fetch_from_calendar(calendar, source_ref)
 
     def _fetch_from_calendar(
         self, calendar: Any, source_ref: str
@@ -137,20 +132,15 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event
         """
-        try:
-            calendar_name = calendar.name or "Default"
+        calendar_name = calendar.name or "Default"
 
-            # Determine sync strategy
-            if source_ref:
-                # Incremental fetch using sync-token
-                yield from self._fetch_incremental(calendar, calendar_name, source_ref)
-            else:
-                # Full fetch
-                yield from self._fetch_all_events(calendar, calendar_name)
-
-        except Exception as e:
-            logger.error(f"Error fetching from calendar {calendar.name}: {e}")
-            raise
+        # Determine sync strategy
+        if source_ref:
+            # Incremental fetch using sync-token
+            yield from self._fetch_incremental(calendar, calendar_name, source_ref)
+        else:
+            # Full fetch
+            yield from self._fetch_all_events(calendar, calendar_name)
 
     def _fetch_all_events(
         self, calendar: Any, calendar_name: str
@@ -164,20 +154,15 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event
         """
-        try:
-            events = calendar.search(
-                todo=False,
-                event=True,
-                journal=False,
-                include_duplicates=False,
-            )
+        events = calendar.search(
+            todo=False,
+            event=True,
+            journal=False,
+            include_duplicates=False,
+        )
 
-            for event in events:
-                yield from self._process_event(event, calendar_name)
-
-        except Exception as e:
-            logger.error(f"Error fetching all events from calendar: {e}")
-            raise
+        for event in events:
+            yield from self._process_event(event, calendar_name)
 
     def _fetch_incremental(
         self, calendar: Any, calendar_name: str, source_ref: str
@@ -192,30 +177,31 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event modified after source_ref
         """
-        try:
-            # Parse the timestamp to determine the cutoff
-            cutoff_dt = datetime.fromisoformat(source_ref.replace("Z", "+00:00"))
+        # Parse the timestamp to determine the cutoff
+        cutoff_dt = datetime.fromisoformat(source_ref.replace("Z", "+00:00"))
 
-            # Try to use sync-token for efficient delta sync
+        # Try to use sync-token for efficient delta sync
+        sync_token = getattr(calendar, "sync_token", None)
+        if sync_token:
             try:
-                sync_token = getattr(calendar, "sync_token", None)
-                if sync_token:
-                    # CalDAV sync protocol fetch
-                    events = calendar.sync(sync_token)
-                    for event in events:
-                        yield from self._process_event(event, calendar_name, cutoff_dt)
-                else:
-                    # Fallback to date-range query
-                    yield from self._fetch_by_date_range(
-                        calendar, calendar_name, cutoff_dt
-                    )
-            except Exception:
+                # CalDAV sync protocol fetch
+                events = calendar.sync(sync_token)
+                for event in events:
+                    yield from self._process_event(event, calendar_name, cutoff_dt)
+            except Exception as e:
                 # If sync fails, fallback to date-range
-                yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
-
-        except ValueError as e:
-            logger.error(f"Invalid source_ref timestamp format: {e}")
-            raise
+                logger.warning(
+                    f"Sync-token fetch failed for calendar {calendar_name!r}: {e}. "
+                    f"Falling back to date-range query."
+                )
+                yield from self._fetch_by_date_range(
+                    calendar, calendar_name, cutoff_dt
+                )
+        else:
+            # No sync token available, use date-range query
+            yield from self._fetch_by_date_range(
+                calendar, calendar_name, cutoff_dt
+            )
 
     def _fetch_by_date_range(
         self, calendar: Any, calendar_name: str, start_dt: datetime
@@ -233,23 +219,18 @@ class CalDAVAdapter(BaseAdapter):
         # Set end date to far future to catch all events after start_dt
         end_dt = start_dt + timedelta(days=365 * 10)
 
-        try:
-            events = calendar.search(
-                todo=False,
-                event=True,
-                journal=False,
-                start=start_dt,
-                end=end_dt,
-                include_duplicates=False,
-            )
+        events = calendar.search(
+            todo=False,
+            event=True,
+            journal=False,
+            start=start_dt,
+            end=end_dt,
+            include_duplicates=False,
+        )
 
-            for event in events:
-                # Filter by last-modified time as post-processing
-                yield from self._process_event(event, calendar_name, start_dt)
-
-        except Exception as e:
-            logger.error(f"Error fetching events by date range: {e}")
-            raise
+        for event in events:
+            # Filter by last-modified time as post-processing
+            yield from self._process_event(event, calendar_name, start_dt)
 
     def _process_event(
         self,
@@ -281,10 +262,17 @@ class CalDAVAdapter(BaseAdapter):
                         component, calendar_name, cutoff_dt
                     )
 
+        except UnicodeDecodeError as e:
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                f"Failed to decode iCalendar data: {e}"
+            )
         except Exception as e:
-            logger.error(f"Error processing event: {e}")
-            # Skip malformed events rather than failing the entire sync
-            pass
+            # Log unexpected errors with full traceback for debugging
+            logger.exception(
+                f"Skipping event from calendar {calendar_name!r}: "
+                f"Unexpected error while processing iCalendar: {e}"
+            )
 
     def _extract_event_metadata(
         self,
@@ -302,102 +290,87 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event with EventMetadata
         """
-        try:
-            # Extract basic fields
-            event_id = str(vevent.get("UID", ""))
-            title = str(vevent.get("SUMMARY", ""))
-            description = str(vevent.get("DESCRIPTION", "")) or title
+        # Extract basic fields
+        event_id = str(vevent.get("UID", ""))
+        title = str(vevent.get("SUMMARY", ""))
+        description = str(vevent.get("DESCRIPTION", "")) or title
 
-            # Handle timestamps
-            dtstart = vevent.get("DTSTART")
-            dtend = vevent.get("DTEND")
+        # Handle timestamps
+        dtstart = vevent.get("DTSTART")
+        dtend = vevent.get("DTEND")
 
-            start_date: str | None = None
-            end_date: str | None = None
+        start_date: str | None = None
+        end_date: str | None = None
 
-            if dtstart:
-                start_date = dtstart.dt.isoformat()
-            if dtend:
-                end_date = dtend.dt.isoformat()
+        if dtstart:
+            start_date = dtstart.dt.isoformat()
+        if dtend:
+            end_date = dtend.dt.isoformat()
 
-            # Compute duration
-            duration_minutes = self._compute_duration(vevent, dtstart, dtend)
+        # Compute duration
+        duration_minutes = self._compute_duration(vevent, dtstart, dtend)
 
-            # Extract organizer and attendees
-            organizer = str(vevent.get("ORGANIZER", "")) or None
-            attendees_raw = vevent.get("ATTENDEE", [])
-            if not isinstance(attendees_raw, list):
-                attendees_raw = [attendees_raw]
+        # Extract organizer and attendees
+        organizer = str(vevent.get("ORGANIZER", "")) or None
+        attendees_raw = vevent.get("ATTENDEE", [])
+        if not isinstance(attendees_raw, list):
+            attendees_raw = [attendees_raw]
 
-            attendees = tuple(
-                str(a) for a in attendees_raw if str(a) != organizer
-            )
+        attendees = tuple(
+            str(a) for a in attendees_raw if str(a) != organizer
+        )
 
-            # Filter by last-modified if cutoff provided
-            last_modified = vevent.get("LAST-MODIFIED")
-            if cutoff_dt and last_modified:
-                try:
-                    last_mod_dt = last_modified.dt
-                    if isinstance(last_mod_dt, str):
-                        last_mod_dt = datetime.fromisoformat(
-                            last_mod_dt.replace("Z", "+00:00")
-                        )
-                    if last_mod_dt <= cutoff_dt:
-                        # Event is older than cutoff, skip
-                        return
-                except Exception as e:
-                    logger.debug(f"Error parsing LAST-MODIFIED: {e}")
+        # Filter by last-modified if cutoff provided
+        last_modified = vevent.get("LAST-MODIFIED")
+        if cutoff_dt and last_modified:
+            if not self._is_event_modified_after_cutoff(
+                last_modified, cutoff_dt, calendar_name, event_id
+            ):
+                # Event is older than cutoff, skip
+                return
 
-            # Get current timestamp for date_first_observed
-            now = datetime.now(timezone.utc).isoformat()
+        # Get current timestamp for date_first_observed
+        now = datetime.now(timezone.utc).isoformat()
 
-            # Create EventMetadata
-            event_metadata = EventMetadata(
-                event_id=event_id,
-                title=title,
-                start_date=start_date,
-                end_date=end_date,
-                duration_minutes=duration_minutes,
-                host=organizer,
-                invitees=attendees,
-                date_first_observed=now,
-                source_type="caldav",
-            )
+        # Create EventMetadata
+        event_metadata = EventMetadata(
+            event_id=event_id,
+            title=title,
+            start_date=start_date,
+            end_date=end_date,
+            duration_minutes=duration_minutes,
+            host=organizer,
+            invitees=attendees,
+            date_first_observed=now,
+            source_type="caldav",
+        )
 
-            # Create source_id
-            source_id = f"{calendar_name}/{event_id}"
+        # Create source_id
+        source_id = f"{calendar_name}/{event_id}"
 
-            # Create structural hints with metadata dumped from model
-            structural_hints = StructuralHints(
-                has_headings=False,
-                has_lists=False,
-                has_tables=False,
-                natural_boundaries=(),
-                extra_metadata=event_metadata.model_dump(),
-            )
+        # Create structural hints with metadata dumped from model
+        structural_hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=(),
+            extra_metadata=event_metadata.model_dump(),
+        )
 
-            # Create markdown content
-            markdown = self._create_markdown(
-                title, description, start_date, end_date, organizer, attendees
-            )
+        # Create markdown content
+        markdown = self._create_markdown(
+            title, description, start_date, end_date, organizer, attendees
+        )
 
-            # Create NormalizedContent
-            normalized_content = NormalizedContent(
-                markdown=markdown,
-                source_id=source_id,
-                structural_hints=structural_hints,
-                normalizer_version=self.normalizer_version,
-            )
+        # Create NormalizedContent
+        normalized_content = NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=structural_hints,
+            normalizer_version=self.normalizer_version,
+        )
 
-            yield normalized_content
-
-        except ValueError as e:
-            logger.error(f"Error extracting event metadata: {e}")
-            # Skip events that fail validation
-            pass
-        except Exception as e:
-            logger.error(f"Unexpected error extracting event metadata: {e}")
-            pass
+        yield normalized_content
 
     def _compute_duration(self, vevent: Any, dtstart: Any, dtend: Any) -> int | None:
         """Compute duration in minutes from DURATION property or DTSTART/DTEND.
@@ -409,28 +382,64 @@ class CalDAVAdapter(BaseAdapter):
 
         Returns:
             Duration in minutes, or None if cannot be computed
+
+        Raises:
+            TypeError: If mixed naive and aware datetimes are encountered
+        """
+        # Try DURATION property first
+        duration = vevent.get("DURATION")
+        if duration:
+            delta = duration.dt
+            if isinstance(delta, timedelta):
+                return int(delta.total_seconds() / 60)
+
+        # Fallback to DTEND - DTSTART
+        if dtstart and dtend:
+            start = dtstart.dt
+            end = dtend.dt
+            delta = end - start
+            if isinstance(delta, timedelta):
+                return int(delta.total_seconds() / 60)
+
+        return None
+
+    def _is_event_modified_after_cutoff(
+        self,
+        last_modified: Any,
+        cutoff_dt: datetime,
+        calendar_name: str,
+        event_id: str,
+    ) -> bool:
+        """Check if event's LAST-MODIFIED is after the cutoff datetime.
+
+        Args:
+            last_modified: LAST-MODIFIED property from vevent
+            cutoff_dt: Cutoff datetime for filtering
+            calendar_name: Name of the calendar (for logging)
+            event_id: Event UID (for logging)
+
+        Returns:
+            True if event is modified after cutoff (should be included),
+            False if event is older than cutoff (should be skipped),
+            True if LAST-MODIFIED cannot be parsed (include for safety)
+
+        Raises:
+            Exception: Re-raises non-parsing errors to propagate critical failures
         """
         try:
-            # Try DURATION property first
-            duration = vevent.get("DURATION")
-            if duration:
-                delta = duration.dt
-                if isinstance(delta, timedelta):
-                    return int(delta.total_seconds() / 60)
-
-            # Fallback to DTEND - DTSTART
-            if dtstart and dtend:
-                start = dtstart.dt
-                end = dtend.dt
-                delta = end - start
-                if isinstance(delta, timedelta):
-                    return int(delta.total_seconds() / 60)
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"Error computing duration: {e}")
-            return None
+            last_mod_dt = last_modified.dt
+            if isinstance(last_mod_dt, str):
+                last_mod_dt = datetime.fromisoformat(
+                    last_mod_dt.replace("Z", "+00:00")
+                )
+            return last_mod_dt > cutoff_dt
+        except (ValueError, TypeError, AttributeError) as e:
+            # Log parse failure and include event for safety
+            logger.warning(
+                f"Cannot parse LAST-MODIFIED for event {event_id!r} "
+                f"in calendar {calendar_name!r}: {e}. Including event in sync."
+            )
+            return True
 
     def _create_markdown(
         self,
