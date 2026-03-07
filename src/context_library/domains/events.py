@@ -79,10 +79,16 @@ class EventsDomain(BaseDomain):
         else:
             context_header = meta.title
 
-        # Get the markdown text
-        text = content.markdown
+        # Get the markdown text as the body
+        text = content.markdown.strip()
 
-        # Guard against empty content
+        # If markdown is empty, use title as the body
+        if not text:
+            text = meta.title
+
+        # Guard against empty content (both markdown and title)
+        # Note: EventMetadata validation only rejects empty strings, not whitespace-only,
+        # so the second .strip() ensures whitespace-only titles don't produce empty chunks
         if not text.strip():
             return []
 
