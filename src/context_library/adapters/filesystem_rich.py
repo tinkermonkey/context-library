@@ -42,7 +42,7 @@ try:
     from markitdown import MarkItDown
     HAS_MARKITDOWN = True
 except ImportError:
-    pass
+    MarkItDown = None
 
 
 def _convert_with_markitdown(file_path: Path) -> str | None:
@@ -61,7 +61,7 @@ def _convert_with_markitdown(file_path: Path) -> str | None:
         md = MarkItDown()
         result = md.convert(str(file_path))
         return result.text_content
-    except (OSError, IOError, ValueError, TypeError, RuntimeError) as e:
+    except (OSError, ValueError, TypeError, RuntimeError) as e:
         logger.warning(
             f"MarkItDown conversion failed for {file_path}: {e}",
             exc_info=True,
@@ -87,7 +87,6 @@ def _convert_with_pandoc(file_path: Path) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout
-        # Log stderr when pandoc fails
         logger.warning(
             f"Pandoc conversion failed for {file_path} (exit code {result.returncode}): {result.stderr}"
         )
