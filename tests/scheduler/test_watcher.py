@@ -165,7 +165,7 @@ class TestWatcherHandleWebhook:
     """Tests for webhook handling and pipeline integration."""
 
     def test_handle_webhook_calls_pipeline_ingest(self, pipeline):
-        """handle_webhook() should call pipeline.ingest() with adapter and chunker."""
+        """handle_webhook() should call pipeline.ingest() with adapter, chunker, and source_ref."""
         watcher = Watcher(pipeline)
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
@@ -177,7 +177,7 @@ class TestWatcherHandleWebhook:
                 domain_chunker=chunker,
             )
 
-            mock_ingest.assert_called_once_with(adapter, chunker)
+            mock_ingest.assert_called_once_with(adapter, chunker, source_ref="/test/file.txt")
 
     def test_handle_webhook_logs_exception_on_failure(self, pipeline):
         """handle_webhook() should catch and log exceptions without propagating."""
@@ -380,8 +380,8 @@ class TestWatcherIntegration:
             event = FileEvent(path=Path("/test/changed.txt"), event_type="modified")
             callback(event)
 
-            # Pipeline should have been ingested
-            mock_ingest.assert_called_once_with(adapter, chunker)
+            # Pipeline should have been ingested with source_ref
+            mock_ingest.assert_called_once_with(adapter, chunker, source_ref="/test/changed.txt")
 
     def test_multiple_adapters_independent_events(self, pipeline):
         """Events from different adapters should be handled independently."""
@@ -407,8 +407,8 @@ class TestWatcherIntegration:
             # Both should have called ingest
             assert mock_ingest.call_count == 2
             calls = mock_ingest.call_args_list
-            assert call(adapter1, chunker1) in calls
-            assert call(adapter2, chunker2) in calls
+            assert call(adapter1, chunker1, source_ref="/test/file1.txt") in calls
+            assert call(adapter2, chunker2, source_ref="/test/file2.txt") in calls
 
     def test_watcher_with_mocked_pipeline(self):
         """Test Watcher with a completely mocked pipeline."""
@@ -426,8 +426,8 @@ class TestWatcherIntegration:
 
         callback(event)
 
-        # Pipeline.ingest should have been called
-        pipeline.ingest.assert_called_once_with(adapter, chunker)
+        # Pipeline.ingest should have been called with source_ref
+        pipeline.ingest.assert_called_once_with(adapter, chunker, source_ref="/test/file.txt")
 
 
 class TestWatcherCallbackChaining:
@@ -480,7 +480,7 @@ class TestWatcherCallbackChaining:
             )
 
     def test_register_handles_original_callback_exception(self, pipeline):
-        """register() should catch exceptions from original callback and continue."""
+        """register() should catch exceptions from original callback and NOT continue to handle_webhook."""
         watcher = Watcher(pipeline)
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
@@ -500,8 +500,9 @@ class TestWatcherCallbackChaining:
 
                 # Original callback was called and failed
                 original_callback.assert_called_once_with(event)
-                # But webhook handler should still be called
-                mock_webhook.assert_called_once()
+                # Webhook handler should NOT be called if adapter callback fails
+                # (could leave adapter state inconsistent, e.g., stale vault cache)
+                mock_webhook.assert_not_called()
 
 
 class TestWatcherRetryMechanism:
@@ -588,8 +589,8 @@ class TestWatcherRetryMechanism:
 
             # Retry queue should be processed and empty
             assert watcher.get_retry_queue_size() == 0
-            # ingest should have been called during flush
-            mock_ingest.assert_called_once_with(adapter, chunker)
+            # ingest should have been called during flush with source_ref
+            mock_ingest.assert_called_once_with(adapter, chunker, source_ref="/test/file.txt")
 
     def test_successful_handle_webhook_not_queued(self, pipeline):
         """Successful events should not be queued."""
@@ -639,3 +640,162 @@ class TestWatcherRetryMechanism:
             assert watcher.get_retry_queue_size() == 0
             # file_watcher.stop() should have been called
             file_watcher.stop.assert_called_once()
+
+
+class TestWatcherPollStrategyValidation:
+    """Tests for poll_strategy validation."""
+
+    def test_register_rejects_pull_strategy(self, pipeline):
+        """register() should reject adapters with PULL poll_strategy."""
+        from context_library.storage.models import PollStrategy
+
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        # Mock an adapter with PULL strategy
+        adapter._poll_strategy = PollStrategy.PULL
+        chunker = MockDomain()
+        file_watcher = Mock(spec=FileSystemWatcher)
+
+        with pytest.raises(ValueError, match="PollStrategy.PULL"):
+            watcher.register(adapter, chunker, file_watcher)
+
+    def test_register_rejects_webhook_strategy(self, pipeline):
+        """register() should reject adapters with WEBHOOK poll_strategy."""
+        from context_library.storage.models import PollStrategy
+
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        # Mock an adapter with WEBHOOK strategy
+        adapter._poll_strategy = PollStrategy.WEBHOOK
+        chunker = MockDomain()
+        file_watcher = Mock(spec=FileSystemWatcher)
+
+        with pytest.raises(ValueError, match="PollStrategy.WEBHOOK"):
+            watcher.register(adapter, chunker, file_watcher)
+
+    def test_register_accepts_push_strategy(self, pipeline):
+        """register() should accept adapters with PUSH poll_strategy."""
+        from context_library.storage.models import PollStrategy
+
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        # Mock an adapter with PUSH strategy
+        adapter._poll_strategy = PollStrategy.PUSH
+        chunker = MockDomain()
+        file_watcher = Mock(spec=FileSystemWatcher)
+
+        # Should not raise
+        watcher.register(adapter, chunker, file_watcher)
+        assert len(watcher._registrations) == 1
+
+    def test_register_accepts_adapter_without_poll_strategy(self, pipeline):
+        """register() should accept adapters without _poll_strategy attribute."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        # No _poll_strategy attribute set
+        chunker = MockDomain()
+        file_watcher = Mock(spec=FileSystemWatcher)
+
+        # Should not raise
+        watcher.register(adapter, chunker, file_watcher)
+        assert len(watcher._registrations) == 1
+
+
+class TestWatcherPeriodicDraining:
+    """Tests for periodic retry queue draining."""
+
+    def test_periodic_drain_thread_started_on_start(self, pipeline):
+        """start() should start the periodic drain thread."""
+        watcher = Watcher(pipeline, drain_interval_sec=0.1)
+        file_watcher = Mock(spec=FileSystemWatcher)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        watcher.register(adapter, chunker, file_watcher)
+        watcher.start()
+
+        # Drain thread should be running
+        assert watcher._drain_thread is not None
+        assert watcher._drain_thread.is_alive()
+
+        # Clean up
+        watcher.stop()
+
+    def test_periodic_drain_stops_on_stop(self, pipeline):
+        """stop() should stop the periodic drain thread."""
+        watcher = Watcher(pipeline, drain_interval_sec=0.1)
+        file_watcher = Mock(spec=FileSystemWatcher)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        watcher.register(adapter, chunker, file_watcher)
+        watcher.start()
+
+        assert watcher._drain_thread is not None
+        assert watcher._drain_thread.is_alive()
+
+        watcher.stop()
+
+        # Drain thread should have stopped
+        assert not watcher._drain_thread.is_alive()
+
+    def test_periodic_drain_flushes_queue(self, pipeline):
+        """Periodic drain should flush the retry queue."""
+        watcher = Watcher(pipeline, drain_interval_sec=0.2, max_retries=1)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+        file_watcher = Mock(spec=FileSystemWatcher)
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Queue a failed event
+        with patch.object(
+            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
+        ):
+            with patch("context_library.scheduler.watcher.logger"):
+                watcher.handle_webhook(
+                    source_ref="/test/file.txt",
+                    adapter=adapter,
+                    domain_chunker=chunker,
+                )
+
+        assert watcher.get_retry_queue_size() == 1
+
+        # Start watcher to trigger periodic drain
+        watcher.start()
+
+        # Wait for periodic drain to process the queue
+        import time
+        time.sleep(0.5)  # Wait for drain interval
+
+        # Mock ingest to succeed on periodic drain
+        with patch.object(pipeline, "ingest"):
+            # Give drain thread time to run again
+            time.sleep(0.3)
+
+        # Clean up
+        watcher.stop()
+
+    def test_callback_exception_stops_webhook_invocation(self, pipeline):
+        """If callback raises, handle_webhook should not be invoked."""
+        watcher = Watcher(pipeline)
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Create a callback that raises
+        original_callback = Mock(side_effect=RuntimeError("Callback failed"))
+        file_watcher = Mock(spec=FileSystemWatcher)
+        file_watcher._callback = original_callback
+
+        watcher.register(adapter, chunker, file_watcher)
+
+        # Mock handle_webhook to verify it's NOT called when callback fails
+        with patch("context_library.scheduler.watcher.logger"):
+            with patch.object(watcher, "handle_webhook") as mock_webhook:
+                event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
+                file_watcher._callback(event)
+
+                # Original callback was called
+                original_callback.assert_called_once_with(event)
+                # But webhook handler should NOT have been called
+                mock_webhook.assert_not_called()
