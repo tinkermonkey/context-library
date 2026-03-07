@@ -297,7 +297,7 @@ class DocumentStore:
         batch_timestamp = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
-            cursor = self.conn.cursor()
+            self.conn.cursor()
             for chunk in chunks:
                 domain_metadata_json = (
                     json.dumps(chunk.domain_metadata)
