@@ -49,3 +49,11 @@ if importlib.util.find_spec("httpx") is not None:
     )
 
     __all__.append("AppleRemindersAdapter")
+
+# Check if apple health adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_health import (  # noqa: F401
+        AppleHealthAdapter as AppleHealthAdapter,
+    )
+
+    __all__.append("AppleHealthAdapter")
