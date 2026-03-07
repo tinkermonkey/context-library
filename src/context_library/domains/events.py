@@ -29,11 +29,7 @@ class EventsDomain(BaseDomain):
         Raises:
             ValueError: If hard_limit is not a positive integer
         """
-        if hard_limit <= 0:
-            raise ValueError(
-                f"hard_limit must be a positive integer, got {hard_limit}"
-            )
-        self.hard_limit = hard_limit
+        super().__init__(hard_limit)
 
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Split event content into semantically coherent chunks.
@@ -82,14 +78,9 @@ class EventsDomain(BaseDomain):
         # Get the markdown text as the body
         text = content.markdown.strip()
 
-        # If markdown is empty, use title as the body
+        # Per spec: return empty list if no description content
+        # (title is available in context_header, not needed in content)
         if not text:
-            text = meta.title
-
-        # Guard against empty content (both markdown and title)
-        # Note: EventMetadata validation only rejects empty strings, not whitespace-only,
-        # so the second .strip() ensures whitespace-only titles don't produce empty chunks
-        if not text.strip():
             return []
 
         # Split if over hard_limit

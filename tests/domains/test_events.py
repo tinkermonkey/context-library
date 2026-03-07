@@ -156,10 +156,10 @@ class TestSingleEventChunk:
         assert chunks[0].content == "This is the event description with important details."
         assert chunks[0].chunk_index == 0
 
-    def test_event_with_title_but_no_description_uses_title_as_body(
+    def test_event_with_title_but_no_description_returns_empty_list(
         self, events_domain, sample_event_metadata
     ):
-        """An event with only a title (no description) uses title as the chunk body."""
+        """An event with only a title (no description) returns an empty list per spec."""
         hints = StructuralHints(
             has_headings=False,
             has_lists=False,
@@ -178,13 +178,13 @@ class TestSingleEventChunk:
 
         chunks = events_domain.chunk(content)
 
-        assert len(chunks) == 1
-        assert chunks[0].content == "Team Standup Meeting"
+        # Per spec: events with no description content should return empty list
+        assert len(chunks) == 0
 
-    def test_event_with_whitespace_only_description_uses_title_as_body(
+    def test_event_with_whitespace_only_description_returns_empty_list(
         self, events_domain, sample_event_metadata
     ):
-        """An event with whitespace-only description uses title as the chunk body."""
+        """An event with whitespace-only description returns an empty list per spec."""
         hints = StructuralHints(
             has_headings=False,
             has_lists=False,
@@ -202,8 +202,8 @@ class TestSingleEventChunk:
 
         chunks = events_domain.chunk(content)
 
-        assert len(chunks) == 1
-        assert chunks[0].content == "Team Standup Meeting"
+        # Per spec: events with no description content (including whitespace-only) should return empty list
+        assert len(chunks) == 0
 
     def test_event_with_neither_title_nor_description_returns_empty_list(
         self, events_domain

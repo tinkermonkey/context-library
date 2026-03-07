@@ -13,10 +13,26 @@ class BaseDomain(ABC):
     and implement the chunk() method with domain-specific chunking strategies.
 
     Provides shared utility methods for token counting and text splitting that respect
-    hard_limit token boundaries. Subclasses should set self.hard_limit in __init__.
+    hard_limit token boundaries. Subclasses must call super().__init__(hard_limit) to
+    validate and set self.hard_limit.
     """
 
     hard_limit: int
+
+    def __init__(self, hard_limit: int = 1024) -> None:
+        """Initialize the BaseDomain with hard_limit validation.
+
+        Args:
+            hard_limit: Maximum token limit before forced splitting (default 1024)
+
+        Raises:
+            ValueError: If hard_limit is not a positive integer
+        """
+        if hard_limit <= 0:
+            raise ValueError(
+                f"hard_limit must be a positive integer, got {hard_limit}"
+            )
+        self.hard_limit = hard_limit
 
     @abstractmethod
     def chunk(self, content: NormalizedContent) -> list[Chunk]:

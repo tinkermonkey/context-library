@@ -50,9 +50,16 @@ class NotesDomain(BaseDomain):
         Args:
             soft_limit: Target token limit for joining adjacent sections (default 512)
             hard_limit: Maximum token limit before forced splitting (default 1024)
+
+        Raises:
+            ValueError: If hard_limit is not a positive integer
         """
+        super().__init__(hard_limit)
+        if soft_limit <= 0:
+            raise ValueError(
+                f"soft_limit must be a positive integer, got {soft_limit}"
+            )
         self.soft_limit = soft_limit
-        self.hard_limit = hard_limit
         # Create markdown parser with renderer=None to get AST output
         # Enable table plugin to recognize markdown tables
         self.md = mistune.create_markdown(renderer=None, plugins=["table"])

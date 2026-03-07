@@ -156,10 +156,10 @@ class TestSingleTaskChunk:
         assert chunks[0].content == "This is the task description with important details."
         assert chunks[0].chunk_index == 0
 
-    def test_task_with_title_but_no_description_uses_title_as_body(
+    def test_task_with_title_but_no_description_returns_empty_list(
         self, tasks_domain, sample_task_metadata
     ):
-        """A task with only a title (no description) uses title as the chunk body."""
+        """A task with only a title (no description) returns an empty list per spec."""
         hints = StructuralHints(
             has_headings=False,
             has_lists=False,
@@ -178,13 +178,13 @@ class TestSingleTaskChunk:
 
         chunks = tasks_domain.chunk(content)
 
-        assert len(chunks) == 1
-        assert chunks[0].content == "Complete project documentation"
+        # Per spec: tasks with no description content should return empty list
+        assert len(chunks) == 0
 
-    def test_task_with_whitespace_only_description_uses_title_as_body(
+    def test_task_with_whitespace_only_description_returns_empty_list(
         self, tasks_domain, sample_task_metadata
     ):
-        """A task with whitespace-only description uses title as the chunk body."""
+        """A task with whitespace-only description returns an empty list per spec."""
         hints = StructuralHints(
             has_headings=False,
             has_lists=False,
@@ -202,8 +202,8 @@ class TestSingleTaskChunk:
 
         chunks = tasks_domain.chunk(content)
 
-        assert len(chunks) == 1
-        assert chunks[0].content == "Complete project documentation"
+        # Per spec: tasks with no description content (including whitespace-only) should return empty list
+        assert len(chunks) == 0
 
     def test_task_with_neither_title_nor_description_returns_empty_list(
         self, tasks_domain
