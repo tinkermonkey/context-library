@@ -60,6 +60,21 @@ class TestMessagesDomainBasics:
 
         assert domain.hard_limit == 512
 
+    def test_initialization_rejects_zero_hard_limit(self):
+        """MessagesDomain rejects hard_limit=0."""
+        with pytest.raises(ValueError, match="hard_limit must be a positive integer"):
+            MessagesDomain(hard_limit=0)
+
+    def test_initialization_rejects_negative_hard_limit(self):
+        """MessagesDomain rejects negative hard_limit."""
+        with pytest.raises(ValueError, match="hard_limit must be a positive integer"):
+            MessagesDomain(hard_limit=-1)
+
+    def test_initialization_rejects_negative_hard_limit_large(self):
+        """MessagesDomain rejects large negative hard_limit."""
+        with pytest.raises(ValueError, match="hard_limit must be a positive integer"):
+            MessagesDomain(hard_limit=-1024)
+
     def test_chunk_returns_list_of_chunks(
         self, messages_domain, sample_message_metadata, base_structural_hints
     ):

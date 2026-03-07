@@ -81,6 +81,39 @@ def pipeline(document_store, embedder, differ):
         yield pipeline_obj
 
 
+class TestPollerInitialization:
+    """Tests for Poller initialization and validation."""
+
+    def test_initialization_with_defaults(self, pipeline, document_store):
+        """Poller initializes with default tick_interval."""
+        poller = Poller(pipeline, document_store)
+
+        assert poller._tick_interval == 60.0
+
+    def test_initialization_with_custom_interval(self, pipeline, document_store):
+        """Poller initializes with custom tick_interval."""
+        poller = Poller(pipeline, document_store, tick_interval=30.0)
+
+        assert poller._tick_interval == 30.0
+
+    def test_initialization_rejects_zero_tick_interval(self, pipeline, document_store):
+        """Poller rejects tick_interval=0.0."""
+        with pytest.raises(ValueError, match="tick_interval must be a positive number"):
+            Poller(pipeline, document_store, tick_interval=0.0)
+
+    def test_initialization_rejects_negative_tick_interval(self, pipeline, document_store):
+        """Poller rejects negative tick_interval."""
+        with pytest.raises(ValueError, match="tick_interval must be a positive number"):
+            Poller(pipeline, document_store, tick_interval=-1.0)
+
+    def test_initialization_rejects_negative_tick_interval_large(
+        self, pipeline, document_store
+    ):
+        """Poller rejects large negative tick_interval."""
+        with pytest.raises(ValueError, match="tick_interval must be a positive number"):
+            Poller(pipeline, document_store, tick_interval=-60.0)
+
+
 class TestPollerRegistration:
     """Tests for adapter registration."""
 
