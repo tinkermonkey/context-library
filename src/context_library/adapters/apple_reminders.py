@@ -37,7 +37,8 @@ The macOS helper service should expose the following HTTP endpoint:
 Priority Mapping (EventKit uses 0-9):
   - 0: none (maps to None)
   - 1-3: high (maps to 1)
-  - 4-7: medium (maps to 3)
+  - 4: high (maps to 2)
+  - 5-7: medium (maps to 3)
   - 8-9: low (maps to 4)
 
 Authentication:
@@ -53,7 +54,6 @@ This adapter:
 """
 
 import logging
-from datetime import datetime
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
@@ -261,8 +261,9 @@ class AppleRemindersAdapter(BaseAdapter):
         Args:
             eventkit_priority: EventKit priority value (0-9)
                 - 0: none
-                - 1-3: high
-                - 4-7: medium
+                - 1-3: highest
+                - 4: high
+                - 5-7: medium
                 - 8-9: low
 
         Returns:
@@ -271,11 +272,11 @@ class AppleRemindersAdapter(BaseAdapter):
         if eventkit_priority == 0:
             return None
 
-        # EventKit: 1-3 = high, 4-7 = medium, 8-9 = low
+        # EventKit: 1-3 = highest, 4 = high, 5-7 = medium, 8-9 = low
         # Internal: 1 = highest, 2 = high, 3 = medium, 4 = low
         mapping = {
             1: 1, 2: 1, 3: 1,
-            4: 3, 5: 3, 6: 3, 7: 3,
+            4: 2, 5: 3, 6: 3, 7: 3,
             8: 4, 9: 4,
         }
         return mapping.get(eventkit_priority)
