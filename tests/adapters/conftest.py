@@ -78,7 +78,7 @@ def mock_httpx_client(monkeypatch):
 
         def get(self, url, params=None, headers=None, timeout=None):
             self.requests.append({"url": url, "params": params, "headers": headers})
-            key = (url, tuple(sorted(params.items())) if params else ())
+            (url, tuple(sorted(params.items())) if params else ())
             return self.responses.get(url, MockResponse({}, url=url))
 
         def set_response(self, url, data, status_code=200):

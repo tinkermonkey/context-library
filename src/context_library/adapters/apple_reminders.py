@@ -393,6 +393,6 @@ class AppleRemindersAdapter(BaseAdapter):
 
         # Add collaborators if present
         if metadata.collaborators:
-            parts.append(f"\n## Collaborators\n\n" + "\n".join(f"- {c}" for c in metadata.collaborators))
+            parts.append("\n## Collaborators\n\n" + "\n".join(f"- {c}" for c in metadata.collaborators))
 
         return "\n".join(parts)
