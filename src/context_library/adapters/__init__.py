@@ -32,3 +32,12 @@ if (
     from context_library.adapters.email import EmailAdapter as EmailAdapter  # noqa: F401
 
     __all__.append("EmailAdapter")
+
+# Check if caldav adapter's dependencies are available
+if (
+    importlib.util.find_spec("caldav") is not None
+    and importlib.util.find_spec("icalendar") is not None
+):
+    from context_library.adapters.caldav import CalDAVAdapter as CalDAVAdapter  # noqa: F401
+
+    __all__.append("CalDAVAdapter")
