@@ -107,9 +107,7 @@ class CalDAVAdapter(BaseAdapter):
 
         # Filter calendars by name if specified
         if self._calendar_name:
-            calendars = [
-                cal for cal in calendars if cal.name == self._calendar_name
-            ]
+            calendars = [cal for cal in calendars if cal.name == self._calendar_name]
             if not calendars:
                 logger.warning(
                     f"No calendar named {self._calendar_name!r} found on server"
@@ -194,14 +192,10 @@ class CalDAVAdapter(BaseAdapter):
                     f"Sync-token fetch failed for calendar {calendar_name!r}: {e}. "
                     f"Falling back to date-range query."
                 )
-                yield from self._fetch_by_date_range(
-                    calendar, calendar_name, cutoff_dt
-                )
+                yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
         else:
             # No sync token available, use date-range query
-            yield from self._fetch_by_date_range(
-                calendar, calendar_name, cutoff_dt
-            )
+            yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
 
     def _fetch_by_date_range(
         self, calendar: Any, calendar_name: str, start_dt: datetime
@@ -316,9 +310,7 @@ class CalDAVAdapter(BaseAdapter):
         if not isinstance(attendees_raw, list):
             attendees_raw = [attendees_raw]
 
-        attendees = tuple(
-            str(a) for a in attendees_raw if str(a) != organizer
-        )
+        attendees = tuple(str(a) for a in attendees_raw if str(a) != organizer)
 
         # Filter by last-modified if cutoff provided
         last_modified = vevent.get("LAST-MODIFIED")
@@ -429,10 +421,17 @@ class CalDAVAdapter(BaseAdapter):
         try:
             last_mod_dt = last_modified.dt
             if isinstance(last_mod_dt, str):
-                last_mod_dt = datetime.fromisoformat(
-                    last_mod_dt.replace("Z", "+00:00")
+                last_mod_dt = datetime.fromisoformat(last_mod_dt.replace("Z", "+00:00"))
+            if isinstance(last_mod_dt, datetime):
+                return last_mod_dt > cutoff_dt
+            else:
+                # For non-datetime types, include event for safety
+                logger.warning(
+                    f"Cannot parse LAST-MODIFIED for event {event_id!r} "
+                    f"in calendar {calendar_name!r}: unexpected type {type(last_mod_dt)}. "
+                    f"Including event in sync."
                 )
-            return last_mod_dt > cutoff_dt
+                return True
         except (ValueError, TypeError, AttributeError) as e:
             # Log parse failure and include event for safety
             logger.warning(
