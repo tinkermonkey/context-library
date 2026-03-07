@@ -327,9 +327,25 @@ class EventMetadata(BaseModel):
 
         Enforces:
         - If both start_date and end_date are present, start_date <= end_date
+
+        Note: Uses datetime parsing for accurate ISO 8601 comparison to handle
+        different timezone representations (e.g., "Z" vs "+00:00").
         """
+        from datetime import datetime
+
         if self.start_date is not None and self.end_date is not None:
-            if self.start_date > self.end_date:
+            # Parse ISO 8601 strings to datetime for correct comparison
+            # (lexicographic string comparison fails with mixed timezone formats)
+            try:
+                start_dt = datetime.fromisoformat(self.start_date.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(self.end_date.replace("Z", "+00:00"))
+            except (ValueError, AttributeError) as e:
+                # Should not happen as individual validators already checked ISO 8601 format
+                raise ValueError(
+                    f"Invalid ISO 8601 format in start_date or end_date: {e}"
+                ) from e
+
+            if start_dt > end_dt:
                 raise ValueError(
                     f"start_date must be <= end_date when both are present. "
                     f"Got start_date={self.start_date!r}, end_date={self.end_date!r}"
