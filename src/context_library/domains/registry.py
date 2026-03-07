@@ -13,6 +13,8 @@ from context_library.storage.models import Domain
 _DOMAIN_REGISTRY = {
     Domain.MESSAGES: ("context_library.domains.messages", "MessagesDomain"),
     Domain.NOTES: ("context_library.domains.notes", "NotesDomain"),
+    Domain.EVENTS: ("context_library.domains.events", "EventsDomain"),
+    Domain.TASKS: ("context_library.domains.tasks", "TasksDomain"),
 }
 
 
