@@ -151,12 +151,7 @@ class ObsidianTasksAdapter(BaseAdapter):
         Returns:
             True if the metadata has kanban-plugin: basic
         """
-        try:
-            return bool(post_metadata.get("kanban-plugin") == "basic")
-        except (KeyError, AttributeError, TypeError) as e:
-            # Unexpected metadata structure
-            logger.debug(f"Could not check kanban-plugin metadata: {e}")
-            return False
+        return post_metadata.get("kanban-plugin") == "basic"
 
     def _extract_due_date(self, text: str) -> str | None:
         """Extract due date from task text.
@@ -241,7 +236,6 @@ class ObsidianTasksAdapter(BaseAdapter):
         Yields:
             Dictionary with task metadata
         """
-        task_count = 0
         for task_match in TASK_PATTERN.finditer(markdown):
             marker = task_match.group(1)
             title = task_match.group(2).strip()
@@ -250,24 +244,26 @@ class ObsidianTasksAdapter(BaseAdapter):
             if not title:
                 continue
 
-            task_count += 1
             status = _STATUS_MAP.get(marker.lower(), "open")
             due_date = self._extract_due_date(title)
             priority = self._extract_priority(title)
             dependencies = self._extract_dependencies(title)
 
+            # Compute actual line number from match position in markdown
+            line_number = markdown[:task_match.start()].count('\n') + 1
+
             # Get file-relative path for source_id
             file_rel_path = file_path.relative_to(self._vault_path)
 
             yield {
-                "source_id": f"{file_rel_path}/{task_count}",
+                "source_id": f"{file_rel_path}/{line_number}",
                 "title": title,
                 "status": status,
                 "due_date": due_date,
                 "priority": priority,
                 "dependencies": dependencies,
                 "file_path": str(file_path),
-                "line_number": task_count,
+                "line_number": line_number,
             }
 
     def _parse_kanban_tasks(self, file_path: Path, markdown: str) -> Iterator[dict[str, Any]]:
@@ -286,7 +282,6 @@ class ObsidianTasksAdapter(BaseAdapter):
         """
         lines = markdown.split("\n")
         current_lane = "open"
-        line_counter = 0
 
         for line_number, line in enumerate(lines, start=1):
             # Check for heading (lane name)
@@ -303,12 +298,17 @@ class ObsidianTasksAdapter(BaseAdapter):
             list_match = re.match(r"^\s*[-*]\s+(.+)$", line)
             if list_match:
                 title = list_match.group(1).strip()
+
+                # Strip checkbox prefix if present (e.g., "[ ] Task" -> "Task")
+                checkbox_match = re.match(r"^\[.\]\s+(.+)$", title)
+                if checkbox_match:
+                    title = checkbox_match.group(1).strip()
+
                 if not title:
                     continue
 
                 # Get file-relative path for source_id
                 file_rel_path = file_path.relative_to(self._vault_path)
-                line_counter += 1
 
                 # Extract metadata from kanban task text
                 due_date = self._extract_due_date(title)
@@ -316,7 +316,7 @@ class ObsidianTasksAdapter(BaseAdapter):
                 dependencies = self._extract_dependencies(title)
 
                 yield {
-                    "source_id": f"{file_rel_path}/{line_counter}",
+                    "source_id": f"{file_rel_path}/{line_number}",
                     "title": title,
                     "status": current_lane,
                     "due_date": due_date,
@@ -440,22 +440,10 @@ class ObsidianTasksAdapter(BaseAdapter):
                     )
 
                 except ValueError as parse_error:
-                    # Data validation error in task creation
+                    # Data validation error in task creation (Pydantic validation error)
                     logger.warning(
                         f"Invalid task data in {file_path} "
                         f"(source_id={task_data.get('source_id')}): {parse_error}"
-                    )
-                    continue
-                except (OSError, PermissionError) as os_error:
-                    # Filesystem issue during task creation
-                    logger.warning(f"Error processing task in {file_path}: {os_error}")
-                    continue
-                except Exception as e:
-                    # Unexpected error - log with full context and traceback
-                    logger.error(
-                        f"Unexpected error processing task in {file_path} "
-                        f"(source_id={task_data.get('source_id')}): {e}",
-                        exc_info=True
                     )
                     continue
 
@@ -473,19 +461,4 @@ class ObsidianTasksAdapter(BaseAdapter):
             integration with the document store framework. The framework should
             call fetch() after detecting a file change.
         """
-        try:
-            # Validate event structure
-            if not isinstance(event, FileEvent):
-                logger.error(f"Invalid FileEvent object passed to _on_file_changed: {type(event)}")
-                return
-
-            if event.path is None or event.event_type is None:
-                logger.error(
-                    f"FileEvent missing required fields: "
-                    f"path={event.path}, event_type={event.event_type}"
-                )
-                return
-
-            logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
-        except Exception as e:
-            logger.error(f"Unexpected error in file change handler: {e}", exc_info=True)
+        logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")

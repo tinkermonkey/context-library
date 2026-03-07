@@ -4,6 +4,9 @@ from datetime import datetime
 
 import pytest
 
+# Skip all tests if frontmatter is not installed
+pytest.importorskip("frontmatter")
+
 from context_library.adapters.obsidian_tasks import ObsidianTasksAdapter
 from context_library.storage.models import (
     Domain,
