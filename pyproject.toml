@@ -20,6 +20,9 @@ spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
 rich-fs = ["markitdown", "watchdog"]
 obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
+caldav = ["caldav", "icalendar"]
+apple-reminders = ["httpx"]
+apple-health = ["httpx"]
 dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
 
 [tool.mypy]
@@ -41,6 +44,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "frontmatter"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "caldav.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "icalendar.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

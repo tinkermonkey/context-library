@@ -192,6 +192,169 @@ class MessageMetadata(BaseModel):
             )
 
 
+class TaskMetadata(BaseModel):
+    """Task metadata extracted by task-source adapters.
+
+    Captures task identification, status, scheduling, and collaboration context
+    for task-based chunking and filtering.
+
+    Invariants:
+    - task_id and title must be non-empty strings
+    - status must be in the allowed set: "open", "completed", "cancelled", "in-progress"
+    - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str
+    status: str
+    title: str
+    due_date: str | None = None
+    priority: int | None = None
+    dependencies: tuple[str, ...] = ()
+    collaborators: tuple[str, ...] = ()
+    date_first_observed: str
+    source_type: str
+
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        """Validate that task_id is not empty."""
+        if not value:
+            raise ValueError("task_id must be a non-empty string")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        """Validate that status is in the allowed set."""
+        allowed_statuses = {"open", "completed", "cancelled", "in-progress"}
+        if value not in allowed_statuses:
+            raise ValueError(
+                f"status must be one of {allowed_statuses}, got {value!r}"
+            )
+        return value
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: str | None) -> str | None:
+        """Validate that due_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+
+class EventMetadata(BaseModel):
+    """Event metadata extracted by event-source adapters.
+
+    Captures event identification, scheduling, and participant context
+    for event-based chunking and time-aware filtering.
+
+    Invariants:
+    - event_id and title must be non-empty strings
+    - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
+    - If both start_date and end_date are present, start_date <= end_date
+
+    Extra fields beyond these standard fields are allowed to support domain-specific metadata
+    (e.g., health-specific metrics like calories, distance, heart rate).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    event_id: str
+    title: str
+    start_date: str | None = None
+    end_date: str | None = None
+    duration_minutes: int | None = None
+    host: str | None = None
+    invitees: tuple[str, ...] = ()
+    date_first_observed: str
+    source_type: str
+
+    @field_validator("event_id")
+    @classmethod
+    def validate_event_id(cls, value: str) -> str:
+        """Validate that event_id is not empty."""
+        if not value:
+            raise ValueError("event_id must be a non-empty string")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, value: str | None) -> str | None:
+        """Validate that start_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, value: str | None) -> str | None:
+        """Validate that end_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate EventMetadata invariants after model construction.
+
+        Enforces:
+        - If both start_date and end_date are present, start_date <= end_date
+
+        Note: Uses datetime parsing for accurate ISO 8601 comparison to handle
+        different timezone representations (e.g., "Z" vs "+00:00").
+        """
+        from datetime import datetime
+
+        if self.start_date is not None and self.end_date is not None:
+            # Parse ISO 8601 strings to datetime for correct comparison
+            # (lexicographic string comparison fails with mixed timezone formats)
+            try:
+                start_dt = datetime.fromisoformat(self.start_date.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(self.end_date.replace("Z", "+00:00"))
+            except (ValueError, AttributeError) as e:
+                # Should not happen as individual validators already checked ISO 8601 format
+                raise ValueError(
+                    f"Invalid ISO 8601 format in start_date or end_date: {e}"
+                ) from e
+
+            if start_dt > end_dt:
+                raise ValueError(
+                    f"start_date must be <= end_date when both are present. "
+                    f"Got start_date={self.start_date!r}, end_date={self.end_date!r}"
+                )
+
+
 class NormalizedContent(BaseModel):
     """Content after adapter normalization (e.g., markdown extraction, deduplication).
 
