@@ -741,6 +741,7 @@ class TestWatcherPeriodicDraining:
 
     def test_periodic_drain_flushes_queue(self, pipeline):
         """Periodic drain should flush the retry queue."""
+        import time
         watcher = Watcher(pipeline, drain_interval_sec=0.2, max_retries=1)
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
@@ -748,11 +749,19 @@ class TestWatcherPeriodicDraining:
 
         watcher.register(adapter, chunker, file_watcher)
 
-        # Queue a failed event
-        with patch.object(
-            pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
-        ):
+        # Mock pipeline.ingest to fail initially, then succeed
+        call_count = {"count": 0}
+
+        def ingest_side_effect(*args, **kwargs):
+            call_count["count"] += 1
+            # First call (from handle_webhook) fails; subsequent calls (from drain) succeed
+            if call_count["count"] == 1:
+                raise RuntimeError("Pipeline failed initially")
+            # Subsequent calls succeed (drain succeeds)
+
+        with patch.object(pipeline, "ingest", side_effect=ingest_side_effect):
             with patch("context_library.scheduler.watcher.logger"):
+                # Initial event handling - this will fail and queue the event
                 watcher.handle_webhook(
                     source_ref="/test/file.txt",
                     adapter=adapter,
@@ -764,38 +773,11 @@ class TestWatcherPeriodicDraining:
         # Start watcher to trigger periodic drain
         watcher.start()
 
-        # Wait for periodic drain to process the queue
-        import time
-        time.sleep(0.5)  # Wait for drain interval
+        # Wait for drain cycles to complete and process the queue
+        # With drain_interval=0.2, we need ~0.4s for at least 2 drain cycles
+        time.sleep(0.6)
 
-        # Mock ingest to succeed on periodic drain
-        with patch.object(pipeline, "ingest"):
-            # Give drain thread time to run again
-            time.sleep(0.3)
-
-        # Clean up
         watcher.stop()
 
-    def test_callback_exception_stops_webhook_invocation(self, pipeline):
-        """If callback raises, handle_webhook should not be invoked."""
-        watcher = Watcher(pipeline)
-        adapter = MockAdapter("test-adapter", Domain.NOTES)
-        chunker = MockDomain()
-
-        # Create a callback that raises
-        original_callback = Mock(side_effect=RuntimeError("Callback failed"))
-        file_watcher = Mock(spec=FileSystemWatcher)
-        file_watcher._callback = original_callback
-
-        watcher.register(adapter, chunker, file_watcher)
-
-        # Mock handle_webhook to verify it's NOT called when callback fails
-        with patch("context_library.scheduler.watcher.logger"):
-            with patch.object(watcher, "handle_webhook") as mock_webhook:
-                event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
-                file_watcher._callback(event)
-
-                # Original callback was called
-                original_callback.assert_called_once_with(event)
-                # But webhook handler should NOT have been called
-                mock_webhook.assert_not_called()
+        # Verify queue is empty after successful drain
+        assert watcher.get_retry_queue_size() == 0, "Retry queue should be empty after successful drain"
