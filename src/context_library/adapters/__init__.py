@@ -41,3 +41,11 @@ if (
     from context_library.adapters.caldav import CalDAVAdapter as CalDAVAdapter  # noqa: F401
 
     __all__.append("CalDAVAdapter")
+
+# Check if apple reminders adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_reminders import (  # noqa: F401
+        AppleRemindersAdapter as AppleRemindersAdapter,
+    )
+
+    __all__.append("AppleRemindersAdapter")
