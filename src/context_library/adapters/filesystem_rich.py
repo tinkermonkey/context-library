@@ -20,7 +20,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, TYPE_CHECKING, cast
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import (
@@ -38,11 +38,12 @@ logger = logging.getLogger(__name__)
 
 # Try to import MarkItDown
 HAS_MARKITDOWN = False
+MarkItDown: type | None = None
 try:
     from markitdown import MarkItDown
     HAS_MARKITDOWN = True
 except ImportError:
-    MarkItDown = None
+    pass
 
 
 def _convert_with_markitdown(file_path: Path) -> str | None:
@@ -54,13 +55,13 @@ def _convert_with_markitdown(file_path: Path) -> str | None:
     Returns:
         Markdown text content if successful, None if conversion failed
     """
-    if not HAS_MARKITDOWN:
+    if not HAS_MARKITDOWN or MarkItDown is None:
         return None
 
     try:
         md = MarkItDown()
         result = md.convert(str(file_path))
-        return result.text_content
+        return cast(str, result.text_content)
     except (OSError, ValueError, TypeError, RuntimeError) as e:
         logger.warning(
             f"MarkItDown conversion failed for {file_path}: {e}",
