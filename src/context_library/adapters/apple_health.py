@@ -151,7 +151,14 @@ class AppleHealthAdapter(BaseAdapter):
 
         Raises:
             httpx.RequestError: If HTTP request fails
-            ValueError: If API response is malformed
+            httpx.HTTPStatusError: If API returns an error status code
+            ValueError: If API response is malformed or workout data is invalid
+            KeyError: If a workout is missing required fields
+
+        Note:
+            Errors in workout processing are NOT caught — they propagate to the caller
+            for visibility. This prevents silent skipping when the Apple Health API
+            schema changes, ensuring format mismatches are surfaced immediately.
         """
         since = source_ref if source_ref else None
 
@@ -183,10 +190,7 @@ class AppleHealthAdapter(BaseAdapter):
 
             # Process each workout
             for workout in workouts:
-                try:
-                    yield from self._process_workout(workout)
-                except (ValueError, KeyError) as e:
-                    logger.error(f"Error processing workout {workout.get('id', 'unknown')}: {e}")
+                yield from self._process_workout(workout)
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API: {e.response.status_code} {e.response.text}")
