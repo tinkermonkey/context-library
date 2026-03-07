@@ -79,10 +79,14 @@ class TasksDomain(BaseDomain):
         else:
             context_header = f"{meta.title} [{meta.status}]"
 
-        # Get the markdown text
-        text = content.markdown
+        # Get the markdown text as the body
+        text = content.markdown.strip()
 
-        # Guard against empty content
+        # If markdown is empty, use title as the body
+        if not text:
+            text = meta.title
+
+        # Guard against empty content (both markdown and title)
         if not text.strip():
             return []
 
