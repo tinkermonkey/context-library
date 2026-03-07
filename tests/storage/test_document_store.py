@@ -2015,6 +2015,83 @@ class TestSourceScheduling:
         count = cursor.fetchone()[0]
         assert count == 1
 
+    def test_register_source_updates_domain_and_adapter_id_on_reregister(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that domain and adapter_id are updated on re-registration."""
+        # Setup two different adapters
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="adapter-1",
+                adapter_type="TestAdapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="adapter-2",
+                adapter_type="TestAdapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+
+        # First registration with adapter-1 and Domain.NOTES
+        store.register_source(
+            source_id="changing-source",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Verify initial state
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT adapter_id, domain, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["adapter_id"] == "adapter-1"
+        assert row["domain"] == "notes"
+        assert row["poll_strategy"] == "pull"
+        assert row["poll_interval_sec"] == 3600
+
+        # Re-register with adapter-2 and Domain.MESSAGES
+        store.register_source(
+            source_id="changing-source",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+            poll_interval_sec=None,
+        )
+
+        # Verify all fields were updated
+        cursor.execute(
+            "SELECT adapter_id, domain, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["adapter_id"] == "adapter-2"  # Updated
+        assert row["domain"] == "messages"  # Updated
+        assert row["poll_strategy"] == "push"  # Updated
+        assert row["poll_interval_sec"] is None  # Updated
+
+        # Verify only one row exists
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 1
+
     def test_get_sources_due_for_poll_never_fetched(self, store: DocumentStore) -> None:
         """Test that sources with last_fetched_at IS NULL are returned."""
         self._setup_adapter(store)

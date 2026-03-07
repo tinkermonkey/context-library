@@ -167,7 +167,6 @@ class IngestionPipeline:
                 if prev_version is None:
                     # Determine poll strategy: use adapter's poll_strategy if available, else default to PULL
                     poll_strategy = getattr(adapter, '_poll_strategy', PollStrategy.PULL)
-                    poll_interval_sec = getattr(adapter, '_poll_interval_sec', None)
 
                     self.document_store.register_source(
                         source_id=content.source_id,
@@ -175,7 +174,6 @@ class IngestionPipeline:
                         domain=adapter.domain,
                         origin_ref=content.structural_hints.file_path or content.source_id,
                         poll_strategy=poll_strategy,
-                        poll_interval_sec=poll_interval_sec,
                     )
 
                 # Determine version number
