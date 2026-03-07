@@ -420,11 +420,7 @@ class TestConversionErrorHandling:
         file_path.write_text("dummy pdf", encoding="utf-8")
 
         with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
-            with patch.object(
-                __import__("context_library.adapters.filesystem_rich", fromlist=["MarkItDown"]),
-                "MarkItDown",
-                create=True,
-            ) as mock_md_class:
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
                 mock_md = MagicMock()
                 mock_md_class.return_value = mock_md
                 mock_md.convert.side_effect = ValueError("Corrupted PDF")
@@ -444,11 +440,7 @@ class TestConversionErrorHandling:
         file_path.write_text("dummy pdf", encoding="utf-8")
 
         with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
-            with patch.object(
-                __import__("context_library.adapters.filesystem_rich", fromlist=["MarkItDown"]),
-                "MarkItDown",
-                create=True,
-            ) as mock_md_class:
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
                 mock_md = MagicMock()
                 mock_md_class.return_value = mock_md
                 mock_md.convert.side_effect = RuntimeError("Conversion timeout")
@@ -464,11 +456,7 @@ class TestConversionErrorHandling:
         file_path.write_text("dummy pdf", encoding="utf-8")
 
         with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
-            with patch.object(
-                __import__("context_library.adapters.filesystem_rich", fromlist=["MarkItDown"]),
-                "MarkItDown",
-                create=True,
-            ) as mock_md_class:
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
                 mock_md = MagicMock()
                 mock_md_class.return_value = mock_md
                 mock_md.convert.side_effect = OSError("Disk full")
