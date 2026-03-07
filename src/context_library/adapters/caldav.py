@@ -13,9 +13,8 @@ The adapter uses incremental fetch via CalDAV sync-token for efficient delta syn
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from itertools import chain
-from typing import TYPE_CHECKING, Any, Iterator
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterator
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -36,10 +35,6 @@ try:
 except ImportError:
     HAS_CALDAV = False
 
-if TYPE_CHECKING:
-    import caldav as caldav_module
-    from icalendar import Calendar as CalendarType
-
 
 class CalDAVAdapter(BaseAdapter):
     """Adapter that syncs events from a CalDAV server.
@@ -47,9 +42,6 @@ class CalDAVAdapter(BaseAdapter):
     Supports incremental fetch via CalDAV sync-token for efficient delta sync.
     Parses iCalendar data for each event and maps to EventMetadata.
     """
-
-    domain = Domain.EVENTS
-    normalizer_version = "1.0.0"
 
     def __init__(
         self,
@@ -75,9 +67,7 @@ class CalDAVAdapter(BaseAdapter):
         self._url = url
         self._username = username
         self._calendar_name = calendar_name
-        # Note: We store the password for initialization but not permanently for security
         self._password = password
-        self._initialized = False
 
     @property
     def adapter_id(self) -> str:
@@ -85,6 +75,16 @@ class CalDAVAdapter(BaseAdapter):
         if self._calendar_name:
             return f"caldav:{self._url}:{self._calendar_name}"
         return f"caldav:{self._url}"
+
+    @property
+    def domain(self) -> Domain:
+        """Return the domain this adapter serves."""
+        return Domain.EVENTS
+
+    @property
+    def normalizer_version(self) -> str:
+        """Return the normalizer version."""
+        return "1.0.0"
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize calendar events from CalDAV server.
@@ -109,7 +109,7 @@ class CalDAVAdapter(BaseAdapter):
             # Filter calendars by name if specified
             if self._calendar_name:
                 calendars = [
-                    cal for cal in calendars if self._calendar_name in (cal.name or cal.get_properties().get("resourcetype"))
+                    cal for cal in calendars if cal.name == self._calendar_name
                 ]
                 if not calendars:
                     logger.warning(
@@ -349,7 +349,7 @@ class CalDAVAdapter(BaseAdapter):
                     logger.debug(f"Error parsing LAST-MODIFIED: {e}")
 
             # Get current timestamp for date_first_observed
-            now = datetime.now(tz=datetime.now().astimezone().tzinfo).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
 
             # Create EventMetadata
             event_metadata = EventMetadata(
@@ -367,23 +367,13 @@ class CalDAVAdapter(BaseAdapter):
             # Create source_id
             source_id = f"{calendar_name}/{event_id}"
 
-            # Create structural hints
+            # Create structural hints with metadata dumped from model
             structural_hints = StructuralHints(
                 has_headings=False,
                 has_lists=False,
                 has_tables=False,
                 natural_boundaries=(),
-                extra_metadata={
-                    "event_id": event_id,
-                    "title": title,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "duration_minutes": duration_minutes,
-                    "host": organizer,
-                    "invitees": attendees,
-                    "date_first_observed": now,
-                    "source_type": "caldav",
-                },
+                extra_metadata=event_metadata.model_dump(),
             )
 
             # Create markdown content

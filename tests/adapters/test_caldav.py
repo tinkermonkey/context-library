@@ -37,15 +37,21 @@ class TestCalDAVAdapterInitialization:
 
     def test_init_raises_import_error_if_caldav_missing(self):
         """__init__ raises ImportError if caldav/icalendar not available."""
-        with patch.dict("sys.modules", {"caldav": None, "icalendar": None}):
-            # Simulate missing imports by checking HAS_CALDAV
-            if not HAS_CALDAV:
-                with pytest.raises(ImportError, match="caldav"):
-                    CalDAVAdapter(
-                        url="https://calendar.example.com/",
-                        username="user",
-                        password="pass",
-                    )
+        # Test that HAS_CALDAV flag is properly exported
+        from context_library.adapters.caldav import HAS_CALDAV
+
+        # Since we have caldav installed in the test environment, HAS_CALDAV should be True
+        # The import guard only prevents instantiation if the packages are not available
+        assert HAS_CALDAV is True
+
+        # Verify constructor checks the flag by patching it
+        with patch("context_library.adapters.caldav.HAS_CALDAV", False):
+            with pytest.raises(ImportError, match="caldav"):
+                CalDAVAdapter(
+                    url="https://calendar.example.com/",
+                    username="user",
+                    password="pass",
+                )
 
 
 class TestCalDAVAdapterProperties:
@@ -338,6 +344,38 @@ END:VCALENDAR"""
         results = list(adapter.fetch(""))
         extra_metadata = results[0].structural_hints.extra_metadata
         assert extra_metadata["duration_minutes"] == 90
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_fetch_event_duration_from_duration_property(self, mock_dav_client_class, mock_caldav_client):
+        """fetch() computes duration_minutes from DURATION property when present."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create event with DURATION property (60 minutes)
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:event_with_duration
+SUMMARY:Event with DURATION
+DTSTART:20260307T100000Z
+DURATION:PT1H
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        results = list(adapter.fetch(""))
+        extra_metadata = results[0].structural_hints.extra_metadata
+        assert extra_metadata["duration_minutes"] == 60
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_fetch_event_with_missing_optional_fields(self, mock_dav_client_class, mock_caldav_client):
@@ -638,7 +676,7 @@ END:VCALENDAR"""
         # Empty event_id/title should cause validation to fail and event to be skipped
         results = list(adapter.fetch(""))
         # The adapter should skip events that fail validation
-        # Empty event_id/title would cause ValueError during extract_event_metadata
+        assert len(results) == 0
 
 
 class TestCalDAVAdapterIntegration:
