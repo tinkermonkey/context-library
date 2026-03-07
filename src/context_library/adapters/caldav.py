@@ -391,9 +391,9 @@ class CalDAVAdapter(BaseAdapter):
             end = dtend.dt
             # Normalize date objects to datetime for consistent subtraction
             if isinstance(start, date) and not isinstance(start, datetime):
-                start = datetime.combine(start, time.min)
+                start = datetime.combine(start, time.min, timezone.utc)
             if isinstance(end, date) and not isinstance(end, datetime):
-                end = datetime.combine(end, time.min)
+                end = datetime.combine(end, time.min, timezone.utc)
             delta = end - start
             if isinstance(delta, timedelta):
                 return int(delta.total_seconds() / 60)
