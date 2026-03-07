@@ -21,23 +21,31 @@ class SourceErrorTracker:
 
     def __init__(self) -> None:
         """Initialize error tracking."""
-        self.consecutive_failures = 0
+        self._consecutive_failures = 0
 
     def record_failure(self) -> None:
         """Record a failure and increment the consecutive failure count."""
-        self.consecutive_failures += 1
+        self._consecutive_failures += 1
 
     def clear(self) -> None:
         """Clear error tracking on successful ingestion."""
-        self.consecutive_failures = 0
+        self._consecutive_failures = 0
+
+    def get_consecutive_failures(self) -> int:
+        """Return the current count of consecutive failures.
+
+        Returns:
+            The number of consecutive failures for this source.
+        """
+        return self._consecutive_failures
 
     def should_log_at_error_level(self) -> bool:
         """Return True if failures have escalated to ERROR level (6+ failures)."""
-        return self.consecutive_failures >= 6
+        return self._consecutive_failures >= 6
 
     def should_log_at_warning_level(self) -> bool:
         """Return True if failures are at WARNING level (3-5 failures)."""
-        return 3 <= self.consecutive_failures < 6
+        return 3 <= self._consecutive_failures < 6
 
 
 class Poller:
@@ -165,7 +173,8 @@ class Poller:
 
         CRITICAL: update_last_fetched_at is only called if ingest succeeds. If ingest succeeds
         but update_last_fetched_at fails, the source will be re-polled on the next tick (acceptable).
-        If ingest fails, update_last_fetched_at is NOT called, preventing infinite re-ingestion loops.
+        If ingest fails, update_last_fetched_at is NOT called, so the source remains due for re-polling
+        on the next tick (allowing retry without preventing the scheduler from progressing).
         """
         due_sources = self._document_store.get_sources_due_for_poll()
         due_source_ids = {source["source_id"] for source in due_sources}
@@ -209,14 +218,14 @@ class Poller:
                     logger.error(
                         "Poller: source %s has failed %d times (ERROR level): %s",
                         source_id,
-                        error_tracker.consecutive_failures,
+                        error_tracker.get_consecutive_failures(),
                         error_msg,
                     )
                 elif error_tracker.should_log_at_warning_level():
                     logger.warning(
                         "Poller: source %s has failed %d times (WARNING level): %s",
                         source_id,
-                        error_tracker.consecutive_failures,
+                        error_tracker.get_consecutive_failures(),
                         error_msg,
                     )
                 else:
