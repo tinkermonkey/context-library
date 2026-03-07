@@ -16,6 +16,14 @@ if importlib.util.find_spec("obsidiantools") is not None:
 
     __all__.append("ObsidianAdapter")
 
+# Check if obsidian tasks adapter's dependencies are available
+if importlib.util.find_spec("frontmatter") is not None:
+    from context_library.adapters.obsidian_tasks import (  # noqa: F401
+        ObsidianTasksAdapter as ObsidianTasksAdapter,
+    )
+
+    __all__.append("ObsidianTasksAdapter")
+
 # Check if email adapter's dependencies are available
 if (
     importlib.util.find_spec("httpx") is not None
