@@ -1,7 +1,5 @@
 """TasksDomain: one-task-per-chunk strategy with lifecycle state tracking."""
 
-import re
-
 from pydantic import ValidationError
 
 from context_library.domains.base import BaseDomain

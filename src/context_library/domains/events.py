@@ -1,7 +1,5 @@
 """EventsDomain: time-windowed summaries for structured event records."""
 
-import re
-
 from pydantic import ValidationError
 
 from context_library.domains.base import BaseDomain
