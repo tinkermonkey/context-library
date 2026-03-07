@@ -32,12 +32,18 @@ WORKDIR /workspace/context-library
 # Copy project configuration for dependency installation
 COPY pyproject.toml ./
 
-# Create minimal package stub so hatchling can build during pip install
-# (source code is mounted at runtime, not included in image)
+# Create minimal package stub so pip/hatchling can resolve the project,
+# install all dependencies (including optional extras), then REMOVE the
+# installed context-library package from site-packages so that the runtime
+# mount at /workspace/context-library/src is used instead.
 RUN mkdir -p src/context_library && \
     touch src/context_library/__init__.py && \
-    pip install --no-cache-dir ".[dev]" && \
+    pip install --no-cache-dir ".[dev,rich-fs,obsidian]" && \
+    pip uninstall -y context-library && \
     rm -rf src/context_library
+
+# Set PYTHONPATH so the runtime-mounted source is found by Python
+ENV PYTHONPATH="/workspace/context-library/src"
 
 # ============================================================================
 # Section 4: Switch to Runtime User
@@ -51,7 +57,8 @@ RUN claude --version && \
     git --version && \
     gh --version && \
     python3 --version && \
-    pip --version
+    pip --version && \
+    python3 -c "import watchdog; import watchfiles; import mypy; import markitdown; import obsidiantools; import frontmatter"
 
 # ============================================================================
 # Default command

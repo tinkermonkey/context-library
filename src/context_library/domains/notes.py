@@ -70,6 +70,7 @@ class NotesDomain(BaseDomain):
         7. Compute chunk_hash from normalized content (excluding context header)
         8. Store context header separately from content in Chunk model
         9. Assign sequential chunk_index values
+        10. Extract domain metadata from extra_metadata and propagate to Chunk.domain_metadata
 
         Args:
             content: The normalized markdown content to chunk
@@ -94,11 +95,23 @@ class NotesDomain(BaseDomain):
         # Apply token limits: join short sections, split oversized ones
         final_chunks = self._apply_token_limits(candidates)
 
+        # Extract domain metadata from extra_metadata (e.g., from adapters like ObsidianAdapter)
+        # This metadata (tags, aliases, wikilinks, backlinks, etc.) is stored in structural_hints
+        # and should be propagated to every chunk's domain_metadata
+        extra_metadata = content.structural_hints.extra_metadata or {}
+
         # Compute hashes and assign indices
         chunks = []
         for index, candidate in enumerate(final_chunks):
             # Content hash is computed from content alone (excluding context header)
             chunk_hash = compute_chunk_hash(candidate["content"])
+
+            # Merge domain metadata from candidate with extra metadata from adapter
+            # Candidate metadata (e.g., heading_level) takes precedence over extra metadata
+            domain_metadata = dict(extra_metadata)
+            candidate_metadata = candidate.get("domain_metadata")
+            if candidate_metadata:
+                domain_metadata.update(candidate_metadata)
 
             chunk = Chunk(
                 chunk_hash=chunk_hash,
@@ -106,7 +119,7 @@ class NotesDomain(BaseDomain):
                 context_header=candidate["context_header"],
                 chunk_index=index,
                 chunk_type=candidate["chunk_type"],
-                domain_metadata=candidate.get("domain_metadata"),
+                domain_metadata=domain_metadata if domain_metadata else None,
             )
             chunks.append(chunk)
 

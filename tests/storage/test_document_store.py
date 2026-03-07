@@ -16,6 +16,7 @@ Covers:
 """
 
 import pytest
+from datetime import datetime, timedelta, timezone
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
@@ -23,6 +24,7 @@ from context_library.storage.models import (
     Chunk,
     Domain,
     LineageRecord,
+    PollStrategy,
 )
 
 
@@ -287,7 +289,7 @@ class TestSourceVersions:
         assert latest is not None
         assert latest.version == 2
         assert latest.markdown == "# Content v2"
-        assert latest.chunk_hashes == ["1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"]
+        assert latest.chunk_hashes == ("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",)
 
     def test_get_version_history_ordering(self, store: DocumentStore) -> None:
         """Test that version history is ordered ascending."""
@@ -807,6 +809,37 @@ class TestChunkRetirement:
         """Test that is_chunk_retired() returns False for missing chunks."""
         # Non-existent chunk should return False (not retired, just doesn't exist)
         assert store.is_chunk_retired(_make_hash("z")) is False
+
+    def test_retire_chunks_raises_runtime_error_for_nonexistent(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that retire_chunks raises RuntimeError when chunk doesn't exist.
+
+        Data integrity guard: ensures we don't silently accept retirement
+        requests for non-existent chunks, which could mask logic errors.
+        """
+        # Setup initial chunks for a source
+        hashes = self._setup_chunks_for_retirement(store)
+
+        # Attempt to retire a non-existent chunk for the same source/version
+        # This should raise RuntimeError as a data integrity guard
+        # Use 'f' instead of 'z' to create a valid hex hash
+        non_existent_hash = _make_hash("f")
+        with pytest.raises(RuntimeError):
+            store.retire_chunks(
+                {non_existent_hash},
+                source_id="source-1",
+                source_version=1,
+            )
+
+        # Verify existing chunks are still not retired
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM chunks WHERE chunk_hash IN (?, ?) AND retired_at IS NOT NULL",
+            tuple(hashes),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 0
 
 
 class TestChunksBySource:
@@ -1828,3 +1861,514 @@ class TestRecoveryMechanisms:
         assert result["domain"] == Domain.MESSAGES.value
         assert result["source_id"] == source_id
         assert result["source_version"] == 1
+
+
+class TestSourceScheduling:
+    """Tests for source scheduling parameters and polling."""
+
+    def _setup_adapter(self, store: DocumentStore, adapter_id: str = "poll-adapter") -> str:
+        """Helper to set up an adapter."""
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        return adapter_id
+
+    def test_register_source_with_pull_strategy_and_interval(self, store: DocumentStore) -> None:
+        """Test registering a source with pull strategy and poll interval."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="poll-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Verify source was created with correct poll_strategy and poll_interval_sec
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("poll-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["source_id"] == "poll-source-1"
+        assert row["poll_strategy"] == "pull"
+        assert row["poll_interval_sec"] == 3600
+
+    def test_register_source_with_push_strategy(self, store: DocumentStore) -> None:
+        """Test registering a source with push strategy (no interval)."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="push-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Verify source was created with push strategy and no interval
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("push-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "push"
+        assert row["poll_interval_sec"] is None
+
+    def test_register_source_with_webhook_strategy(self, store: DocumentStore) -> None:
+        """Test registering a source with webhook strategy (no interval)."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="webhook-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        # Verify source was created with webhook strategy
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("webhook-source-1",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "webhook"
+        assert row["poll_interval_sec"] is None
+
+    def test_register_source_default_is_pull(self, store: DocumentStore) -> None:
+        """Test that default poll_strategy is PULL when not specified."""
+        self._setup_adapter(store)
+
+        # Register without specifying poll_strategy
+        store.register_source(
+            source_id="default-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        # Verify default is 'pull'
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT poll_strategy FROM sources WHERE source_id = ?",
+            ("default-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "pull"
+
+    def test_register_source_idempotency_preserved_with_poll_params(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that poll settings are updated on re-registration."""
+        self._setup_adapter(store)
+
+        # First registration
+        store.register_source(
+            source_id="idempotent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Second registration with different parameters (should update poll settings)
+        store.register_source(
+            source_id="idempotent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+            poll_interval_sec=7200,
+        )
+
+        # Verify new values are persisted (updated on re-registration)
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("idempotent-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["poll_strategy"] == "push"  # Updated value
+        assert row["poll_interval_sec"] == 7200  # Updated value
+
+        # Verify only one row exists
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE source_id = ?",
+            ("idempotent-source",),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 1
+
+    def test_register_source_updates_domain_and_adapter_id_on_reregister(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that domain and adapter_id are updated on re-registration."""
+        # Setup two different adapters
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="adapter-1",
+                adapter_type="TestAdapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="adapter-2",
+                adapter_type="TestAdapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+
+        # First registration with adapter-1 and Domain.NOTES
+        store.register_source(
+            source_id="changing-source",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Verify initial state
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT adapter_id, domain, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["adapter_id"] == "adapter-1"
+        assert row["domain"] == "notes"
+        assert row["poll_strategy"] == "pull"
+        assert row["poll_interval_sec"] == 3600
+
+        # Re-register with adapter-2 and Domain.MESSAGES
+        store.register_source(
+            source_id="changing-source",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+            poll_interval_sec=None,
+        )
+
+        # Verify all fields were updated
+        cursor.execute(
+            "SELECT adapter_id, domain, poll_strategy, poll_interval_sec FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["adapter_id"] == "adapter-2"  # Updated
+        assert row["domain"] == "messages"  # Updated
+        assert row["poll_strategy"] == "push"  # Updated
+        assert row["poll_interval_sec"] is None  # Updated
+
+        # Verify only one row exists
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE source_id = ?",
+            ("changing-source",),
+        )
+        count = cursor.fetchone()[0]
+        assert count == 1
+
+    def test_get_sources_due_for_poll_never_fetched(self, store: DocumentStore) -> None:
+        """Test that sources with last_fetched_at IS NULL are returned."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="unfetched-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        assert due[0]["source_id"] == "unfetched-source"
+        assert due[0]["adapter_id"] == "poll-adapter"
+        assert due[0]["poll_interval_sec"] == 3600
+        assert due[0]["last_fetched_at"] is None
+
+    def test_get_sources_due_for_poll_interval_passed(self, store: DocumentStore) -> None:
+        """Test that sources whose interval has passed are returned."""
+        self._setup_adapter(store)
+
+        # Register source with 1-hour interval
+        store.register_source(
+            source_id="overdue-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Manually set last_fetched_at to 2 hours ago (interval has passed)
+        two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (two_hours_ago, "overdue-source"),
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        assert due[0]["source_id"] == "overdue-source"
+        assert due[0]["last_fetched_at"] == two_hours_ago
+
+    def test_get_sources_due_for_poll_interval_not_passed(self, store: DocumentStore) -> None:
+        """Test that sources whose interval has not passed are NOT returned."""
+        self._setup_adapter(store)
+
+        # Register source with 1-hour interval
+        store.register_source(
+            source_id="recent-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Manually set last_fetched_at to 30 minutes ago (interval has NOT passed)
+        thirty_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (thirty_min_ago, "recent-source"),
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include this source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_push_strategy(self, store: DocumentStore) -> None:
+        """Test that sources with push strategy are NOT returned."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="push-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include push source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_webhook_strategy(self, store: DocumentStore) -> None:
+        """Test that sources with webhook strategy are NOT returned."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="webhook-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include webhook source
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_excludes_null_interval(self, store: DocumentStore) -> None:
+        """Test that sources with poll_interval_sec IS NULL are NOT returned."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="no-interval-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=None,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should not include source with no interval
+        assert len(due) == 0
+
+    def test_get_sources_due_for_poll_mixed_sources(self, store: DocumentStore) -> None:
+        """Test that only eligible sources are returned when mixed with ineligible ones."""
+        self._setup_adapter(store)
+
+        # 1. Create source due for poll (never fetched)
+        store.register_source(
+            source_id="due-source-1",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # 2. Create source due for poll (interval passed)
+        store.register_source(
+            source_id="due-source-2",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source2",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (two_hours_ago, "due-source-2"),
+        )
+
+        # 3. Create source NOT due (interval not passed)
+        store.register_source(
+            source_id="not-due-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source3",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        thirty_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+            (thirty_min_ago, "not-due-source"),
+        )
+
+        # 4. Create push strategy source (should be excluded)
+        store.register_source(
+            source_id="push-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source4",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # 5. Create source with no interval (should be excluded)
+        store.register_source(
+            source_id="no-interval-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source5",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=None,
+        )
+
+        # Get sources due for poll
+        due = store.get_sources_due_for_poll()
+
+        # Should only return the two eligible sources
+        assert len(due) == 2
+        source_ids = {source["source_id"] for source in due}
+        assert source_ids == {"due-source-1", "due-source-2"}
+
+    def test_get_sources_due_for_poll_returns_correct_fields(self, store: DocumentStore) -> None:
+        """Test that returned dicts contain all required fields."""
+        from context_library.storage.models import PollStrategy
+
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        due = store.get_sources_due_for_poll()
+
+        assert len(due) == 1
+        result = due[0]
+
+        # Verify all required fields are present
+        assert "source_id" in result
+        assert "adapter_id" in result
+        assert "poll_interval_sec" in result
+        assert "last_fetched_at" in result
+
+        # Verify field values
+        assert result["source_id"] == "test-source"
+        assert result["adapter_id"] == "poll-adapter"
+        assert result["poll_interval_sec"] == 3600
+        assert result["last_fetched_at"] is None
+
+    def test_update_last_fetched_at_success(self, store: DocumentStore) -> None:
+        """Test updating last_fetched_at for an existing source."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        # Verify initially None
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT last_fetched_at FROM sources WHERE source_id = ?",
+            ("test-source",),
+        )
+        row = cursor.fetchone()
+        assert row["last_fetched_at"] is None
+
+        # Update last_fetched_at
+        store.update_last_fetched_at("test-source")
+
+        # Verify it's now set
+        cursor.execute(
+            "SELECT last_fetched_at FROM sources WHERE source_id = ?",
+            ("test-source",),
+        )
+        row = cursor.fetchone()
+        assert row["last_fetched_at"] is not None
+
+    def test_update_last_fetched_at_raises_runtime_error_for_nonexistent(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that update_last_fetched_at raises RuntimeError for non-existent source.
+
+        Data integrity guard: ensures we don't silently accept updates for
+        sources that don't exist, which could mask logic errors.
+        """
+        # Attempt to update a non-existent source
+        with pytest.raises(RuntimeError):
+            store.update_last_fetched_at("nonexistent-source")

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, Sha256Hash, SourceVersion, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, _validate_sha256_hex
 
 
 class DocumentStore:
@@ -133,27 +133,54 @@ class DocumentStore:
         adapter_id: str,
         domain: Domain,
         origin_ref: str,
+        poll_strategy: PollStrategy = PollStrategy.PULL,
+        poll_interval_sec: int | None = None,
     ) -> None:
         """Register a source.
 
-        Inserts the source into the sources table. If the source_id already
-        exists, does nothing (idempotent).
+        Inserts the source into the sources table if it doesn't exist, or updates
+        all source configuration (adapter_id, domain, poll_strategy, poll_interval_sec)
+        if the source is re-registered with different values.
 
         Args:
             source_id: Unique identifier for the source.
-            adapter_id: ID of the adapter handling this source.
-            domain: Domain classification (messages, notes, events, tasks).
+            adapter_id: ID of the adapter handling this source. Updated on re-registration.
+            domain: Domain classification (messages, notes, events, tasks). Updated on re-registration.
             origin_ref: URL, path, or reference to the original source.
+            poll_strategy: Strategy for polling this source (push, pull, or webhook).
+                          Defaults to PollStrategy.PULL. Updated on re-registration.
+            poll_interval_sec: Interval in seconds between polls for PULL strategy.
+                              None if not applicable for this strategy. Updated on re-registration.
         """
         with self.conn:
-            self.conn.execute(
-                """
-                INSERT OR IGNORE INTO sources
-                (source_id, adapter_id, domain, origin_ref, poll_strategy)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (source_id, adapter_id, domain.value, origin_ref, "pull"),
+            cursor = self.conn.cursor()
+            # Check if source already exists
+            cursor.execute(
+                "SELECT source_id FROM sources WHERE source_id = ?",
+                (source_id,),
             )
+            existing = cursor.fetchone()
+
+            if existing is None:
+                # Insert new source
+                self.conn.execute(
+                    """
+                    INSERT INTO sources
+                    (source_id, adapter_id, domain, origin_ref, poll_strategy, poll_interval_sec)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
+                )
+            else:
+                # Update all source configuration on re-registration
+                self.conn.execute(
+                    """
+                    UPDATE sources
+                    SET adapter_id = ?, domain = ?, poll_strategy = ?, poll_interval_sec = ?
+                    WHERE source_id = ?
+                    """,
+                    (adapter_id, domain.value, poll_strategy.value, poll_interval_sec, source_id),
+                )
 
     def create_source_version(
         self,
@@ -242,6 +269,12 @@ class DocumentStore:
 
         Chunks are linked to their sources and versions via lineage records.
 
+        Idempotent behavior: Uses INSERT OR IGNORE with UNIQUE (source_id, source_version, chunk_index)
+        constraint to atomically skip duplicates. If a chunk at a given position already exists,
+        the insertion is silently ignored without raising an error. This provides thread-safe
+        duplicate detection without TOCTOU race conditions and allows calling write_chunks
+        multiple times with the same data without errors.
+
         Args:
             chunks: List of Chunk objects to insert.
             lineage_records: List of LineageRecord objects with provenance info.
@@ -264,6 +297,7 @@ class DocumentStore:
         batch_timestamp = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
+            self.conn.cursor()
             for chunk in chunks:
                 domain_metadata_json = (
                     json.dumps(chunk.domain_metadata)
@@ -274,40 +308,33 @@ class DocumentStore:
                 # Get lineage info for this chunk (guaranteed non-None due to validation above)
                 lineage = lineage_map[chunk.chunk_hash]
 
-                try:
-                    self.conn.execute(
-                        """
-                        INSERT INTO chunks
-                        (chunk_hash, source_id, source_version, chunk_index, content,
-                         context_header, domain, adapter_id, fetch_timestamp,
-                         normalizer_version, embedding_model_id, domain_metadata, chunk_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            chunk.chunk_hash,
-                            lineage.source_id,
-                            lineage.source_version_id,
-                            chunk.chunk_index,
-                            chunk.content,
-                            chunk.context_header,
-                            lineage.domain.value,
-                            lineage.adapter_id,
-                            batch_timestamp,
-                            lineage.normalizer_version,
-                            lineage.embedding_model_id,
-                            domain_metadata_json,
-                            chunk.chunk_type,
-                        ),
-                    )
-                except sqlite3.IntegrityError as e:
-                    # UNIQUE index collision on (source_id, source_version, chunk_index):
-                    # Same chunk position in same version was already written
-                    error_msg = str(e)
-                    if "UNIQUE constraint failed: chunks.source_id, chunks.source_version, chunks.chunk_index" in error_msg:
-                        # Chunk at this position in this version already exists; skip silently
-                        continue
-                    # For any other constraint violation (foreign key, CHECK), re-raise
-                    raise
+                # Use INSERT OR IGNORE to atomically skip duplicates without TOCTOU race.
+                # Duplicate detection is based on UNIQUE constraint on (source_id, source_version, chunk_index).
+                # This avoids the race condition between SELECT check and INSERT.
+                self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO chunks
+                    (chunk_hash, source_id, source_version, chunk_index, content,
+                     context_header, domain, adapter_id, fetch_timestamp,
+                     normalizer_version, embedding_model_id, domain_metadata, chunk_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chunk.chunk_hash,
+                        lineage.source_id,
+                        lineage.source_version_id,
+                        chunk.chunk_index,
+                        chunk.content,
+                        chunk.context_header,
+                        lineage.domain.value,
+                        lineage.adapter_id,
+                        batch_timestamp,
+                        lineage.normalizer_version,
+                        lineage.embedding_model_id,
+                        domain_metadata_json,
+                        chunk.chunk_type,
+                    ),
+                )
 
     def retire_chunks(self, chunk_hashes: set[Sha256Hash], source_id: str, source_version: int) -> None:
         """Mark chunks as retired for a specific source and version.
@@ -730,6 +757,46 @@ class DocumentStore:
                 raise RuntimeError(
                     f"Source '{source_id}' does not exist"
                 )
+
+    def get_sources_due_for_poll(self) -> list[dict]:
+        """Get all sources due for polling.
+
+        Queries sources where poll_strategy = 'pull' and either:
+        - last_fetched_at IS NULL (never fetched), or
+        - last_fetched_at + poll_interval_sec < now (interval has passed)
+
+        Sources with poll_interval_sec IS NULL are excluded (no interval configured).
+
+        Returns:
+            List of dicts with keys: source_id, adapter_id, origin_ref, poll_interval_sec,
+                                     last_fetched_at
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT source_id, adapter_id, origin_ref, poll_interval_sec, last_fetched_at
+            FROM sources
+            WHERE poll_strategy = 'pull'
+              AND poll_interval_sec IS NOT NULL
+              AND (
+                last_fetched_at IS NULL
+                OR datetime(last_fetched_at, '+' || poll_interval_sec || ' seconds') < datetime('now')
+              )
+            """
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "source_id": row["source_id"],
+                "adapter_id": row["adapter_id"],
+                "origin_ref": row["origin_ref"],
+                "poll_interval_sec": row["poll_interval_sec"],
+                "last_fetched_at": row["last_fetched_at"],
+            })
+
+        return result
 
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.

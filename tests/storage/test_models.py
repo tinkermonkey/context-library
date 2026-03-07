@@ -16,7 +16,9 @@ from context_library.storage.models import (
     Domain,
     DiffResult,
     LineageRecord,
+    MessageMetadata,
     NormalizedContent,
+    PollStrategy,
     SourceVersion,
     StructuralHints,
     compute_chunk_hash,
@@ -37,7 +39,7 @@ class TestStructuralHints:
         assert hints.has_headings is True
         assert hints.has_lists is False
         assert hints.has_tables is False
-        assert hints.natural_boundaries == [10, 20, 30]
+        assert hints.natural_boundaries == (10, 20, 30)
         assert hints.file_path is None
         assert hints.modified_at is None
         assert hints.file_size_bytes is None
@@ -250,7 +252,7 @@ class TestSourceVersion:
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
         assert version.version == 1
-        assert version.chunk_hashes == hashes
+        assert version.chunk_hashes == tuple(hashes)
         assert len(version.chunk_hashes) == 3
 
     def test_source_version_empty_hashes(self) -> None:
@@ -264,7 +266,7 @@ class TestSourceVersion:
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
-        assert version.chunk_hashes == []
+        assert version.chunk_hashes == ()
 
     def test_frozen_immutability(self) -> None:
         """Test that SourceVersion is frozen."""
@@ -293,8 +295,8 @@ class TestDiffResult:
             unchanged_hashes={"a" * 64, "b" * 64},
         )
         assert result.changed is False
-        assert result.added_hashes == set()
-        assert result.removed_hashes == set()
+        assert result.added_hashes == frozenset()
+        assert result.removed_hashes == frozenset()
         assert len(result.unchanged_hashes) == 2
 
     def test_changed_with_diff(self) -> None:
@@ -452,6 +454,234 @@ class TestAdapterConfig:
         )
         with pytest.raises(ValidationError):
             config.adapter_type = "modified"  # type: ignore[assignment]
+
+
+class TestPollStrategy:
+    """Tests for PollStrategy enum."""
+
+    def test_poll_strategy_values_are_strings(self) -> None:
+        """Test that PollStrategy enum values are strings."""
+        assert PollStrategy.PUSH == "push"
+        assert PollStrategy.PULL == "pull"
+        assert PollStrategy.WEBHOOK == "webhook"
+
+    def test_poll_strategy_is_str_subclass(self) -> None:
+        """Test that PollStrategy values are str subclass instances."""
+        assert isinstance(PollStrategy.PUSH, str)
+        assert isinstance(PollStrategy.PULL, str)
+        assert isinstance(PollStrategy.WEBHOOK, str)
+
+    def test_poll_strategy_all_values(self) -> None:
+        """Test that all PollStrategy enum values are accessible."""
+        strategies = [PollStrategy.PUSH, PollStrategy.PULL, PollStrategy.WEBHOOK]
+        assert len(strategies) == 3
+        values = [s.value for s in strategies]
+        assert set(values) == {"push", "pull", "webhook"}
+
+
+class TestMessageMetadata:
+    """Tests for MessageMetadata model."""
+
+    def test_create_message_metadata_all_fields(self) -> None:
+        """Test creating MessageMetadata with all fields populated."""
+        metadata = MessageMetadata(
+            thread_id="thread-123",
+            message_id="msg-456",
+            sender="alice@example.com",
+            recipients=["bob@example.com", "charlie@example.com"],
+            timestamp="2024-01-15T10:30:00Z",
+            in_reply_to="msg-455",
+            subject="Re: Project Discussion",
+            is_thread_root=False,
+        )
+        assert metadata.thread_id == "thread-123"
+        assert metadata.message_id == "msg-456"
+        assert metadata.sender == "alice@example.com"
+        assert metadata.recipients == ("bob@example.com", "charlie@example.com")
+        assert metadata.timestamp == "2024-01-15T10:30:00Z"
+        assert metadata.in_reply_to == "msg-455"
+        assert metadata.subject == "Re: Project Discussion"
+        assert metadata.is_thread_root is False
+
+    def test_create_message_metadata_minimal_required(self) -> None:
+        """Test creating MessageMetadata with only required fields."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=["c@d.com"],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject=None,
+            is_thread_root=True,
+        )
+        assert metadata.thread_id == "t1"
+        assert metadata.message_id == "m1"
+        assert metadata.sender == "a@b.com"
+        assert metadata.recipients == ("c@d.com",)
+        assert metadata.timestamp == "2024-01-01T00:00:00Z"
+        assert metadata.in_reply_to is None
+        assert metadata.subject is None
+        assert metadata.is_thread_root is True
+
+    def test_message_metadata_invalid_timestamp(self) -> None:
+        """Test that MessageMetadata raises ValidationError for invalid ISO 8601 timestamp."""
+        with pytest.raises(ValidationError):
+            MessageMetadata(
+                thread_id="t1",
+                message_id="m1",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="not-a-timestamp",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=True,
+            )
+
+    def test_message_metadata_frozen_immutability(self) -> None:
+        """Test that MessageMetadata is frozen and raises ValidationError on mutation."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=["c@d.com"],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject=None,
+            is_thread_root=True,
+        )
+        with pytest.raises(ValidationError):
+            metadata.subject = "Modified"  # type: ignore[assignment]
+
+    def test_message_metadata_model_dump_serializable(self) -> None:
+        """Test that MessageMetadata.model_dump() returns JSON-serializable dict."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=["c@d.com"],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject="Test",
+            is_thread_root=True,
+        )
+        dumped = metadata.model_dump()
+        assert isinstance(dumped, dict)
+        assert dumped["thread_id"] == "t1"
+        assert dumped["message_id"] == "m1"
+        assert dumped["sender"] == "a@b.com"
+        assert dumped["recipients"] == ("c@d.com",)
+        assert dumped["timestamp"] == "2024-01-01T00:00:00Z"
+        assert dumped["in_reply_to"] is None
+        assert dumped["subject"] == "Test"
+        assert dumped["is_thread_root"] is True
+
+    def test_message_metadata_empty_recipients_list(self) -> None:
+        """Test that MessageMetadata accepts empty recipients list."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=[],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject=None,
+            is_thread_root=False,
+        )
+        assert metadata.recipients == ()
+
+    def test_message_metadata_empty_thread_id_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty thread_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="",
+                message_id="m1",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "thread_id must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_empty_message_id_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty message_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "message_id must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_empty_sender_rejected(self) -> None:
+        """Test that MessageMetadata raises ValidationError for empty sender."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="m1",
+                sender="",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to=None,
+                subject=None,
+                is_thread_root=False,
+            )
+        assert "sender must be a non-empty string" in str(exc_info.value)
+
+    def test_message_metadata_is_thread_root_and_in_reply_to_mutually_exclusive(
+        self,
+    ) -> None:
+        """Test that is_thread_root=True and in_reply_to are mutually exclusive."""
+        with pytest.raises(ValidationError) as exc_info:
+            MessageMetadata(
+                thread_id="t1",
+                message_id="m1",
+                sender="a@b.com",
+                recipients=["c@d.com"],
+                timestamp="2024-01-01T00:00:00Z",
+                in_reply_to="msg-0",
+                subject=None,
+                is_thread_root=True,
+            )
+        error_msg = str(exc_info.value)
+        assert "is_thread_root=True and in_reply_to must be mutually exclusive" in error_msg
+
+    def test_message_metadata_thread_root_without_in_reply_to_succeeds(self) -> None:
+        """Test that is_thread_root=True succeeds when in_reply_to is None."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m1",
+            sender="a@b.com",
+            recipients=["c@d.com"],
+            timestamp="2024-01-01T00:00:00Z",
+            in_reply_to=None,
+            subject=None,
+            is_thread_root=True,
+        )
+        assert metadata.is_thread_root is True
+        assert metadata.in_reply_to is None
+
+    def test_message_metadata_reply_without_thread_root_succeeds(self) -> None:
+        """Test that in_reply_to succeeds when is_thread_root=False."""
+        metadata = MessageMetadata(
+            thread_id="t1",
+            message_id="m2",
+            sender="b@b.com",
+            recipients=["a@b.com"],
+            timestamp="2024-01-01T01:00:00Z",
+            in_reply_to="m1",
+            subject=None,
+            is_thread_root=False,
+        )
+        assert metadata.is_thread_root is False
+        assert metadata.in_reply_to == "m1"
 
 
 class TestComputeChunkHash:

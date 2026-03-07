@@ -620,6 +620,61 @@ class TestDomainMetadata:
         assert "heading_level" in chunk.domain_metadata
         assert chunk.domain_metadata["heading_level"] == 2
 
+    def test_extra_metadata_propagated_to_chunks(self, notes_domain):
+        """Adapter-provided extra_metadata is propagated to all chunks' domain_metadata.
+
+        FR-5.4 requires that Obsidian graph metadata (tags, aliases, wikilinks, backlinks)
+        stored in extra_metadata is correctly propagated to each Chunk's domain_metadata.
+        """
+        markdown = "## Section 1\n\nContent A.\n\n## Section 2\n\nContent B."
+
+        # Simulate adapter-provided metadata (as ObsidianAdapter would provide)
+        extra_metadata = {
+            "tags": ["tag1", "tag2"],
+            "aliases": ["alias1"],
+            "wikilinks": ["linked-note"],
+            "backlinks": ["backlink-source"],
+            "frontmatter": {"key": "value"},
+            "created_at": "2024-01-01T00:00:00",
+            "modified_at": "2024-01-02T00:00:00",
+        }
+
+        structural_hints = StructuralHints(
+            has_headings=True,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=extra_metadata,
+        )
+
+        content = NormalizedContent(
+            markdown=markdown,
+            source_id="test.md",
+            structural_hints=structural_hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = notes_domain.chunk(content)
+
+        # Verify all chunks include the extra_metadata
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert chunk.domain_metadata is not None
+            # Verify extra_metadata fields are present
+            assert "tags" in chunk.domain_metadata
+            assert chunk.domain_metadata["tags"] == ["tag1", "tag2"]
+            assert "aliases" in chunk.domain_metadata
+            assert chunk.domain_metadata["aliases"] == ["alias1"]
+            assert "wikilinks" in chunk.domain_metadata
+            assert chunk.domain_metadata["wikilinks"] == ["linked-note"]
+            assert "backlinks" in chunk.domain_metadata
+            assert chunk.domain_metadata["backlinks"] == ["backlink-source"]
+            assert "frontmatter" in chunk.domain_metadata
+            assert chunk.domain_metadata["frontmatter"] == {"key": "value"}
+            # Verify timestamps are present
+            assert "created_at" in chunk.domain_metadata
+            assert "modified_at" in chunk.domain_metadata
+
 
 class TestMistuneAST:
     """Tests for mistune AST handling and regression detection."""

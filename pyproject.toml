@@ -14,10 +14,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+email = ["httpx", "html2text"]
 gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
-dev = ["ruff", "mypy", "pytest"]
+rich-fs = ["markitdown", "watchdog"]
+obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
+dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -30,6 +33,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "pyarrow.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "obsidiantools.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "frontmatter"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

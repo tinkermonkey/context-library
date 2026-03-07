@@ -17,7 +17,7 @@ from context_library.core.exceptions import (
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import LineageRecord
+from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVector, create_chunk_vector_schema
 
@@ -66,13 +66,13 @@ class IngestionPipeline:
         self.vector_store_path = Path(vector_store_path)
 
     def ingest(
-        self, adapter: BaseAdapter, domain_chunker: BaseDomain
+        self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
     ) -> dict:
         """Ingest content from an adapter, orchestrating the full pipeline.
 
         Algorithm:
         1. Register adapter (idempotent)
-        2. For each NormalizedContent item from adapter.fetch():
+        2. For each NormalizedContent item from adapter.fetch(source_ref):
            a. Look up latest version
            b. Chunk content
            c. Compute chunk hashes
@@ -92,6 +92,10 @@ class IngestionPipeline:
         Args:
             adapter: BaseAdapter instance providing content
             domain_chunker: BaseDomain instance for chunking
+            source_ref: Source-specific reference (e.g., directory path, email address).
+                       Passed to adapter.fetch() to enable incremental ingestion and
+                       source-specific filtering. Defaults to empty string for adapters
+                       that fetch all sources.
 
         Returns:
             Dict with keys:
@@ -128,8 +132,8 @@ class IngestionPipeline:
         errors: list[dict] = []
         store_consistency: dict[str, str] = {}
 
-        # Iterate over normalized content from adapter
-        for content in adapter.fetch(""):
+        # Iterate over normalized content from adapter, passing source_ref for incremental ingestion
+        for content in adapter.fetch(source_ref):
             try:
                 sources_processed += 1
 
@@ -161,11 +165,15 @@ class IngestionPipeline:
                 # Case 2: Content changed - process added/removed/unchanged chunks
                 # Register source if new
                 if prev_version is None:
+                    # Determine poll strategy: use adapter's poll_strategy if available, else default to PULL
+                    poll_strategy = getattr(adapter, '_poll_strategy', PollStrategy.PULL)
+
                     self.document_store.register_source(
                         source_id=content.source_id,
                         adapter_id=adapter.adapter_id,
                         domain=adapter.domain,
                         origin_ref=content.structural_hints.file_path or content.source_id,
+                        poll_strategy=poll_strategy,
                     )
 
                 # Determine version number
@@ -280,7 +288,7 @@ class IngestionPipeline:
                 # Note: retire chunks from the old version (prev_version), not the new one
                 if diff_result.removed_hashes:
                     old_version = prev_version.version if prev_version else 1
-                    self.document_store.retire_chunks(diff_result.removed_hashes, content.source_id, old_version)
+                    self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
                     removed_list = list(diff_result.removed_hashes)
                     # Record pending delete operations before attempting LanceDB deletes
                     self.document_store.delete_sync_log(removed_list)
