@@ -483,6 +483,7 @@ class TestObsidianAdapterStructuralHints:
             "tags",
             "aliases",
             "frontmatter",
+            "dataview_fields",
             "wikilinks",
             "backlinks",
             "created_at",
@@ -577,18 +578,17 @@ class TestObsidianAdapterImportErrors:
         with pytest.raises(ImportError, match="obsidiantools"):
             ObsidianAdapter(vault)
 
-    def test_missing_both_parsers_raises_import_error(self, tmp_path, monkeypatch):
-        """ImportError is raised when neither obsidianmd-parser nor frontmatter are available."""
+    def test_missing_frontmatter_raises_import_error(self, tmp_path, monkeypatch):
+        """ImportError is raised when python-frontmatter is not available."""
         import context_library.adapters.obsidian as obsidian_module
 
-        # Patch both flags to simulate missing parsers
-        monkeypatch.setattr(obsidian_module, "HAS_OBSIDIANMD_PARSER", False)
+        # Patch flag to simulate missing frontmatter
         monkeypatch.setattr(obsidian_module, "HAS_FRONTMATTER", False)
 
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        with pytest.raises(ImportError):
+        with pytest.raises(ImportError, match="python-frontmatter"):
             ObsidianAdapter(vault)
 
 
