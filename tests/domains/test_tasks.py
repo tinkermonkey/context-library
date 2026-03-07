@@ -2,6 +2,7 @@
 
 import pytest
 
+from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.domains.tasks import TasksDomain
 from context_library.storage.models import (
     Chunk,
@@ -44,6 +45,17 @@ def base_structural_hints():
         has_tables=False,
         natural_boundaries=[],
     )
+
+
+class TestTasksDomainRegistry:
+    """Tests for TasksDomain domain registry integration."""
+
+    def test_domain_chunker_registry_returns_tasks_domain(self):
+        """get_domain_chunker(Domain.TASKS) returns a TasksDomain instance."""
+        domain = get_domain_chunker(Domain.TASKS)
+
+        assert isinstance(domain, TasksDomain)
+        assert domain.hard_limit == 1024
 
 
 class TestTasksDomainBasics:
@@ -211,6 +223,40 @@ class TestSingleTaskChunk:
                 date_first_observed="2025-01-15T10:30:00Z",
                 source_type="todoist",
             )
+
+    def test_chunk_raises_on_invalid_metadata_from_domain(
+        self, tasks_domain, base_structural_hints
+    ):
+        """chunk() raises ValueError when extra_metadata contains invalid TaskMetadata."""
+        # Create hints with invalid extra_metadata (empty title)
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata={
+                "task_id": "task-001",
+                "status": "open",
+                "title": "",  # Invalid: empty title
+                "due_date": None,
+                "priority": None,
+                "dependencies": (),
+                "collaborators": (),
+                "date_first_observed": "2025-01-15T10:30:00Z",
+                "source_type": "todoist",
+            },
+        )
+
+        content = NormalizedContent(
+            markdown="Task description.",
+            source_id="task-001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        # The domain's chunk() method should raise ValueError for invalid metadata
+        with pytest.raises(ValueError, match="Invalid TaskMetadata"):
+            tasks_domain.chunk(content)
 
     def test_chunk_has_correct_context_header_with_due_date(
         self, tasks_domain, sample_task_metadata

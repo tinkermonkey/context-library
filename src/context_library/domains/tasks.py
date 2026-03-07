@@ -87,6 +87,8 @@ class TasksDomain(BaseDomain):
             text = meta.title
 
         # Guard against empty content (both markdown and title)
+        # Note: TaskMetadata validation only rejects empty strings, not whitespace-only,
+        # so the second .strip() ensures whitespace-only titles don't produce empty chunks
         if not text.strip():
             return []
 
