@@ -119,11 +119,36 @@ class FileSystemWatcher:
         elif HAS_WATCHFILES:
             self._stop_watchfiles()
 
+    @property
+    def is_alive(self) -> bool:
+        """Check if the watcher is actively monitoring for changes.
+
+        Returns False if:
+        - Using watchdog and observer has not been started or has been stopped
+        - Using watchfiles and the background thread has failed or been stopped
+        - The watchfiles thread has encountered an exception and set the failed flag
+
+        This property allows callers to detect if the watcher has silently died
+        (e.g., watchfiles loop exception) so they can take remedial action.
+        """
+        if HAS_WATCHDOG:
+            return self._observer_started and not self._stopped
+        elif HAS_WATCHFILES:
+            return (
+                self._watchfiles_thread is not None
+                and self._watchfiles_thread.is_alive()
+                and not self._watchfiles_failed
+                and not self._stopped
+            )
+        return False
+
     def _start_watchdog(self) -> None:
         """Start watchdog observer."""
         if self._observer_started:
             return
 
+        # Reset stopped flag to allow new watch cycle
+        self._stopped = False
         handler = _WatchdogHandler(self._on_raw_event)
         self._observer = Observer()
         self._observer.schedule(handler, str(self._watch_path), recursive=True)
@@ -151,18 +176,19 @@ class FileSystemWatcher:
         self._observer.join(timeout=2)
         self._observer_started = False
 
-        # Flush any buffered events. Must happen before marking stopped.
-        # This ensures final events are delivered to the callback.
-        self._flush_buffer()
-
-        # Mark as stopped atomically to prevent any pending timer callbacks
-        # from executing after this method returns. If a timer callback
-        # races with this section, it will be prevented from invoking user callbacks.
+        # Cancel the debounce timer and set stopped flag atomically, BEFORE flushing.
+        # This closes the race window: any timer callback that fires after this point
+        # will see _stopped=True and skip invoking user callbacks.
         with self._buffer_lock:
             self._stopped = True
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
                 self._debounce_timer = None
+
+        # Flush any buffered events AFTER marking stopped.
+        # This ensures the stop-initiated flush is the only flush that invokes callbacks,
+        # and any racing timer callback will not invoke user callbacks.
+        self._flush_buffer(from_stop=True)
 
         logger.debug(f"Stopped watching {self._watch_path}")
 
@@ -171,6 +197,9 @@ class FileSystemWatcher:
         if self._watchfiles_thread is not None and self._watchfiles_thread.is_alive():
             return
 
+        # Reset stopped flag to allow new watch cycle
+        self._stopped = False
+        self._watchfiles_failed = False
         self._watchfiles_stop_event = threading.Event()
         self._watchfiles_thread = threading.Thread(
             target=self._watchfiles_loop,
@@ -204,18 +233,19 @@ class FileSystemWatcher:
             self._watchfiles_thread.join(timeout=2)
             self._watchfiles_thread = None
 
-        # Flush any buffered events. Must happen before marking stopped.
-        # This ensures final events are delivered to the callback.
-        self._flush_buffer()
-
-        # Mark as stopped atomically to prevent any pending timer callbacks
-        # from executing after this method returns. If a timer callback
-        # races with this section, it will be prevented from invoking user callbacks.
+        # Cancel the debounce timer and set stopped flag atomically, BEFORE flushing.
+        # This closes the race window: any timer callback that fires after this point
+        # will see _stopped=True and skip invoking user callbacks.
         with self._buffer_lock:
             self._stopped = True
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
                 self._debounce_timer = None
+
+        # Flush any buffered events AFTER marking stopped.
+        # This ensures the stop-initiated flush is the only flush that invokes callbacks,
+        # and any racing timer callback will not invoke user callbacks.
+        self._flush_buffer(from_stop=True)
 
         logger.debug(f"Stopped watching {self._watch_path}")
 
@@ -302,8 +332,13 @@ class FileSystemWatcher:
             )
             self._debounce_timer.start()
 
-    def _flush_buffer(self) -> None:
+    def _flush_buffer(self, from_stop: bool = False) -> None:
         """Dispatch all buffered events and clear the buffer.
+
+        Args:
+            from_stop: If True, this flush is part of the stop sequence and should
+                       always proceed. If False (default), this is a timer callback
+                       and should skip if stopped.
 
         Acquires lock only to snapshot and clear the buffer. Callbacks are invoked
         outside the lock to:
@@ -311,19 +346,20 @@ class FileSystemWatcher:
         2. Prevent slow callbacks from blocking the raw event handler
         3. Avoid deadlocks if callback tries to acquire the lock
 
-        If called after stop() has marked the watcher as stopped, no callbacks
-        will be invoked. This prevents race conditions where a pending debounce
-        timer fires after stop() returns.
+        If called as a timer callback AFTER stop() has set _stopped=True,
+        no callbacks will be invoked. This prevents race conditions where a pending
+        debounce timer fires after stop() returns.
         """
         with self._buffer_lock:
+            # If a timer callback arrives after stop() set _stopped=True, skip processing
+            # But if this is the stop-initiated flush, always proceed
+            if self._stopped and not from_stop:
+                return
+
             # Snapshot buffer and clear it atomically
             buffer_snapshot = dict(self._event_buffer)
             self._event_buffer.clear()
             self._debounce_timer = None
-
-            # If already stopped, don't invoke callbacks
-            if self._stopped:
-                return
 
         # Invoke callbacks outside the lock
         for path, event_type in buffer_snapshot.items():
