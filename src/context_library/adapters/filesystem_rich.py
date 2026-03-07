@@ -1,8 +1,17 @@
 """RichFilesystemAdapter for converting non-markdown files to markdown.
 
-Converts non-markdown files (PDF, DOCX, XLSX, PPTX, HTML, images, audio) to markdown
-using MarkItDown with Pandoc fallback. Yields NormalizedContent with rich structural
-metadata including MIME type, file size, timestamps, and directory hierarchy.
+Converts non-markdown files (PDF, DOCX, XLSX, PPTX, HTML) to markdown using MarkItDown
+with Pandoc fallback. Yields NormalizedContent with rich structural metadata including
+MIME type, file size, timestamps, and directory hierarchy.
+
+Image and audio file support:
+- MarkItDown can process images and audio files, but requires optional heavy dependencies:
+  - Image support (vision models) requires Azure Computer Vision or OpenAI vision API credentials
+  - Audio support (speech-to-text) requires Azure Speech Services or other speech API credentials
+- Without these dependencies, images and audio files return None from conversion and are skipped
+- Pandoc does not support binary media formats (images, audio), so they cannot be recovered
+  via fallback conversion
+- Consider pre-filtering these file types with the extensions parameter if not needed
 """
 
 import logging
@@ -52,8 +61,11 @@ def _convert_with_markitdown(file_path: Path) -> str | None:
         md = MarkItDown()
         result = md.convert(str(file_path))
         return result.text_content
-    except Exception as e:
-        logger.warning(f"MarkItDown conversion failed for {file_path}: {e}")
+    except (OSError, IOError, ValueError, TypeError, RuntimeError) as e:
+        logger.warning(
+            f"MarkItDown conversion failed for {file_path}: {e}",
+            exc_info=True,
+        )
         return None
 
 
@@ -75,6 +87,10 @@ def _convert_with_pandoc(file_path: Path) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout
+        # Log stderr when pandoc fails
+        logger.warning(
+            f"Pandoc conversion failed for {file_path} (exit code {result.returncode}): {result.stderr}"
+        )
         return None
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         logger.debug(f"Pandoc conversion failed for {file_path}: {e}")
@@ -85,9 +101,15 @@ class RichFilesystemAdapter(BaseAdapter):
     """Adapter that converts non-markdown files to markdown from a directory.
 
     Recursively walks a directory tree, discovering non-markdown files (PDF, DOCX, XLSX,
-    PPTX, HTML, images, audio, etc.) and converting them to markdown using MarkItDown
-    with Pandoc fallback. Yields NormalizedContent with rich structural hints including
-    MIME type, file size, creation/modification timestamps, and directory hierarchy.
+    PPTX, HTML, etc.) and converting them to markdown using MarkItDown with Pandoc fallback.
+    Yields NormalizedContent with rich structural hints including MIME type, file size,
+    creation/modification timestamps, and directory hierarchy.
+
+    Image and audio files:
+    - MarkItDown can process these but requires optional heavy dependencies (vision APIs,
+      speech-to-text services). Without these, they will be skipped.
+    - Pandoc fallback does not support binary media formats.
+    - Recommend using the extensions parameter to pre-filter unwanted file types.
 
     Supports both pull-based (periodic directory walking) and push-based (filesystem
     watching) ingestion strategies.

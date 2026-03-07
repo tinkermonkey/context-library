@@ -395,3 +395,73 @@ class TestConversionFunctions:
             result = _convert_with_pandoc(file_path)
 
         assert result is None
+
+    def test_pandoc_logs_stderr_on_nonzero_exit(self, tmp_path):
+        """_convert_with_pandoc logs stderr when pandoc fails with nonzero exit."""
+        file_path = tmp_path / "test.tex"
+        file_path.write_text(r"\documentclass{article}\begin{document}Hello\end{document}")
+
+        with patch("context_library.adapters.filesystem_rich.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Unsupported format")
+            with patch("context_library.adapters.filesystem_rich.logger") as mock_logger:
+                result = _convert_with_pandoc(file_path)
+
+        assert result is None
+        mock_logger.warning.assert_called_once()
+        assert "Unsupported format" in str(mock_logger.warning.call_args)
+
+
+class TestConversionErrorHandling:
+    """Tests for error handling in conversion functions."""
+
+    def test_markitdown_logs_traceback_on_error(self, tmp_path):
+        """_convert_with_markitdown logs full traceback on conversion error."""
+        file_path = tmp_path / "test.pdf"
+        file_path.write_text("dummy pdf", encoding="utf-8")
+
+        with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
+                mock_md = MagicMock()
+                mock_md_class.return_value = mock_md
+                mock_md.convert.side_effect = ValueError("Corrupted PDF")
+                with patch("context_library.adapters.filesystem_rich.logger") as mock_logger:
+                    result = _convert_with_markitdown(file_path)
+
+        assert result is None
+        # Verify warning was called with exc_info=True
+        mock_logger.warning.assert_called_once()
+        call_kwargs = mock_logger.warning.call_args[1]
+        assert call_kwargs.get("exc_info") is True
+        assert "Corrupted PDF" in str(mock_logger.warning.call_args[0])
+
+    def test_markitdown_catches_runtime_errors(self, tmp_path):
+        """_convert_with_markitdown catches RuntimeError exceptions."""
+        file_path = tmp_path / "test.pdf"
+        file_path.write_text("dummy pdf", encoding="utf-8")
+
+        with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
+                mock_md = MagicMock()
+                mock_md_class.return_value = mock_md
+                mock_md.convert.side_effect = RuntimeError("Conversion timeout")
+                with patch("context_library.adapters.filesystem_rich.logger") as mock_logger:
+                    result = _convert_with_markitdown(file_path)
+
+        assert result is None
+        mock_logger.warning.assert_called_once()
+
+    def test_markitdown_catches_os_errors(self, tmp_path):
+        """_convert_with_markitdown catches OSError exceptions."""
+        file_path = tmp_path / "test.pdf"
+        file_path.write_text("dummy pdf", encoding="utf-8")
+
+        with patch("context_library.adapters.filesystem_rich.HAS_MARKITDOWN", True):
+            with patch("context_library.adapters.filesystem_rich.MarkItDown") as mock_md_class:
+                mock_md = MagicMock()
+                mock_md_class.return_value = mock_md
+                mock_md.convert.side_effect = OSError("Disk full")
+                with patch("context_library.adapters.filesystem_rich.logger") as mock_logger:
+                    result = _convert_with_markitdown(file_path)
+
+        assert result is None
+        mock_logger.warning.assert_called_once()
