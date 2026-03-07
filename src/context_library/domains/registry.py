@@ -4,6 +4,8 @@ Provides a lookup mechanism to instantiate and retrieve domain chunkers by Domai
 Uses lazy imports to avoid circular dependencies.
 """
 
+from typing import cast
+
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import Domain
 
@@ -34,7 +36,7 @@ def get_domain_chunker(domain: Domain) -> BaseDomain:
     module_name, class_name = _DOMAIN_REGISTRY[domain]
     module = __import__(module_name, fromlist=[class_name])
     chunker_class = getattr(module, class_name)
-    return chunker_class()
+    return cast(BaseDomain, chunker_class())
 
 
 def list_registered_domains() -> list[Domain]:

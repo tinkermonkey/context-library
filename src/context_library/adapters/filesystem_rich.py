@@ -20,7 +20,7 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, TYPE_CHECKING, cast
+from typing import Iterator, cast
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import (
