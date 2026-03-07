@@ -17,7 +17,7 @@ from context_library.core.exceptions import (
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import LineageRecord
+from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVector, create_chunk_vector_schema
 
@@ -165,11 +165,17 @@ class IngestionPipeline:
                 # Case 2: Content changed - process added/removed/unchanged chunks
                 # Register source if new
                 if prev_version is None:
+                    # Determine poll strategy: use adapter's poll_strategy if available, else default to PULL
+                    poll_strategy = getattr(adapter, '_poll_strategy', PollStrategy.PULL)
+                    poll_interval_sec = getattr(adapter, '_poll_interval_sec', None)
+
                     self.document_store.register_source(
                         source_id=content.source_id,
                         adapter_id=adapter.adapter_id,
                         domain=adapter.domain,
                         origin_ref=content.structural_hints.file_path or content.source_id,
+                        poll_strategy=poll_strategy,
+                        poll_interval_sec=poll_interval_sec,
                     )
 
                 # Determine version number

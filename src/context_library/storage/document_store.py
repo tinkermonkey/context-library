@@ -139,13 +139,13 @@ class DocumentStore:
         """Register a source.
 
         Inserts the source into the sources table if it doesn't exist, or updates
-        the poll_strategy and poll_interval_sec if the source is re-registered
-        with different values.
+        all source configuration (adapter_id, domain, poll_strategy, poll_interval_sec)
+        if the source is re-registered with different values.
 
         Args:
             source_id: Unique identifier for the source.
-            adapter_id: ID of the adapter handling this source.
-            domain: Domain classification (messages, notes, events, tasks).
+            adapter_id: ID of the adapter handling this source. Updated on re-registration.
+            domain: Domain classification (messages, notes, events, tasks). Updated on re-registration.
             origin_ref: URL, path, or reference to the original source.
             poll_strategy: Strategy for polling this source (push, pull, or webhook).
                           Defaults to PollStrategy.PULL. Updated on re-registration.
@@ -172,14 +172,14 @@ class DocumentStore:
                     (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
                 )
             else:
-                # Update poll settings on re-registration
+                # Update all source configuration on re-registration
                 self.conn.execute(
                     """
                     UPDATE sources
-                    SET poll_strategy = ?, poll_interval_sec = ?
+                    SET adapter_id = ?, domain = ?, poll_strategy = ?, poll_interval_sec = ?
                     WHERE source_id = ?
                     """,
-                    (poll_strategy.value, poll_interval_sec, source_id),
+                    (adapter_id, domain.value, poll_strategy.value, poll_interval_sec, source_id),
                 )
 
     def create_source_version(
@@ -269,9 +269,11 @@ class DocumentStore:
 
         Chunks are linked to their sources and versions via lineage records.
 
-        Idempotent behavior: If a chunk at a given (source_id, source_version, chunk_index)
-        position already exists, it is silently skipped (no duplicate insertion). This allows
-        calling write_chunks multiple times with the same data without raising errors.
+        Idempotent behavior: Uses INSERT OR IGNORE with UNIQUE (source_id, source_version, chunk_index)
+        constraint to atomically skip duplicates. If a chunk at a given position already exists,
+        the insertion is silently ignored without raising an error. This provides thread-safe
+        duplicate detection without TOCTOU race conditions and allows calling write_chunks
+        multiple times with the same data without errors.
 
         Args:
             chunks: List of Chunk objects to insert.
@@ -306,22 +308,12 @@ class DocumentStore:
                 # Get lineage info for this chunk (guaranteed non-None due to validation above)
                 lineage = lineage_map[chunk.chunk_hash]
 
-                # Check if chunk at this position in this version already exists
-                cursor.execute(
-                    """
-                    SELECT 1 FROM chunks
-                    WHERE source_id = ? AND source_version = ? AND chunk_index = ?
-                    LIMIT 1
-                    """,
-                    (lineage.source_id, lineage.source_version_id, chunk.chunk_index),
-                )
-                if cursor.fetchone() is not None:
-                    # Chunk at this position in this version already exists; skip
-                    continue
-
+                # Use INSERT OR IGNORE to atomically skip duplicates without TOCTOU race.
+                # Duplicate detection is based on UNIQUE constraint on (source_id, source_version, chunk_index).
+                # This avoids the race condition between SELECT check and INSERT.
                 self.conn.execute(
                     """
-                    INSERT INTO chunks
+                    INSERT OR IGNORE INTO chunks
                     (chunk_hash, source_id, source_version, chunk_index, content,
                      context_header, domain, adapter_id, fetch_timestamp,
                      normalizer_version, embedding_model_id, domain_metadata, chunk_type)
