@@ -1,8 +1,7 @@
 """Tests for the CalDAVAdapter."""
 
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from context_library.adapters.caldav import CalDAVAdapter, HAS_CALDAV
 from context_library.storage.models import Domain, EventMetadata, NormalizedContent
