@@ -88,9 +88,20 @@ class AppleHealthAdapter(BaseAdapter):
     - Additional health-specific fields in extra_metadata: calories_kcal, distance_meters, avg_heart_rate_bpm
     """
 
-    domain = Domain.EVENTS
-    poll_strategy = PollStrategy.PULL
-    normalizer_version = "1.0.0"
+    @property
+    def domain(self) -> Domain:
+        """Return the domain this adapter handles."""
+        return Domain.EVENTS
+
+    @property
+    def poll_strategy(self) -> PollStrategy:
+        """Return the polling strategy for this adapter."""
+        return PollStrategy.PULL
+
+    @property
+    def normalizer_version(self) -> str:
+        """Return the normalizer version."""
+        return "1.0.0"
 
     def __init__(
         self,
@@ -176,8 +187,6 @@ class AppleHealthAdapter(BaseAdapter):
                     yield from self._process_workout(workout)
                 except (ValueError, KeyError) as e:
                     logger.error(f"Error processing workout {workout.get('id', 'unknown')}: {e}")
-                    # Skip malformed workouts, continue to next
-                    pass
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API: {e.response.status_code} {e.response.text}")
@@ -262,12 +271,14 @@ class AppleHealthAdapter(BaseAdapter):
         markdown = self._build_summary(workout, activity_type, duration_minutes)
 
         # Create structural hints with extra_metadata (preserve all fields including extras)
+        # Use raw dict (not model_dump()) to preserve health-specific extra fields
+        # that EventMetadata's extra="ignore" would discard
         structural_hints = StructuralHints(
             has_headings=True,
             has_lists=True,
             has_tables=False,
             natural_boundaries=(),
-            extra_metadata=event_metadata_dict,  # Store the full dict with extras
+            extra_metadata=event_metadata_dict,
         )
 
         # Create NormalizedContent
