@@ -259,7 +259,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         # Validate using EventMetadata model (with extra="ignore" it will accept extra fields)
         try:
-            event_metadata = EventMetadata.model_validate(event_metadata_dict)
+            EventMetadata.model_validate(event_metadata_dict)
         except ValueError as e:
             logger.error(f"EventMetadata validation failed for workout {workout_id}: {e}")
             raise
