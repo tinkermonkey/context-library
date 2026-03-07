@@ -16,6 +16,8 @@ class BaseDomain(ABC):
     hard_limit token boundaries. Subclasses should set self.hard_limit in __init__.
     """
 
+    hard_limit: int
+
     @abstractmethod
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Split normalized content into semantically coherent chunks.
