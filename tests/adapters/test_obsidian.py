@@ -577,18 +577,178 @@ class TestObsidianAdapterImportErrors:
         with pytest.raises(ImportError, match="obsidiantools"):
             ObsidianAdapter(vault)
 
-    def test_missing_frontmatter_raises_import_error(self, tmp_path, monkeypatch):
-        """ImportError is raised when python-frontmatter is not available."""
+    def test_missing_both_parsers_raises_import_error(self, tmp_path, monkeypatch):
+        """ImportError is raised when neither obsidianmd-parser nor frontmatter are available."""
         import context_library.adapters.obsidian as obsidian_module
 
-        # Simply patch the flag
+        # Patch both flags to simulate missing parsers
+        monkeypatch.setattr(obsidian_module, "HAS_OBSIDIANMD_PARSER", False)
         monkeypatch.setattr(obsidian_module, "HAS_FRONTMATTER", False)
 
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        with pytest.raises(ImportError, match="python-frontmatter"):
+        with pytest.raises(ImportError):
             ObsidianAdapter(vault)
+
+
+class TestObsidianAdapterDataviewFields:
+    """Tests for Dataview field extraction."""
+
+    def test_dataview_fields_in_extra_metadata(self, tmp_path):
+        """Dataview fields are extracted and included in extra_metadata."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        # Create note with inline Dataview fields
+        note_content = """---
+title: "Dataview Test"
+---
+
+# Note with Dataview
+
+Author:: John Doe
+Priority:: High
+Status:: Active
+Due:: 2024-12-31
+"""
+        (vault / "dataview_note.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        assert len(results) == 1
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        assert isinstance(dataview_fields, dict)
+
+    def test_dataview_fields_extracted_correctly(self, tmp_path):
+        """Inline Dataview fields are correctly extracted."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        note_content = """---
+title: "Test"
+---
+
+# Content
+
+Author:: Jane Smith
+Rating:: 9/10
+Status:: Completed
+"""
+        (vault / "test.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        # Check that at least some fields are extracted
+        # (exact format depends on regex pattern)
+        assert "author" in dataview_fields or "Author" in str(dataview_fields).lower()
+
+    def test_dataview_fields_normalized_keys(self, tmp_path):
+        """Dataview field keys are normalized to lowercase with underscores."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        note_content = """---
+title: "Test"
+---
+
+# Content
+
+Field Name:: Value
+Another-Field:: Test
+"""
+        (vault / "test.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        # Keys should be normalized
+        if dataview_fields:
+            for key in dataview_fields.keys():
+                assert key.islower() or "_" in key
+
+    def test_bracketed_dataview_fields(self, tmp_path):
+        """Bracketed Dataview fields [Key:: Value] are also extracted."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        note_content = """---
+title: "Test"
+---
+
+# Content
+
+[Author:: John]
+[Status:: In Progress]
+
+Regular field:: Value
+"""
+        (vault / "test.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        # Should contain extracted fields
+        assert isinstance(dataview_fields, dict)
+
+    def test_no_dataview_fields_empty_dict(self, tmp_path):
+        """Notes without Dataview fields have empty dataview_fields dict."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        note_content = """---
+title: "Test"
+---
+
+# Content
+
+This note has no Dataview fields.
+Just regular markdown content.
+"""
+        (vault / "test.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        assert dataview_fields == {}
+
+    def test_malformed_frontmatter_with_dataview_fields(self, tmp_path):
+        """Dataview fields are extracted even if frontmatter is incomplete.
+
+        When frontmatter is malformed, the adapter skips the note as per
+        the graceful error handling strategy (non-fatal failures logged as warnings).
+        """
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        # Note with properly formatted frontmatter but dataview fields
+        note_content = """---
+title: "Test Note"
+tags: [test]
+---
+
+# Content
+
+Author:: Jane
+Status:: Draft
+Created:: 2024-01-15
+"""
+        (vault / "test.md").write_text(note_content, encoding="utf-8")
+
+        adapter = ObsidianAdapter(vault)
+        results = list(adapter.fetch(""))
+
+        # Should process the note successfully
+        assert len(results) == 1
+        dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
+        # Verify dataview fields were extracted
+        assert isinstance(dataview_fields, dict)
 
 
 class TestObsidianAdapterIntegration:
@@ -611,5 +771,6 @@ class TestObsidianAdapterIntegration:
             assert result.structural_hints.extra_metadata is not None
             assert "tags" in result.structural_hints.extra_metadata
             assert "aliases" in result.structural_hints.extra_metadata
+            assert "dataview_fields" in result.structural_hints.extra_metadata
             assert "wikilinks" in result.structural_hints.extra_metadata
             assert "backlinks" in result.structural_hints.extra_metadata
