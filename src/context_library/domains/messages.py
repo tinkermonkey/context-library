@@ -55,7 +55,14 @@ class MessagesDomain(BaseDomain):
 
         Args:
             hard_limit: Maximum token limit before forced splitting (default 1024)
+
+        Raises:
+            ValueError: If hard_limit is not a positive integer
         """
+        if hard_limit <= 0:
+            raise ValueError(
+                f"hard_limit must be a positive integer, got {hard_limit}"
+            )
         self.hard_limit = hard_limit
 
     def chunk(self, content: NormalizedContent) -> list[Chunk]:

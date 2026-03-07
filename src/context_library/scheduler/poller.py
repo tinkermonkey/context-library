@@ -68,7 +68,14 @@ class Poller:
             pipeline: IngestionPipeline instance for processing fetched content
             document_store: DocumentStore instance for querying poll metadata
             tick_interval: Time in seconds between poll cycles (default 60.0)
+
+        Raises:
+            ValueError: If tick_interval is not a positive number
         """
+        if tick_interval <= 0:
+            raise ValueError(
+                f"tick_interval must be a positive number, got {tick_interval}"
+            )
         self._pipeline = pipeline
         self._document_store = document_store
         self._tick_interval = tick_interval
