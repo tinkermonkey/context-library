@@ -8,6 +8,66 @@ from context_library.adapters.email import EmailAdapter
 from context_library.storage.models import Domain, NormalizedContent
 
 
+class TestEmailAdapterInitialization:
+    """Tests for EmailAdapter initialization."""
+
+    def test_init_negative_max_initial_messages_raises(self):
+        """__init__ raises ValueError if max_initial_messages is negative."""
+        with pytest.raises(ValueError, match="max_initial_messages must be a positive integer"):
+            EmailAdapter(
+                emailengine_url="http://localhost:3000",
+                account_id="acct1",
+                max_initial_messages=-1
+            )
+
+    def test_init_zero_max_initial_messages_raises(self):
+        """__init__ raises ValueError if max_initial_messages is zero."""
+        with pytest.raises(ValueError, match="max_initial_messages must be a positive integer"):
+            EmailAdapter(
+                emailengine_url="http://localhost:3000",
+                account_id="acct1",
+                max_initial_messages=0
+            )
+
+    def test_init_negative_max_incremental_messages_raises(self):
+        """__init__ raises ValueError if max_incremental_messages is negative."""
+        with pytest.raises(ValueError, match="max_incremental_messages must be a positive integer"):
+            EmailAdapter(
+                emailengine_url="http://localhost:3000",
+                account_id="acct1",
+                max_incremental_messages=-1
+            )
+
+    def test_init_zero_max_incremental_messages_raises(self):
+        """__init__ raises ValueError if max_incremental_messages is zero."""
+        with pytest.raises(ValueError, match="max_incremental_messages must be a positive integer"):
+            EmailAdapter(
+                emailengine_url="http://localhost:3000",
+                account_id="acct1",
+                max_incremental_messages=0
+            )
+
+    def test_init_with_custom_limits(self):
+        """__init__ accepts custom max_initial_messages and max_incremental_messages."""
+        adapter = EmailAdapter(
+            emailengine_url="http://localhost:3000",
+            account_id="acct1",
+            max_initial_messages=200,
+            max_incremental_messages=50
+        )
+        assert adapter._max_initial_messages == 200
+        assert adapter._max_incremental_messages == 50
+
+    def test_init_defaults(self):
+        """__init__ uses default values if limits are not provided."""
+        adapter = EmailAdapter(
+            emailengine_url="http://localhost:3000",
+            account_id="acct1"
+        )
+        assert adapter._max_initial_messages == 100
+        assert adapter._max_incremental_messages == 50
+
+
 class TestEmailAdapterProperties:
     """Tests for EmailAdapter properties."""
 
@@ -232,12 +292,12 @@ class TestEmailAdapterFetch:
         api_request = mock_httpx.requests[0]
         assert api_request["params"]["search[since]"] == since
 
-    def test_fetch_respects_max_messages(self, mock_httpx):
-        """fetch() uses max_messages parameter in API call."""
+    def test_fetch_respects_max_initial_messages(self, mock_httpx):
+        """fetch() uses max_initial_messages parameter in API call for initial ingestion."""
         adapter = EmailAdapter(
             emailengine_url="http://localhost:3000",
             account_id="acct1",
-            max_messages=50
+            max_initial_messages=75
         )
 
         # Mock message list response
@@ -248,10 +308,33 @@ class TestEmailAdapterFetch:
 
         list(adapter.fetch(""))
 
-        # Check that the API call included the max_messages parameter
+        # Check that the API call included the max_initial_messages parameter
         assert len(mock_httpx.requests) > 0
         api_request = mock_httpx.requests[0]
-        assert api_request["params"]["pageSize"] == 50
+        assert api_request["params"]["pageSize"] == 75
+
+    def test_fetch_respects_max_incremental_messages(self, mock_httpx):
+        """fetch() uses max_incremental_messages parameter in API call for incremental updates."""
+        adapter = EmailAdapter(
+            emailengine_url="http://localhost:3000",
+            account_id="acct1",
+            max_initial_messages=100,
+            max_incremental_messages=25
+        )
+
+        # Mock message list response
+        messages_url = "http://localhost:3000/v1/account/acct1/messages"
+        mock_httpx.set_response(messages_url, {
+            "messages": []
+        })
+
+        since = "2026-03-01T00:00:00Z"
+        list(adapter.fetch(since))
+
+        # Check that the API call used max_incremental_messages
+        assert len(mock_httpx.requests) > 0
+        api_request = mock_httpx.requests[0]
+        assert api_request["params"]["pageSize"] == 25
 
     def test_fetch_empty_response(self, mock_httpx):
         """fetch() handles empty message list gracefully."""
@@ -614,6 +697,64 @@ class TestEmailAdapterFetch:
 
         # The fetch should raise HTTPStatusError for the body fetch failure
         with pytest.raises(httpx.HTTPStatusError):
+            list(adapter.fetch(""))
+
+    def test_fetch_missing_message_id_raises(self, mock_httpx):
+        """fetch() raises KeyError when message is missing 'id' field (not skipped)."""
+        # Mock message list response with message missing required 'id' field
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/messages",
+            {
+                "messages": [
+                    {
+                        # Missing 'id' field
+                        "threadId": "thread1",
+                        "from": {"address": "sender@example.com"},
+                        "to": [{"address": "recipient@example.com"}],
+                        "subject": "Test",
+                        "date": "2026-03-06T12:00:00Z",
+                        "messageId": "<msg1@example.com>",
+                    }
+                ]
+            },
+        )
+
+        adapter = EmailAdapter("http://localhost:3000", "acct1")
+
+        # The fetch should raise KeyError for missing 'id'
+        with pytest.raises(KeyError):
+            list(adapter.fetch(""))
+
+    def test_fetch_invalid_metadata_raises(self, mock_httpx):
+        """fetch() raises ValueError when message metadata is invalid (not skipped)."""
+        # Mock message list response with invalid 'from' field
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/messages",
+            {
+                "messages": [
+                    {
+                        "id": "msg1",
+                        "threadId": "thread1",
+                        "from": None,  # Invalid: must be dict or string
+                        "to": [{"address": "recipient@example.com"}],
+                        "subject": "Test",
+                        "date": "2026-03-06T12:00:00Z",
+                        "messageId": "<msg1@example.com>",
+                    }
+                ]
+            },
+        )
+
+        # Mock message body response
+        mock_httpx.set_response(
+            "http://localhost:3000/v1/account/acct1/message/msg1",
+            {"text": "<p>Content</p>"}
+        )
+
+        adapter = EmailAdapter("http://localhost:3000", "acct1")
+
+        # The fetch should raise TypeError for invalid 'from' type
+        with pytest.raises(TypeError):
             list(adapter.fetch(""))
 
 

@@ -36,29 +36,44 @@ except ImportError:
 class EmailAdapter(BaseAdapter):
     """Adapter that ingests email from EmailEngine's REST API.
 
-    EmailEngine is a self-hosted headless email client that provides a REST API
-    for accessing email. This adapter:
-    - Fetches messages from EmailEngine API
+    EmailEngine is a self-hosted headless email client that provides a unified REST API
+    abstracting provider-specific protocols and authentication. It supports:
+    - IMAP (RFC 3501) for direct IMAP/SMTP servers
+    - Gmail API (via OAuth 2.0)
+    - Microsoft Graph API (Outlook, Exchange, etc. via OAuth 2.0)
+    - And other SMTP/IMAP-compatible providers
+
+    This adapter:
+    - Fetches messages from EmailEngine's unified REST API
     - Converts HTML bodies to markdown
     - Extracts email headers and thread context
     - Yields NormalizedContent with MessageMetadata
+    - Supports both initial ingestion and incremental updates
+
+    Usage: Configure EmailEngine to connect to your desired email provider, then
+    point this adapter to the EmailEngine API URL. See https://github.com/postalsys/emailengine.
     """
 
     def __init__(
         self,
         emailengine_url: str,  # e.g., "http://localhost:3000"
         account_id: str,       # EmailEngine account identifier
-        max_messages: int = 100,  # per-fetch limit for initial ingestion
+        max_initial_messages: int = 100,  # per-fetch limit for initial full ingestion
+        max_incremental_messages: int = 50,  # per-fetch limit for incremental updates
     ) -> None:
         """Initialize EmailAdapter.
 
         Args:
             emailengine_url: Base URL of the EmailEngine API (will strip trailing slash)
             account_id: EmailEngine account identifier
-            max_messages: Maximum number of messages to fetch per request (default: 100)
+            max_initial_messages: Maximum messages to fetch on initial full ingest (default: 100).
+                Used when source_ref is empty string (initial ingestion).
+            max_incremental_messages: Maximum messages to fetch on incremental updates (default: 50).
+                Used when source_ref has a timestamp (subsequent fetches).
 
         Raises:
             ImportError: If httpx or html2text are not installed.
+            ValueError: If message limits are not positive integers.
         """
         if not HAS_HTTPX:
             raise ImportError(
@@ -71,9 +86,19 @@ class EmailAdapter(BaseAdapter):
                 "Install with: pip install context-library[email]"
             )
 
+        if max_initial_messages <= 0:
+            raise ValueError(
+                f"max_initial_messages must be a positive integer, got {max_initial_messages}"
+            )
+        if max_incremental_messages <= 0:
+            raise ValueError(
+                f"max_incremental_messages must be a positive integer, got {max_incremental_messages}"
+            )
+
         self._emailengine_url = emailengine_url.rstrip("/")
         self._account_id = account_id
-        self._max_messages = max_messages
+        self._max_initial_messages = max_initial_messages
+        self._max_incremental_messages = max_incremental_messages
         self._client = httpx.Client(timeout=30.0)
 
     @property
@@ -115,63 +140,72 @@ class EmailAdapter(BaseAdapter):
         The source_ref can optionally contain a last_fetched_at timestamp in ISO 8601
         format. If provided, only messages newer than that timestamp are fetched.
 
+        Algorithm:
+        1. Determine whether this is initial or incremental ingestion based on source_ref
+        2. Call _fetch_messages with appropriate limit
+        3. For each message, fetch its full body and convert to NormalizedContent
+        4. Errors in individual message processing (schema mismatch, missing fields) are NOT
+           caught — they propagate to caller for visibility. This prevents silent skipping
+           when EmailEngine API format changes.
+        5. HTTP errors in message body fetch propagate (not caught either)
+        6. Errors in the initial message list fetch propagate directly
+
         Args:
-            source_ref: Optional ISO 8601 timestamp for incremental ingestion
+            source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
 
         Yields:
             NormalizedContent for each message
 
         Raises:
             httpx.HTTPError: If the API request fails
-            ValueError: If EmailEngine returns unexpected response schema
+            ValueError: If EmailEngine returns unexpected response schema, or if a message
+                has missing/malformed fields
+            KeyError: If a message is missing required fields (e.g., 'text' in body)
+            TypeError: If a message field has unexpected type
         """
-        # Extract last_fetched_at from source_ref if provided
+        # Determine whether this is initial or incremental ingestion
         since = source_ref if source_ref else None
+        is_initial = not since
+        limit = self._max_initial_messages if is_initial else self._max_incremental_messages
 
-        # Fetch messages from EmailEngine
-        messages = self._fetch_messages(since)
+        # Fetch messages from EmailEngine (errors propagate)
+        messages = self._fetch_messages(since, limit)
 
         # Convert each message to NormalizedContent
+        # Process without catching errors to ensure visibility of API schema changes
         for msg in messages:
-            try:
-                # Fetch the full message body (HTML)
-                message_body = self._fetch_message_body(msg["id"])
+            # Fetch the full message body (HTML) - errors propagate
+            message_body = self._fetch_message_body(msg["id"])
 
-                # Convert HTML to markdown
-                markdown_body = self._html_to_markdown(message_body)
+            # Convert HTML to markdown - should not raise
+            markdown_body = self._html_to_markdown(message_body)
 
-                # Extract message metadata
-                metadata = self._extract_message_metadata(msg)
+            # Extract message metadata - errors propagate
+            metadata = self._extract_message_metadata(msg)
 
-                # Build structural hints with metadata
-                hints = StructuralHints(
-                    has_headings=False,
-                    has_lists=False,
-                    has_tables=False,
-                    natural_boundaries=(),
-                    extra_metadata=metadata.model_dump(),
-                )
+            # Build structural hints with metadata
+            hints = StructuralHints(
+                has_headings=False,
+                has_lists=False,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=metadata.model_dump(),
+            )
 
-                # Yield normalized content
-                yield NormalizedContent(
-                    markdown=markdown_body,
-                    source_id=f"email:{self._account_id}:{msg['id']}",
-                    structural_hints=hints,
-                    normalizer_version=self.normalizer_version,
-                )
+            # Yield normalized content
+            yield NormalizedContent(
+                markdown=markdown_body,
+                source_id=f"email:{self._account_id}:{msg['id']}",
+                structural_hints=hints,
+                normalizer_version=self.normalizer_version,
+            )
 
-            except (ValueError, KeyError, TypeError) as e:
-                logger.error(f"Failed to process message {msg.get('id')}: {e}")
-                continue
-            except httpx.HTTPError as e:
-                logger.error(f"API error while processing message: {e}")
-                raise
-
-    def _fetch_messages(self, since: str | None) -> list[dict]:
+    def _fetch_messages(self, since: str | None, limit: int | None = None) -> list[dict]:
         """Fetch message list from EmailEngine API.
 
         Args:
             since: Optional ISO 8601 timestamp to fetch only newer messages
+            limit: Optional page size limit (defaults to max_initial_messages if not provided)
 
         Returns:
             List of message metadata dictionaries
@@ -180,7 +214,10 @@ class EmailAdapter(BaseAdapter):
             httpx.HTTPError: If the API request fails
             ValueError: If EmailEngine returns unexpected response schema
         """
-        params: dict[str, int | str] = {"pageSize": self._max_messages}
+        if limit is None:
+            limit = self._max_initial_messages
+
+        params: dict[str, int | str] = {"pageSize": limit}
         if since:
             params["search[since]"] = since
 
