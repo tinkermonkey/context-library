@@ -207,7 +207,6 @@ class EmailAdapter(BaseAdapter):
             httpx.HTTPError: If the API request fails
             ValueError: If EmailEngine returns unexpected response schema
         """
-
         params: dict[str, int | str] = {"pageSize": limit}
         if since:
             params["search[since]"] = since
