@@ -244,16 +244,22 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         return tuple(dependencies)
 
-    def _parse_standard_tasks(self, file_path: Path, markdown: str) -> Iterator[dict[str, Any]]:
+    def _parse_standard_tasks(
+        self, file_path: Path, markdown: str, seen_unknown_markers: set[str] | None = None
+    ) -> Iterator[dict[str, Any]]:
         """Parse tasks from standard Obsidian Tasks checkbox syntax.
 
         Args:
             file_path: Path to the markdown file
             markdown: Markdown content of the file
+            seen_unknown_markers: Set to track unknown markers already logged (for deduplication)
 
         Yields:
             Dictionary with task metadata
         """
+        if seen_unknown_markers is None:
+            seen_unknown_markers = set()
+
         for task_match in TASK_PATTERN.finditer(markdown):
             marker = task_match.group(1)
             title = task_match.group(2).strip()
@@ -263,18 +269,19 @@ class ObsidianTasksAdapter(BaseAdapter):
                 continue
 
             marker_lower = marker.lower()
-            if marker_lower not in _STATUS_MAP:
+            # Compute actual line number from match position in markdown
+            line_number = markdown[:task_match.start()].count('\n') + 1
+            if marker_lower not in _STATUS_MAP and marker_lower not in seen_unknown_markers:
+                seen_unknown_markers.add(marker_lower)
+                known_markers = ', '.join(f'[{k}]' for k in _STATUS_MAP)
                 logger.warning(
-                    f"Unknown task marker '[{marker}]' in {file_path}:{task_match.start()}. "
-                    f"Defaulting to 'open'. Known markers: {list(_STATUS_MAP.keys())}"
+                    f"Unknown task marker '[{marker}]' in {file_path}:{line_number}. "
+                    f"Defaulting to 'open'. Known markers: {known_markers}"
                 )
             status = _STATUS_MAP.get(marker_lower, "open")
             due_date = self._extract_due_date(title)
             priority = self._extract_priority(title)
             dependencies = self._extract_dependencies(title)
-
-            # Compute actual line number from match position in markdown
-            line_number = markdown[:task_match.start()].count('\n') + 1
 
             # Get file-relative path for source_id
             file_rel_path = file_path.relative_to(self._vault_path)
@@ -290,7 +297,9 @@ class ObsidianTasksAdapter(BaseAdapter):
                 "line_number": line_number,
             }
 
-    def _parse_kanban_tasks(self, file_path: Path, markdown: str) -> Iterator[dict[str, Any]]:
+    def _parse_kanban_tasks(
+        self, file_path: Path, markdown: str, seen_unknown_lanes: set[str] | None = None
+    ) -> Iterator[dict[str, Any]]:
         """Parse tasks from Kanban plugin format (headings as lanes, list items as tasks).
 
         Kanban format:
@@ -300,10 +309,14 @@ class ObsidianTasksAdapter(BaseAdapter):
         Args:
             file_path: Path to the markdown file
             markdown: Markdown content of the file
+            seen_unknown_lanes: Set to track unknown lanes already logged (for deduplication)
 
         Yields:
             Dictionary with task metadata
         """
+        if seen_unknown_lanes is None:
+            seen_unknown_lanes = set()
+
         lines = markdown.split("\n")
         current_lane = "open"
 
@@ -314,10 +327,12 @@ class ObsidianTasksAdapter(BaseAdapter):
                 lane_name = heading_match.group(1).strip()
                 # Map lane name to status
                 lane_name_lower = lane_name.lower()
-                if lane_name_lower not in _KANBAN_STATUS_MAP:
+                if lane_name_lower not in _KANBAN_STATUS_MAP and lane_name_lower not in seen_unknown_lanes:
+                    seen_unknown_lanes.add(lane_name_lower)
+                    known_lanes = ', '.join(_KANBAN_STATUS_MAP.keys())
                     logger.warning(
                         f"Unknown Kanban lane '{lane_name}' in {file_path}:{line_number}. "
-                        f"Defaulting to 'open'. Known lanes: {list(_KANBAN_STATUS_MAP.keys())}"
+                        f"Defaulting to 'open'. Known lanes: {known_lanes}"
                     )
                 current_lane = _KANBAN_STATUS_MAP.get(lane_name_lower, "open")
                 continue
@@ -375,6 +390,10 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         if not self._vault_path.is_dir():
             raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
+
+        # Track unknown markers and lanes per fetch to avoid duplicate warning logs
+        seen_unknown_markers: set[str] = set()
+        seen_unknown_lanes: set[str] = set()
 
         for file_path in self._vault_path.rglob("*.md"):
             if not file_path.is_file():
@@ -436,9 +455,9 @@ class ObsidianTasksAdapter(BaseAdapter):
 
             # Parse tasks based on format
             if is_kanban:
-                task_gen = self._parse_kanban_tasks(file_path, markdown)
+                task_gen = self._parse_kanban_tasks(file_path, markdown, seen_unknown_lanes)
             else:
-                task_gen = self._parse_standard_tasks(file_path, markdown)
+                task_gen = self._parse_standard_tasks(file_path, markdown, seen_unknown_markers)
 
             # Yield NormalizedContent for each task
             for task_data in task_gen:

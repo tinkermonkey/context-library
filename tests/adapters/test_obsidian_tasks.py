@@ -480,11 +480,12 @@ kanban-plugin: basic
         assert len(tasks) == 2
 
         # "Archived" lane is unknown, should default to 'open'
-        archived_task = next(t for t in tasks if "archived" in t.source_id or t.structural_hints.extra_metadata["title"] == "Task in archived lane")
+        # Tasks are created in order: Archived first (line 468), then In Progress (line 471)
+        archived_task = tasks[0]
         assert archived_task.structural_hints.extra_metadata["status"] == "open"
 
         # "In Progress" is known, should map correctly
-        in_progress_task = next(t for t in tasks if "progress" in t.structural_hints.extra_metadata["title"].lower())
+        in_progress_task = tasks[1]
         assert in_progress_task.structural_hints.extra_metadata["status"] == "in-progress"
 
         # Should have logged a warning about unknown lane
