@@ -140,8 +140,6 @@ def mock_caldav_client():
 
     Provides a tuple of (mock_client, mock_calendar) for testing CalDAV adapters.
     """
-    from unittest.mock import MagicMock
-
     # Create mock calendar
     mock_calendar = MagicMock()
     mock_calendar.name = "Default"

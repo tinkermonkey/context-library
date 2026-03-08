@@ -742,20 +742,6 @@ END:VCALENDAR""".encode("utf-8")
 class TestCalDAVAdapterAllDayEvents:
     """Tests for all-day event handling (date vs datetime)."""
 
-    @pytest.fixture
-    def mock_caldav_client(self):
-        """Mock CalDAV client and related objects."""
-        mock_calendar = MagicMock()
-        mock_calendar.name = "Default"
-
-        mock_principal = MagicMock()
-        mock_principal.calendars.return_value = [mock_calendar]
-
-        mock_client = MagicMock()
-        mock_client.principal.return_value = mock_principal
-
-        return mock_client, mock_calendar
-
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_fetch_all_day_event(self, mock_dav_client_class, mock_caldav_client):
         """fetch() handles all-day events (date objects) correctly."""
