@@ -1,6 +1,7 @@
 """Tests for the tasks domain."""
 
 import pytest
+from pydantic import ValidationError
 
 from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.domains.tasks import TasksDomain
@@ -601,7 +602,7 @@ class TestTaskMetadataValidation:
 
     def test_chunk_raises_on_invalid_status(self, tasks_domain):
         """chunk() raises ValueError when status is not in allowed set."""
-        with pytest.raises((ValueError, Exception)):  # Pydantic validation error
+        with pytest.raises(ValidationError, match="Input should be"):
             TaskMetadata(
                 task_id="task-001",
                 status="invalid-status",  # Invalid status

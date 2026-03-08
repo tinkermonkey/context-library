@@ -848,6 +848,16 @@ class TestTaskMetadata:
         with pytest.raises(ValidationError):
             metadata.status = "completed"  # type: ignore[assignment]
 
+    def test_task_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError):
+            TaskMetadata(
+                task_id="t1",
+                status=TaskStatus.OPEN,
+                title="Task",
+                source_type="",
+            )
+
     def test_task_metadata_model_dump_serializable(self) -> None:
         """Test that TaskMetadata.model_dump() returns JSON-serializable dict."""
         metadata = TaskMetadata(
@@ -864,7 +874,7 @@ class TestTaskMetadata:
         dumped = metadata.model_dump()
         assert isinstance(dumped, dict)
         assert dumped["task_id"] == "t1"
-        assert dumped["status"] == "open"  # Enum is serialized to its value
+        assert dumped["status"] == "open"  # Enum compares equal to its string value via str base class
         assert dumped["title"] == "Task"
         assert dumped["due_date"] == "2024-03-15T23:59:59Z"
         assert dumped["priority"] == 1
@@ -1044,6 +1054,15 @@ class TestEventMetadata:
         )
         with pytest.raises(ValidationError):
             metadata.title = "Modified"  # type: ignore[assignment]
+
+    def test_event_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError):
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                source_type="",
+            )
 
     def test_event_metadata_model_dump_serializable(self) -> None:
         """Test that EventMetadata.model_dump() returns JSON-serializable dict."""
