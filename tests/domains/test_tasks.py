@@ -11,7 +11,6 @@ from context_library.storage.models import (
     NormalizedContent,
     StructuralHints,
     TaskMetadata,
-    TaskStatus,
     compute_chunk_hash,
 )
 
@@ -27,7 +26,7 @@ def sample_task_metadata():
     """Create sample TaskMetadata for testing."""
     return TaskMetadata(
         task_id="task-001",
-        status=TaskStatus.OPEN,
+        status="open",
         title="Complete project documentation",
         due_date="2025-02-15T23:59:59Z",
         priority=1,
@@ -216,7 +215,7 @@ class TestSingleTaskChunk:
         with pytest.raises(ValueError, match="title must be a non-empty string"):
             TaskMetadata(
                 task_id="task-001",
-                status=TaskStatus.OPEN,
+                status="open",
                 title="",  # Empty title
                 due_date=None,
                 priority=None,
@@ -238,7 +237,7 @@ class TestSingleTaskChunk:
             natural_boundaries=[],
             extra_metadata={
                 "task_id": "task-001",
-                "status": TaskStatus.OPEN,
+                "status": "open",
                 "title": "",  # Invalid: empty title
                 "due_date": None,
                 "priority": None,
@@ -290,7 +289,7 @@ class TestSingleTaskChunk:
         """chunk() omits due date when due_date is None."""
         meta = TaskMetadata(
             task_id="task-001",
-            status=TaskStatus.IN_PROGRESS,
+            status="in-progress",
             title="Review code changes",
             due_date=None,  # No due date
             priority=2,
@@ -534,7 +533,7 @@ class TestChunkHash:
         meta1 = sample_task_metadata
         meta2 = TaskMetadata(
             task_id="task-001",
-            status=TaskStatus.COMPLETED,  # Different status
+            status="completed",  # Different status
             title="Different title",  # Different title
             due_date="2025-03-15T23:59:59Z",  # Different due date
             priority=3,
@@ -590,7 +589,7 @@ class TestTaskMetadataValidation:
         with pytest.raises(ValueError, match="task_id must be a non-empty string"):
             TaskMetadata(
                 task_id="",  # Invalid: empty
-                status=TaskStatus.OPEN,
+                status="open",
                 title="Test task",
                 due_date=None,
                 priority=None,
@@ -602,7 +601,7 @@ class TestTaskMetadataValidation:
 
     def test_chunk_raises_on_invalid_status(self, tasks_domain):
         """chunk() raises ValueError when status is not in allowed set."""
-        with pytest.raises(ValidationError, match="Input should be"):
+        with pytest.raises(ValidationError, match="status must be one of"):
             TaskMetadata(
                 task_id="task-001",
                 status="invalid-status",  # Invalid status
@@ -620,7 +619,7 @@ class TestTaskMetadataValidation:
         with pytest.raises(ValueError, match="ISO 8601"):
             TaskMetadata(
                 task_id="task-001",
-                status=TaskStatus.OPEN,
+                status="open",
                 title="Test task",
                 due_date="not-a-date",  # Invalid format
                 priority=None,
@@ -635,7 +634,7 @@ class TestTaskMetadataValidation:
         with pytest.raises(ValueError, match="ISO 8601"):
             TaskMetadata(
                 task_id="task-001",
-                status=TaskStatus.OPEN,
+                status="open",
                 title="Test task",
                 due_date=None,
                 priority=None,
@@ -651,7 +650,7 @@ class TestTaskStatusVariations:
 
     @pytest.mark.parametrize(
         "status",
-        [TaskStatus.OPEN, TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.IN_PROGRESS],
+        ["open", "completed", "cancelled", "in-progress"],
     )
     def test_all_valid_statuses_produce_correct_header(
         self, tasks_domain, status
@@ -686,4 +685,4 @@ class TestTaskStatusVariations:
 
         chunks = tasks_domain.chunk(content)
 
-        assert f"[{status.value}]" in chunks[0].context_header
+        assert f"[{status}]" in chunks[0].context_header

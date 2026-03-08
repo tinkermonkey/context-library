@@ -9,7 +9,7 @@ This module contains:
 import hashlib
 import re
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 
@@ -213,17 +213,24 @@ class TaskMetadata(BaseModel):
     Captures task identification, status, scheduling, and collaboration context
     for task-based chunking and filtering.
 
+    The status field uses an extensible string allowlist rather than a fixed enum,
+    allowing new status values to be added without code changes while validating
+    against known values.
+
     Invariants:
     - task_id, title, and source_type must be non-empty strings
-    - status must be a valid TaskStatus enum value
+    - status must be a valid string from the allowed task status values
     - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
     - priority if provided must be in range 1-4
     """
 
+    # Allowed status values - extensible list that can be updated independently
+    ALLOWED_STATUSES: ClassVar[set[str]] = {"open", "completed", "cancelled", "in-progress"}
+
     model_config = ConfigDict(frozen=True)
 
     task_id: str
-    status: TaskStatus
+    status: str
     title: str
     description: str | None = None
     due_date: str | None = None
@@ -240,6 +247,18 @@ class TaskMetadata(BaseModel):
         """Validate that task_id is not empty."""
         if not value:
             raise ValueError("task_id must be a non-empty string")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        """Validate that status is in the allowed task status values."""
+        if not isinstance(value, str):
+            raise ValueError(f"status must be a string, got: {type(value).__name__}")
+        if value not in cls.ALLOWED_STATUSES:
+            raise ValueError(
+                f"status must be one of {sorted(cls.ALLOWED_STATUSES)}, got: {value!r}"
+            )
         return value
 
     @field_validator("title")
