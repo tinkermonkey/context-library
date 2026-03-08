@@ -1164,44 +1164,12 @@ END:VCALENDAR"""
 class TestEventMetadataFieldExtraction:
     """Tests for _extract_event_metadata field handling edge cases."""
 
-    def _create_ical_event(
-        self,
-        uid: str = "event1",
-        summary: str = "Meeting",
-        dtstart: str = "20260307T100000Z",
-        dtend: str = "20260307T110000Z",
-        description: str = "Meeting description",
-        organizer: str = "organizer@example.com",
-        attendees: list | None = None,
-    ) -> str:
-        """Create a simple iCalendar event string."""
-        if attendees is None:
-            attendees = []
-
-        attendee_lines = "\n".join(f"ATTENDEE:{a}" for a in attendees)
-        organizer_line = f"ORGANIZER:{organizer}" if organizer is not None else ""
-
-        ical = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Test//Test//EN
-BEGIN:VEVENT
-UID:{uid}
-SUMMARY:{summary}
-DTSTART:{dtstart}
-DTEND:{dtend}
-DESCRIPTION:{description}
-{organizer_line}
-{attendee_lines}
-END:VEVENT
-END:VCALENDAR"""
-        return ical
-
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_extract_event_with_none_uid_skips_gracefully(
         self, mock_dav_client_class, mock_caldav_client, caplog
     ):
         """_extract_event_metadata skips events with None UID and logs warning."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1229,7 +1197,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client, caplog
     ):
         """_extract_event_metadata skips events with missing UID and logs warning."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1256,7 +1224,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client, caplog
     ):
         """_extract_event_metadata skips events with empty UID string and logs warning."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1283,7 +1251,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client, caplog
     ):
         """_extract_event_metadata skips events with None SUMMARY and logs warning."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1311,7 +1279,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client, caplog
     ):
         """_extract_event_metadata skips events with missing SUMMARY and logs warning."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1338,7 +1306,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client
     ):
         """_extract_event_metadata produces None for None ORGANIZER, not literal "None" string."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1370,7 +1338,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client
     ):
         """_extract_event_metadata produces None for missing ORGANIZER."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
@@ -1400,7 +1368,7 @@ END:VCALENDAR"""
         self, mock_dav_client_class, mock_caldav_client
     ):
         """_extract_event_metadata produces organizer string when present."""
-        from icalendar import Calendar, Event
+        from icalendar import Event
 
         mock_client, _ = mock_caldav_client
         mock_dav_client_class.return_value = mock_client
