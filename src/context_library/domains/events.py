@@ -41,7 +41,7 @@ class EventsDomain(BaseDomain):
         4. Compute chunk_hash from content only (excluding context_header)
         5. Assign sequential chunk_index values
         6. Set chunk_type to ChunkType.STANDARD
-        7. Store domain_metadata from EventMetadata.model_dump()
+        7. Store domain_metadata preserving both validated fields and extra fields
 
         Args:
             content: The normalized event content to chunk
@@ -90,13 +90,18 @@ class EventsDomain(BaseDomain):
         chunks = []
         for idx, segment in enumerate(segments):
             chunk_hash = compute_chunk_hash(segment)
+            # Merge validated model fields with original extra fields to preserve all metadata.
+            # meta.model_dump() contains validated fields (extra="ignore" strips extras).
+            # meta_dict contains all original fields including domain-specific extras.
+            # Merging ensures: (1) validation through Pydantic, (2) preservation of extra fields.
+            domain_metadata = {**meta.model_dump(), **meta_dict}
             chunk = Chunk(
                 chunk_hash=chunk_hash,
                 content=segment,
                 context_header=context_header,
                 chunk_index=idx,
                 chunk_type=ChunkType.STANDARD,
-                domain_metadata=meta.model_dump(),
+                domain_metadata=domain_metadata,
             )
             chunks.append(chunk)
 
