@@ -175,6 +175,7 @@ class CalDAVAdapter(BaseAdapter):
 
         Raises:
             RuntimeError: If all events encountered UnicodeDecodeError
+                (via _process_events_with_aggregate_check)
         """
         events = calendar.search(
             todo=False,
@@ -183,25 +184,9 @@ class CalDAVAdapter(BaseAdapter):
             include_duplicates=False,
         )
 
-        events_list = list(events)
-        if not events_list:
-            return
-
-        skipped_count = 0
-        for event in events_list:
-            items_yielded = 0
-            for item in self._process_event(event, calendar_name):
-                items_yielded += 1
-                yield item
-            if items_yielded == 0:
-                skipped_count += 1
-
-        # If all events were skipped due to errors, raise aggregate error
-        if skipped_count == len(events_list):
-            raise RuntimeError(
-                f"Failed to process all {len(events_list)} events from calendar "
-                f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
-            )
+        yield from self._process_events_with_aggregate_check(
+            events, calendar_name
+        )
 
     def _fetch_incremental(
         self, calendar: Any, calendar_name: str, source_ref: str
@@ -241,26 +226,10 @@ class CalDAVAdapter(BaseAdapter):
                 yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
                 return
 
-            # Process events - track skipped for aggregate error reporting
-            events_list = list(events)
-            if not events_list:
-                return
-
-            skipped_count = 0
-            for event in events_list:
-                items_yielded = 0
-                for item in self._process_event(event, calendar_name, cutoff_dt):
-                    items_yielded += 1
-                    yield item
-                if items_yielded == 0:
-                    skipped_count += 1
-
-            # If all events were skipped, raise aggregate error
-            if skipped_count == len(events_list):
-                raise RuntimeError(
-                    f"Failed to process all {len(events_list)} events from calendar "
-                    f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
-                )
+            # Process events with aggregate error tracking
+            yield from self._process_events_with_aggregate_check(
+                events, calendar_name, cutoff_dt
+            )
         else:
             # No sync token available, use date-range query
             yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
@@ -280,6 +249,7 @@ class CalDAVAdapter(BaseAdapter):
 
         Raises:
             RuntimeError: If all events encountered UnicodeDecodeError
+                (via _process_events_with_aggregate_check)
         """
         # Set end date to far future to catch all events after start_dt
         end_dt = start_dt + timedelta(days=365 * 10)
@@ -293,24 +263,52 @@ class CalDAVAdapter(BaseAdapter):
             include_duplicates=False,
         )
 
+        yield from self._process_events_with_aggregate_check(
+            events, calendar_name, start_dt
+        )
+
+    def _process_events_with_aggregate_check(
+        self,
+        events: Any,
+        calendar_name: str,
+        cutoff_dt: datetime | None = None,
+    ) -> Iterator[NormalizedContent]:
+        """Process events with aggregate error tracking.
+
+        Only raises RuntimeError if all events encountered UnicodeDecodeError
+        (actual encoding errors), not if they were filtered out by other criteria.
+
+        Args:
+            events: Iterable of caldav.Event instances
+            calendar_name: Name of the calendar
+            cutoff_dt: Optional datetime cutoff for filtering by LAST-MODIFIED
+
+        Yields:
+            NormalizedContent: Normalized event
+
+        Raises:
+            RuntimeError: If all events encountered UnicodeDecodeError
+        """
         events_list = list(events)
         if not events_list:
             return
 
-        skipped_count = 0
+        unicode_error_count = 0
         for event in events_list:
             items_yielded = 0
-            for item in self._process_event(event, calendar_name, start_dt):
-                items_yielded += 1
-                yield item
-            if items_yielded == 0:
-                skipped_count += 1
+            try:
+                for item in self._process_event(event, calendar_name, cutoff_dt):
+                    items_yielded += 1
+                    yield item
+            except UnicodeDecodeError:
+                # Track actual encoding errors separately
+                unicode_error_count += 1
 
-        # If all events were skipped, raise aggregate error
-        if skipped_count == len(events_list):
+        # If all events encountered UnicodeDecodeError, raise aggregate error
+        if unicode_error_count > 0 and unicode_error_count == len(events_list):
             raise RuntimeError(
                 f"Failed to process all {len(events_list)} events from calendar "
-                f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
+                f"{calendar_name!r}: all events encountered UnicodeDecodeError when decoding iCalendar data"
             )
 
     def _process_event(
@@ -390,14 +388,23 @@ class CalDAVAdapter(BaseAdapter):
         event_id = uid_str
 
         summary = vevent.get("SUMMARY")
-        if summary is None or (isinstance(summary, str) and not summary.strip()):
-            # Missing or empty SUMMARY: log warning and skip event
+        if summary is None:
+            # Missing SUMMARY: log warning and skip event
             logger.warning(
                 f"Skipping event from calendar {calendar_name!r}: "
-                "SUMMARY is missing or empty (required for event title)"
+                "SUMMARY is missing (required for event title)"
             )
             return
-        title = str(summary).strip()
+        # Convert to string before checking emptiness to handle vText objects
+        summary_str = str(summary).strip()
+        if not summary_str:
+            # Empty SUMMARY after conversion: log warning and skip event
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                "SUMMARY is empty (required for event title)"
+            )
+            return
+        title = summary_str
 
         description_field = vevent.get("DESCRIPTION")
         description = (str(description_field) if description_field is not None else "") or title

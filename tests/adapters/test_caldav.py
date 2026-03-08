@@ -57,24 +57,24 @@ class TestCalDAVAdapterProperties:
     """Tests for CalDAVAdapter properties."""
 
     def test_adapter_id_without_calendar_name(self):
-        """adapter_id includes only url when calendar_name is None."""
+        """adapter_id includes username and url when calendar_name is None."""
         adapter = CalDAVAdapter(
             url="https://calendar.google.com/caldav/v2/",
             username="user@example.com",
             password="password123",
         )
-        assert adapter.adapter_id == "caldav:https://calendar.google.com/caldav/v2/"
+        assert adapter.adapter_id == "caldav:user@example.com@https://calendar.google.com/caldav/v2/"
 
     def test_adapter_id_with_calendar_name(self):
-        """adapter_id does not include calendar_name (only url)."""
+        """adapter_id includes username and url (not calendar_name)."""
         adapter = CalDAVAdapter(
             url="https://calendar.google.com/caldav/v2/",
             username="user@example.com",
             password="password123",
             calendar_name="Work",
         )
-        # adapter_id should only include URL, not calendar_name
-        assert adapter.adapter_id == "caldav:https://calendar.google.com/caldav/v2/"
+        # adapter_id should include username and URL, but not calendar_name
+        assert adapter.adapter_id == "caldav:user@example.com@https://calendar.google.com/caldav/v2/"
 
     def test_adapter_id_deterministic(self):
         """adapter_id is deterministic for the same configuration."""
