@@ -36,7 +36,7 @@ The macOS helper service should expose the following HTTP endpoint:
 
 Priority Mapping (EventKit uses 0-9):
   - 0: none (maps to None)
-  - 1-3: high (maps to 1)
+  - 1-3: highest (maps to 1)
   - 4: high (maps to 2)
   - 5-7: medium (maps to 3)
   - 8-9: low (maps to 4)
@@ -269,9 +269,18 @@ class AppleRemindersAdapter(BaseAdapter):
 
         Returns:
             Internal priority (1-4) or None if eventkit_priority is 0
+
+        Raises:
+            ValueError: If eventkit_priority is outside the valid range 0-9
         """
         if eventkit_priority == 0:
             return None
+
+        # Validate priority is in valid range
+        if not (0 <= eventkit_priority <= 9):
+            raise ValueError(
+                f"EventKit priority must be in range 0-9, got {eventkit_priority}"
+            )
 
         # EventKit: 1-3 = highest, 4 = high, 5-7 = medium, 8-9 = low
         # Internal: 1 = highest, 2 = high, 3 = medium, 4 = low
@@ -280,7 +289,7 @@ class AppleRemindersAdapter(BaseAdapter):
             4: 2, 5: 3, 6: 3, 7: 3,
             8: 4, 9: 4,
         }
-        return mapping.get(eventkit_priority)
+        return mapping[eventkit_priority]
 
     def _extract_task_metadata(self, reminder: dict) -> TaskMetadata:
         """Extract TaskMetadata from reminder response.
