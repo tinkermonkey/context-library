@@ -114,6 +114,7 @@ class ObsidianTasksAdapter(BaseAdapter):
         self._vault_path = Path(vault_path).resolve()
         self._poll_strategy = poll_strategy
         self._watcher: FileSystemWatcher | None = None
+        self._changed_files: set[Path] = set()
 
         if poll_strategy == PollStrategy.PUSH:
             # Create watcher for push-based ingestion
@@ -375,6 +376,9 @@ class ObsidianTasksAdapter(BaseAdapter):
         Recursively discovers all .md files in the vault and yields NormalizedContent
         for each task found, using either standard Obsidian Tasks syntax or Kanban format.
 
+        In push mode, only processes files that have been modified since the last fetch.
+        In pull mode, processes all files.
+
         Args:
             source_ref: Unused for Obsidian Tasks adapter (uses self._vault_path)
 
@@ -395,7 +399,16 @@ class ObsidianTasksAdapter(BaseAdapter):
         seen_unknown_markers: set[str] = set()
         seen_unknown_lanes: set[str] = set()
 
-        for file_path in self._vault_path.rglob("*.md"):
+        # Determine which files to process based on poll strategy
+        if self._poll_strategy == PollStrategy.PUSH and self._changed_files:
+            # In push mode: only process changed files
+            files_to_process = list(self._changed_files)
+            self._changed_files.clear()
+        else:
+            # In pull mode or if no changes: process all files
+            files_to_process = list(self._vault_path.rglob("*.md"))
+
+        for file_path in files_to_process:
             if not file_path.is_file():
                 continue
 
@@ -507,14 +520,17 @@ class ObsidianTasksAdapter(BaseAdapter):
         """Handle filesystem changes in push mode.
 
         Called by FileSystemWatcher when a file is created, modified, or deleted.
+        Records the file path so that fetch() will selectively re-ingest it.
 
         Args:
             event: FileEvent containing the path and event type
 
         Note:
-            This method logs the change but does not trigger re-ingestion.
-            Full push-mode support (triggering selective re-ingestion) requires
-            integration with the document store framework. The framework should
-            call fetch() after detecting a file change.
+            In push mode, this method records changed files for re-ingestion when fetch()
+            is called. Deleted files are recorded to allow cleanup of previously extracted
+            tasks. The framework should call fetch() after detecting a file change to
+            retrieve updated content.
         """
         logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
+        # Record the changed file for processing in the next fetch() call
+        self._changed_files.add(event.path)
