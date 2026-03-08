@@ -295,10 +295,8 @@ class CalDAVAdapter(BaseAdapter):
 
         unicode_error_count = 0
         for event in events_list:
-            items_yielded = 0
             try:
                 for item in self._process_event(event, calendar_name, cutoff_dt):
-                    items_yielded += 1
                     yield item
             except UnicodeDecodeError:
                 # Track actual encoding errors separately
@@ -327,9 +325,12 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event
 
+        Raises:
+            UnicodeDecodeError: If event data cannot be decoded as UTF-8 (for aggregate tracking)
+
         Notes:
             Errors in event parsing or metadata extraction propagate to caller for visibility.
-            Only UnicodeDecodeError is caught to skip malformed iCalendar encoding.
+            Only UnicodeDecodeError is caught, logged, and re-raised for aggregate error tracking.
         """
         try:
             ical_data = event.data
@@ -350,6 +351,7 @@ class CalDAVAdapter(BaseAdapter):
                 f"Skipping event from calendar {calendar_name!r}: "
                 f"Failed to decode iCalendar data: {e}"
             )
+            raise
 
     def _extract_event_metadata(
         self,

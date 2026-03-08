@@ -1189,7 +1189,7 @@ class TestEventMetadataFieldExtraction:
         results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
 
         assert results == []
-        assert "UID is missing or empty" in caplog.text
+        assert "UID is empty" in caplog.text
         assert "TestCalendar" in caplog.text
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
@@ -1217,7 +1217,7 @@ class TestEventMetadataFieldExtraction:
         results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
 
         assert results == []
-        assert "UID is missing or empty" in caplog.text
+        assert "UID is missing" in caplog.text
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_extract_event_with_empty_uid_skips_gracefully(
@@ -1244,7 +1244,7 @@ class TestEventMetadataFieldExtraction:
         results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
 
         assert results == []
-        assert "UID is missing or empty" in caplog.text
+        assert "UID is empty" in caplog.text
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_extract_event_with_none_summary_skips_gracefully(
@@ -1271,7 +1271,7 @@ class TestEventMetadataFieldExtraction:
         results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
 
         assert results == []
-        assert "SUMMARY is missing or empty" in caplog.text
+        assert "SUMMARY is missing" in caplog.text
         assert "TestCalendar" in caplog.text
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
@@ -1299,7 +1299,7 @@ class TestEventMetadataFieldExtraction:
         results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
 
         assert results == []
-        assert "SUMMARY is missing or empty" in caplog.text
+        assert "SUMMARY is missing" in caplog.text
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_extract_event_with_none_organizer_produces_none_not_string(
