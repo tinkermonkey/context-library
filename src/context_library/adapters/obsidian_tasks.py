@@ -262,7 +262,13 @@ class ObsidianTasksAdapter(BaseAdapter):
             if not title:
                 continue
 
-            status = _STATUS_MAP.get(marker.lower(), "open")
+            marker_lower = marker.lower()
+            if marker_lower not in _STATUS_MAP:
+                logger.warning(
+                    f"Unknown task marker '[{marker}]' in {file_path}:{task_match.start()}. "
+                    f"Defaulting to 'open'. Known markers: {list(_STATUS_MAP.keys())}"
+                )
+            status = _STATUS_MAP.get(marker_lower, "open")
             due_date = self._extract_due_date(title)
             priority = self._extract_priority(title)
             dependencies = self._extract_dependencies(title)
@@ -307,9 +313,13 @@ class ObsidianTasksAdapter(BaseAdapter):
             if heading_match:
                 lane_name = heading_match.group(1).strip()
                 # Map lane name to status
-                current_lane = _KANBAN_STATUS_MAP.get(
-                    lane_name.lower(), "open"
-                )
+                lane_name_lower = lane_name.lower()
+                if lane_name_lower not in _KANBAN_STATUS_MAP:
+                    logger.warning(
+                        f"Unknown Kanban lane '{lane_name}' in {file_path}:{line_number}. "
+                        f"Defaulting to 'open'. Known lanes: {list(_KANBAN_STATUS_MAP.keys())}"
+                    )
+                current_lane = _KANBAN_STATUS_MAP.get(lane_name_lower, "open")
                 continue
 
             # Check for list item (task card)

@@ -452,6 +452,81 @@ class TestKanbanParsing:
         # Should have 7 tasks in the kanban file
         assert len(tasks) == 7
 
+    def test_unknown_kanban_lane_logs_warning(self, tmp_path, caplog):
+        """Unknown Kanban lane logs a warning and defaults to 'open'."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        kanban_file = vault / "board.md"
+        kanban_content = """---
+kanban-plugin: basic
+---
+
+## Archived
+
+- Task in archived lane
+
+## In Progress
+
+- [ ] Task in progress
+"""
+        kanban_file.write_text(kanban_content, encoding="utf-8")
+
+        adapter = ObsidianTasksAdapter(vault)
+        with caplog.at_level("WARNING"):
+            tasks = list(adapter.fetch(""))
+
+        # Should have 2 tasks
+        assert len(tasks) == 2
+
+        # "Archived" lane is unknown, should default to 'open'
+        archived_task = next(t for t in tasks if "archived" in t.source_id or t.structural_hints.extra_metadata["title"] == "Task in archived lane")
+        assert archived_task.structural_hints.extra_metadata["status"] == "open"
+
+        # "In Progress" is known, should map correctly
+        in_progress_task = next(t for t in tasks if "progress" in t.structural_hints.extra_metadata["title"].lower())
+        assert in_progress_task.structural_hints.extra_metadata["status"] == "in-progress"
+
+        # Should have logged a warning about unknown lane
+        assert any("Unknown Kanban lane 'Archived'" in record.message for record in caplog.records)
+
+    def test_multiple_unknown_kanban_lanes_logged(self, tmp_path, caplog):
+        """Multiple unknown Kanban lanes each trigger a warning log."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        kanban_file = vault / "board.md"
+        kanban_content = """---
+kanban-plugin: basic
+---
+
+## Blocked
+
+- Task in blocked
+
+## Backlog
+
+- Task in backlog
+
+## Done
+
+- [ ] Done task
+"""
+        kanban_file.write_text(kanban_content, encoding="utf-8")
+
+        adapter = ObsidianTasksAdapter(vault)
+        with caplog.at_level("WARNING"):
+            tasks = list(adapter.fetch(""))
+
+        assert len(tasks) == 3
+
+        # Check that warnings were logged for unknown lanes
+        warning_messages = [record.message for record in caplog.records if "Unknown Kanban lane" in record.message]
+        # Should have warnings for "Blocked" and "Backlog" (but not "Done" which is known)
+        assert len(warning_messages) >= 2
+        assert any("Blocked" in msg for msg in warning_messages)
+        assert any("Backlog" in msg for msg in warning_messages)
+
 
 class TestMixedVault:
     """Tests for vaults with both standard and kanban files."""
@@ -607,6 +682,47 @@ class TestEdgeCases:
         # Only the valid task should be yielded
         assert len(tasks) == 1
         assert tasks[0].structural_hints.extra_metadata["title"] == "Valid task"
+
+    def test_unknown_task_marker_logs_warning(self, tmp_path, caplog):
+        """Unknown task marker logs a warning and defaults to 'open'."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        task_file = vault / "tasks.md"
+        # [>] is a community plugin marker for deferred tasks (not in standard map)
+        task_file.write_text("- [>] Deferred task\n- [ ] Regular open task\n")
+
+        adapter = ObsidianTasksAdapter(vault)
+        with caplog.at_level("WARNING"):
+            tasks = list(adapter.fetch(""))
+
+        # Should have 2 tasks
+        assert len(tasks) == 2
+
+        # Both should default to 'open' status since [>] is unknown
+        assert tasks[0].structural_hints.extra_metadata["status"] == "open"
+        assert tasks[1].structural_hints.extra_metadata["status"] == "open"
+
+        # Should have logged a warning about unknown marker
+        assert any("Unknown task marker '[>]'" in record.message for record in caplog.records)
+
+    def test_multiple_unknown_task_markers_logged(self, tmp_path, caplog):
+        """Each unknown task marker triggers a separate warning log."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        task_file = vault / "tasks.md"
+        # [?] is a community plugin marker for questions, [!] for important
+        task_file.write_text("- [?] Question task\n- [!] Important task\n")
+
+        adapter = ObsidianTasksAdapter(vault)
+        with caplog.at_level("WARNING"):
+            tasks = list(adapter.fetch(""))
+
+        assert len(tasks) == 2
+        # Check that warnings were logged for both unknown markers
+        warning_messages = [record.message for record in caplog.records if "Unknown task marker" in record.message]
+        assert len(warning_messages) >= 2
 
     def test_task_extra_metadata_structure(self, minimal_vault):
         """Task extra_metadata has all required fields."""
