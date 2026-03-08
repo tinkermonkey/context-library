@@ -394,7 +394,7 @@ class CalDAVAdapter(BaseAdapter):
             Duration in minutes, or None if cannot be computed
 
         Raises:
-            TypeError: If mixed naive and aware datetimes are encountered after normalization
+            TypeError: Only if neither DTSTART nor DTEND can be converted to datetime objects
         """
         # Try DURATION property first
         duration = vevent.get("DURATION")
@@ -415,8 +415,10 @@ class CalDAVAdapter(BaseAdapter):
 
             # Normalize naive datetimes to UTC (matching _normalize_datetime behavior)
             if isinstance(start, datetime) and start.tzinfo is None:
+                logger.debug(f"Naive DTSTART {start!r}; assuming UTC.")
                 start = start.replace(tzinfo=timezone.utc)
             if isinstance(end, datetime) and end.tzinfo is None:
+                logger.debug(f"Naive DTEND {end!r}; assuming UTC.")
                 end = end.replace(tzinfo=timezone.utc)
 
             delta = end - start
@@ -445,12 +447,8 @@ class CalDAVAdapter(BaseAdapter):
             # Already a datetime, convert to UTC if needed
             if dt_value.tzinfo is None:
                 # Naive datetime, assume UTC (with warning)
-                logger.warning(
-                    f"Encountered naive datetime {dt_value!r} in iCalendar data. "
-                    f"Assuming UTC. Self-hosted CalDAV servers may return times in local "
-                    f"server timezone without explicit tzinfo, potentially shifting event "
-                    f"times by hours. Ensure server is configured to return timezone-aware "
-                    f"datetimes (DTSTART;TZID= or floating times with UTC assumption)."
+                logger.debug(
+                    f"Naive datetime {dt_value!r} in iCalendar data; assuming UTC."
                 )
                 return dt_value.replace(tzinfo=timezone.utc).isoformat()
             else:
@@ -490,10 +488,8 @@ class CalDAVAdapter(BaseAdapter):
             if isinstance(last_mod_dt, datetime):
                 # Normalize naive datetimes to UTC for comparison
                 if last_mod_dt.tzinfo is None:
-                    logger.warning(
-                        f"Event {event_id!r} in calendar {calendar_name!r} has naive "
-                        f"LAST-MODIFIED timestamp. Assuming UTC. (Servers should include "
-                        f"timezone info; naive timestamps may represent local server time.)"
+                    logger.debug(
+                        f"Event {event_id!r} LAST-MODIFIED is naive; assuming UTC."
                     )
                     last_mod_dt = last_mod_dt.replace(tzinfo=timezone.utc)
                 return last_mod_dt > cutoff_dt

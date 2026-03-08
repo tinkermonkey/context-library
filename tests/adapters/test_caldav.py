@@ -979,6 +979,48 @@ END:VCALENDAR"""
         extra_metadata = results[0].structural_hints.extra_metadata
         assert extra_metadata["duration_minutes"] == 60
 
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_compute_duration_with_naive_dtstart_and_date_dtend(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_compute_duration handles naive DTSTART with date DTEND (Issue #1 exact scenario).
+
+        Tests the specific scenario mentioned in the bug report: naive datetime DTSTART
+        with a date object DTEND (all-day end). This ensures both conversions work together.
+        """
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create event with naive DTSTART (time) and DTEND as date (all-day end)
+        # This simulates the exact scenario in the bug report
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:naive_dtstart_date_dtend
+SUMMARY:Partial All-Day Event
+DTSTART:20260307T100000
+DTEND:20260308
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Should not raise TypeError even with mixed date/datetime and naive/aware
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+        extra_metadata = results[0].structural_hints.extra_metadata
+        # March 7 10:00 to March 8 00:00 = 14 hours = 840 minutes
+        assert extra_metadata["duration_minutes"] == 840
+
     def test_is_event_modified_after_cutoff_directly_with_naive_datetime(self):
         """_is_event_modified_after_cutoff handles naive LAST-MODIFIED directly (Issue #2)."""
         from datetime import datetime, timezone
@@ -1087,6 +1129,36 @@ END:VCALENDAR"""
             assert old_result is False
             # New event should be included (after cutoff)
             assert new_result is True
+
+    def test_unexpected_typeerror_propagates_in_is_event_modified_after_cutoff(self):
+        """Unexpected TypeError exceptions in _is_event_modified_after_cutoff propagate.
+
+        Verifies that after removing TypeError from the exception handler, unexpected
+        TypeErrors (not from naive/aware datetime comparison) are not silently caught
+        and properly propagate to the caller.
+        """
+        from datetime import datetime, timezone
+
+        with patch("context_library.adapters.caldav.caldav.DAVClient"):
+            adapter = CalDAVAdapter(
+                url="https://calendar.example.com/",
+                username="user@example.com",
+                password="password123",
+            )
+
+            cutoff_dt = datetime(2026, 3, 5, 0, 0, 0, tzinfo=timezone.utc)
+
+            # Create a mock that will raise TypeError from an unexpected source
+            # (not from naive/aware datetime comparison)
+            last_modified = MagicMock()
+            # Set up dt property to raise TypeError when accessed
+            type(last_modified).dt = PropertyMock(side_effect=TypeError("Unexpected error"))
+
+            # The TypeError should propagate, not be caught and return True
+            with pytest.raises(TypeError, match="Unexpected error"):
+                adapter._is_event_modified_after_cutoff(
+                    last_modified, cutoff_dt, "TestCalendar", "test-event"
+                )
 
 
 if __name__ == "__main__":
