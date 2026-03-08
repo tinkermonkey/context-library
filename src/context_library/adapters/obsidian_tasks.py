@@ -448,7 +448,7 @@ class ObsidianTasksAdapter(BaseAdapter):
                 # Encoding error in frontmatter parsing
                 logger.warning(f"Cannot decode file {file_path}: {e}")
                 continue
-            except yaml.YAMLError as e:
+            except yaml.YAMLError:
                 # YAML frontmatter parsing failed - try reading raw content
                 logger.warning(
                     f"Frontmatter parsing failed for {file_path} (YAML error), "

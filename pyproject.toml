@@ -19,11 +19,11 @@ gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
 rich-fs = ["markitdown", "watchdog"]
-obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
+obsidian = ["obsidiantools", "python-frontmatter", "PyYAML", "watchdog"]
 caldav = ["caldav", "icalendar"]
 apple-reminders = ["httpx"]
 apple-health = ["httpx"]
-dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
+dev = ["ruff", "mypy", "pytest", "types-PyYAML", "watchdog", "watchfiles"]
 
 [tool.mypy]
 python_version = "3.10"

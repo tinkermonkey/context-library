@@ -58,7 +58,7 @@ RUN claude --version && \
     gh --version && \
     python3 --version && \
     pip --version && \
-    python3 -c "import watchdog; import watchfiles; import mypy; import markitdown; import obsidiantools; import frontmatter"
+    python3 -c "import watchdog; import watchfiles; import mypy; import markitdown; import obsidiantools; import frontmatter; import yaml"
 
 # ============================================================================
 # Default command
