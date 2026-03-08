@@ -59,11 +59,7 @@ class MessagesDomain(BaseDomain):
         Raises:
             ValueError: If hard_limit is not a positive integer
         """
-        if hard_limit <= 0:
-            raise ValueError(
-                f"hard_limit must be a positive integer, got {hard_limit}"
-            )
-        self.hard_limit = hard_limit
+        super().__init__(hard_limit)
 
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Split message content into semantically coherent chunks.
