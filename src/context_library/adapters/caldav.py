@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Optional import guard
 try:
     import caldav
+    from caldav.lib.error import DAVError
     from icalendar import Calendar
 
     HAS_CALDAV = True
@@ -193,7 +194,7 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event modified after source_ref
 
-        Raises:
+        Notes:
             Event processing errors (from _process_event) propagate to caller.
             Only CalDAV-specific sync errors trigger fallback to date-range query.
         """
@@ -206,7 +207,7 @@ class CalDAVAdapter(BaseAdapter):
             try:
                 # CalDAV sync protocol fetch - only catch sync-level errors
                 events = calendar.sync(sync_token)
-            except Exception as e:
+            except DAVError as e:
                 # If sync fails, fallback to date-range
                 logger.warning(
                     f"Sync-token fetch failed for calendar {calendar_name!r}: {e}. "
@@ -267,7 +268,7 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event
 
-        Raises:
+        Notes:
             Errors in event parsing or metadata extraction propagate to caller for visibility.
             Only UnicodeDecodeError is caught to skip malformed iCalendar encoding.
         """
