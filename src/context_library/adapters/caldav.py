@@ -310,10 +310,24 @@ class CalDAVAdapter(BaseAdapter):
         """
         # Extract basic fields with explicit presence checks (following Apple Reminders pattern)
         uid = vevent.get("UID")
-        event_id = str(uid) if uid is not None else ""
+        if uid is None or (isinstance(uid, str) and not uid.strip()):
+            # Missing or empty UID: log warning and skip event
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                "UID is missing or empty (required for event identification)"
+            )
+            return
+        event_id = str(uid).strip()
 
         summary = vevent.get("SUMMARY")
-        title = str(summary) if summary is not None else ""
+        if summary is None or (isinstance(summary, str) and not summary.strip()):
+            # Missing or empty SUMMARY: log warning and skip event
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                "SUMMARY is missing or empty (required for event title)"
+            )
+            return
+        title = str(summary).strip()
 
         description_field = vevent.get("DESCRIPTION")
         description = (str(description_field) if description_field is not None else "") or title

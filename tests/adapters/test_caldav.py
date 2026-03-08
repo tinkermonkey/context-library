@@ -1161,5 +1161,270 @@ END:VCALENDAR"""
                 )
 
 
+class TestEventMetadataFieldExtraction:
+    """Tests for _extract_event_metadata field handling edge cases."""
+
+    def _create_ical_event(
+        self,
+        uid: str = "event1",
+        summary: str = "Meeting",
+        dtstart: str = "20260307T100000Z",
+        dtend: str = "20260307T110000Z",
+        description: str = "Meeting description",
+        organizer: str = "organizer@example.com",
+        attendees: list | None = None,
+    ) -> str:
+        """Create a simple iCalendar event string."""
+        if attendees is None:
+            attendees = []
+
+        attendee_lines = "\n".join(f"ATTENDEE:{a}" for a in attendees)
+        organizer_line = f"ORGANIZER:{organizer}" if organizer is not None else ""
+
+        ical = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:{uid}
+SUMMARY:{summary}
+DTSTART:{dtstart}
+DTEND:{dtend}
+DESCRIPTION:{description}
+{organizer_line}
+{attendee_lines}
+END:VEVENT
+END:VCALENDAR"""
+        return ical
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_none_uid_skips_gracefully(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_extract_event_metadata skips events with None UID and logs warning."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT with None UID (explicit None, not missing)
+        vevent = Event()
+        vevent["UID"] = None
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert results == []
+        assert "UID is missing or empty" in caplog.text
+        assert "TestCalendar" in caplog.text
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_missing_uid_skips_gracefully(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_extract_event_metadata skips events with missing UID and logs warning."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT without UID
+        vevent = Event()
+        # Don't set UID at all
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert results == []
+        assert "UID is missing or empty" in caplog.text
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_empty_uid_skips_gracefully(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_extract_event_metadata skips events with empty UID string and logs warning."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT with empty UID string
+        vevent = Event()
+        vevent["UID"] = ""
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert results == []
+        assert "UID is missing or empty" in caplog.text
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_none_summary_skips_gracefully(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_extract_event_metadata skips events with None SUMMARY and logs warning."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT with None SUMMARY
+        vevent = Event()
+        vevent["UID"] = "event-123"
+        vevent["SUMMARY"] = None
+        vevent["DTSTART"] = "20260307T100000Z"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert results == []
+        assert "SUMMARY is missing or empty" in caplog.text
+        assert "TestCalendar" in caplog.text
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_missing_summary_skips_gracefully(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_extract_event_metadata skips events with missing SUMMARY and logs warning."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT without SUMMARY
+        vevent = Event()
+        vevent["UID"] = "event-123"
+        # Don't set SUMMARY
+        vevent["DTSTART"] = "20260307T100000Z"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert results == []
+        assert "SUMMARY is missing or empty" in caplog.text
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_none_organizer_produces_none_not_string(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_extract_event_metadata produces None for None ORGANIZER, not literal "None" string."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT with None ORGANIZER
+        vevent = Event()
+        vevent["UID"] = "event-123"
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+        vevent["ORGANIZER"] = None
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert len(results) == 1
+        content = results[0]
+        event_metadata = content.structural_hints.extra_metadata
+        # Verify organizer is None, not the literal string "None"
+        assert event_metadata["host"] is None
+        assert event_metadata["host"] != "None"
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_missing_organizer_produces_none(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_extract_event_metadata produces None for missing ORGANIZER."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT without ORGANIZER
+        vevent = Event()
+        vevent["UID"] = "event-123"
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+        # Don't set ORGANIZER
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert len(results) == 1
+        content = results[0]
+        event_metadata = content.structural_hints.extra_metadata
+        assert event_metadata["host"] is None
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_extract_event_with_valid_organizer_produces_string(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_extract_event_metadata produces organizer string when present."""
+        from icalendar import Calendar, Event
+
+        mock_client, _ = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Create VEVENT with valid ORGANIZER
+        vevent = Event()
+        vevent["UID"] = "event-123"
+        vevent["SUMMARY"] = "Meeting"
+        vevent["DTSTART"] = "20260307T100000Z"
+        vevent["ORGANIZER"] = "organizer@example.com"
+
+        results = list(adapter._extract_event_metadata(vevent, "TestCalendar"))
+
+        assert len(results) == 1
+        content = results[0]
+        event_metadata = content.structural_hints.extra_metadata
+        assert event_metadata["host"] == "organizer@example.com"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
