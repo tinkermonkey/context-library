@@ -543,9 +543,10 @@ class TestEdgeCases:
         vault.mkdir()
 
         # Create a kanban-format file with malformed frontmatter
+        # The file contains the kanban-plugin marker to signal Kanban format
         kanban_bad_fm = vault / "kanban_bad_fm.md"
         kanban_bad_fm.write_text(
-            "---\ninvalid: [\nbroken\n---\n\n"
+            "---\ninvalid: [\nkanban-plugin: basic\nbroken\n---\n\n"
             "## TODO\n"
             "- [ ] Task 1 🔺\n"
             "## Done\n"
@@ -563,6 +564,34 @@ class TestEdgeCases:
         # Should have both "open" (from TODO) and "completed" (from Done) statuses
         assert "open" in statuses
         assert "completed" in statuses
+
+    def test_non_kanban_file_not_misidentified_with_bad_frontmatter(self, tmp_path):
+        """Non-Kanban files with headings and lists are not misidentified as Kanban."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        # Create a standard task file with headings and list items but no kanban-plugin marker
+        # This is a common pattern in Obsidian vaults (e.g., notes with task lists)
+        standard_with_bad_fm = vault / "standard_bad_fm.md"
+        standard_with_bad_fm.write_text(
+            "---\ninvalid: [\nbroken\n---\n\n"
+            "## Work Tasks\n"
+            "- [ ] Do something\n"
+            "- [ ] Do another thing\n"
+            "## Personal\n"
+            "- [ ] Call mom\n"
+        )
+
+        adapter = ObsidianTasksAdapter(vault)
+        tasks = list(adapter.fetch(""))
+
+        # Should parse as standard tasks, not Kanban
+        # Standard format: all list items are tasks, statuses are from checkboxes only
+        assert len(tasks) == 3
+
+        # All tasks should have "open" status (based on [ ] checkboxes)
+        statuses = {t.structural_hints.extra_metadata["status"] for t in tasks}
+        assert statuses == {"open"}
 
     def test_empty_task_title_skipped(self, tmp_path):
         """Tasks with empty titles are skipped."""

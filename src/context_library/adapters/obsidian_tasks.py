@@ -156,31 +156,20 @@ class ObsidianTasksAdapter(BaseAdapter):
     def _is_kanban_file_from_content(self, markdown: str) -> bool:
         """Detect Kanban format from markdown content when frontmatter is unavailable.
 
-        Kanban files typically have a characteristic structure with:
-        - Second or third-level headings (##, ###) representing lanes
-        - List items under headings representing task cards
+        Since Kanban files created by the Obsidian Kanban plugin always have
+        `kanban-plugin` in their frontmatter, we detect this specific marker
+        even when YAML parsing fails. This is much more conservative than
+        structural heuristics which could match any markdown file with headings.
 
         Args:
             markdown: The markdown content
 
         Returns:
-            True if the content appears to be in Kanban format
+            True if the content contains the kanban-plugin marker
         """
-        lines = markdown.split("\n")
-        heading_count = 0
-        list_count_after_heading = 0
-
-        for line in lines:
-            # Count level 2-3 headings (Kanban lanes)
-            if re.match(r"^#{2,3}\s+", line):
-                heading_count += 1
-            # Count list items (potential Kanban task cards)
-            elif re.match(r"^\s*[-*]\s+", line):
-                if heading_count > 0:
-                    list_count_after_heading += 1
-
-        # Consider it Kanban if it has at least one heading and list items after it
-        return heading_count > 0 and list_count_after_heading > 0
+        # Check for the kanban-plugin marker in the first 500 characters
+        # (frontmatter block is always at the start)
+        return "kanban-plugin" in markdown[:500]
 
     def _extract_due_date(self, text: str) -> str | None:
         """Extract due date from task text.
