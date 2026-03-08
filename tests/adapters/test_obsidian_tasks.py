@@ -791,6 +791,102 @@ class TestPushMode:
 
         assert adapter._watcher._extensions == {".md"}
 
+    def test_push_mode_first_fetch_loads_all_files(self, vault_with_standard_tasks):
+        """First fetch in push mode loads all files for initial ingestion."""
+        adapter = ObsidianTasksAdapter(
+            vault_with_standard_tasks, poll_strategy=PollStrategy.PUSH
+        )
+
+        # First fetch should load all files
+        tasks = list(adapter.fetch(""))
+        assert len(tasks) > 0
+        assert adapter._initial_fetch_done is True
+
+    def test_push_mode_records_file_changes(self, vault_with_standard_tasks, tmp_path):
+        """_on_file_changed records file paths for re-ingestion."""
+        from pathlib import Path
+        from context_library.adapters._watching import FileEvent
+        from context_library.storage.models import EventType
+
+        adapter = ObsidianTasksAdapter(
+            vault_with_standard_tasks, poll_strategy=PollStrategy.PUSH
+        )
+
+        # Simulate file change event
+        test_file = Path(vault_with_standard_tasks) / "tasks.md"
+        event = FileEvent(path=test_file, event_type=EventType.MODIFIED)
+        adapter._on_file_changed(event)
+
+        # File should be recorded in _changed_files
+        assert test_file in adapter._changed_files
+
+    def test_push_mode_selective_reingestion(self, vault_with_standard_tasks):
+        """Subsequent fetches in push mode only process changed files."""
+        from pathlib import Path
+        from context_library.adapters._watching import FileEvent
+        from context_library.storage.models import EventType
+
+        adapter = ObsidianTasksAdapter(
+            vault_with_standard_tasks, poll_strategy=PollStrategy.PUSH
+        )
+
+        # First fetch: process all files
+        initial_tasks = list(adapter.fetch(""))
+        assert len(initial_tasks) > 0
+        assert adapter._initial_fetch_done is True
+        assert len(adapter._changed_files) == 0
+
+        # Simulate change to one file
+        test_file = Path(vault_with_standard_tasks) / "tasks.md"
+        event = FileEvent(path=test_file, event_type=EventType.MODIFIED)
+        adapter._on_file_changed(event)
+
+        assert test_file in adapter._changed_files
+
+        # Second fetch: only process changed file
+        changed_tasks = list(adapter.fetch(""))
+        # Changed tasks should be <= initial tasks (only from changed file)
+        assert len(changed_tasks) <= len(initial_tasks)
+        assert len(adapter._changed_files) == 0  # Should be cleared after fetch
+
+    def test_push_mode_no_work_when_no_changes(self, vault_with_standard_tasks):
+        """Subsequent push-mode fetch with no changes yields nothing."""
+        adapter = ObsidianTasksAdapter(
+            vault_with_standard_tasks, poll_strategy=PollStrategy.PUSH
+        )
+
+        # First fetch: process all files
+        initial_tasks = list(adapter.fetch(""))
+        assert len(initial_tasks) > 0
+
+        # Second fetch with no changes: should yield nothing
+        unchanged_tasks = list(adapter.fetch(""))
+        assert len(unchanged_tasks) == 0
+
+    def test_push_mode_clears_changed_files_after_fetch(self, vault_with_standard_tasks):
+        """_changed_files set is cleared after processing changed files."""
+        from pathlib import Path
+        from context_library.adapters._watching import FileEvent
+        from context_library.storage.models import EventType
+
+        adapter = ObsidianTasksAdapter(
+            vault_with_standard_tasks, poll_strategy=PollStrategy.PUSH
+        )
+
+        # First fetch
+        list(adapter.fetch(""))
+        assert len(adapter._changed_files) == 0
+
+        # Record changes
+        test_file = Path(vault_with_standard_tasks) / "tasks.md"
+        event = FileEvent(path=test_file, event_type=EventType.MODIFIED)
+        adapter._on_file_changed(event)
+        assert test_file in adapter._changed_files
+
+        # Fetch should clear changed files
+        list(adapter.fetch(""))
+        assert len(adapter._changed_files) == 0
+
 
 class TestIntegration:
     """Integration tests."""

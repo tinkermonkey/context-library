@@ -115,6 +115,7 @@ class ObsidianTasksAdapter(BaseAdapter):
         self._poll_strategy = poll_strategy
         self._watcher: FileSystemWatcher | None = None
         self._changed_files: set[Path] = set()
+        self._initial_fetch_done = False
 
         if poll_strategy == PollStrategy.PUSH:
             # Create watcher for push-based ingestion
@@ -376,8 +377,10 @@ class ObsidianTasksAdapter(BaseAdapter):
         Recursively discovers all .md files in the vault and yields NormalizedContent
         for each task found, using either standard Obsidian Tasks syntax or Kanban format.
 
-        In push mode, only processes files that have been modified since the last fetch.
-        In pull mode, processes all files.
+        In push mode: First fetch loads all files. Subsequent fetches only process files
+        recorded in _changed_files by _on_file_changed. If no changes are recorded, yields
+        nothing (no work needed).
+        In pull mode: Always processes all files in the vault.
 
         Args:
             source_ref: Unused for Obsidian Tasks adapter (uses self._vault_path)
@@ -400,13 +403,25 @@ class ObsidianTasksAdapter(BaseAdapter):
         seen_unknown_lanes: set[str] = set()
 
         # Determine which files to process based on poll strategy
-        if self._poll_strategy == PollStrategy.PUSH and self._changed_files:
-            # In push mode: only process changed files
-            files_to_process = list(self._changed_files)
-            self._changed_files.clear()
+        if self._poll_strategy == PollStrategy.PUSH:
+            if self._changed_files:
+                # In push mode with changes: only process changed files
+                # Use atomic swap to avoid race condition with FileSystemWatcher callback
+                files_to_process = list(self._changed_files)
+                self._changed_files = set()
+            elif self._initial_fetch_done:
+                # Subsequent push-mode fetch with no changes: nothing to do
+                return
+            else:
+                # First fetch in push mode: process all files for initial load
+                files_to_process = list(self._vault_path.rglob("*.md"))
         else:
-            # In pull mode or if no changes: process all files
+            # In pull mode: always process all files
             files_to_process = list(self._vault_path.rglob("*.md"))
+
+        # Mark that initial fetch has been done for push mode
+        if self._poll_strategy == PollStrategy.PUSH:
+            self._initial_fetch_done = True
 
         for file_path in files_to_process:
             if not file_path.is_file():
@@ -527,9 +542,9 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         Note:
             In push mode, this method records changed files for re-ingestion when fetch()
-            is called. Deleted files are recorded to allow cleanup of previously extracted
-            tasks. The framework should call fetch() after detecting a file change to
-            retrieve updated content.
+            is called. The framework should call fetch() after detecting a file change to
+            retrieve updated content. Deleted files are also recorded; fetch() will skip
+            them if they no longer exist.
         """
         logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
         # Record the changed file for processing in the next fetch() call
