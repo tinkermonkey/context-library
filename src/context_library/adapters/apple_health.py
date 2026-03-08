@@ -264,7 +264,8 @@ class AppleHealthAdapter(BaseAdapter):
             "avg_heart_rate_bpm": average_heart_rate,
         }
 
-        # Validate using EventMetadata model (with extra="ignore" it will accept extra fields)
+        # Validate using EventMetadata model (extra="ignore" discards extra fields, so validation only
+        # checks the EventMetadata fields; health-specific extras are preserved in extra_metadata below)
         try:
             EventMetadata.model_validate(event_metadata_dict)
         except ValueError as e:
@@ -277,9 +278,9 @@ class AppleHealthAdapter(BaseAdapter):
         # Build markdown summary
         markdown = self._build_summary(workout, activity_type, duration_minutes)
 
-        # Create structural hints with extra_metadata (preserve all fields including extras)
-        # Use raw dict (not model_dump()) to preserve health-specific extra fields
-        # that EventMetadata's extra="ignore" would discard
+        # Create structural hints with extra_metadata to preserve all fields
+        # Extra fields like calories_kcal, distance_meters, and avg_heart_rate_bpm must be stored here
+        # because EventMetadata.extra="ignore" silently discards them during model validation
         structural_hints = StructuralHints(
             has_headings=False,
             has_lists=True,

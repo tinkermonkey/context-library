@@ -217,6 +217,8 @@ class TaskMetadata(BaseModel):
     - task_id, title, and source_type must be non-empty strings
     - status must be a valid TaskStatus enum value
     - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
+    - priority if provided must be in range 1-4
+    - duration_minutes if provided must be non-negative
     """
 
     model_config = ConfigDict(frozen=True)
@@ -224,8 +226,10 @@ class TaskMetadata(BaseModel):
     task_id: str
     status: TaskStatus
     title: str
+    description: str | None = None
     due_date: str | None = None
     priority: int | None = None
+    metadata: dict[str, object] | None = None
     dependencies: tuple[str, ...] = ()
     collaborators: tuple[str, ...] = ()
     date_first_observed: str
@@ -255,6 +259,14 @@ class TaskMetadata(BaseModel):
             raise ValueError("source_type must be a non-empty string")
         return value
 
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: int | None) -> int | None:
+        """Validate that priority is in the range 1-4 if provided."""
+        if value is not None and (value < 1 or value > 4):
+            raise ValueError(f"priority must be in range 1-4, got: {value}")
+        return value
+
     @field_validator("due_date")
     @classmethod
     def validate_due_date(cls, value: str | None) -> str | None:
@@ -281,21 +293,26 @@ class EventMetadata(BaseModel):
     - event_id, title, and source_type must be non-empty strings
     - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
     - If both start_date and end_date are present, start_date <= end_date
+    - duration_minutes if provided must be non-negative
 
-    Note: Extra fields passed during model construction are silently ignored by the model
-    (extra="ignore" config). Domain-specific metadata like health metrics should be stored
-    in the chunk's domain_metadata dict instead, which preserves all fields.
+    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
+    Extra fields are not "allowed" or "accepted"—they are silently deleted during validation.
+    Domain-specific metadata like health metrics MUST be stored in the chunk's domain_metadata dict
+    or in the metadata field of this model, as those preserve all fields. Passing extra fields to
+    EventMetadata will result in data loss.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     event_id: str
     title: str
+    description: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     duration_minutes: int | None = None
     host: str | None = None
     invitees: tuple[str, ...] = ()
+    metadata: dict[str, object] | None = None
     date_first_observed: str
     source_type: str
 
@@ -337,6 +354,14 @@ class EventMetadata(BaseModel):
         """Validate that end_date is a valid ISO 8601 timestamp if provided."""
         if value is not None:
             validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
     @field_validator("date_first_observed")
