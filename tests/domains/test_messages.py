@@ -437,10 +437,10 @@ class TestLongMessageSplitting:
             assert len(chunk.content.split()) <= 30
 
     def test_long_message_chunks_have_sequential_indices(
-        self, messages_domain, sample_message_metadata
+        self, sample_message_metadata
     ):
         """Split messages have sequential chunk_index values."""
-        MessagesDomain(hard_limit=30)
+        domain = MessagesDomain(hard_limit=30)
 
         hints = StructuralHints(
             has_headings=False,
@@ -459,7 +459,7 @@ class TestLongMessageSplitting:
             normalizer_version="1.0.0",
         )
 
-        chunks = messages_domain.chunk(content)
+        chunks = domain.chunk(content)
 
         for i, chunk in enumerate(chunks):
             assert chunk.chunk_index == i
