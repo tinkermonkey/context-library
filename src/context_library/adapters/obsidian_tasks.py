@@ -106,8 +106,6 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         Raises:
             ImportError: If python-frontmatter is not installed
-            FileNotFoundError: If the vault directory does not exist
-            NotADirectoryError: If the vault path exists but is not a directory
         """
         if not HAS_FRONTMATTER:
             raise ImportError(
@@ -116,14 +114,6 @@ class ObsidianTasksAdapter(BaseAdapter):
             )
 
         self._vault_path = Path(vault_path).resolve()
-
-        # Validate vault path early to fail fast on invalid configuration
-        if not self._vault_path.exists():
-            raise FileNotFoundError(f"Vault directory does not exist: {self._vault_path}")
-
-        if not self._vault_path.is_dir():
-            raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
-
         self._poll_strategy = poll_strategy
         self._watcher: FileSystemWatcher | None = None
         self._changed_files: set[Path] = set()
@@ -405,7 +395,18 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent for each task found
+
+        Raises:
+            FileNotFoundError: If the vault directory does not exist
+            NotADirectoryError: If the vault path exists but is not a directory
         """
+        # Validate vault path
+        if not self._vault_path.exists():
+            raise FileNotFoundError(f"Vault directory does not exist: {self._vault_path}")
+
+        if not self._vault_path.is_dir():
+            raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
+
         # Track unknown markers and lanes per fetch to avoid duplicate warning logs
         seen_unknown_markers: set[str] = set()
         seen_unknown_lanes: set[str] = set()
