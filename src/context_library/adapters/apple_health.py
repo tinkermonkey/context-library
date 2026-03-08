@@ -281,7 +281,7 @@ class AppleHealthAdapter(BaseAdapter):
         # Use raw dict (not model_dump()) to preserve health-specific extra fields
         # that EventMetadata's extra="ignore" would discard
         structural_hints = StructuralHints(
-            has_headings=True,
+            has_headings=False,
             has_lists=True,
             has_tables=False,
             natural_boundaries=(),
@@ -301,13 +301,15 @@ class AppleHealthAdapter(BaseAdapter):
     def _build_summary(self, workout: dict[str, Any], activity_type: str, duration_minutes: int) -> str:
         """Build a human-readable markdown summary of a workout.
 
+        Generates markdown with bold title and bulleted metrics (no heading-level markers).
+
         Args:
             workout: Workout dict from API response
             activity_type: Activity type (e.g., "running", "cycling")
             duration_minutes: Duration in minutes
 
         Returns:
-            Markdown string with activity summary
+            Markdown string with bold title and bulleted activity summary
         """
         lines = [f"**{activity_type.title()}**"]
 

@@ -41,7 +41,7 @@ class EventsDomain(BaseDomain):
         4. Compute chunk_hash from content only (excluding context_header)
         5. Assign sequential chunk_index values
         6. Set chunk_type to ChunkType.STANDARD
-        7. Store domain_metadata from EventMetadata.model_dump()
+        7. Store domain_metadata preserving original metadata dict (including extra fields)
 
         Args:
             content: The normalized event content to chunk
@@ -96,7 +96,7 @@ class EventsDomain(BaseDomain):
                 context_header=context_header,
                 chunk_index=idx,
                 chunk_type=ChunkType.STANDARD,
-                domain_metadata=meta.model_dump(),
+                domain_metadata=meta_dict,
             )
             chunks.append(chunk)
 

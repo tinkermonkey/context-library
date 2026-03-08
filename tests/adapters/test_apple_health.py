@@ -652,3 +652,75 @@ class TestAppleHealthAdapterMarkdownGeneration:
         markdown = results[0].markdown
         # Should only have the summary lines, no extra blank note lines
         assert markdown.count("\n") == 4  # Title + 4 metric lines
+
+    def test_structural_hints_has_headings_false(self, mock_httpx_get):
+        """StructuralHints.has_headings is False (no heading-level markers in markdown)."""
+        adapter = AppleHealthAdapter()
+
+        mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
+            {
+                "id": "workout-1",
+                "activityType": "running",
+                "startDate": "2026-03-07T10:00:00+00:00",
+                "endDate": "2026-03-07T10:30:00+00:00",
+                "durationSeconds": 1800,
+                "totalEnergyBurned": 250.5,
+                "totalDistance": 5000.0,
+                "averageHeartRate": 145.0,
+                "notes": None,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        content = results[0]
+
+        # Verify has_headings is False because markdown uses **bold** not # headings
+        assert content.structural_hints.has_headings is False, \
+            "has_headings should be False since markdown uses **bold** not heading markers"
+
+        # Verify markdown doesn't contain heading-level markers
+        assert not content.markdown.startswith("#"), "Markdown should not start with #"
+        assert "\n#" not in content.markdown, "Markdown should not contain heading markers"
+
+        # Verify markdown contains bold and lists (what actually exists)
+        assert content.structural_hints.has_lists is True
+        assert "**" in content.markdown, "Markdown should contain bold text"
+
+    def test_structural_hints_extra_metadata_contains_health_fields(self, mock_httpx_get):
+        """StructuralHints.extra_metadata preserves health-specific fields."""
+        adapter = AppleHealthAdapter()
+
+        mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
+            {
+                "id": "workout-123",
+                "activityType": "running",
+                "startDate": "2026-03-07T10:00:00+00:00",
+                "endDate": "2026-03-07T10:30:00+00:00",
+                "durationSeconds": 1800,
+                "totalEnergyBurned": 250.5,
+                "totalDistance": 5000.0,
+                "averageHeartRate": 145.0,
+                "notes": None,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        content = results[0]
+
+        # Verify extra_metadata contains all health-specific fields
+        assert content.structural_hints.extra_metadata is not None
+        extra = content.structural_hints.extra_metadata
+
+        assert "calories_kcal" in extra, "Health metric calories_kcal missing from extra_metadata"
+        assert extra["calories_kcal"] == 250.5
+
+        assert "distance_meters" in extra, "Health metric distance_meters missing from extra_metadata"
+        assert extra["distance_meters"] == 5000.0
+
+        assert "avg_heart_rate_bpm" in extra, "Health metric avg_heart_rate_bpm missing from extra_metadata"
+        assert extra["avg_heart_rate_bpm"] == 145.0
+
+        # Verify standard EventMetadata fields are present
+        assert extra["event_id"] == "workout-123"
+        assert extra["title"] == "Running"
+        assert extra["source_type"] == "apple_health"

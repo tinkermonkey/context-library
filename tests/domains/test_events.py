@@ -701,3 +701,69 @@ class TestEventSourceTypeVariations:
 
         assert len(chunks) == 1
         assert chunks[0].domain_metadata["source_type"] == source_type
+
+
+class TestHealthSpecificMetadataPreservation:
+    """Tests for preservation of health-specific metadata fields."""
+
+    def test_apple_health_extra_fields_preserved_in_domain_metadata(
+        self, events_domain
+    ):
+        """Health-specific extra fields are preserved in domain_metadata.
+
+        This tests the fix for the metadata loss issue where Apple Health metrics
+        (calories_kcal, distance_meters, avg_heart_rate_bpm) were being silently
+        dropped during chunking due to EventMetadata's extra="ignore" config.
+        """
+        # Simulate Apple Health adapter's event_metadata_dict with health-specific fields
+        health_metadata = {
+            "event_id": "workout-123",
+            "title": "Running",
+            "start_date": "2025-03-07T10:00:00Z",
+            "end_date": "2025-03-07T10:30:00Z",
+            "duration_minutes": 30,
+            "host": None,
+            "invitees": [],
+            "date_first_observed": "2025-03-08T12:00:00Z",
+            "source_type": "apple_health",
+            # Health-specific extras that should be preserved
+            "calories_kcal": 250.5,
+            "distance_meters": 5000.0,
+            "avg_heart_rate_bpm": 145.0,
+        }
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=True,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=health_metadata,
+        )
+
+        content = NormalizedContent(
+            markdown="**Running**\n- Calories: 250 kcal\n- Distance: 5.00 km\n- Avg heart rate: 145 bpm\n- Duration: 30 minutes",
+            source_id="running/workout-123",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = events_domain.chunk(content)
+
+        # Verify the chunk has domain_metadata with all fields including extras
+        assert len(chunks) == 1
+        assert chunks[0].domain_metadata is not None
+
+        # Standard EventMetadata fields
+        assert chunks[0].domain_metadata["event_id"] == "workout-123"
+        assert chunks[0].domain_metadata["title"] == "Running"
+        assert chunks[0].domain_metadata["source_type"] == "apple_health"
+
+        # Health-specific extra fields must be preserved
+        assert "calories_kcal" in chunks[0].domain_metadata, "calories_kcal field lost during chunking"
+        assert chunks[0].domain_metadata["calories_kcal"] == 250.5
+
+        assert "distance_meters" in chunks[0].domain_metadata, "distance_meters field lost during chunking"
+        assert chunks[0].domain_metadata["distance_meters"] == 5000.0
+
+        assert "avg_heart_rate_bpm" in chunks[0].domain_metadata, "avg_heart_rate_bpm field lost during chunking"
+        assert chunks[0].domain_metadata["avg_heart_rate_bpm"] == 145.0
