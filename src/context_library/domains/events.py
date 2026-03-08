@@ -90,10 +90,9 @@ class EventsDomain(BaseDomain):
         chunks = []
         for idx, segment in enumerate(segments):
             chunk_hash = compute_chunk_hash(segment)
-            # Merge validated model fields with original extra fields to preserve all metadata.
-            # meta.model_dump() contains validated fields (extra="ignore" strips extras).
-            # meta_dict contains all original fields including domain-specific extras.
-            # Merging ensures: (1) validation through Pydantic, (2) preservation of extra fields.
+            # EventMetadata has extra="ignore" which strips unknown fields during validation.
+            # However, extra fields (health metrics like calories_kcal) must be preserved in domain_metadata.
+            # Merge validated model fields with original dict to preserve all metadata.
             domain_metadata = {**meta.model_dump(), **meta_dict}
             chunk = Chunk(
                 chunk_hash=chunk_hash,
