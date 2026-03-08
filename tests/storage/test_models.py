@@ -23,6 +23,7 @@ from context_library.storage.models import (
     SourceVersion,
     StructuralHints,
     TaskMetadata,
+    TaskStatus,
     compute_chunk_hash,
 )
 
@@ -693,7 +694,7 @@ class TestTaskMetadata:
         """Test creating TaskMetadata with all fields populated."""
         metadata = TaskMetadata(
             task_id="task-123",
-            status="in-progress",
+            status=TaskStatus.IN_PROGRESS,
             title="Implement feature X",
             due_date="2024-03-15T23:59:59Z",
             priority=1,
@@ -703,7 +704,7 @@ class TestTaskMetadata:
             source_type="apple_reminders",
         )
         assert metadata.task_id == "task-123"
-        assert metadata.status == "in-progress"
+        assert metadata.status == TaskStatus.IN_PROGRESS
         assert metadata.title == "Implement feature X"
         assert metadata.due_date == "2024-03-15T23:59:59Z"
         assert metadata.priority == 1
@@ -716,13 +717,13 @@ class TestTaskMetadata:
         """Test creating TaskMetadata with only required fields."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="open",
+            status=TaskStatus.OPEN,
             title="Do something",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="obsidian_tasks",
         )
         assert metadata.task_id == "t1"
-        assert metadata.status == "open"
+        assert metadata.status == TaskStatus.OPEN
         assert metadata.title == "Do something"
         assert metadata.due_date is None
         assert metadata.priority is None
@@ -735,45 +736,45 @@ class TestTaskMetadata:
         """Test that status 'open' is valid."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="open",
+            status=TaskStatus.OPEN,
             title="Task",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="test",
         )
-        assert metadata.status == "open"
+        assert metadata.status == TaskStatus.OPEN
 
     def test_task_metadata_status_completed_valid(self) -> None:
         """Test that status 'completed' is valid."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="completed",
+            status=TaskStatus.COMPLETED,
             title="Task",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="test",
         )
-        assert metadata.status == "completed"
+        assert metadata.status == TaskStatus.COMPLETED
 
     def test_task_metadata_status_cancelled_valid(self) -> None:
         """Test that status 'cancelled' is valid."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="cancelled",
+            status=TaskStatus.CANCELLED,
             title="Task",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="test",
         )
-        assert metadata.status == "cancelled"
+        assert metadata.status == TaskStatus.CANCELLED
 
     def test_task_metadata_status_in_progress_valid(self) -> None:
         """Test that status 'in-progress' is valid."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="in-progress",
+            status=TaskStatus.IN_PROGRESS,
             title="Task",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="test",
         )
-        assert metadata.status == "in-progress"
+        assert metadata.status == TaskStatus.IN_PROGRESS
 
     def test_task_metadata_status_invalid(self) -> None:
         """Test that invalid status is rejected."""
@@ -785,14 +786,15 @@ class TestTaskMetadata:
                 date_first_observed="2024-03-01T10:00:00Z",
                 source_type="test",
             )
-        assert "status must be one of" in str(exc_info.value)
+        # Pydantic enum validation error message
+        assert "Input should be" in str(exc_info.value)
 
     def test_task_metadata_empty_task_id_rejected(self) -> None:
         """Test that empty task_id is rejected."""
         with pytest.raises(ValidationError) as exc_info:
             TaskMetadata(
                 task_id="",
-                status="open",
+                status=TaskStatus.OPEN,
                 title="Task",
                 date_first_observed="2024-03-01T10:00:00Z",
                 source_type="test",
@@ -804,7 +806,7 @@ class TestTaskMetadata:
         with pytest.raises(ValidationError) as exc_info:
             TaskMetadata(
                 task_id="t1",
-                status="open",
+                status=TaskStatus.OPEN,
                 title="",
                 date_first_observed="2024-03-01T10:00:00Z",
                 source_type="test",
@@ -816,7 +818,7 @@ class TestTaskMetadata:
         with pytest.raises(ValidationError):
             TaskMetadata(
                 task_id="t1",
-                status="open",
+                status=TaskStatus.OPEN,
                 title="Task",
                 due_date="not-a-date",
                 date_first_observed="2024-03-01T10:00:00Z",
@@ -828,7 +830,7 @@ class TestTaskMetadata:
         with pytest.raises(ValidationError):
             TaskMetadata(
                 task_id="t1",
-                status="open",
+                status=TaskStatus.OPEN,
                 title="Task",
                 date_first_observed="invalid-date",
                 source_type="test",
@@ -838,7 +840,7 @@ class TestTaskMetadata:
         """Test that TaskMetadata is frozen and raises ValidationError on mutation."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="open",
+            status=TaskStatus.OPEN,
             title="Task",
             date_first_observed="2024-03-01T10:00:00Z",
             source_type="test",
@@ -850,7 +852,7 @@ class TestTaskMetadata:
         """Test that TaskMetadata.model_dump() returns JSON-serializable dict."""
         metadata = TaskMetadata(
             task_id="t1",
-            status="open",
+            status=TaskStatus.OPEN,
             title="Task",
             due_date="2024-03-15T23:59:59Z",
             priority=1,
@@ -862,7 +864,7 @@ class TestTaskMetadata:
         dumped = metadata.model_dump()
         assert isinstance(dumped, dict)
         assert dumped["task_id"] == "t1"
-        assert dumped["status"] == "open"
+        assert dumped["status"] == "open"  # Enum is serialized to its value
         assert dumped["title"] == "Task"
         assert dumped["due_date"] == "2024-03-15T23:59:59Z"
         assert dumped["priority"] == 1

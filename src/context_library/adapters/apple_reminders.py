@@ -61,6 +61,7 @@ from context_library.storage.models import (
     Domain,
     PollStrategy,
     TaskMetadata,
+    TaskStatus,
     NormalizedContent,
     StructuralHints,
 )
@@ -321,8 +322,8 @@ class AppleRemindersAdapter(BaseAdapter):
         if not title:
             raise ValueError("Reminder title must be non-empty")
 
-        # Map completion status
-        status = "completed" if completed else "open"
+        # Map completion status to TaskStatus enum
+        status = TaskStatus.COMPLETED if completed else TaskStatus.OPEN
 
         # Extract optional fields
         due_date = reminder.get("dueDate")
@@ -371,7 +372,7 @@ class AppleRemindersAdapter(BaseAdapter):
         parts = [f"# {metadata.title}"]
 
         # Add status
-        parts.append(f"\n**Status:** {metadata.status}")
+        parts.append(f"\n**Status:** {metadata.status.value}")
 
         # Add priority if present
         if metadata.priority is not None:

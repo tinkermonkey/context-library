@@ -71,9 +71,9 @@ class TasksDomain(BaseDomain):
 
         # Build context_header
         if meta.due_date:
-            context_header = f"{meta.title} [due: {meta.due_date}] [{meta.status}]"
+            context_header = f"{meta.title} [due: {meta.due_date}] [{meta.status.value}]"
         else:
-            context_header = f"{meta.title} [{meta.status}]"
+            context_header = f"{meta.title} [{meta.status.value}]"
 
         # Get the markdown text as the body
         text = content.markdown.strip()

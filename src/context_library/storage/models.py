@@ -66,6 +66,19 @@ class PollStrategy(str, Enum):
     WEBHOOK = "webhook"
 
 
+class TaskStatus(str, Enum):
+    """Fixed set of task status values for task metadata.
+
+    Represents the lifecycle state of a task as tracked by task-source adapters.
+    Enforces valid task status values at the Python level.
+    """
+
+    OPEN = "open"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    IN_PROGRESS = "in-progress"
+
+
 def _validate_sha256_hex(value: str) -> str:
     """Validate that a string is a valid SHA-256 hex hash (64 lowercase hex chars).
 
@@ -96,9 +109,11 @@ class StructuralHints(BaseModel):
     for content-specific chunking strategies and filtering.
 
     extra_metadata is a domain-specific contract between adapters and chunkers:
-    - Adapters populate it with domain-specific metadata (e.g., EmailAdapter provides MessageMetadata fields)
+    - Adapters populate it with domain-specific metadata according to their domain
     - Chunkers extract and validate it according to their domain's expectations
     - For EmailMessages domain: extra_metadata must be deserializable to MessageMetadata
+    - For Events domain: extra_metadata must be deserializable to EventMetadata
+    - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -199,15 +214,15 @@ class TaskMetadata(BaseModel):
     for task-based chunking and filtering.
 
     Invariants:
-    - task_id and title must be non-empty strings
-    - status must be in the allowed set: "open", "completed", "cancelled", "in-progress"
+    - task_id, title, and source_type must be non-empty strings
+    - status must be a valid TaskStatus enum value
     - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
     """
 
     model_config = ConfigDict(frozen=True)
 
     task_id: str
-    status: str
+    status: TaskStatus
     title: str
     due_date: str | None = None
     priority: int | None = None
@@ -232,15 +247,12 @@ class TaskMetadata(BaseModel):
             raise ValueError("title must be a non-empty string")
         return value
 
-    @field_validator("status")
+    @field_validator("source_type")
     @classmethod
-    def validate_status(cls, value: str) -> str:
-        """Validate that status is in the allowed set."""
-        allowed_statuses = {"open", "completed", "cancelled", "in-progress"}
-        if value not in allowed_statuses:
-            raise ValueError(
-                f"status must be one of {allowed_statuses}, got {value!r}"
-            )
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
         return value
 
     @field_validator("due_date")
@@ -266,7 +278,7 @@ class EventMetadata(BaseModel):
     for event-based chunking and time-aware filtering.
 
     Invariants:
-    - event_id and title must be non-empty strings
+    - event_id, title, and source_type must be non-empty strings
     - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
     - If both start_date and end_date are present, start_date <= end_date
 
@@ -300,6 +312,14 @@ class EventMetadata(BaseModel):
         """Validate that title is not empty."""
         if not value:
             raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
         return value
 
     @field_validator("start_date")
