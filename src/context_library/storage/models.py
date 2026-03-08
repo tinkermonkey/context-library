@@ -198,31 +198,29 @@ class TaskMetadata(BaseModel):
     """Task metadata extracted by task-source adapters.
 
     Captures task identification, status, scheduling, and collaboration context
-    for task-based chunking and filtering.
+    for task-based chunking and filtering. Conforms to the architecture specification
+    for task domain metadata.
 
-    The status field uses an extensible string allowlist rather than a fixed enum,
-    allowing new status values to be added without code changes while validating
-    against known values.
+    The status field uses an immutable frozenset of allowed values, enforcing
+    a fixed set of valid statuses that cannot be mutated at runtime.
 
     Invariants:
     - task_id, title, and source_type must be non-empty strings
-    - status must be a valid string from the allowed task status values
+    - status must be a valid string from the allowed task status values (open, completed, cancelled, in-progress)
     - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
     - priority if provided must be in range 1-4
     """
 
-    # Allowed status values - extensible list that can be updated independently
-    ALLOWED_STATUSES: ClassVar[set[str]] = {"open", "completed", "cancelled", "in-progress"}
+    # Allowed status values - immutable to prevent runtime mutation of validation invariant
+    ALLOWED_STATUSES: ClassVar[frozenset[str]] = frozenset({"open", "completed", "cancelled", "in-progress"})
 
     model_config = ConfigDict(frozen=True)
 
     task_id: str
     status: str
     title: str
-    description: str | None = None
     due_date: str | None = None
     priority: int | None = None
-    metadata: dict[str, object] | None = None
     dependencies: tuple[str, ...] = ()
     collaborators: tuple[str, ...] = ()
     date_first_observed: str
@@ -290,7 +288,8 @@ class EventMetadata(BaseModel):
     """Event metadata extracted by event-source adapters.
 
     Captures event identification, scheduling, and participant context
-    for event-based chunking and time-aware filtering.
+    for event-based chunking and time-aware filtering. Conforms to the architecture
+    specification for event domain metadata.
 
     Invariants:
     - event_id, title, and source_type must be non-empty strings
@@ -301,21 +300,18 @@ class EventMetadata(BaseModel):
     WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
     Extra fields are not "allowed" or "accepted"—they are silently deleted during validation.
     Domain-specific metadata like health metrics MUST be stored in the chunk's domain_metadata dict
-    or in the metadata field of this model, as those preserve all fields. Passing extra fields to
-    EventMetadata will result in data loss.
+    as those preserve all fields. Passing extra fields to EventMetadata will result in data loss.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     event_id: str
     title: str
-    description: str | None = None
     start_date: str | None = None
     end_date: str | None = None
     duration_minutes: int | None = None
     host: str | None = None
     invitees: tuple[str, ...] = ()
-    metadata: dict[str, object] | None = None
     date_first_observed: str
     source_type: str
 

@@ -921,53 +921,6 @@ class TestTaskMetadata:
         )
         assert metadata.priority is None
 
-    def test_task_metadata_description_field_accepted(self) -> None:
-        """Test that description field is accepted and stored."""
-        metadata = TaskMetadata(
-            task_id="t1",
-            status="open",
-            title="Task",
-            description="This is a task description",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.description == "This is a task description"
-
-    def test_task_metadata_description_none_default(self) -> None:
-        """Test that description defaults to None when not provided."""
-        metadata = TaskMetadata(
-            task_id="t1",
-            status="open",
-            title="Task",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.description is None
-
-    def test_task_metadata_metadata_field_accepted(self) -> None:
-        """Test that metadata field (dict) is accepted and stored."""
-        meta_dict = {"custom_key": "custom_value", "nested": {"key": "value"}}
-        metadata = TaskMetadata(
-            task_id="t1",
-            status="open",
-            title="Task",
-            metadata=meta_dict,
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.metadata == meta_dict
-
-    def test_task_metadata_metadata_none_default(self) -> None:
-        """Test that metadata defaults to None when not provided."""
-        metadata = TaskMetadata(
-            task_id="t1",
-            status="open",
-            title="Task",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.metadata is None
-
     def test_task_metadata_model_dump_serializable(self) -> None:
         """Test that TaskMetadata.model_dump() returns JSON-serializable dict."""
         metadata = TaskMetadata(
@@ -1220,49 +1173,6 @@ class TestEventMetadata:
             source_type="test",
         )
         assert metadata.duration_minutes is None
-
-    def test_event_metadata_description_field_accepted(self) -> None:
-        """Test that description field is accepted and stored."""
-        metadata = EventMetadata(
-            event_id="e1",
-            title="Event",
-            description="This is an event description",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.description == "This is an event description"
-
-    def test_event_metadata_description_none_default(self) -> None:
-        """Test that description defaults to None when not provided."""
-        metadata = EventMetadata(
-            event_id="e1",
-            title="Event",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.description is None
-
-    def test_event_metadata_metadata_field_accepted(self) -> None:
-        """Test that metadata field (dict) is accepted and stored."""
-        meta_dict = {"health_metric": "heart_rate", "value": 72}
-        metadata = EventMetadata(
-            event_id="e1",
-            title="Event",
-            metadata=meta_dict,
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.metadata == meta_dict
-
-    def test_event_metadata_metadata_none_default(self) -> None:
-        """Test that metadata defaults to None when not provided."""
-        metadata = EventMetadata(
-            event_id="e1",
-            title="Event",
-            date_first_observed="2024-03-01T10:00:00Z",
-            source_type="test",
-        )
-        assert metadata.metadata is None
 
     def test_event_metadata_model_dump_serializable(self) -> None:
         """Test that EventMetadata.model_dump() returns JSON-serializable dict."""
