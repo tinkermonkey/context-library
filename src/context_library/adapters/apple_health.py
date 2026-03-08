@@ -188,11 +188,13 @@ class AppleHealthAdapter(BaseAdapter):
                 raise ValueError(f"Expected list of workouts, got {type(workouts)}")
 
             # Process each workout
-            for workout in workouts:
+            for idx, workout in enumerate(workouts):
                 try:
                     yield from self._process_workout(workout)
                 except (ValueError, KeyError) as e:
-                    logger.error(f"Skipping malformed workout: {e}")
+                    # Extract workout ID if available for better diagnostics
+                    workout_id = workout.get("id", f"<index {idx}>")
+                    logger.error(f"Skipping malformed workout (ID: {workout_id}): {e}")
                     continue
 
         except httpx.HTTPStatusError as e:
