@@ -428,17 +428,6 @@ class NotesDomain(BaseDomain):
 
         return "\n".join(lines)
 
-    def _token_count(self, text: str) -> int:
-        """Count tokens as whitespace-split words.
-
-        Args:
-            text: The text to count
-
-        Returns:
-            Approximate token count (1 word ≈ 1 token)
-        """
-        return len(text.split())
-
     def _apply_token_limits(self, candidates: list[CandidateChunk]) -> list[CandidateChunk]:
         """Apply soft and hard token limits to candidate chunks.
 
