@@ -308,10 +308,15 @@ class CalDAVAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized event with EventMetadata
         """
-        # Extract basic fields
-        event_id = str(vevent.get("UID", ""))
-        title = str(vevent.get("SUMMARY", ""))
-        description = str(vevent.get("DESCRIPTION", "")) or title
+        # Extract basic fields with explicit presence checks (following Apple Reminders pattern)
+        uid = vevent.get("UID")
+        event_id = str(uid) if uid is not None else ""
+
+        summary = vevent.get("SUMMARY")
+        title = str(summary) if summary is not None else ""
+
+        description_field = vevent.get("DESCRIPTION")
+        description = (str(description_field) if description_field is not None else "") or title
 
         # Handle timestamps
         dtstart = vevent.get("DTSTART")
@@ -328,8 +333,9 @@ class CalDAVAdapter(BaseAdapter):
         # Compute duration
         duration_minutes = self._compute_duration(vevent, dtstart, dtend)
 
-        # Extract organizer and attendees
-        organizer = str(vevent.get("ORGANIZER", "")) or None
+        # Extract organizer and attendees (explicit presence check prevents "None" string)
+        organizer_field = vevent.get("ORGANIZER")
+        organizer = str(organizer_field) if organizer_field is not None else None
         attendees_raw = vevent.get("ATTENDEE", [])
         if not isinstance(attendees_raw, list):
             attendees_raw = [attendees_raw]
