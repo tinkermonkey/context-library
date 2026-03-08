@@ -537,6 +537,33 @@ class TestEdgeCases:
         # Should still find the task despite bad frontmatter
         assert len(tasks) >= 1
 
+    def test_kanban_detection_fallback_with_bad_frontmatter(self, tmp_path):
+        """Kanban format is detected from content when frontmatter parsing fails."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        # Create a kanban-format file with malformed frontmatter
+        kanban_bad_fm = vault / "kanban_bad_fm.md"
+        kanban_bad_fm.write_text(
+            "---\ninvalid: [\nbroken\n---\n\n"
+            "## TODO\n"
+            "- [ ] Task 1 🔺\n"
+            "## Done\n"
+            "- [ ] Task 2\n"
+        )
+
+        adapter = ObsidianTasksAdapter(vault)
+        tasks = list(adapter.fetch(""))
+
+        # Should still detect kanban format and parse tasks correctly
+        assert len(tasks) == 2
+
+        # Tasks should have status from lane (not all marked as open)
+        statuses = {t.structural_hints.extra_metadata["status"] for t in tasks}
+        # Should have both "open" (from TODO) and "completed" (from Done) statuses
+        assert "open" in statuses
+        assert "completed" in statuses
+
     def test_empty_task_title_skipped(self, tmp_path):
         """Tasks with empty titles are skipped."""
         vault = tmp_path / "vault"

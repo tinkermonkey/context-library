@@ -153,6 +153,35 @@ class ObsidianTasksAdapter(BaseAdapter):
         """
         return post_metadata.get("kanban-plugin") == "basic"
 
+    def _is_kanban_file_from_content(self, markdown: str) -> bool:
+        """Detect Kanban format from markdown content when frontmatter is unavailable.
+
+        Kanban files typically have a characteristic structure with:
+        - Second or third-level headings (##, ###) representing lanes
+        - List items under headings representing task cards
+
+        Args:
+            markdown: The markdown content
+
+        Returns:
+            True if the content appears to be in Kanban format
+        """
+        lines = markdown.split("\n")
+        heading_count = 0
+        list_count_after_heading = 0
+
+        for line in lines:
+            # Count level 2-3 headings (Kanban lanes)
+            if re.match(r"^#{2,3}\s+", line):
+                heading_count += 1
+            # Count list items (potential Kanban task cards)
+            elif re.match(r"^\s*[-*]\s+", line):
+                if heading_count > 0:
+                    list_count_after_heading += 1
+
+        # Consider it Kanban if it has at least one heading and list items after it
+        return heading_count > 0 and list_count_after_heading > 0
+
     def _extract_due_date(self, text: str) -> str | None:
         """Extract due date from task text.
 
@@ -365,9 +394,9 @@ class ObsidianTasksAdapter(BaseAdapter):
                 continue
             except Exception as e:
                 # Frontmatter parsing errors (YAML errors, etc.) - try reading raw content
-                logger.debug(
+                logger.warning(
                     f"Frontmatter parsing failed for {file_path} ({type(e).__name__}), "
-                    f"trying raw content"
+                    f"trying raw content only (Kanban detection may be inaccurate)"
                 )
                 try:
                     markdown = file_path.read_text(encoding="utf-8")
@@ -394,8 +423,17 @@ class ObsidianTasksAdapter(BaseAdapter):
                 logger.debug(f"Skipping empty file: {file_path} (no tasks)")
                 continue
 
-            # Determine if this is a Kanban file (only if we have frontmatter)
-            is_kanban = self._is_kanban_file(post.metadata) if post is not None else False
+            # Determine if this is a Kanban file
+            # First check frontmatter metadata if available, then fall back to content analysis
+            if post is not None:
+                is_kanban = self._is_kanban_file(post.metadata)
+            else:
+                is_kanban = self._is_kanban_file_from_content(markdown)
+                if is_kanban:
+                    logger.debug(
+                        f"Detected Kanban format from content in {file_path} "
+                        f"(frontmatter metadata unavailable)"
+                    )
 
             # Parse tasks based on format
             if is_kanban:
