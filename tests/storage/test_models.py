@@ -858,6 +858,117 @@ class TestTaskMetadata:
                 source_type="",
             )
 
+    def test_task_metadata_priority_valid_range_1_4(self) -> None:
+        """Test that priority values in range 1-4 are accepted."""
+        for priority in [1, 2, 3, 4]:
+            metadata = TaskMetadata(
+                task_id="t1",
+                status=TaskStatus.OPEN,
+                title="Task",
+                priority=priority,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+            assert metadata.priority == priority
+
+    def test_task_metadata_priority_zero_rejected(self) -> None:
+        """Test that priority=0 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status=TaskStatus.OPEN,
+                title="Task",
+                priority=0,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_five_rejected(self) -> None:
+        """Test that priority=5 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status=TaskStatus.OPEN,
+                title="Task",
+                priority=5,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_negative_rejected(self) -> None:
+        """Test that negative priority is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status=TaskStatus.OPEN,
+                title="Task",
+                priority=-1,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_none_valid(self) -> None:
+        """Test that priority=None (optional) is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status=TaskStatus.OPEN,
+            title="Task",
+            priority=None,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.priority is None
+
+    def test_task_metadata_description_field_accepted(self) -> None:
+        """Test that description field is accepted and stored."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status=TaskStatus.OPEN,
+            title="Task",
+            description="This is a task description",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.description == "This is a task description"
+
+    def test_task_metadata_description_none_default(self) -> None:
+        """Test that description defaults to None when not provided."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status=TaskStatus.OPEN,
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.description is None
+
+    def test_task_metadata_metadata_field_accepted(self) -> None:
+        """Test that metadata field (dict) is accepted and stored."""
+        meta_dict = {"custom_key": "custom_value", "nested": {"key": "value"}}
+        metadata = TaskMetadata(
+            task_id="t1",
+            status=TaskStatus.OPEN,
+            title="Task",
+            metadata=meta_dict,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.metadata == meta_dict
+
+    def test_task_metadata_metadata_none_default(self) -> None:
+        """Test that metadata defaults to None when not provided."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status=TaskStatus.OPEN,
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.metadata is None
+
     def test_task_metadata_model_dump_serializable(self) -> None:
         """Test that TaskMetadata.model_dump() returns JSON-serializable dict."""
         metadata = TaskMetadata(
@@ -1063,6 +1174,96 @@ class TestEventMetadata:
                 title="Event",
                 source_type="",
             )
+
+    def test_event_metadata_duration_minutes_non_negative_valid(self) -> None:
+        """Test that non-negative duration_minutes values are accepted."""
+        for duration in [0, 1, 30, 60, 1440, 999999]:
+            metadata = EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=duration,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+            assert metadata.duration_minutes == duration
+
+    def test_event_metadata_duration_minutes_negative_rejected(self) -> None:
+        """Test that negative duration_minutes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=-1,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "duration_minutes must be non-negative" in str(exc_info.value)
+
+    def test_event_metadata_duration_minutes_negative_large_rejected(self) -> None:
+        """Test that large negative duration_minutes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=-999,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "duration_minutes must be non-negative" in str(exc_info.value)
+
+    def test_event_metadata_duration_minutes_none_valid(self) -> None:
+        """Test that duration_minutes=None (optional) is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            duration_minutes=None,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.duration_minutes is None
+
+    def test_event_metadata_description_field_accepted(self) -> None:
+        """Test that description field is accepted and stored."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            description="This is an event description",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.description == "This is an event description"
+
+    def test_event_metadata_description_none_default(self) -> None:
+        """Test that description defaults to None when not provided."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.description is None
+
+    def test_event_metadata_metadata_field_accepted(self) -> None:
+        """Test that metadata field (dict) is accepted and stored."""
+        meta_dict = {"health_metric": "heart_rate", "value": 72}
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            metadata=meta_dict,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.metadata == meta_dict
+
+    def test_event_metadata_metadata_none_default(self) -> None:
+        """Test that metadata defaults to None when not provided."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.metadata is None
 
     def test_event_metadata_model_dump_serializable(self) -> None:
         """Test that EventMetadata.model_dump() returns JSON-serializable dict."""

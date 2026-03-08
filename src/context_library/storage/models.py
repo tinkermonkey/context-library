@@ -218,7 +218,6 @@ class TaskMetadata(BaseModel):
     - status must be a valid TaskStatus enum value
     - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
     - priority if provided must be in range 1-4
-    - duration_minutes if provided must be non-negative
     """
 
     model_config = ConfigDict(frozen=True)
