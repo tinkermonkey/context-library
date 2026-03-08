@@ -69,13 +69,12 @@ class CalDAVAdapter(BaseAdapter):
         self._url = url
         self._username = username
         self._calendar_name = calendar_name
-        self._password = password
-        self._client = caldav.DAVClient(url=self._url, username=self._username, password=self._password)  # type: ignore
+        self._client = caldav.DAVClient(url=self._url, username=self._username, password=password)  # type: ignore
 
     @property
     def adapter_id(self) -> str:
         """Return a deterministic, unique identifier for this adapter instance."""
-        return f"caldav:{self._url}"
+        return f"caldav:{self._username}@{self._url}"
 
     @property
     def domain(self) -> Domain:
@@ -148,6 +147,9 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event
+
+        Raises:
+            RuntimeError: If all events encountered UnicodeDecodeError (aggregate error reporting)
         """
         calendar_name = calendar.name or "Default"
 
@@ -170,6 +172,9 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event
+
+        Raises:
+            RuntimeError: If all events encountered UnicodeDecodeError
         """
         events = calendar.search(
             todo=False,
@@ -178,8 +183,25 @@ class CalDAVAdapter(BaseAdapter):
             include_duplicates=False,
         )
 
-        for event in events:
-            yield from self._process_event(event, calendar_name)
+        events_list = list(events)
+        if not events_list:
+            return
+
+        skipped_count = 0
+        for event in events_list:
+            items_yielded = 0
+            for item in self._process_event(event, calendar_name):
+                items_yielded += 1
+                yield item
+            if items_yielded == 0:
+                skipped_count += 1
+
+        # If all events were skipped due to errors, raise aggregate error
+        if skipped_count == len(events_list):
+            raise RuntimeError(
+                f"Failed to process all {len(events_list)} events from calendar "
+                f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
+            )
 
     def _fetch_incremental(
         self, calendar: Any, calendar_name: str, source_ref: str
@@ -193,6 +215,9 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event modified after source_ref
+
+        Raises:
+            RuntimeError: If all events encountered UnicodeDecodeError
 
         Notes:
             Event processing errors (from _process_event) propagate to caller.
@@ -216,9 +241,26 @@ class CalDAVAdapter(BaseAdapter):
                 yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
                 return
 
-            # Process events - errors propagate for visibility
-            for event in events:
-                yield from self._process_event(event, calendar_name, cutoff_dt)
+            # Process events - track skipped for aggregate error reporting
+            events_list = list(events)
+            if not events_list:
+                return
+
+            skipped_count = 0
+            for event in events_list:
+                items_yielded = 0
+                for item in self._process_event(event, calendar_name, cutoff_dt):
+                    items_yielded += 1
+                    yield item
+                if items_yielded == 0:
+                    skipped_count += 1
+
+            # If all events were skipped, raise aggregate error
+            if skipped_count == len(events_list):
+                raise RuntimeError(
+                    f"Failed to process all {len(events_list)} events from calendar "
+                    f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
+                )
         else:
             # No sync token available, use date-range query
             yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
@@ -235,6 +277,9 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event within date range
+
+        Raises:
+            RuntimeError: If all events encountered UnicodeDecodeError
         """
         # Set end date to far future to catch all events after start_dt
         end_dt = start_dt + timedelta(days=365 * 10)
@@ -248,9 +293,25 @@ class CalDAVAdapter(BaseAdapter):
             include_duplicates=False,
         )
 
-        for event in events:
-            # Filter by last-modified time as post-processing
-            yield from self._process_event(event, calendar_name, start_dt)
+        events_list = list(events)
+        if not events_list:
+            return
+
+        skipped_count = 0
+        for event in events_list:
+            items_yielded = 0
+            for item in self._process_event(event, calendar_name, start_dt):
+                items_yielded += 1
+                yield item
+            if items_yielded == 0:
+                skipped_count += 1
+
+        # If all events were skipped, raise aggregate error
+        if skipped_count == len(events_list):
+            raise RuntimeError(
+                f"Failed to process all {len(events_list)} events from calendar "
+                f"{calendar_name!r}: all events encountered encoding errors or were filtered out"
+            )
 
     def _process_event(
         self,
@@ -310,14 +371,23 @@ class CalDAVAdapter(BaseAdapter):
         """
         # Extract basic fields with explicit presence checks (following Apple Reminders pattern)
         uid = vevent.get("UID")
-        if uid is None or (isinstance(uid, str) and not uid.strip()):
-            # Missing or empty UID: log warning and skip event
+        if uid is None:
+            # Missing UID: log warning and skip event
             logger.warning(
                 f"Skipping event from calendar {calendar_name!r}: "
-                "UID is missing or empty (required for event identification)"
+                "UID is missing (required for event identification)"
             )
             return
-        event_id = str(uid).strip()
+        # Convert to string before checking emptiness to handle vText objects
+        uid_str = str(uid).strip()
+        if not uid_str:
+            # Empty UID after conversion: log warning and skip event
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                "UID is empty (required for event identification)"
+            )
+            return
+        event_id = uid_str
 
         summary = vevent.get("SUMMARY")
         if summary is None or (isinstance(summary, str) and not summary.strip()):
