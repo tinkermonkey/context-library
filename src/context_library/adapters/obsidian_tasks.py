@@ -36,21 +36,14 @@ from context_library.storage.models import (
 
 logger = logging.getLogger(__name__)
 
-# Try to import frontmatter and YAML
+# Try to import frontmatter (which requires PyYAML as a hard dependency)
 HAS_FRONTMATTER = False
-HAS_YAML = False
 
 try:
     import frontmatter
-
-    HAS_FRONTMATTER = True
-except ImportError:
-    pass
-
-try:
     import yaml
 
-    HAS_YAML = True
+    HAS_FRONTMATTER = True
 except ImportError:
     pass
 
@@ -412,10 +405,6 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent for each task found
-
-        Raises:
-            FileNotFoundError: If the vault directory does not exist
-            NotADirectoryError: If the vault path exists but is not a directory
         """
         # Track unknown markers and lanes per fetch to avoid duplicate warning logs
         seen_unknown_markers: set[str] = set()
@@ -459,36 +448,31 @@ class ObsidianTasksAdapter(BaseAdapter):
                 # Encoding error in frontmatter parsing
                 logger.warning(f"Cannot decode file {file_path}: {e}")
                 continue
-            except Exception as e:
-                # Only catch YAML parsing errors; let other unexpected exceptions propagate
-                if HAS_YAML and isinstance(e, yaml.YAMLError):
-                    # YAML frontmatter parsing failed - try reading raw content
+            except yaml.YAMLError as e:
+                # YAML frontmatter parsing failed - try reading raw content
+                logger.warning(
+                    f"Frontmatter parsing failed for {file_path} (YAML error), "
+                    f"trying raw content only (Kanban detection may be inaccurate)"
+                )
+                try:
+                    markdown = file_path.read_text(encoding="utf-8")
+                    # If we got raw content, we don't have metadata for kanban detection
+                    post = None
+                except UnicodeDecodeError:
                     logger.warning(
-                        f"Frontmatter parsing failed for {file_path} (YAML error), "
-                        f"trying raw content only (Kanban detection may be inaccurate)"
+                        f"Cannot read file {file_path} - not UTF-8 encoded. "
+                        f"Ensure all vault files are UTF-8 encoded."
                     )
-                    try:
-                        markdown = file_path.read_text(encoding="utf-8")
-                        # If we got raw content, we don't have metadata for kanban detection
-                        post = None
-                    except UnicodeDecodeError:
-                        logger.warning(
-                            f"Cannot read file {file_path} - not UTF-8 encoded. "
-                            f"Ensure all vault files are UTF-8 encoded."
-                        )
-                        continue
-                    except PermissionError:
-                        logger.warning(f"Cannot read file {file_path} - permission denied")
-                        continue
-                    except FileNotFoundError:
-                        logger.debug(f"File disappeared during processing: {file_path}")
-                        continue
-                    except OSError as os_error:
-                        logger.warning(f"Cannot read file {file_path} - OS error: {os_error}")
-                        continue
-                else:
-                    # Unexpected exception - let it propagate for visibility
-                    raise
+                    continue
+                except PermissionError:
+                    logger.warning(f"Cannot read file {file_path} - permission denied")
+                    continue
+                except FileNotFoundError:
+                    logger.debug(f"File disappeared during processing: {file_path}")
+                    continue
+                except OSError as os_error:
+                    logger.warning(f"Cannot read file {file_path} - OS error: {os_error}")
+                    continue
 
             # Skip empty files
             if not markdown.strip():
