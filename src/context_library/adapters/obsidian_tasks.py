@@ -17,6 +17,7 @@ Dependencies:
 
 import logging
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Any
@@ -35,13 +36,21 @@ from context_library.storage.models import (
 
 logger = logging.getLogger(__name__)
 
-# Try to import frontmatter
+# Try to import frontmatter and YAML
 HAS_FRONTMATTER = False
+HAS_YAML = False
 
 try:
     import frontmatter
 
     HAS_FRONTMATTER = True
+except ImportError:
+    pass
+
+try:
+    import yaml
+
+    HAS_YAML = True
 except ImportError:
     pass
 
@@ -104,6 +113,8 @@ class ObsidianTasksAdapter(BaseAdapter):
 
         Raises:
             ImportError: If python-frontmatter is not installed
+            FileNotFoundError: If the vault directory does not exist
+            NotADirectoryError: If the vault path exists but is not a directory
         """
         if not HAS_FRONTMATTER:
             raise ImportError(
@@ -112,9 +123,18 @@ class ObsidianTasksAdapter(BaseAdapter):
             )
 
         self._vault_path = Path(vault_path).resolve()
+
+        # Validate vault path early to fail fast on invalid configuration
+        if not self._vault_path.exists():
+            raise FileNotFoundError(f"Vault directory does not exist: {self._vault_path}")
+
+        if not self._vault_path.is_dir():
+            raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
+
         self._poll_strategy = poll_strategy
         self._watcher: FileSystemWatcher | None = None
         self._changed_files: set[Path] = set()
+        self._changed_files_lock = threading.Lock()
         self._initial_fetch_done = False
 
         if poll_strategy == PollStrategy.PUSH:
@@ -138,6 +158,11 @@ class ObsidianTasksAdapter(BaseAdapter):
     def domain(self) -> Domain:
         """Return the domain this adapter serves."""
         return Domain.TASKS
+
+    @property
+    def poll_strategy(self) -> PollStrategy:
+        """Return the polling strategy for this adapter."""
+        return self._poll_strategy
 
     @property
     def normalizer_version(self) -> str:
@@ -392,29 +417,25 @@ class ObsidianTasksAdapter(BaseAdapter):
             FileNotFoundError: If the vault directory does not exist
             NotADirectoryError: If the vault path exists but is not a directory
         """
-        if not self._vault_path.exists():
-            raise FileNotFoundError(f"Vault directory does not exist: {self._vault_path}")
-
-        if not self._vault_path.is_dir():
-            raise NotADirectoryError(f"Vault path is not a directory: {self._vault_path}")
-
         # Track unknown markers and lanes per fetch to avoid duplicate warning logs
         seen_unknown_markers: set[str] = set()
         seen_unknown_lanes: set[str] = set()
 
         # Determine which files to process based on poll strategy
         if self._poll_strategy == PollStrategy.PUSH:
-            if self._changed_files:
-                # In push mode with changes: only process changed files
-                # Use atomic swap to avoid race condition with FileSystemWatcher callback
-                files_to_process = list(self._changed_files)
-                self._changed_files = set()
-            elif self._initial_fetch_done:
-                # Subsequent push-mode fetch with no changes: nothing to do
-                return
-            else:
-                # First fetch in push mode: process all files for initial load
-                files_to_process = list(self._vault_path.rglob("*.md"))
+            # Atomically swap _changed_files with a lock to prevent race condition
+            # where FileSystemWatcher callback runs on a separate thread and calls .add()
+            with self._changed_files_lock:
+                if self._changed_files:
+                    # In push mode with changes: only process changed files
+                    files_to_process = list(self._changed_files)
+                    self._changed_files = set()
+                elif self._initial_fetch_done:
+                    # Subsequent push-mode fetch with no changes: nothing to do
+                    return
+                else:
+                    # First fetch in push mode: process all files for initial load
+                    files_to_process = list(self._vault_path.rglob("*.md"))
         else:
             # In pull mode: always process all files
             files_to_process = list(self._vault_path.rglob("*.md"))
@@ -439,30 +460,35 @@ class ObsidianTasksAdapter(BaseAdapter):
                 logger.warning(f"Cannot decode file {file_path}: {e}")
                 continue
             except Exception as e:
-                # Frontmatter parsing errors (YAML errors, etc.) - try reading raw content
-                logger.warning(
-                    f"Frontmatter parsing failed for {file_path} ({type(e).__name__}), "
-                    f"trying raw content only (Kanban detection may be inaccurate)"
-                )
-                try:
-                    markdown = file_path.read_text(encoding="utf-8")
-                    # If we got raw content, we don't have metadata for kanban detection
-                    post = None
-                except UnicodeDecodeError:
+                # Only catch YAML parsing errors; let other unexpected exceptions propagate
+                if HAS_YAML and isinstance(e, yaml.YAMLError):
+                    # YAML frontmatter parsing failed - try reading raw content
                     logger.warning(
-                        f"Cannot read file {file_path} - not UTF-8 encoded. "
-                        f"Ensure all vault files are UTF-8 encoded."
+                        f"Frontmatter parsing failed for {file_path} (YAML error), "
+                        f"trying raw content only (Kanban detection may be inaccurate)"
                     )
-                    continue
-                except PermissionError:
-                    logger.warning(f"Cannot read file {file_path} - permission denied")
-                    continue
-                except FileNotFoundError:
-                    logger.debug(f"File disappeared during processing: {file_path}")
-                    continue
-                except OSError as os_error:
-                    logger.warning(f"Cannot read file {file_path} - OS error: {os_error}")
-                    continue
+                    try:
+                        markdown = file_path.read_text(encoding="utf-8")
+                        # If we got raw content, we don't have metadata for kanban detection
+                        post = None
+                    except UnicodeDecodeError:
+                        logger.warning(
+                            f"Cannot read file {file_path} - not UTF-8 encoded. "
+                            f"Ensure all vault files are UTF-8 encoded."
+                        )
+                        continue
+                    except PermissionError:
+                        logger.warning(f"Cannot read file {file_path} - permission denied")
+                        continue
+                    except FileNotFoundError:
+                        logger.debug(f"File disappeared during processing: {file_path}")
+                        continue
+                    except OSError as os_error:
+                        logger.warning(f"Cannot read file {file_path} - OS error: {os_error}")
+                        continue
+                else:
+                    # Unexpected exception - let it propagate for visibility
+                    raise
 
             # Skip empty files
             if not markdown.strip():
@@ -545,7 +571,12 @@ class ObsidianTasksAdapter(BaseAdapter):
             is called. The framework should call fetch() after detecting a file change to
             retrieve updated content. Deleted files are also recorded; fetch() will skip
             them if they no longer exist.
+
+            This callback runs on the FileSystemWatcher's background thread, so it uses
+            a lock to safely update _changed_files without race conditions against fetch().
         """
         logger.debug(f"File change detected in vault: {event.path} ({event.event_type})")
         # Record the changed file for processing in the next fetch() call
-        self._changed_files.add(event.path)
+        # Use lock to protect against race condition with fetch() thread
+        with self._changed_files_lock:
+            self._changed_files.add(event.path)
