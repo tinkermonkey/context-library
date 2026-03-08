@@ -192,6 +192,10 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event modified after source_ref
+
+        Raises:
+            Event processing errors (from _process_event) propagate to caller.
+            Only CalDAV-specific sync errors trigger fallback to date-range query.
         """
         # Parse the timestamp to determine the cutoff
         cutoff_dt = datetime.fromisoformat(source_ref.replace("Z", "+00:00"))
@@ -200,10 +204,8 @@ class CalDAVAdapter(BaseAdapter):
         sync_token = getattr(calendar, "sync_token", None)
         if sync_token:
             try:
-                # CalDAV sync protocol fetch
+                # CalDAV sync protocol fetch - only catch sync-level errors
                 events = calendar.sync(sync_token)
-                for event in events:
-                    yield from self._process_event(event, calendar_name, cutoff_dt)
             except Exception as e:
                 # If sync fails, fallback to date-range
                 logger.warning(
@@ -211,6 +213,11 @@ class CalDAVAdapter(BaseAdapter):
                     f"Falling back to date-range query."
                 )
                 yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
+                return
+
+            # Process events - errors propagate for visibility
+            for event in events:
+                yield from self._process_event(event, calendar_name, cutoff_dt)
         else:
             # No sync token available, use date-range query
             yield from self._fetch_by_date_range(calendar, calendar_name, cutoff_dt)
@@ -259,6 +266,10 @@ class CalDAVAdapter(BaseAdapter):
 
         Yields:
             NormalizedContent: Normalized event
+
+        Raises:
+            Errors in event parsing or metadata extraction propagate to caller for visibility.
+            Only UnicodeDecodeError is caught to skip malformed iCalendar encoding.
         """
         try:
             ical_data = event.data
@@ -278,12 +289,6 @@ class CalDAVAdapter(BaseAdapter):
             logger.warning(
                 f"Skipping event from calendar {calendar_name!r}: "
                 f"Failed to decode iCalendar data: {e}"
-            )
-        except Exception as e:
-            # Log unexpected errors with full traceback for debugging
-            logger.exception(
-                f"Skipping event from calendar {calendar_name!r}: "
-                f"Unexpected error while processing iCalendar: {e}"
             )
 
     def _extract_event_metadata(
@@ -476,10 +481,11 @@ class CalDAVAdapter(BaseAdapter):
         Returns:
             True if event is modified after cutoff (should be included),
             False if event is older than cutoff (should be skipped),
-            True if LAST-MODIFIED cannot be parsed (include for safety)
+            True if LAST-MODIFIED cannot be parsed or is non-datetime type (include for safety)
 
-        Raises:
-            Exception: Re-raises non-parsing errors to propagate critical failures
+        Notes:
+            ValueError and AttributeError during LAST-MODIFIED parsing are caught
+            and logged; the event is included (safety-first approach).
         """
         try:
             last_mod_dt = last_modified.dt
