@@ -394,7 +394,7 @@ class CalDAVAdapter(BaseAdapter):
             Duration in minutes, or None if cannot be computed
 
         Raises:
-            TypeError: If mixed naive and aware datetimes are encountered
+            TypeError: If mixed naive and aware datetimes are encountered after normalization
         """
         # Try DURATION property first
         duration = vevent.get("DURATION")
@@ -412,6 +412,13 @@ class CalDAVAdapter(BaseAdapter):
                 start = datetime.combine(start, time.min, timezone.utc)
             if isinstance(end, date) and not isinstance(end, datetime):
                 end = datetime.combine(end, time.min, timezone.utc)
+
+            # Normalize naive datetimes to UTC (matching _normalize_datetime behavior)
+            if isinstance(start, datetime) and start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if isinstance(end, datetime) and end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+
             delta = end - start
             if isinstance(delta, timedelta):
                 return int(delta.total_seconds() / 60)
@@ -424,6 +431,10 @@ class CalDAVAdapter(BaseAdapter):
         Converts all-day events (represented as date objects) to midnight UTC datetimes
         to ensure consistent ISO 8601 timestamp format (YYYY-MM-DDTHH:MM:SS±HH:MM).
 
+        For naive datetimes (which lack timezone info), assumes UTC. This is a best-effort
+        assumption that may be incorrect for self-hosted servers returning local time.
+        A warning is logged when this assumption is made.
+
         Args:
             dt_value: A datetime.date or datetime.datetime object from iCalendar
 
@@ -433,7 +444,14 @@ class CalDAVAdapter(BaseAdapter):
         if isinstance(dt_value, datetime):
             # Already a datetime, convert to UTC if needed
             if dt_value.tzinfo is None:
-                # Naive datetime, assume UTC
+                # Naive datetime, assume UTC (with warning)
+                logger.warning(
+                    f"Encountered naive datetime {dt_value!r} in iCalendar data. "
+                    f"Assuming UTC. Self-hosted CalDAV servers may return times in local "
+                    f"server timezone without explicit tzinfo, potentially shifting event "
+                    f"times by hours. Ensure server is configured to return timezone-aware "
+                    f"datetimes (DTSTART;TZID= or floating times with UTC assumption)."
+                )
                 return dt_value.replace(tzinfo=timezone.utc).isoformat()
             else:
                 # Aware datetime, convert to UTC and return ISO format
@@ -453,7 +471,7 @@ class CalDAVAdapter(BaseAdapter):
 
         Args:
             last_modified: LAST-MODIFIED property from vevent
-            cutoff_dt: Cutoff datetime for filtering
+            cutoff_dt: Cutoff datetime for filtering (must be timezone-aware)
             calendar_name: Name of the calendar (for logging)
             event_id: Event UID (for logging)
 
@@ -470,6 +488,14 @@ class CalDAVAdapter(BaseAdapter):
             if isinstance(last_mod_dt, str):
                 last_mod_dt = datetime.fromisoformat(last_mod_dt.replace("Z", "+00:00"))
             if isinstance(last_mod_dt, datetime):
+                # Normalize naive datetimes to UTC for comparison
+                if last_mod_dt.tzinfo is None:
+                    logger.warning(
+                        f"Event {event_id!r} in calendar {calendar_name!r} has naive "
+                        f"LAST-MODIFIED timestamp. Assuming UTC. (Servers should include "
+                        f"timezone info; naive timestamps may represent local server time.)"
+                    )
+                    last_mod_dt = last_mod_dt.replace(tzinfo=timezone.utc)
                 return last_mod_dt > cutoff_dt
             else:
                 # For non-datetime types, include event for safety
@@ -479,7 +505,7 @@ class CalDAVAdapter(BaseAdapter):
                     f"Including event in sync."
                 )
                 return True
-        except (ValueError, TypeError, AttributeError) as e:
+        except (ValueError, AttributeError) as e:
             # Log parse failure and include event for safety
             logger.warning(
                 f"Cannot parse LAST-MODIFIED for event {event_id!r} "

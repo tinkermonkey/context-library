@@ -896,5 +896,198 @@ END:VCALENDAR"""
         assert extra_metadata["duration_minutes"] == 0
 
 
+class TestCalDAVAdapterDatetimeHandling:
+    """Tests for datetime handling fixes in PR feedback.
+
+    Addresses three issues:
+    1. TypeError from mixed naive/aware datetimes in _compute_duration
+    2. Naive datetime comparison in _is_event_modified_after_cutoff defeats incremental sync
+    3. _normalize_datetime silently assumes UTC for naive datetimes without logging
+    """
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_compute_duration_with_naive_dtstart_aware_dtend(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_compute_duration handles naive DTSTART with aware DTEND (Issue #1)."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create event with naive DTSTART and aware DTEND
+        # (simulates servers returning mixed naive/aware datetimes)
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:mixed_naive_aware
+SUMMARY:Mixed Timezone Event
+DTSTART:20260307T100000
+DTEND:20260307T110000Z
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Should not raise TypeError when computing duration
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+        extra_metadata = results[0].structural_hints.extra_metadata
+        # Both datetimes should be normalized to UTC for subtraction
+        assert extra_metadata["duration_minutes"] == 60
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_compute_duration_with_both_naive_datetimes(
+        self, mock_dav_client_class, mock_caldav_client
+    ):
+        """_compute_duration handles both naive DTSTART and DTEND."""
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create event with both naive datetimes
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:both_naive
+SUMMARY:Both Naive Event
+DTSTART:20260307T100000
+DTEND:20260307T110000
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        # Should not raise TypeError
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+        extra_metadata = results[0].structural_hints.extra_metadata
+        assert extra_metadata["duration_minutes"] == 60
+
+    def test_is_event_modified_after_cutoff_directly_with_naive_datetime(self):
+        """_is_event_modified_after_cutoff handles naive LAST-MODIFIED directly (Issue #2)."""
+        from datetime import datetime, timezone
+
+        with patch("context_library.adapters.caldav.caldav.DAVClient"):
+            adapter = CalDAVAdapter(
+                url="https://calendar.example.com/",
+                username="user@example.com",
+                password="password123",
+            )
+
+            # Create a mock LAST-MODIFIED property with naive datetime
+            last_modified = MagicMock()
+            # Naive datetime (no timezone info)
+            last_modified.dt = datetime(2026, 3, 8, 12, 0, 0)
+
+            # Create a timezone-aware cutoff
+            cutoff_dt = datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+            # Before fix, this would raise TypeError when comparing naive with aware
+            # After fix, it should return True (event is after cutoff)
+            result = adapter._is_event_modified_after_cutoff(
+                last_modified, cutoff_dt, "TestCalendar", "test-event-id"
+            )
+
+            assert result is True  # Event should be included (is after cutoff)
+
+    @patch("context_library.adapters.caldav.caldav.DAVClient")
+    def test_normalize_datetime_logs_warning_for_naive_datetime(
+        self, mock_dav_client_class, mock_caldav_client, caplog
+    ):
+        """_normalize_datetime logs warning when assuming UTC for naive datetimes (Issue #3)."""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        mock_client, mock_calendar = mock_caldav_client
+        mock_dav_client_class.return_value = mock_client
+
+        # Create event with naive DTSTART
+        ical_data = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:naive_dtstart_event
+SUMMARY:Event with Naive DTSTART
+DTSTART:20260307T100000
+DTEND:20260307T110000Z
+END:VEVENT
+END:VCALENDAR"""
+
+        mock_event = MagicMock()
+        mock_event.data = ical_data.encode("utf-8")
+        mock_calendar.search.return_value = [mock_event]
+
+        adapter = CalDAVAdapter(
+            url="https://calendar.example.com/",
+            username="user@example.com",
+            password="password123",
+        )
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+
+        # Verify warning was logged about naive datetime and UTC assumption
+        assert any(
+            "naive datetime" in record.message.lower() and "UTC" in record.message
+            for record in caplog.records
+        ), f"Expected naive datetime warning in logs. Caplog: {[r.message for r in caplog.records]}"
+
+    def test_incremental_sync_not_defeated_by_naive_lastmodified(self):
+        """Incremental sync filters correctly with naive LAST-MODIFIED (Issue #2).
+
+        Tests that the fix to _is_event_modified_after_cutoff allows proper filtering
+        of events even when LAST-MODIFIED is naive (without timezone info).
+        """
+        from datetime import datetime, timezone
+
+        with patch("context_library.adapters.caldav.caldav.DAVClient"):
+            adapter = CalDAVAdapter(
+                url="https://calendar.example.com/",
+                username="user@example.com",
+                password="password123",
+            )
+
+            # Cutoff at March 5
+            cutoff_dt = datetime(2026, 3, 5, 0, 0, 0, tzinfo=timezone.utc)
+
+            # Event 1: modified March 2 (before cutoff) - with naive datetime
+            old_modified = MagicMock()
+            old_modified.dt = datetime(2026, 3, 2, 12, 0, 0)  # naive
+
+            # Event 2: modified March 8 (after cutoff) - with naive datetime
+            new_modified = MagicMock()
+            new_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # naive
+
+            # Before fix: both would fail comparison and return True, defeating filtering
+            # After fix: proper naive->UTC normalization allows correct filtering
+            old_result = adapter._is_event_modified_after_cutoff(
+                old_modified, cutoff_dt, "TestCalendar", "old-event"
+            )
+            new_result = adapter._is_event_modified_after_cutoff(
+                new_modified, cutoff_dt, "TestCalendar", "new-event"
+            )
+
+            # Old event should be filtered (before cutoff)
+            assert old_result is False
+            # New event should be included (after cutoff)
+            assert new_result is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
