@@ -66,19 +66,6 @@ class PollStrategy(str, Enum):
     WEBHOOK = "webhook"
 
 
-class TaskStatus(str, Enum):
-    """Fixed set of task status values for task metadata.
-
-    Represents the lifecycle state of a task as tracked by task-source adapters.
-    Enforces valid task status values at the Python level.
-    """
-
-    OPEN = "open"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    IN_PROGRESS = "in-progress"
-
-
 def _validate_sha256_hex(value: str) -> str:
     """Validate that a string is a valid SHA-256 hex hash (64 lowercase hex chars).
 
@@ -253,8 +240,6 @@ class TaskMetadata(BaseModel):
     @classmethod
     def validate_status(cls, value: str) -> str:
         """Validate that status is in the allowed task status values."""
-        if not isinstance(value, str):
-            raise ValueError(f"status must be a string, got: {type(value).__name__}")
         if value not in cls.ALLOWED_STATUSES:
             raise ValueError(
                 f"status must be one of {sorted(cls.ALLOWED_STATUSES)}, got: {value!r}"
