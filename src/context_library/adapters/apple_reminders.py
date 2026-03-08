@@ -273,14 +273,14 @@ class AppleRemindersAdapter(BaseAdapter):
         Raises:
             ValueError: If eventkit_priority is outside the valid range 0-9
         """
-        if eventkit_priority == 0:
-            return None
-
         # Validate priority is in valid range
         if not (0 <= eventkit_priority <= 9):
             raise ValueError(
                 f"EventKit priority must be in range 0-9, got {eventkit_priority}"
             )
+
+        if eventkit_priority == 0:
+            return None
 
         # EventKit: 1-3 = highest, 4 = high, 5-7 = medium, 8-9 = low
         # Internal: 1 = highest, 2 = high, 3 = medium, 4 = low
