@@ -147,23 +147,6 @@ class TestCalDAVAdapterContextManager:
 class TestCalDAVAdapterFetch:
     """Tests for CalDAVAdapter.fetch() method."""
 
-    @pytest.fixture
-    def mock_caldav_client(self):
-        """Mock CalDAV client and related objects."""
-        # Create mock calendar
-        mock_calendar = MagicMock()
-        mock_calendar.name = "Default"
-
-        # Create mock principal
-        mock_principal = MagicMock()
-        mock_principal.calendars.return_value = [mock_calendar]
-
-        # Create mock client
-        mock_client = MagicMock()
-        mock_client.principal.return_value = mock_principal
-
-        return mock_client, mock_calendar
-
     def _create_ical_event(
         self,
         uid: str = "event1",
@@ -613,23 +596,6 @@ END:VCALENDAR"""
 
 class TestCalDAVAdapterEventMetadataValidation:
     """Tests for EventMetadata validation and contract."""
-
-    @pytest.fixture
-    def mock_caldav_client(self):
-        """Mock CalDAV client and related objects."""
-        # Create mock calendar
-        mock_calendar = MagicMock()
-        mock_calendar.name = "Default"
-
-        # Create mock principal
-        mock_principal = MagicMock()
-        mock_principal.calendars.return_value = [mock_calendar]
-
-        # Create mock client
-        mock_client = MagicMock()
-        mock_client.principal.return_value = mock_principal
-
-        return mock_client, mock_calendar
 
     @patch("context_library.adapters.caldav.caldav.DAVClient")
     def test_event_metadata_passes_validation(self, mock_dav_client_class, mock_caldav_client):

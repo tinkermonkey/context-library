@@ -83,7 +83,6 @@ def mock_httpx_client(monkeypatch):
 
         def get(self, url, params=None, headers=None, timeout=None):
             self.requests.append({"url": url, "params": params, "headers": headers})
-            (url, tuple(sorted(params.items())) if params else ())
             return self.responses.get(url, MockResponse({}, url=url))
 
         def set_response(self, url, data, status_code=200):
@@ -133,3 +132,26 @@ def mock_httpx_get(monkeypatch):
     )
 
     return mock_get
+
+
+@pytest.fixture
+def mock_caldav_client():
+    """Mock CalDAV client and related objects.
+
+    Provides a tuple of (mock_client, mock_calendar) for testing CalDAV adapters.
+    """
+    from unittest.mock import MagicMock
+
+    # Create mock calendar
+    mock_calendar = MagicMock()
+    mock_calendar.name = "Default"
+
+    # Create mock principal
+    mock_principal = MagicMock()
+    mock_principal.calendars.return_value = [mock_calendar]
+
+    # Create mock client
+    mock_client = MagicMock()
+    mock_client.principal.return_value = mock_principal
+
+    return mock_client, mock_calendar
