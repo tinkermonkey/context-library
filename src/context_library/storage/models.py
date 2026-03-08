@@ -9,7 +9,7 @@ This module contains:
 import hashlib
 import re
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
 
@@ -96,9 +96,11 @@ class StructuralHints(BaseModel):
     for content-specific chunking strategies and filtering.
 
     extra_metadata is a domain-specific contract between adapters and chunkers:
-    - Adapters populate it with domain-specific metadata (e.g., EmailAdapter provides MessageMetadata fields)
+    - Adapters populate it with domain-specific metadata according to their domain
     - Chunkers extract and validate it according to their domain's expectations
     - For EmailMessages domain: extra_metadata must be deserializable to MessageMetadata
+    - For Events domain: extra_metadata must be deserializable to EventMetadata
+    - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -190,6 +192,212 @@ class MessageMetadata(BaseModel):
                 "is_thread_root=True and in_reply_to must be mutually exclusive. "
                 f"Got is_thread_root={self.is_thread_root}, in_reply_to={self.in_reply_to!r}"
             )
+
+
+class TaskMetadata(BaseModel):
+    """Task metadata extracted by task-source adapters.
+
+    Captures task identification, status, scheduling, and collaboration context
+    for task-based chunking and filtering. Conforms to the architecture specification
+    for task domain metadata.
+
+    The status field uses an immutable frozenset of allowed values, enforcing
+    a fixed set of valid statuses that cannot be mutated at runtime.
+
+    Invariants:
+    - task_id, title, and source_type must be non-empty strings
+    - status must be a valid string from the allowed task status values (open, completed, cancelled, in-progress)
+    - due_date and date_first_observed must be valid ISO 8601 timestamps if provided
+    - priority if provided must be in range 1-4
+    """
+
+    # Allowed status values - immutable to prevent runtime mutation of validation invariant
+    ALLOWED_STATUSES: ClassVar[frozenset[str]] = frozenset({"open", "completed", "cancelled", "in-progress"})
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str
+    status: str
+    title: str
+    due_date: str | None = None
+    priority: int | None = None
+    dependencies: tuple[str, ...] = ()
+    collaborators: tuple[str, ...] = ()
+    date_first_observed: str
+    source_type: str
+
+    @field_validator("task_id")
+    @classmethod
+    def validate_task_id(cls, value: str) -> str:
+        """Validate that task_id is not empty."""
+        if not value:
+            raise ValueError("task_id must be a non-empty string")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        """Validate that status is in the allowed task status values."""
+        if value not in cls.ALLOWED_STATUSES:
+            raise ValueError(
+                f"status must be one of {sorted(cls.ALLOWED_STATUSES)}, got: {value!r}"
+            )
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: int | None) -> int | None:
+        """Validate that priority is in the range 1-4 if provided."""
+        if value is not None and (value < 1 or value > 4):
+            raise ValueError(f"priority must be in range 1-4, got: {value}")
+        return value
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date(cls, value: str | None) -> str | None:
+        """Validate that due_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+
+class EventMetadata(BaseModel):
+    """Event metadata extracted by event-source adapters.
+
+    Captures event identification, scheduling, and participant context
+    for event-based chunking and time-aware filtering. Conforms to the architecture
+    specification for event domain metadata.
+
+    Invariants:
+    - event_id, title, and source_type must be non-empty strings
+    - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
+    - If both start_date and end_date are present, start_date <= end_date
+    - duration_minutes if provided must be non-negative
+
+    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
+    Extra fields are not "allowed" or "accepted"—they are silently deleted during validation.
+    Domain-specific metadata like health metrics MUST be stored in the chunk's domain_metadata dict
+    as those preserve all fields. Passing extra fields to EventMetadata will result in data loss.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    event_id: str
+    title: str
+    start_date: str | None = None
+    end_date: str | None = None
+    duration_minutes: int | None = None
+    host: str | None = None
+    invitees: tuple[str, ...] = ()
+    date_first_observed: str
+    source_type: str
+
+    @field_validator("event_id")
+    @classmethod
+    def validate_event_id(cls, value: str) -> str:
+        """Validate that event_id is not empty."""
+        if not value:
+            raise ValueError("event_id must be a non-empty string")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, value: str | None) -> str | None:
+        """Validate that start_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, value: str | None) -> str | None:
+        """Validate that end_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate EventMetadata invariants after model construction.
+
+        Enforces:
+        - If both start_date and end_date are present, start_date <= end_date
+
+        Note: Uses datetime parsing for accurate ISO 8601 comparison to handle
+        different timezone representations (e.g., "Z" vs "+00:00").
+        """
+        from datetime import datetime
+
+        if self.start_date is not None and self.end_date is not None:
+            # Parse ISO 8601 strings to datetime for correct comparison
+            # (lexicographic string comparison fails with mixed timezone formats)
+            try:
+                start_dt = datetime.fromisoformat(self.start_date.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(self.end_date.replace("Z", "+00:00"))
+            except (ValueError, AttributeError) as e:
+                # Should not happen as individual validators already checked ISO 8601 format
+                raise ValueError(
+                    f"Invalid ISO 8601 format in start_date or end_date: {e}"
+                ) from e
+
+            if start_dt > end_dt:
+                raise ValueError(
+                    f"start_date must be <= end_date when both are present. "
+                    f"Got start_date={self.start_date!r}, end_date={self.end_date!r}"
+                )
 
 
 class NormalizedContent(BaseModel):

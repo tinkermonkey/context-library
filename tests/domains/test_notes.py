@@ -47,6 +47,26 @@ class TestNotesDomainBasics:
         assert domain.soft_limit == 256
         assert domain.hard_limit == 512
 
+    def test_initialization_rejects_zero_hard_limit(self):
+        """NotesDomain rejects hard_limit=0."""
+        with pytest.raises(ValueError, match="hard_limit must be a positive integer"):
+            NotesDomain(hard_limit=0)
+
+    def test_initialization_rejects_negative_hard_limit(self):
+        """NotesDomain rejects negative hard_limit."""
+        with pytest.raises(ValueError, match="hard_limit must be a positive integer"):
+            NotesDomain(hard_limit=-1)
+
+    def test_initialization_rejects_zero_soft_limit(self):
+        """NotesDomain rejects soft_limit=0."""
+        with pytest.raises(ValueError, match="soft_limit must be a positive integer"):
+            NotesDomain(soft_limit=0)
+
+    def test_initialization_rejects_negative_soft_limit(self):
+        """NotesDomain rejects negative soft_limit."""
+        with pytest.raises(ValueError, match="soft_limit must be a positive integer"):
+            NotesDomain(soft_limit=-1)
+
     def test_chunk_returns_list(self, notes_domain, base_structural_hints):
         """chunk() returns a list of Chunk instances."""
         content = NormalizedContent(

@@ -29,17 +29,19 @@ class TestGetDomainChunker:
         assert isinstance(chunker, NotesDomain)
         assert isinstance(chunker, BaseDomain)
 
-    def test_unregistered_domain_raises_error(self):
-        """get_domain_chunker raises ValueError for unregistered domains."""
-        with pytest.raises(ValueError, match="Domain .* is not yet registered or implemented"):
-            get_domain_chunker(Domain.EVENTS)
+    def test_get_events_chunker(self):
+        """get_domain_chunker returns EventsDomain for EVENTS domain."""
+        chunker = get_domain_chunker(Domain.EVENTS)
 
-    def test_unregistered_domain_error_message(self):
-        """ValueError message includes the unregistered domain name."""
-        with pytest.raises(ValueError) as exc_info:
-            get_domain_chunker(Domain.TASKS)
+        assert isinstance(chunker, BaseDomain)
+        assert chunker.__class__.__name__ == "EventsDomain"
 
-        assert "Domain.TASKS" in str(exc_info.value) or "tasks" in str(exc_info.value)
+    def test_get_tasks_chunker(self):
+        """get_domain_chunker returns TasksDomain for TASKS domain."""
+        chunker = get_domain_chunker(Domain.TASKS)
+
+        assert isinstance(chunker, BaseDomain)
+        assert chunker.__class__.__name__ == "TasksDomain"
 
     def test_each_call_returns_new_instance(self):
         """get_domain_chunker returns a new instance on each call."""
@@ -79,23 +81,23 @@ class TestListRegisteredDomains:
 
         assert Domain.NOTES in domains
 
-    def test_does_not_contain_events_domain(self):
-        """list_registered_domains does not include unregistered Domain.EVENTS."""
+    def test_contains_events_domain(self):
+        """list_registered_domains includes Domain.EVENTS."""
         domains = list_registered_domains()
 
-        assert Domain.EVENTS not in domains
+        assert Domain.EVENTS in domains
 
-    def test_does_not_contain_tasks_domain(self):
-        """list_registered_domains does not include unregistered Domain.TASKS."""
+    def test_contains_tasks_domain(self):
+        """list_registered_domains includes Domain.TASKS."""
         domains = list_registered_domains()
 
-        assert Domain.TASKS not in domains
+        assert Domain.TASKS in domains
 
     def test_expected_count(self):
-        """list_registered_domains returns exactly two registered domains."""
+        """list_registered_domains returns exactly four registered domains."""
         domains = list_registered_domains()
 
-        assert len(domains) == 2
+        assert len(domains) == 4
 
     def test_all_returned_domains_are_enum_values(self):
         """All values returned are valid Domain enum members."""

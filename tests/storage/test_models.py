@@ -15,12 +15,14 @@ from context_library.storage.models import (
     Chunk,
     Domain,
     DiffResult,
+    EventMetadata,
     LineageRecord,
     MessageMetadata,
     NormalizedContent,
     PollStrategy,
     SourceVersion,
     StructuralHints,
+    TaskMetadata,
     compute_chunk_hash,
 )
 
@@ -682,6 +684,518 @@ class TestMessageMetadata:
         )
         assert metadata.is_thread_root is False
         assert metadata.in_reply_to == "m1"
+
+
+class TestTaskMetadata:
+    """Tests for TaskMetadata model."""
+
+    def test_create_task_metadata_all_fields(self) -> None:
+        """Test creating TaskMetadata with all fields populated."""
+        metadata = TaskMetadata(
+            task_id="task-123",
+            status="in-progress",
+            title="Implement feature X",
+            due_date="2024-03-15T23:59:59Z",
+            priority=1,
+            dependencies=("task-100", "task-101"),
+            collaborators=("alice@example.com", "bob@example.com"),
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="apple_reminders",
+        )
+        assert metadata.task_id == "task-123"
+        assert metadata.status == "in-progress"
+        assert metadata.title == "Implement feature X"
+        assert metadata.due_date == "2024-03-15T23:59:59Z"
+        assert metadata.priority == 1
+        assert metadata.dependencies == ("task-100", "task-101")
+        assert metadata.collaborators == ("alice@example.com", "bob@example.com")
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.source_type == "apple_reminders"
+
+    def test_create_task_metadata_minimal_required(self) -> None:
+        """Test creating TaskMetadata with only required fields."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="open",
+            title="Do something",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="obsidian_tasks",
+        )
+        assert metadata.task_id == "t1"
+        assert metadata.status == "open"
+        assert metadata.title == "Do something"
+        assert metadata.due_date is None
+        assert metadata.priority is None
+        assert metadata.dependencies == ()
+        assert metadata.collaborators == ()
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.source_type == "obsidian_tasks"
+
+    def test_task_metadata_status_open_valid(self) -> None:
+        """Test that status 'open' is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="open",
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.status == "open"
+
+    def test_task_metadata_status_completed_valid(self) -> None:
+        """Test that status 'completed' is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="completed",
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.status == "completed"
+
+    def test_task_metadata_status_cancelled_valid(self) -> None:
+        """Test that status 'cancelled' is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="cancelled",
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.status == "cancelled"
+
+    def test_task_metadata_status_in_progress_valid(self) -> None:
+        """Test that status 'in-progress' is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="in-progress",
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.status == "in-progress"
+
+    def test_task_metadata_status_invalid(self) -> None:
+        """Test that invalid status is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status="pending",
+                title="Task",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        # Status validator error message
+        assert "status must be one of" in str(exc_info.value)
+
+    def test_task_metadata_empty_task_id_rejected(self) -> None:
+        """Test that empty task_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="",
+                status="open",
+                title="Task",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "task_id must be a non-empty string" in str(exc_info.value)
+
+    def test_task_metadata_empty_title_rejected(self) -> None:
+        """Test that empty title is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "title must be a non-empty string" in str(exc_info.value)
+
+    def test_task_metadata_invalid_due_date(self) -> None:
+        """Test that invalid due_date ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                due_date="not-a-date",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+
+    def test_task_metadata_invalid_date_first_observed(self) -> None:
+        """Test that invalid date_first_observed ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                date_first_observed="invalid-date",
+                source_type="test",
+            )
+
+    def test_task_metadata_frozen_immutability(self) -> None:
+        """Test that TaskMetadata is frozen and raises ValidationError on mutation."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="open",
+            title="Task",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        with pytest.raises(ValidationError):
+            metadata.status = "completed"  # type: ignore[assignment]
+
+    def test_task_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError):
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                source_type="",
+            )
+
+    def test_task_metadata_priority_valid_range_1_4(self) -> None:
+        """Test that priority values in range 1-4 are accepted."""
+        for priority in [1, 2, 3, 4]:
+            metadata = TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                priority=priority,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+            assert metadata.priority == priority
+
+    def test_task_metadata_priority_zero_rejected(self) -> None:
+        """Test that priority=0 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                priority=0,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_five_rejected(self) -> None:
+        """Test that priority=5 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                priority=5,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_negative_rejected(self) -> None:
+        """Test that negative priority is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            TaskMetadata(
+                task_id="t1",
+                status="open",
+                title="Task",
+                priority=-1,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "priority must be in range 1-4" in str(exc_info.value)
+
+    def test_task_metadata_priority_none_valid(self) -> None:
+        """Test that priority=None (optional) is valid."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="open",
+            title="Task",
+            priority=None,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.priority is None
+
+    def test_task_metadata_model_dump_serializable(self) -> None:
+        """Test that TaskMetadata.model_dump() returns JSON-serializable dict."""
+        metadata = TaskMetadata(
+            task_id="t1",
+            status="open",
+            title="Task",
+            due_date="2024-03-15T23:59:59Z",
+            priority=1,
+            dependencies=("task-100",),
+            collaborators=("alice@example.com",),
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="apple_reminders",
+        )
+        dumped = metadata.model_dump()
+        assert isinstance(dumped, dict)
+        assert dumped["task_id"] == "t1"
+        assert dumped["status"] == "open"  # Status is a plain string, not an enum
+        assert dumped["title"] == "Task"
+        assert dumped["due_date"] == "2024-03-15T23:59:59Z"
+        assert dumped["priority"] == 1
+        assert dumped["dependencies"] == ("task-100",)
+        assert dumped["collaborators"] == ("alice@example.com",)
+
+
+class TestEventMetadata:
+    """Tests for EventMetadata model."""
+
+    def test_create_event_metadata_all_fields(self) -> None:
+        """Test creating EventMetadata with all fields populated."""
+        metadata = EventMetadata(
+            event_id="event-123",
+            title="Team Meeting",
+            start_date="2024-03-15T14:00:00Z",
+            end_date="2024-03-15T15:00:00Z",
+            duration_minutes=60,
+            host="alice@example.com",
+            invitees=("bob@example.com", "charlie@example.com"),
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="caldav",
+        )
+        assert metadata.event_id == "event-123"
+        assert metadata.title == "Team Meeting"
+        assert metadata.start_date == "2024-03-15T14:00:00Z"
+        assert metadata.end_date == "2024-03-15T15:00:00Z"
+        assert metadata.duration_minutes == 60
+        assert metadata.host == "alice@example.com"
+        assert metadata.invitees == ("bob@example.com", "charlie@example.com")
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.source_type == "caldav"
+
+    def test_create_event_metadata_minimal_required(self) -> None:
+        """Test creating EventMetadata with only required fields."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="apple_health",
+        )
+        assert metadata.event_id == "e1"
+        assert metadata.title == "Event"
+        assert metadata.start_date is None
+        assert metadata.end_date is None
+        assert metadata.duration_minutes is None
+        assert metadata.host is None
+        assert metadata.invitees == ()
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.source_type == "apple_health"
+
+    def test_event_metadata_empty_event_id_rejected(self) -> None:
+        """Test that empty event_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="",
+                title="Event",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "event_id must be a non-empty string" in str(exc_info.value)
+
+    def test_event_metadata_empty_title_rejected(self) -> None:
+        """Test that empty title is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "title must be a non-empty string" in str(exc_info.value)
+
+    def test_event_metadata_invalid_start_date(self) -> None:
+        """Test that invalid start_date ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                start_date="not-a-date",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+
+    def test_event_metadata_invalid_end_date(self) -> None:
+        """Test that invalid end_date ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                end_date="not-a-date",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+
+    def test_event_metadata_invalid_date_first_observed(self) -> None:
+        """Test that invalid date_first_observed ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                date_first_observed="invalid-date",
+                source_type="test",
+            )
+
+    def test_event_metadata_start_date_before_end_date_valid(self) -> None:
+        """Test that start_date < end_date is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            start_date="2024-03-15T14:00:00Z",
+            end_date="2024-03-15T15:00:00Z",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.start_date == "2024-03-15T14:00:00Z"
+        assert metadata.end_date == "2024-03-15T15:00:00Z"
+
+    def test_event_metadata_start_date_equals_end_date_valid(self) -> None:
+        """Test that start_date == end_date is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            start_date="2024-03-15T14:00:00Z",
+            end_date="2024-03-15T14:00:00Z",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.start_date == metadata.end_date
+
+    def test_event_metadata_start_date_after_end_date_rejected(self) -> None:
+        """Test that start_date > end_date is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                start_date="2024-03-15T15:00:00Z",
+                end_date="2024-03-15T14:00:00Z",
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "start_date must be <= end_date" in str(exc_info.value)
+
+    def test_event_metadata_only_start_date_valid(self) -> None:
+        """Test that only start_date without end_date is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            start_date="2024-03-15T14:00:00Z",
+            end_date=None,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.start_date == "2024-03-15T14:00:00Z"
+        assert metadata.end_date is None
+
+    def test_event_metadata_only_end_date_valid(self) -> None:
+        """Test that only end_date without start_date is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            start_date=None,
+            end_date="2024-03-15T15:00:00Z",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.start_date is None
+        assert metadata.end_date == "2024-03-15T15:00:00Z"
+
+    def test_event_metadata_frozen_immutability(self) -> None:
+        """Test that EventMetadata is frozen and raises ValidationError on mutation."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        with pytest.raises(ValidationError):
+            metadata.title = "Modified"  # type: ignore[assignment]
+
+    def test_event_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError):
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                source_type="",
+            )
+
+    def test_event_metadata_duration_minutes_non_negative_valid(self) -> None:
+        """Test that non-negative duration_minutes values are accepted."""
+        for duration in [0, 1, 30, 60, 1440, 999999]:
+            metadata = EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=duration,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+            assert metadata.duration_minutes == duration
+
+    def test_event_metadata_duration_minutes_negative_rejected(self) -> None:
+        """Test that negative duration_minutes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=-1,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "duration_minutes must be non-negative" in str(exc_info.value)
+
+    def test_event_metadata_duration_minutes_negative_large_rejected(self) -> None:
+        """Test that large negative duration_minutes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            EventMetadata(
+                event_id="e1",
+                title="Event",
+                duration_minutes=-999,
+                date_first_observed="2024-03-01T10:00:00Z",
+                source_type="test",
+            )
+        assert "duration_minutes must be non-negative" in str(exc_info.value)
+
+    def test_event_metadata_duration_minutes_none_valid(self) -> None:
+        """Test that duration_minutes=None (optional) is valid."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            duration_minutes=None,
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="test",
+        )
+        assert metadata.duration_minutes is None
+
+    def test_event_metadata_model_dump_serializable(self) -> None:
+        """Test that EventMetadata.model_dump() returns JSON-serializable dict."""
+        metadata = EventMetadata(
+            event_id="e1",
+            title="Event",
+            start_date="2024-03-15T14:00:00Z",
+            end_date="2024-03-15T15:00:00Z",
+            duration_minutes=60,
+            host="alice@example.com",
+            invitees=("bob@example.com",),
+            date_first_observed="2024-03-01T10:00:00Z",
+            source_type="caldav",
+        )
+        dumped = metadata.model_dump()
+        assert isinstance(dumped, dict)
+        assert dumped["event_id"] == "e1"
+        assert dumped["title"] == "Event"
+        assert dumped["start_date"] == "2024-03-15T14:00:00Z"
+        assert dumped["end_date"] == "2024-03-15T15:00:00Z"
+        assert dumped["duration_minutes"] == 60
+        assert dumped["host"] == "alice@example.com"
+        assert dumped["invitees"] == ("bob@example.com",)
 
 
 class TestComputeChunkHash:

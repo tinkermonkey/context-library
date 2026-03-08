@@ -19,8 +19,11 @@ gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
 rich-fs = ["markitdown", "watchdog"]
-obsidian = ["obsidiantools", "python-frontmatter", "watchdog"]
-dev = ["ruff", "mypy", "pytest", "watchdog", "watchfiles"]
+obsidian = ["obsidiantools", "python-frontmatter", "PyYAML", "watchdog"]
+caldav = ["caldav", "icalendar"]
+apple-reminders = ["httpx"]
+apple-health = ["httpx"]
+dev = ["ruff", "mypy", "pytest", "types-PyYAML", "watchdog", "watchfiles"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -41,6 +44,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "frontmatter"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "caldav.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "icalendar.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
