@@ -282,8 +282,9 @@ class EventMetadata(BaseModel):
     - start_date, end_date, and date_first_observed must be valid ISO 8601 timestamps if provided
     - If both start_date and end_date are present, start_date <= end_date
 
-    Extra fields beyond these standard fields are allowed to support domain-specific metadata
-    (e.g., health-specific metrics like calories, distance, heart rate).
+    Note: Extra fields passed during model construction are silently ignored by the model
+    (extra="ignore" config). Domain-specific metadata like health metrics should be stored
+    in the chunk's domain_metadata dict instead, which preserves all fields.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
