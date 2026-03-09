@@ -2,9 +2,7 @@
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
-    Chunk,
     ChunkProvenance,
-    LineageRecord,
     SourceTimeline,
     VersionDiff,
 )

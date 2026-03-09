@@ -10,7 +10,6 @@ Covers:
 
 import pytest
 import time
-from datetime import datetime, timezone
 
 from context_library.retrieval.provenance import (
     get_version_diff,
@@ -25,7 +24,6 @@ from context_library.storage.models import (
     ChunkType,
     Domain,
     LineageRecord,
-    PollStrategy,
     SourceTimeline,
     VersionDiff,
 )
