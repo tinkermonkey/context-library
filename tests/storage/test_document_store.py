@@ -2626,7 +2626,7 @@ class TestChunkVersionChain:
 
         store.write_chunks([chunk], [lineage])
 
-        chain = store.get_chunk_version_chain(_make_hash("a"))
+        chain = store.get_chunk_version_chain(_make_hash("a"), "source-1")
 
         assert len(chain) == 1
         assert chain[0].chunk_hash == _make_hash("a")
@@ -2717,7 +2717,7 @@ class TestChunkVersionChain:
             ),
         )
 
-        chain = store.get_chunk_version_chain(_make_hash("b"))
+        chain = store.get_chunk_version_chain(_make_hash("b"), "source-1")
 
         # Should have both chunks in order (oldest first)
         assert len(chain) == 2
@@ -2839,7 +2839,7 @@ class TestChunkVersionChain:
             ),
         )
 
-        chain = store.get_chunk_version_chain(_make_hash("c"))
+        chain = store.get_chunk_version_chain(_make_hash("c"), "source-1")
 
         # Should have all three chunks ordered by created_at (oldest first)
         assert len(chain) == 3
@@ -2852,7 +2852,7 @@ class TestChunkVersionChain:
 
     def test_get_chunk_version_chain_nonexistent_chunk(self, store: DocumentStore) -> None:
         """Test that chain is empty for non-existent chunk."""
-        chain = store.get_chunk_version_chain(_make_hash("f"))
+        chain = store.get_chunk_version_chain(_make_hash("f"), "source-1")
         assert chain == []
 
     def test_get_chunk_version_chain_ordered_by_created_at(self, store: DocumentStore) -> None:
@@ -2967,7 +2967,7 @@ class TestChunkVersionChain:
             ),
         )
 
-        chain = store.get_chunk_version_chain(_make_hash("5"))
+        chain = store.get_chunk_version_chain(_make_hash("5"), "source-1")
 
         # Should be ordered by created_at, not by insertion order
         assert len(chain) == 3
@@ -3024,7 +3024,7 @@ class TestChunkVersionChain:
 
         store.write_chunks([chunk], [lineage])
 
-        chain = store.get_chunk_version_chain(_make_hash("6"))
+        chain = store.get_chunk_version_chain(_make_hash("6"), "source-1")
 
         assert len(chain) == 1
         assert chain[0].domain_metadata == metadata

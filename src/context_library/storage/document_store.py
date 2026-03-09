@@ -280,11 +280,17 @@ class DocumentStore:
             lineage_records: List of LineageRecord objects with provenance info.
 
         Raises:
-            ValueError: If a chunk has no matching lineage record.
+            ValueError: If a chunk has no matching lineage record, or if cross-source
+                        dedup is detected without proper matching context.
             sqlite3.IntegrityError: If foreign key or CHECK constraint violations occur.
         """
-        # Create a map of chunk_hash to lineage for quick lookup
-        lineage_map = {lr.chunk_hash: lr for lr in lineage_records}
+        # Create a map of chunk_hash to list of lineage records.
+        # Preserves all records to detect cross-source chunks and prevent silent overwrites.
+        lineage_map: dict[str, list[LineageRecord]] = {}
+        for lr in lineage_records:
+            if lr.chunk_hash not in lineage_map:
+                lineage_map[lr.chunk_hash] = []
+            lineage_map[lr.chunk_hash].append(lr)
 
         # Validate that all chunks have matching lineage
         for chunk in chunks:
@@ -304,8 +310,27 @@ class DocumentStore:
                     else None
                 )
 
-                # Get lineage info for this chunk (guaranteed non-None due to validation above)
-                lineage = lineage_map[chunk.chunk_hash]
+                # Get lineage records for this chunk hash
+                lineage_records_for_chunk = lineage_map[chunk.chunk_hash]
+
+                # If multiple lineage records exist for this chunk hash, all should have
+                # the same source_id and source_version_id (enforced by lineage generation).
+                # Validate this assumption and use the first record.
+                if len(lineage_records_for_chunk) > 1:
+                    first_lr = lineage_records_for_chunk[0]
+                    for lr in lineage_records_for_chunk[1:]:
+                        if (lr.source_id != first_lr.source_id or
+                            lr.source_version_id != first_lr.source_version_id):
+                            raise ValueError(
+                                f"Cross-source dedup detected for chunk_hash={chunk.chunk_hash}: "
+                                f"multiple lineage records with different source contexts. "
+                                f"Expected all records for a chunk in a single write_chunks call to be from "
+                                f"the same source ({first_lr.source_id}/{first_lr.source_version_id}), "
+                                f"but found ({lr.source_id}/{lr.source_version_id}). "
+                                f"Cannot safely select lineage without explicit source context."
+                            )
+
+                lineage = lineage_records_for_chunk[0]
 
                 # Use INSERT OR IGNORE to atomically skip duplicates without TOCTOU race.
                 # Duplicate detection is based on UNIQUE constraint on (source_id, source_version, chunk_index).
@@ -594,13 +619,14 @@ class DocumentStore:
 
         # Fetch actual chunk objects for added and removed hashes
         # Filter out None values in case a chunk hash isn't found (e.g., for old/deleted chunks)
+        # Pass source_id to correctly scope lookups in cross-source dedup scenarios
         added_chunks = tuple(
             chunk for chunk_hash in added
-            if (chunk := self.get_chunk_by_hash(chunk_hash)) is not None
+            if (chunk := self.get_chunk_by_hash(chunk_hash, source_id)) is not None
         ) if added else ()
         removed_chunks = tuple(
             chunk for chunk_hash in removed
-            if (chunk := self.get_chunk_by_hash(chunk_hash)) is not None
+            if (chunk := self.get_chunk_by_hash(chunk_hash, source_id)) is not None
         ) if removed else ()
 
         return VersionDiff(
@@ -614,7 +640,7 @@ class DocumentStore:
             removed_chunks=removed_chunks,
         )
 
-    def get_chunk_version_chain(self, chunk_hash: str) -> list[Chunk]:
+    def get_chunk_version_chain(self, chunk_hash: str, source_id: str) -> list[Chunk]:
         """Get the recursive ancestry chain of a chunk via parent_chunk_hash.
 
         Walks backward through chunk history using parent_chunk_hash references,
@@ -631,27 +657,30 @@ class DocumentStore:
         circular references exist.
 
         Only non-retired chunks (retired_at IS NULL) are included in the chain.
+        The CTE is scoped by source_id to correctly handle cross-source chunks
+        with identical hashes.
 
         Args:
             chunk_hash: SHA-256 hash of the chunk to trace.
+            source_id: ID of the source to scope the ancestry chain.
 
         Returns:
             List of Chunk objects ordered by created_at ascending (oldest first).
-            Empty list if chunk_hash does not exist.
+            Empty list if chunk_hash does not exist in the specified source.
         """
         cursor = self.conn.cursor()
         cursor.execute(
             """
             WITH RECURSIVE chain AS (
-                SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                SELECT chunk_hash, source_id, content, context_header, chunk_index, chunk_type,
                        domain_metadata, created_at, parent_chunk_hash, 1 AS depth
                 FROM chunks
-                WHERE chunk_hash = ? AND retired_at IS NULL
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
                 UNION
-                SELECT c.chunk_hash, c.content, c.context_header, c.chunk_index, c.chunk_type,
+                SELECT c.chunk_hash, c.source_id, c.content, c.context_header, c.chunk_index, c.chunk_type,
                        c.domain_metadata, c.created_at, c.parent_chunk_hash, ch.depth + 1
                 FROM chunks c
-                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash
+                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash AND c.source_id = ch.source_id
                 WHERE ch.depth < 1000 AND c.retired_at IS NULL
             )
             SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
@@ -659,7 +688,7 @@ class DocumentStore:
             FROM chain
             ORDER BY created_at ASC
             """,
-            (chunk_hash,),
+            (chunk_hash, source_id),
         )
         rows = cursor.fetchall()
 
@@ -745,28 +774,48 @@ class DocumentStore:
 
         return chunks
 
-    def get_chunk_by_hash(self, chunk_hash: str) -> Optional[Chunk]:
+    def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
         """Get a chunk by its hash.
 
         Only returns non-retired chunks. Retired chunks are not returned.
 
+        When source_id is not provided and the same chunk_hash exists across multiple sources,
+        returns the earliest-created instance (deterministic behavior). Callers should pass
+        source_id when they need a specific source's version of the chunk.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
+            source_id: Optional source ID to scope the lookup. If provided, returns the chunk
+                       from this specific source. If None and the chunk appears in multiple sources,
+                       returns the earliest-created instance.
 
         Returns:
             Chunk object, or None if not found or if the chunk is retired.
         """
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
-                   domain_metadata
-            FROM chunks
-            WHERE chunk_hash = ? AND retired_at IS NULL
-            LIMIT 1
-            """,
-            (chunk_hash,),
-        )
+        if source_id is not None:
+            cursor.execute(
+                """
+                SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
+                       domain_metadata
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                LIMIT 1
+                """,
+                (chunk_hash, source_id),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
+                       domain_metadata
+                FROM chunks
+                WHERE chunk_hash = ? AND retired_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (chunk_hash,),
+            )
         row = cursor.fetchone()
 
         if not row:
@@ -823,18 +872,23 @@ class DocumentStore:
         Retrieves the full provenance information for a chunk, including the
         embedding model ID that was used when the chunk was vectorized.
 
+        When source_id is not provided and the same chunk_hash exists across multiple sources,
+        returns the earliest-created instance (deterministic behavior). Callers should pass
+        source_id when they need the lineage from a specific source.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
             source_id: Optional source ID to scope the lookup. If provided, returns the lineage
                        for this specific source. Important for cross-source dedup where the same
                        hash can appear in multiple sources—callers should pass source_id to get
-                       the correct record.
+                       the correct record. If None and the chunk appears in multiple sources,
+                       returns the earliest-created instance.
 
         Returns:
             LineageRecord with complete provenance information, or None if not found.
         """
         cursor = self.conn.cursor()
-        if source_id:
+        if source_id is not None:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
@@ -852,6 +906,7 @@ class DocumentStore:
                        normalizer_version, embedding_model_id
                 FROM chunks
                 WHERE chunk_hash = ?
+                ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (chunk_hash,),

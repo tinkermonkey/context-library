@@ -102,7 +102,8 @@ def trace_chunk_provenance(
         )
 
     # Fetch version chain (returned by DocumentStore in oldest-ancestor-first order)
-    version_chain_list = document_store.get_chunk_version_chain(chunk_hash)
+    # Scope by source_id to correctly handle cross-source chunks with identical hashes
+    version_chain_list = document_store.get_chunk_version_chain(chunk_hash, lineage.source_id)
     version_chain = tuple(version_chain_list)
 
     # Validate that version chain is non-empty (chunk must appear in its own version chain)
