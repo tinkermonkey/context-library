@@ -95,7 +95,7 @@ def should_create_index(
     try:
         db = lancedb.connect(str(vector_store_path))
         table = db.open_table("chunk_vectors")
-        return table.count_rows() >= threshold
+        return bool(table.count_rows() >= threshold)
     except Exception:
         return False
 
