@@ -100,16 +100,22 @@ def trace_chunk_provenance(
         raise ValueError(
             f"Source info not found for source_id {lineage.source_id}"
         )
-    origin_ref, adapter_type = source_info
 
     # Fetch version chain (returned by DocumentStore in oldest-ancestor-first order)
     version_chain_list = document_store.get_chunk_version_chain(chunk_hash)
     version_chain = tuple(version_chain_list)
 
+    # Validate that version chain is non-empty (chunk must appear in its own version chain)
+    if not version_chain:
+        raise ValueError(
+            f"Version chain for chunk {chunk_hash} cannot be empty; "
+            f"chunk must appear in its own version chain"
+        )
+
     return ChunkProvenance(
         chunk=chunk,
         lineage=lineage,
-        source_origin_ref=origin_ref,
-        adapter_type=adapter_type,
+        source_origin_ref=source_info.origin_ref,
+        adapter_type=source_info.adapter_type,
         version_chain=version_chain,
     )

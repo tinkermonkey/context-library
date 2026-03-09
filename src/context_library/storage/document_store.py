@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, VersionDiff, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
 
 class DocumentStore:
@@ -1009,7 +1009,7 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [row["chunk_hash"] for row in rows]
 
-    def get_source_info(self, source_id: str) -> Optional[tuple[str, str]]:
+    def get_source_info(self, source_id: str) -> Optional[SourceInfo]:
         """Fetch origin_ref and adapter_type for a source.
 
         Joins sources and adapters tables to retrieve both pieces of metadata
@@ -1019,7 +1019,7 @@ class DocumentStore:
             source_id: The source to retrieve info for.
 
         Returns:
-            Tuple of (origin_ref, adapter_type) if source exists, None otherwise.
+            SourceInfo with origin_ref and adapter_type if source exists, None otherwise.
         """
         cursor = self.conn.cursor()
         cursor.execute(
@@ -1034,7 +1034,7 @@ class DocumentStore:
         row = cursor.fetchone()
         if row is None:
             return None
-        return (row[0], row[1])
+        return SourceInfo(origin_ref=row[0], adapter_type=row[1])
 
     def close(self) -> None:
         """Close the database connection.

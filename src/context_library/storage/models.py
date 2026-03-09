@@ -599,6 +599,38 @@ class AdapterConfig(BaseModel):
     config: dict[str, object] | None = None
 
 
+class SourceInfo(BaseModel):
+    """Source metadata for provenance tracing.
+
+    Captures the origin reference and adapter type information needed to trace
+    a chunk back to its source and understand how it was processed.
+
+    Invariants:
+    - origin_ref and adapter_type must be non-empty strings
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    origin_ref: str
+    adapter_type: str
+
+    @field_validator("origin_ref")
+    @classmethod
+    def validate_origin_ref(cls, value: str) -> str:
+        """Validate that origin_ref is not empty."""
+        if not value:
+            raise ValueError("origin_ref must be a non-empty string")
+        return value
+
+    @field_validator("adapter_type")
+    @classmethod
+    def validate_adapter_type(cls, value: str) -> str:
+        """Validate that adapter_type is not empty."""
+        if not value:
+            raise ValueError("adapter_type must be a non-empty string")
+        return value
+
+
 class SourceTimeline(BaseModel):
     """Timeline of versions for a source.
 
