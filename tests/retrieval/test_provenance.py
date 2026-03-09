@@ -9,6 +9,7 @@ Covers:
 """
 
 import pytest
+import time
 from datetime import datetime, timezone
 
 from context_library.retrieval.provenance import (
@@ -350,6 +351,120 @@ class TestTraceChunkProvenance:
         # Version chain should contain at least the chunk itself
         assert len(provenance.version_chain) >= 1
         assert provenance.version_chain[-1].chunk_hash == hash_a
+
+    def test_trace_chunk_provenance_two_chunk_version_chain(
+        self, store: DocumentStore
+    ) -> None:
+        """Test provenance version chain with ancestor-descendant relationship.
+
+        Creates chunk A in version 1, then chunk B in version 2 with parent_chunk_hash=A,
+        verifies the version_chain walks correctly and is ordered oldest-ancestor-first.
+        """
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+
+        # Version 1: chunk A (ancestor)
+        version_id_1 = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content a",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="content a",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage_a = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=version_id_1,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], lineage_a)
+
+        # Delay at least 1 second to ensure chunk B has a later created_at timestamp
+        # (SQLite datetime precision is to the second)
+        time.sleep(1.0)
+
+        # Version 2: chunk B (descendant with parent_chunk_hash=A)
+        version_id_2 = store.create_source_version(
+            source_id="test-source",
+            version=2,
+            markdown="content b",
+            chunk_hashes=[hash_b],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        chunk_b = Chunk(
+            chunk_hash=hash_b,
+            content="content b (evolved from a)",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage_b = [
+            LineageRecord(
+                chunk_hash=hash_b,
+                source_id="test-source",
+                source_version_id=version_id_2,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_b], lineage_b)
+
+        # Manually set parent_chunk_hash for B -> A via SQL
+        # (write_chunks doesn't support this directly)
+        store.conn.execute(
+            """
+            UPDATE chunks
+            SET parent_chunk_hash = ?
+            WHERE chunk_hash = ? AND source_id = ? AND source_version = ?
+            """,
+            (hash_a, hash_b, "test-source", 2),
+        )
+        store.conn.commit()
+
+        # Trace provenance for chunk B (descendant)
+        provenance = trace_chunk_provenance(store, hash_b)
+        assert provenance.chunk.chunk_hash == hash_b
+
+        # Version chain should contain both chunks, ordered oldest-ancestor first
+        assert len(provenance.version_chain) == 2
+        assert provenance.version_chain[0].chunk_hash == hash_a  # ancestor first
+        assert provenance.version_chain[1].chunk_hash == hash_b  # descendant second
 
     def test_trace_chunk_provenance_unknown_hash_raises(
         self, store: DocumentStore

@@ -104,10 +104,8 @@ def trace_chunk_provenance(
         )
     origin_ref, adapter_type = source_info
 
-    # Fetch version chain (ancestry from oldest to newest)
+    # Fetch version chain (returned by DocumentStore in oldest-ancestor-first order)
     version_chain_list = document_store.get_chunk_version_chain(chunk_hash)
-    # Reverse to ensure oldest ancestor is first
-    version_chain_list.reverse()
     version_chain = tuple(version_chain_list)
 
     return ChunkProvenance(
