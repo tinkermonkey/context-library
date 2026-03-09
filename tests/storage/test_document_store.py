@@ -2546,21 +2546,21 @@ class TestVersionDiff:
 
     def test_get_version_diff_nonexistent_source(self, store: DocumentStore) -> None:
         """Test that get_version_diff raises ValueError for non-existent source."""
-        with pytest.raises(ValueError, match="does not have both version"):
+        with pytest.raises(ValueError, match="does not exist"):
             store.get_version_diff("nonexistent", 1, 2)
 
     def test_get_version_diff_missing_from_version(self, store: DocumentStore) -> None:
         """Test that get_version_diff raises ValueError when from_version doesn't exist."""
         source_id, _, _ = self._setup_versions(store)
 
-        with pytest.raises(ValueError, match="does not have both version"):
+        with pytest.raises(ValueError, match="does not have version\\(s\\)"):
             store.get_version_diff(source_id, 99, 2)
 
     def test_get_version_diff_missing_to_version(self, store: DocumentStore) -> None:
         """Test that get_version_diff raises ValueError when to_version doesn't exist."""
         source_id, _, _ = self._setup_versions(store)
 
-        with pytest.raises(ValueError, match="does not have both version"):
+        with pytest.raises(ValueError, match="does not have version\\(s\\)"):
             store.get_version_diff(source_id, 1, 99)
 
     def test_get_version_diff_frozenset_immutability(self, store: DocumentStore) -> None:
