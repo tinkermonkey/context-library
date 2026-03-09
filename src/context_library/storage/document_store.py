@@ -800,6 +800,7 @@ class DocumentStore:
                        domain_metadata
                 FROM chunks
                 WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (chunk_hash, source_id),
@@ -895,6 +896,7 @@ class DocumentStore:
                        normalizer_version, embedding_model_id
                 FROM chunks
                 WHERE chunk_hash = ? AND source_id = ?
+                ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (chunk_hash, source_id),
