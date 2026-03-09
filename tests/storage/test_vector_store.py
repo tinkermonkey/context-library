@@ -3,6 +3,8 @@
 Tests write chunk vectors to LanceDB, search, and verify results.
 """
 
+import logging
+
 import pytest
 import lancedb
 
@@ -233,6 +235,67 @@ class TestIndexCreation:
 
         # Path doesn't exist; should_create_index should return False
         assert not should_create_index(nonexistent_path)
+
+    def test_should_create_index_missing_table(self, tmp_path, caplog):
+        """Test that should_create_index returns False when table does not exist (already covered)."""
+        # This is covered by test_should_create_index_nonexistent_table
+        pass
+
+    def test_should_create_index_logs_on_error(self, tmp_path, caplog):
+        """Test that should_create_index logs errors instead of silently failing."""
+        from unittest.mock import patch
+
+        lancedb_path = tmp_path / "lancedb"
+        lancedb_path.mkdir()
+
+        # Mock lancedb.connect to raise an OSError (simulating disk/permission issues)
+        with patch("lancedb.connect") as mock_connect:
+            mock_connect.side_effect = OSError("Permission denied")
+
+            # should_create_index should return False and log a warning
+            with caplog.at_level(logging.WARNING):
+                result = should_create_index(lancedb_path)
+
+            assert result is False
+            assert "Could not access vector store" in caplog.text
+
+    def test_should_create_index_logs_memory_error(self, tmp_path, caplog):
+        """Test that should_create_index logs memory errors."""
+        from unittest.mock import patch
+
+        lancedb_path = tmp_path / "lancedb"
+        lancedb_path.mkdir()
+
+        # Mock lancedb.connect to raise MemoryError
+        with patch("lancedb.connect") as mock_connect:
+            mock_connect.side_effect = MemoryError("Out of memory")
+
+            # should_create_index should return False and log an error
+            with caplog.at_level(logging.ERROR):
+                result = should_create_index(lancedb_path)
+
+            assert result is False
+            assert "Out of memory" in caplog.text
+
+    def test_should_create_index_logs_unexpected_error(self, tmp_path, caplog):
+        """Test that should_create_index logs unexpected errors with type information."""
+        from unittest.mock import patch
+
+        lancedb_path = tmp_path / "lancedb"
+        lancedb_path.mkdir()
+
+        # Mock db.open_table to raise a ValueError (simulating database corruption)
+        with patch("lancedb.connect") as mock_connect:
+            mock_db = mock_connect.return_value
+            mock_db.open_table.side_effect = ValueError("Database corrupted")
+
+            # should_create_index should return False and log an error
+            with caplog.at_level(logging.ERROR):
+                result = should_create_index(lancedb_path)
+
+            assert result is False
+            assert "Unexpected error" in caplog.text
+            assert "ValueError" in caplog.text
 
     def test_create_ivf_pq_index_success(self, tmp_path, embedder):
         """Test that create_ivf_pq_index successfully creates an IVF-PQ index."""

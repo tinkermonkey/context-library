@@ -1,5 +1,6 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
+import logging
 import math
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from context_library.storage.models import Domain, Sha256Hash
 from context_library.storage.validators import (
     validate_iso8601_timestamp,
 )
+
+logger = logging.getLogger(__name__)
 
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
 
@@ -96,7 +99,26 @@ def should_create_index(
         db = lancedb.connect(str(vector_store_path))
         table = db.open_table("chunk_vectors")
         return bool(table.count_rows() >= threshold)
-    except Exception:
+    except FileNotFoundError:
+        # Vector store path doesn't exist; index creation not needed yet
+        return False
+    except OSError as e:
+        # Disk errors, permission errors, file system issues
+        logger.warning(
+            f"Could not access vector store at {vector_store_path}: {e}"
+        )
+        return False
+    except MemoryError:
+        # Out of memory during database operations
+        logger.error(
+            f"Out of memory while checking index threshold for {vector_store_path}"
+        )
+        return False
+    except Exception as e:
+        # Catch-all for database corruption, LanceDB-specific errors, etc.
+        logger.error(
+            f"Unexpected error checking index threshold for {vector_store_path}: {type(e).__name__}: {e}"
+        )
         return False
 
 
