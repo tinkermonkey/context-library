@@ -3,6 +3,7 @@
 from pydantic import ValidationError
 
 from context_library.domains.base import BaseDomain
+from context_library.storage.cross_refs import detect_cross_references
 from context_library.storage.models import (
     Chunk,
     ChunkType,
@@ -104,5 +105,24 @@ class EventsDomain(BaseDomain):
             )
             chunks.append(chunk)
 
-        return chunks
+        # Detect cross-references between chunks
+        final_chunks = []
+        for chunk in chunks:
+            cross_refs = detect_cross_references(chunk, chunks)
+            if cross_refs:
+                # Reconstruct chunk with cross_refs
+                chunk_with_refs = Chunk(
+                    chunk_hash=chunk.chunk_hash,
+                    content=chunk.content,
+                    context_header=chunk.context_header,
+                    chunk_index=chunk.chunk_index,
+                    chunk_type=chunk.chunk_type,
+                    domain_metadata=chunk.domain_metadata,
+                    cross_refs=cross_refs,
+                )
+                final_chunks.append(chunk_with_refs)
+            else:
+                final_chunks.append(chunk)
+
+        return final_chunks
 

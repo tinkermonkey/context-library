@@ -423,6 +423,9 @@ class Chunk(BaseModel):
 
     chunk_type is validated against a fixed set of allowed values (standard, oversized,
     table_part, code, table) to ensure consistency with SQLite schema constraints.
+
+    cross_refs contains hashes of other chunks that are referenced by this chunk, enabling
+    automatic identification and linking of related content across multiple domains and sources.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -433,6 +436,7 @@ class Chunk(BaseModel):
     chunk_index: int
     chunk_type: ChunkType = ChunkType.STANDARD
     domain_metadata: dict[str, object] | None = None
+    cross_refs: tuple[str, ...] = ()
 
 
 class LineageRecord(BaseModel):
@@ -545,6 +549,8 @@ class VersionDiff(BaseModel):
 
     Invariants:
     - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint
+    - added_chunks contains the actual Chunk objects for added hashes
+    - removed_chunks contains the actual Chunk objects for removed hashes
     """
 
     model_config = ConfigDict(frozen=True)
@@ -555,12 +561,16 @@ class VersionDiff(BaseModel):
     added_hashes: frozenset[Sha256Hash]
     removed_hashes: frozenset[Sha256Hash]
     unchanged_hashes: frozenset[Sha256Hash]
+    added_chunks: tuple[Chunk, ...] = ()
+    removed_chunks: tuple[Chunk, ...] = ()
 
     def model_post_init(self, __context) -> None:
         """Validate VersionDiff invariants after model construction.
 
         Enforces:
         - added_hashes, removed_hashes, and unchanged_hashes are disjoint
+        - added_chunks contains hashes that match added_hashes
+        - removed_chunks contains hashes that match removed_hashes
         """
         # Check set disjointness using frozenset operations
         added_and_removed = self.added_hashes & self.removed_hashes
@@ -581,6 +591,27 @@ class VersionDiff(BaseModel):
             raise ValueError(
                 f"removed_hashes and unchanged_hashes must be disjoint, "
                 f"but found overlap: {removed_and_unchanged}"
+            )
+
+        # Validate added_chunks contains only hashes that are in added_hashes
+        # Note: added_chunks may be a subset of added_hashes if some chunks aren't available
+        # (e.g., for removed chunks that have been retired from the database)
+        added_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.added_chunks)
+        if not added_chunk_hashes.issubset(self.added_hashes):
+            invalid_hashes = added_chunk_hashes - self.added_hashes
+            raise ValueError(
+                f"added_chunks must be a subset of added_hashes. "
+                f"Found invalid hashes not in added_hashes: {invalid_hashes}"
+            )
+
+        # Validate removed_chunks contains only hashes that are in removed_hashes
+        # Note: removed_chunks may be a subset of removed_hashes if some chunks aren't available
+        removed_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.removed_chunks)
+        if not removed_chunk_hashes.issubset(self.removed_hashes):
+            invalid_hashes = removed_chunk_hashes - self.removed_hashes
+            raise ValueError(
+                f"removed_chunks must be a subset of removed_hashes. "
+                f"Found invalid hashes not in removed_hashes: {invalid_hashes}"
             )
 
 

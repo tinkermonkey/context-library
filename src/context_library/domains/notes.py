@@ -8,6 +8,7 @@ import mistune
 
 from context_library.core.exceptions import ChunkingError
 from context_library.domains.base import BaseDomain
+from context_library.storage.cross_refs import detect_cross_references
 from context_library.storage.models import (
     Chunk,
     ChunkType,
@@ -107,7 +108,7 @@ class NotesDomain(BaseDomain):
         # and should be propagated to every chunk's domain_metadata
         extra_metadata = content.structural_hints.extra_metadata or {}
 
-        # Compute hashes and assign indices
+        # First pass: create chunks without cross-references to build the full list
         chunks = []
         for index, candidate in enumerate(final_chunks):
             # Content hash is computed from content alone (excluding context header)
@@ -130,7 +131,26 @@ class NotesDomain(BaseDomain):
             )
             chunks.append(chunk)
 
-        return chunks
+        # Second pass: detect cross-references and reconstruct chunks with references
+        final_chunks_with_refs = []
+        for chunk in chunks:
+            cross_refs = detect_cross_references(chunk, chunks)
+            if cross_refs:
+                # Reconstruct chunk with cross_refs
+                chunk_with_refs = Chunk(
+                    chunk_hash=chunk.chunk_hash,
+                    content=chunk.content,
+                    context_header=chunk.context_header,
+                    chunk_index=chunk.chunk_index,
+                    chunk_type=chunk.chunk_type,
+                    domain_metadata=chunk.domain_metadata,
+                    cross_refs=cross_refs,
+                )
+                final_chunks_with_refs.append(chunk_with_refs)
+            else:
+                final_chunks_with_refs.append(chunk)
+
+        return final_chunks_with_refs
 
     def _build_candidates(self, ast: list[dict[str, Any]]) -> list[CandidateChunk]:
         """Build candidate chunks from AST by walking block structure.

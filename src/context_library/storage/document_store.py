@@ -575,6 +575,17 @@ class DocumentStore:
         removed = frozenset(from_set - to_set)
         unchanged = frozenset(from_set & to_set)
 
+        # Fetch actual chunk objects for added and removed hashes
+        # Filter out None values in case a chunk hash isn't found (e.g., for old/deleted chunks)
+        added_chunks = tuple(
+            chunk for chunk_hash in added
+            if (chunk := self.get_chunk_by_hash(chunk_hash)) is not None
+        ) if added else ()
+        removed_chunks = tuple(
+            chunk for chunk_hash in removed
+            if (chunk := self.get_chunk_by_hash(chunk_hash)) is not None
+        ) if removed else ()
+
         return VersionDiff(
             source_id=source_id,
             from_version=from_version,
@@ -582,6 +593,8 @@ class DocumentStore:
             added_hashes=added,
             removed_hashes=removed,
             unchanged_hashes=unchanged,
+            added_chunks=added_chunks,
+            removed_chunks=removed_chunks,
         )
 
     def get_chunk_version_chain(self, chunk_hash: str) -> list[Chunk]:
