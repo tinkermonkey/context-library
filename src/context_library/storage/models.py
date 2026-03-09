@@ -537,6 +537,53 @@ class DiffResult(BaseModel):
                 )
 
 
+class VersionDiff(BaseModel):
+    """Difference between two versions of a source based on chunk hashes.
+
+    Computed by comparing the chunk_hashes sets of two source versions.
+    All hash sets are frozen (immutable) for content-addressed integrity.
+
+    Invariants:
+    - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: str
+    from_version: int
+    to_version: int
+    added_hashes: frozenset[Sha256Hash]
+    removed_hashes: frozenset[Sha256Hash]
+    unchanged_hashes: frozenset[Sha256Hash]
+
+    def model_post_init(self, __context) -> None:
+        """Validate VersionDiff invariants after model construction.
+
+        Enforces:
+        - added_hashes, removed_hashes, and unchanged_hashes are disjoint
+        """
+        # Check set disjointness using frozenset operations
+        added_and_removed = self.added_hashes & self.removed_hashes
+        added_and_unchanged = self.added_hashes & self.unchanged_hashes
+        removed_and_unchanged = self.removed_hashes & self.unchanged_hashes
+
+        if added_and_removed:
+            raise ValueError(
+                f"added_hashes and removed_hashes must be disjoint, "
+                f"but found overlap: {added_and_removed}"
+            )
+        if added_and_unchanged:
+            raise ValueError(
+                f"added_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {added_and_unchanged}"
+            )
+        if removed_and_unchanged:
+            raise ValueError(
+                f"removed_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {removed_and_unchanged}"
+            )
+
+
 class AdapterConfig(BaseModel):
     """Configuration for a registered adapter.
 

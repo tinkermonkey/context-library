@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, VersionDiff, _validate_sha256_hex
 
 
 class DocumentStore:
@@ -512,6 +512,143 @@ class DocumentStore:
             )
 
         return versions
+
+    def get_version_diff(
+        self,
+        source_id: str,
+        from_version: int,
+        to_version: int,
+    ) -> VersionDiff:
+        """Get the difference between two source versions based on chunk hashes.
+
+        Computes set-based diff of chunk hashes between two versions, returning
+        added, removed, and unchanged hashes. Enables efficient re-embedding by
+        identifying only new/modified chunks.
+
+        Args:
+            source_id: ID of the source.
+            from_version: Starting version number.
+            to_version: Ending version number.
+
+        Returns:
+            VersionDiff with added_hashes, removed_hashes, and unchanged_hashes
+            as frozensets.
+
+        Raises:
+            ValueError: If source_id does not exist, either version does not exist,
+                or from_version and to_version are the same.
+        """
+        if from_version == to_version:
+            raise ValueError(
+                f"from_version and to_version must be different, got both as {from_version}"
+            )
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT version, chunk_hashes
+            FROM source_versions
+            WHERE source_id = ? AND version IN (?, ?)
+            """,
+            (source_id, from_version, to_version),
+        )
+        rows = cursor.fetchall()
+
+        if len(rows) < 2:
+            raise ValueError(
+                f"Source '{source_id}' does not have both version {from_version} and version {to_version}"
+            )
+
+        # Parse the two versions
+        version_map = {}
+        for row in rows:
+            version_map[row["version"]] = json.loads(row["chunk_hashes"])
+
+        from_hashes = version_map[from_version]
+        to_hashes = version_map[to_version]
+
+        # Compute set operations
+        from_set = set(from_hashes)
+        to_set = set(to_hashes)
+
+        added = frozenset(to_set - from_set)
+        removed = frozenset(from_set - to_set)
+        unchanged = frozenset(from_set & to_set)
+
+        return VersionDiff(
+            source_id=source_id,
+            from_version=from_version,
+            to_version=to_version,
+            added_hashes=added,
+            removed_hashes=removed,
+            unchanged_hashes=unchanged,
+        )
+
+    def get_chunk_version_chain(self, chunk_hash: str) -> list[Chunk]:
+        """Get the recursive ancestry chain of a chunk via parent_chunk_hash.
+
+        Walks backward through chunk history using parent_chunk_hash references,
+        returning all ancestors of the chunk (including the chunk itself), ordered
+        by created_at ascending (oldest ancestor first).
+
+        Uses a recursive CTE for efficient ancestry traversal. An empty list is
+        returned if the chunk does not exist. A single-element list is returned
+        if the chunk has no parent (is the oldest version).
+
+        The traversal includes an explicit depth limit (1000) to prevent infinite
+        loops in case of circular parent_chunk_hash references. If a cycle is
+        detected, traversal stops at the cycle boundary.
+
+        Args:
+            chunk_hash: SHA-256 hash of the chunk to trace.
+
+        Returns:
+            List of Chunk objects ordered by created_at ascending (oldest first).
+            Empty list if chunk_hash does not exist.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                       domain_metadata, created_at, parent_chunk_hash, 1 AS depth
+                FROM chunks
+                WHERE chunk_hash = ?
+                UNION ALL
+                SELECT c.chunk_hash, c.content, c.context_header, c.chunk_index, c.chunk_type,
+                       c.domain_metadata, c.created_at, c.parent_chunk_hash, ch.depth + 1
+                FROM chunks c
+                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash
+                WHERE ch.depth < 1000
+            )
+            SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                   domain_metadata
+            FROM chain
+            ORDER BY created_at ASC
+            """,
+            (chunk_hash,),
+        )
+        rows = cursor.fetchall()
+
+        chunks = []
+        for row in rows:
+            domain_metadata = (
+                json.loads(row["domain_metadata"])
+                if row["domain_metadata"]
+                else None
+            )
+            chunks.append(
+                Chunk(
+                    chunk_hash=row["chunk_hash"],
+                    content=row["content"],
+                    context_header=row["context_header"],
+                    chunk_index=row["chunk_index"],
+                    chunk_type=row["chunk_type"],
+                    domain_metadata=domain_metadata,
+                )
+            )
+
+        return chunks
 
     def get_chunks_by_source(
         self,
