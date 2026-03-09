@@ -599,6 +599,39 @@ class AdapterConfig(BaseModel):
     config: dict[str, object] | None = None
 
 
+class SourceTimeline(BaseModel):
+    """Timeline of versions for a source.
+
+    Immutable record of a source's version history for provenance tracking.
+    Versions are ordered chronologically from earliest to latest.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: str
+    versions: tuple[SourceVersion, ...]
+
+
+class ChunkProvenance(BaseModel):
+    """Complete provenance information for a chunk.
+
+    Traces a chunk back to its source, lineage, and version history.
+    All fields are immutable for content-addressed integrity.
+
+    Invariants:
+    - version_chain is ordered from oldest ancestor to newest (chunk itself last)
+    - All chunks in version_chain share the same chunk_hash or have parent-child relationships
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk: Chunk
+    lineage: LineageRecord
+    source_origin_ref: str
+    adapter_type: str
+    version_chain: tuple[Chunk, ...]
+
+
 def compute_chunk_hash(content: str) -> str:
     """Compute SHA-256 hash of normalized chunk content.
 

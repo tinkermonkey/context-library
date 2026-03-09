@@ -1,1 +1,468 @@
-"""Tests for the provenance module."""
+"""Tests for the provenance module.
+
+Covers:
+- get_version_diff: hash-set diffing between source versions
+- get_source_timeline: complete version history for a source
+- trace_chunk_provenance: complete provenance tracing with lineage, source info, and version chain
+- Error handling for missing chunks, sources, and lineage
+- Version chain ordering (oldest-first)
+"""
+
+import pytest
+from datetime import datetime, timezone
+
+from context_library.retrieval.provenance import (
+    get_version_diff,
+    get_source_timeline,
+    trace_chunk_provenance,
+)
+from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import (
+    AdapterConfig,
+    Chunk,
+    ChunkProvenance,
+    ChunkType,
+    Domain,
+    LineageRecord,
+    PollStrategy,
+    SourceTimeline,
+    VersionDiff,
+)
+
+
+@pytest.fixture
+def store() -> DocumentStore:
+    """Create an in-memory DocumentStore for testing."""
+    return DocumentStore(":memory:")
+
+
+def _make_hash(char: str) -> str:
+    """Create a valid SHA-256 hex hash by repeating a hex character.
+
+    Args:
+        char: A single hex character (0-9, a-f).
+
+    Returns:
+        A 64-character valid SHA-256 hex string.
+    """
+    return char * 64
+
+
+class TestGetVersionDiff:
+    """Tests for get_version_diff function."""
+
+    def test_get_version_diff_basic(self, store: DocumentStore) -> None:
+        """Test basic version diff between two versions."""
+        # Register adapter and source
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        # Create version 1 with chunks a, b, c
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+        hash_c = _make_hash("c")
+        store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content v1",
+            chunk_hashes=[hash_a, hash_b, hash_c],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        # Create version 2 with chunks b, c, d (added d, removed a)
+        hash_d = _make_hash("d")
+        store.create_source_version(
+            source_id="test-source",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[hash_b, hash_c, hash_d],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        # Test diff
+        diff = get_version_diff(store, "test-source", 1, 2)
+        assert isinstance(diff, VersionDiff)
+        assert diff.source_id == "test-source"
+        assert diff.from_version == 1
+        assert diff.to_version == 2
+        assert diff.added_hashes == frozenset({hash_d})
+        assert diff.removed_hashes == frozenset({hash_a})
+        assert diff.unchanged_hashes == frozenset({hash_b, hash_c})
+
+    def test_get_version_diff_no_changes(self, store: DocumentStore) -> None:
+        """Test diff when versions are identical."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+
+        # Create version 1
+        store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        # Create version 2 with same content
+        store.create_source_version(
+            source_id="test-source",
+            version=2,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        diff = get_version_diff(store, "test-source", 1, 2)
+        assert diff.added_hashes == frozenset()
+        assert diff.removed_hashes == frozenset()
+        assert diff.unchanged_hashes == frozenset({hash_a, hash_b})
+
+
+class TestGetSourceTimeline:
+    """Tests for get_source_timeline function."""
+
+    def test_get_source_timeline_multiple_versions(self, store: DocumentStore) -> None:
+        """Test timeline with multiple versions in order."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        # Create three versions
+        for i in range(1, 4):
+            hash_val = _make_hash(str(i % 16))
+            store.create_source_version(
+                source_id="test-source",
+                version=i,
+                markdown=f"content v{i}",
+                chunk_hashes=[hash_val],
+                adapter_id="test-adapter",
+                normalizer_version="1.0",
+                fetch_timestamp=f"2024-01-0{i}T00:00:00Z",
+            )
+
+        timeline = get_source_timeline(store, "test-source")
+        assert isinstance(timeline, SourceTimeline)
+        assert timeline.source_id == "test-source"
+        assert len(timeline.versions) == 3
+        # Verify ordering: versions should be chronological
+        assert timeline.versions[0].version == 1
+        assert timeline.versions[1].version == 2
+        assert timeline.versions[2].version == 3
+
+    def test_get_source_timeline_nonexistent_source(self, store: DocumentStore) -> None:
+        """Test timeline for nonexistent source returns empty."""
+        timeline = get_source_timeline(store, "nonexistent-source")
+        assert isinstance(timeline, SourceTimeline)
+        assert timeline.source_id == "nonexistent-source"
+        assert timeline.versions == ()
+
+    def test_get_source_timeline_single_version(self, store: DocumentStore) -> None:
+        """Test timeline with single version."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+        store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        timeline = get_source_timeline(store, "test-source")
+        assert len(timeline.versions) == 1
+        assert timeline.versions[0].version == 1
+
+
+class TestTraceChunkProvenance:
+    """Tests for trace_chunk_provenance function."""
+
+    def test_trace_chunk_provenance_basic(self, store: DocumentStore) -> None:
+        """Test basic chunk provenance tracing."""
+        # Setup
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="gmail",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.MESSAGES,
+            origin_ref="user@gmail.com",
+        )
+
+        hash_a = _make_hash("a")
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="test content",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="test content",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=version_id,
+                adapter_id="test-adapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], lineage)
+
+        # Trace provenance
+        provenance = trace_chunk_provenance(store, hash_a)
+        assert isinstance(provenance, ChunkProvenance)
+        assert provenance.chunk.chunk_hash == hash_a
+        assert provenance.lineage.source_id == "test-source"
+        assert provenance.source_origin_ref == "user@gmail.com"
+        assert provenance.adapter_type == "gmail"
+        assert len(provenance.version_chain) > 0
+
+    def test_trace_chunk_provenance_version_chain_single_chunk(
+        self, store: DocumentStore
+    ) -> None:
+        """Test provenance version chain for single chunk (no ancestry)."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+
+        # Version 1: chunk A
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content a",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="content a",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=version_id,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], lineage)
+
+        # Trace provenance
+        provenance = trace_chunk_provenance(store, hash_a)
+        assert provenance.chunk.chunk_hash == hash_a
+        # Version chain should contain at least the chunk itself
+        assert len(provenance.version_chain) >= 1
+        assert provenance.version_chain[-1].chunk_hash == hash_a
+
+    def test_trace_chunk_provenance_unknown_hash_raises(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that unknown chunk hash raises ValueError."""
+        with pytest.raises(ValueError, match="Chunk with hash .* not found"):
+            trace_chunk_provenance(store, _make_hash("x"))
+
+    def test_trace_chunk_provenance_with_source_id_filter(
+        self, store: DocumentStore
+    ) -> None:
+        """Test tracing with source_id filter."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="test content",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="test content",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=version_id,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], lineage)
+
+        # Trace with source_id filter
+        provenance = trace_chunk_provenance(
+            store, hash_a, source_id="test-source"
+        )
+        assert provenance.lineage.source_id == "test-source"
+
+    def test_trace_chunk_provenance_immutability(self, store: DocumentStore) -> None:
+        """Test that returned ChunkProvenance is frozen."""
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="test content",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="test content",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=version_id,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], lineage)
+
+        provenance = trace_chunk_provenance(store, hash_a)
+        # Frozen models should raise when attempting to modify
+        with pytest.raises(Exception):  # FrozenInstanceError
+            provenance.source_origin_ref = "modified"  # type: ignore

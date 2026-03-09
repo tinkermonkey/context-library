@@ -1009,6 +1009,33 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [row["chunk_hash"] for row in rows]
 
+    def get_source_info(self, source_id: str) -> Optional[tuple[str, str]]:
+        """Fetch origin_ref and adapter_type for a source.
+
+        Joins sources and adapters tables to retrieve both pieces of metadata
+        needed for chunk provenance tracing.
+
+        Args:
+            source_id: The source to retrieve info for.
+
+        Returns:
+            Tuple of (origin_ref, adapter_type) if source exists, None otherwise.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.origin_ref, a.adapter_type
+            FROM sources s
+            JOIN adapters a ON s.adapter_id = a.adapter_id
+            WHERE s.source_id = ?
+            """,
+            (source_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return (row[0], row[1])
+
     def close(self) -> None:
         """Close the database connection.
 
