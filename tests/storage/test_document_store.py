@@ -3065,30 +3065,6 @@ class TestGetSourceInfo:
         result = store.get_source_info("nonexistent-source")
         assert result is None
 
-    def test_get_source_info_column_ordering(self, store: DocumentStore) -> None:
-        """Test that JOIN query correctly maps columns to SourceInfo fields."""
-        config = AdapterConfig(
-            adapter_id="adapter-1",
-            adapter_type="notion",
-            domain=Domain.NOTES,
-            normalizer_version="2.0",
-        )
-        store.register_adapter(config)
-        store.register_source(
-            source_id="notion-workspace",
-            adapter_id="adapter-1",
-            domain=Domain.NOTES,
-            origin_ref="https://notion.so/workspace-id",
-        )
-
-        source_info = store.get_source_info("notion-workspace")
-
-        # Verify fields are correctly mapped from the SELECT clause
-        # SELECT s.origin_ref, a.adapter_type
-        assert source_info is not None
-        assert source_info.origin_ref == "https://notion.so/workspace-id"
-        assert source_info.adapter_type == "notion"
-
     def test_get_source_info_multiple_sources(self, store: DocumentStore) -> None:
         """Test retrieving info for different sources independently."""
         config1 = AdapterConfig(

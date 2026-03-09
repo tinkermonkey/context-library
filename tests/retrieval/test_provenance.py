@@ -586,8 +586,12 @@ class TestTraceChunkProvenance:
         """Test error path: lineage record not found (no source_id provided).
 
         Tests the error message when a chunk exists but no lineage record
-        can be found for it (no source_id filter applied).
+        can be found for it (no source_id filter applied). This is isolated
+        by mocking get_lineage to return None, ensuring get_chunk_by_hash
+        succeeds but get_lineage returns None.
         """
+        from unittest.mock import patch
+
         adapter_config = AdapterConfig(
             adapter_id="test-adapter",
             adapter_type="test",
@@ -637,16 +641,17 @@ class TestTraceChunkProvenance:
 
         store.write_chunks([chunk_a], temp_lineage)
 
-        # Now delete the lineage records to simulate missing lineage
-        store.conn.execute("DELETE FROM chunks WHERE chunk_hash = ?", (hash_a,))
-        store.conn.commit()
-
-        # Try to trace - should raise lineage not found error
-        with pytest.raises(ValueError) as exc_info:
-            trace_chunk_provenance(store, hash_a)
+        # Mock get_lineage to return None to simulate missing lineage lookup
+        # without deleting the chunk itself. This ensures get_chunk_by_hash
+        # succeeds but get_lineage returns None, properly triggering the
+        # lineage-not-found error path at provenance.py:92-95.
+        with patch.object(store, 'get_lineage', return_value=None):
+            with pytest.raises(ValueError) as exc_info:
+                trace_chunk_provenance(store, hash_a)
 
         error_msg = str(exc_info.value)
-        assert "Lineage record not found for chunk" in error_msg or "Chunk with hash" in error_msg
+        # Validate the exact error message for the lineage-not-found path
+        assert error_msg == f"Lineage record not found for chunk {hash_a}"
 
     def test_trace_chunk_provenance_lineage_not_found_with_source_id(
         self, store: DocumentStore
