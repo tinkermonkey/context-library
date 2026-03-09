@@ -611,6 +611,34 @@ class SourceTimeline(BaseModel):
     source_id: str
     versions: tuple[SourceVersion, ...]
 
+    def model_post_init(self, __context) -> None:
+        """Validate SourceTimeline invariants after model construction.
+
+        Enforces:
+        - versions are ordered by version number (earliest to latest)
+        - all versions have matching source_id
+        """
+        if not self.versions:
+            return
+
+        # Check all versions have matching source_id
+        for version in self.versions:
+            if version.source_id != self.source_id:
+                raise ValueError(
+                    f"All versions must have source_id={self.source_id!r}, "
+                    f"but got source_id={version.source_id!r} in version {version.version}"
+                )
+
+        # Check versions are ordered chronologically by version number
+        prev_version = self.versions[0].version
+        for version in self.versions[1:]:
+            if version.version <= prev_version:
+                raise ValueError(
+                    f"versions must be ordered chronologically by version number, "
+                    f"but version {version.version} is not greater than previous version {prev_version}"
+                )
+            prev_version = version.version
+
 
 class ChunkProvenance(BaseModel):
     """Complete provenance information for a chunk.
@@ -630,6 +658,26 @@ class ChunkProvenance(BaseModel):
     source_origin_ref: str
     adapter_type: str
     version_chain: tuple[Chunk, ...]
+
+    def model_post_init(self, __context) -> None:
+        """Validate ChunkProvenance invariants after model construction.
+
+        Enforces:
+        - version_chain is ordered from oldest ancestor to newest (chunk itself last)
+        - version_chain is non-empty
+        - Last chunk in version_chain matches the current chunk
+        """
+        if not self.version_chain:
+            raise ValueError("version_chain cannot be empty")
+
+        # Check that the last chunk in version_chain matches the current chunk
+        # (ensuring version_chain is ordered with chunk itself at the end)
+        if self.version_chain[-1].chunk_hash != self.chunk.chunk_hash:
+            raise ValueError(
+                f"version_chain must end with the current chunk. "
+                f"Expected chunk_hash {self.chunk.chunk_hash!r}, "
+                f"but version_chain[-1].chunk_hash is {self.version_chain[-1].chunk_hash!r}"
+            )
 
 
 def compute_chunk_hash(content: str) -> str:
