@@ -1,7 +1,9 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
+import math
 from pathlib import Path
 
+import lancedb
 import pyarrow as pa
 from lancedb.pydantic import LanceModel  # type: ignore[import-untyped]
 from pydantic import ConfigDict, field_validator
@@ -70,3 +72,75 @@ def create_chunk_vector_schema(embedding_dimension: int) -> pa.Schema:
         ("source_version", pa.int32()),
         ("created_at", pa.string()),
     ])
+
+
+def should_create_index(
+    vector_store_path: Path,
+    threshold: int = 10_000,
+) -> bool:
+    """Return True if chunk count in LanceDB exceeds threshold.
+
+    This utility determines whether to create an IVF-PQ index based on the
+    current chunk count. Below ~10K chunks, brute-force search is fast enough.
+    Above that, IVF-PQ provides meaningful latency improvement.
+
+    Args:
+        vector_store_path: Path to the LanceDB directory.
+        threshold: Row count threshold (default 10,000).
+
+    Returns:
+        True if the chunk_vectors table exists and has >= threshold rows,
+        False otherwise (including when the table does not exist).
+    """
+    try:
+        db = lancedb.connect(str(vector_store_path))
+        table = db.open_table("chunk_vectors")
+        return table.count_rows() >= threshold
+    except Exception:
+        return False
+
+
+def create_ivf_pq_index(
+    vector_store_path: Path,
+    num_partitions: int | None = None,
+    num_sub_vectors: int | None = None,
+) -> None:
+    """Create an IVF-PQ ANN index on chunk_vectors.
+
+    IVF-PQ indexing is an offline/maintenance operation that does not block
+    ingestion. After indexing, table.search(vector) continues to work identically
+    as LanceDB uses the index transparently.
+
+    Index creation is idempotent: calling it on a table that already has an
+    IVF-PQ index will not raise an error (via replace=True).
+
+    Args:
+        vector_store_path: Path to the LanceDB directory.
+        num_partitions: Number of IVF partitions (default: int(sqrt(row_count))).
+        num_sub_vectors: Number of sub-vectors for PQ (default: embedding_dimension // 8).
+
+    Raises:
+        Exception: If the chunk_vectors table does not exist or indexing fails.
+    """
+    db = lancedb.connect(str(vector_store_path))
+    table = db.open_table("chunk_vectors")
+    row_count = table.count_rows()
+
+    # Default num_partitions to sqrt(row_count) if not provided
+    if num_partitions is None:
+        num_partitions = max(1, int(math.sqrt(row_count)))
+
+    # Default num_sub_vectors to dimension // 8 if not provided
+    if num_sub_vectors is None:
+        schema = table.schema
+        vec_field = schema.field("vector")
+        dimension = vec_field.type.list_size
+        num_sub_vectors = max(1, dimension // 8)
+
+    # Create index with replace=True for idempotency
+    table.create_index(
+        metric="cosine",
+        num_partitions=num_partitions,
+        num_sub_vectors=num_sub_vectors,
+        replace=True,
+    )
