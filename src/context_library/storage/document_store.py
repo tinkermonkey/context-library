@@ -297,7 +297,6 @@ class DocumentStore:
         batch_timestamp = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
-            self.conn.cursor()
             for chunk in chunks:
                 domain_metadata_json = (
                     json.dumps(chunk.domain_metadata)
@@ -544,6 +543,15 @@ class DocumentStore:
             )
 
         cursor = self.conn.cursor()
+        # First check if source exists
+        cursor.execute(
+            "SELECT source_id FROM sources WHERE source_id = ?",
+            (source_id,),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError(f"Source '{source_id}' does not exist")
+
+        # Then fetch both versions
         cursor.execute(
             """
             SELECT version, chunk_hashes
@@ -555,8 +563,17 @@ class DocumentStore:
         rows = cursor.fetchall()
 
         if len(rows) < 2:
+            # Determine which versions are missing
+            found_versions = {row["version"] for row in rows}
+            missing_versions = []
+            if from_version not in found_versions:
+                missing_versions.append(from_version)
+            if to_version not in found_versions:
+                missing_versions.append(to_version)
+
+            missing_str = ", ".join(str(v) for v in missing_versions)
             raise ValueError(
-                f"Source '{source_id}' does not have both version {from_version} and version {to_version}"
+                f"Source '{source_id}' does not have version(s): {missing_str}"
             )
 
         # Parse the two versions
