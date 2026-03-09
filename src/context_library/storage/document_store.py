@@ -595,9 +595,12 @@ class DocumentStore:
         returned if the chunk does not exist. A single-element list is returned
         if the chunk has no parent (is the oldest version).
 
-        The traversal includes an explicit depth limit (1000) to prevent infinite
-        loops in case of circular parent_chunk_hash references. If a cycle is
-        detected, traversal stops at the cycle boundary.
+        The traversal includes an explicit depth limit (1000) for safety. This prevents
+        infinite traversal in the presence of circular parent_chunk_hash references. Uses
+        UNION to deduplicate chunks, ensuring each chunk appears only once even if
+        circular references exist.
+
+        Only non-retired chunks (retired_at IS NULL) are included in the chain.
 
         Args:
             chunk_hash: SHA-256 hash of the chunk to trace.
@@ -613,13 +616,13 @@ class DocumentStore:
                 SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
                        domain_metadata, created_at, parent_chunk_hash, 1 AS depth
                 FROM chunks
-                WHERE chunk_hash = ?
-                UNION ALL
+                WHERE chunk_hash = ? AND retired_at IS NULL
+                UNION
                 SELECT c.chunk_hash, c.content, c.context_header, c.chunk_index, c.chunk_type,
                        c.domain_metadata, c.created_at, c.parent_chunk_hash, ch.depth + 1
                 FROM chunks c
                 JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash
-                WHERE ch.depth < 1000
+                WHERE ch.depth < 1000 AND c.retired_at IS NULL
             )
             SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
                    domain_metadata
