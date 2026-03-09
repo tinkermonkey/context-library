@@ -109,11 +109,11 @@ def should_create_index(
         )
         return False
     except MemoryError:
-        # Out of memory during database operations
+        # Out of memory during database operations; non-recoverable system condition
         logger.error(
             f"Out of memory while checking index threshold for {vector_store_path}"
         )
-        return False
+        raise
     except Exception as e:
         # Catch-all for database corruption, LanceDB-specific errors, etc.
         logger.error(
