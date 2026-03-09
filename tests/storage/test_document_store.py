@@ -3256,7 +3256,7 @@ class TestGetLineageWithSourceId:
             fetch_timestamp="2024-01-01T00:00:00Z",
         )
 
-        version_id_2 = store.create_source_version(
+        store.create_source_version(
             source_id="source-1",
             version=2,
             markdown="content v2",
