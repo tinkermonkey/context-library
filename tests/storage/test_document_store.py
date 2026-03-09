@@ -3028,3 +3028,355 @@ class TestChunkVersionChain:
 
         assert len(chain) == 1
         assert chain[0].domain_metadata == metadata
+
+
+class TestGetSourceInfo:
+    """Tests for DocumentStore.get_source_info method.
+
+    Covers direct retrieval of source metadata (origin_ref, adapter_type)
+    via JOIN query.
+    """
+
+    def test_get_source_info_success(self, store: DocumentStore) -> None:
+        """Test successful retrieval of source info."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="gmail",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.MESSAGES,
+            origin_ref="user@gmail.com",
+        )
+
+        # Retrieve source info
+        source_info = store.get_source_info("source-1")
+
+        assert source_info is not None
+        assert source_info.origin_ref == "user@gmail.com"
+        assert source_info.adapter_type == "gmail"
+
+    def test_get_source_info_nonexistent_source(self, store: DocumentStore) -> None:
+        """Test that get_source_info returns None for nonexistent source."""
+        result = store.get_source_info("nonexistent-source")
+        assert result is None
+
+    def test_get_source_info_column_ordering(self, store: DocumentStore) -> None:
+        """Test that JOIN query correctly maps columns to SourceInfo fields."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="notion",
+            domain=Domain.NOTES,
+            normalizer_version="2.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="notion-workspace",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="https://notion.so/workspace-id",
+        )
+
+        source_info = store.get_source_info("notion-workspace")
+
+        # Verify fields are correctly mapped from the SELECT clause
+        # SELECT s.origin_ref, a.adapter_type
+        assert source_info is not None
+        assert source_info.origin_ref == "https://notion.so/workspace-id"
+        assert source_info.adapter_type == "notion"
+
+    def test_get_source_info_multiple_sources(self, store: DocumentStore) -> None:
+        """Test retrieving info for different sources independently."""
+        config1 = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="slack",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        config2 = AdapterConfig(
+            adapter_id="adapter-2",
+            adapter_type="discord",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config1)
+        store.register_adapter(config2)
+
+        store.register_source(
+            source_id="slack-workspace",
+            adapter_id="adapter-1",
+            domain=Domain.MESSAGES,
+            origin_ref="slack://workspace-id",
+        )
+        store.register_source(
+            source_id="discord-server",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="discord://server-id",
+        )
+
+        # Verify each source retrieves correct info
+        slack_info = store.get_source_info("slack-workspace")
+        discord_info = store.get_source_info("discord-server")
+
+        assert slack_info is not None
+        assert slack_info.origin_ref == "slack://workspace-id"
+        assert slack_info.adapter_type == "slack"
+
+        assert discord_info is not None
+        assert discord_info.origin_ref == "discord://server-id"
+        assert discord_info.adapter_type == "discord"
+
+
+class TestGetLineageWithSourceId:
+    """Tests for DocumentStore.get_lineage with source_id parameter.
+
+    Covers the source_id-filtered SQL query branch which handles
+    cross-source deduplication scenarios.
+    """
+
+    def test_get_lineage_with_source_id_filter(self, store: DocumentStore) -> None:
+        """Test get_lineage with source_id filter returns correct record."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Retrieve with source_id filter
+        result = store.get_lineage(_make_hash("a"), source_id="source-1")
+
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+        assert result.source_id == "source-1"
+        assert result.embedding_model_id == "model-1"
+
+    def test_get_lineage_with_source_id_not_found(self, store: DocumentStore) -> None:
+        """Test get_lineage with source_id returns None when source_id doesn't match."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Try to retrieve with non-matching source_id
+        result = store.get_lineage(_make_hash("a"), source_id="different-source")
+
+        assert result is None
+
+    def test_get_lineage_cross_source_dedup_scenario(self, store: DocumentStore) -> None:
+        """Test get_lineage correctly handles cross-source dedup scenario.
+
+        Tests the documented use case: when the same chunk_hash appears in
+        different versions of the same source, source_id parameter allows
+        retrieving the lineage record scoped to that source.
+
+        The source_id parameter is critical for distinguishing lineage records
+        when a chunk_hash is potentially duplicated across source versions.
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        # Create two versions with the same chunk hash
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content v1",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        version_id_2 = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[_make_hash("a")],  # Same hash - unchanged chunk
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        # Write chunk to both versions
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="shared content",
+            chunk_index=0,
+        )
+
+        # Both versions have the chunk, so we write once (idempotent)
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # When querying without source_id, get_lineage returns the first match
+        result_no_filter = store.get_lineage(_make_hash("a"))
+        assert result_no_filter is not None
+        assert result_no_filter.source_id == "source-1"
+
+        # When querying with source_id, can explicitly filter to a specific source
+        result_with_filter = store.get_lineage(_make_hash("a"), source_id="source-1")
+        assert result_with_filter is not None
+        assert result_with_filter.source_id == "source-1"
+
+        # Both queries return consistent results for this source
+        assert result_no_filter.chunk_hash == result_with_filter.chunk_hash
+        assert result_no_filter.source_id == result_with_filter.source_id
+
+    def test_get_lineage_source_id_vs_no_source_id(self, store: DocumentStore) -> None:
+        """Test difference between get_lineage with and without source_id parameter."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Both queries should return the same result when there's only one source
+        result_with_source_id = store.get_lineage(_make_hash("a"), source_id="source-1")
+        result_without_source_id = store.get_lineage(_make_hash("a"))
+
+        assert result_with_source_id is not None
+        assert result_without_source_id is not None
+        assert result_with_source_id.source_id == result_without_source_id.source_id
+        assert result_with_source_id.source_version_id == result_without_source_id.source_version_id

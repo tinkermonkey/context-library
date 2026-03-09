@@ -579,3 +579,214 @@ class TestTraceChunkProvenance:
         # Frozen models should raise when attempting to modify
         with pytest.raises(Exception):  # FrozenInstanceError
             provenance.source_origin_ref = "modified"  # type: ignore
+
+    def test_trace_chunk_provenance_lineage_not_found_without_source_id(
+        self, store: DocumentStore
+    ) -> None:
+        """Test error path: lineage record not found (no source_id provided).
+
+        Tests the error message when a chunk exists but no lineage record
+        can be found for it (no source_id filter applied).
+        """
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_a = _make_hash("a")
+
+        # Create a chunk by writing it directly without a matching lineage record
+        # This simulates a data inconsistency (chunk exists but no lineage)
+        chunk_a = Chunk(
+            chunk_hash=hash_a,
+            content="test",
+            chunk_index=0,
+        )
+
+        # Create a temporary lineage just to write the chunk
+        temp_version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        temp_lineage = [
+            LineageRecord(
+                chunk_hash=hash_a,
+                source_id="test-source",
+                source_version_id=temp_version_id,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_a], temp_lineage)
+
+        # Now delete the lineage records to simulate missing lineage
+        store.conn.execute("DELETE FROM chunks WHERE chunk_hash = ?", (hash_a,))
+        store.conn.commit()
+
+        # Try to trace - should raise lineage not found error
+        with pytest.raises(ValueError) as exc_info:
+            trace_chunk_provenance(store, hash_a)
+
+        error_msg = str(exc_info.value)
+        assert "Lineage record not found for chunk" in error_msg or "Chunk with hash" in error_msg
+
+    def test_trace_chunk_provenance_lineage_not_found_with_source_id(
+        self, store: DocumentStore
+    ) -> None:
+        """Test error path: lineage record not found (source_id provided in error msg).
+
+        Tests that when source_id is provided to trace_chunk_provenance,
+        and no matching lineage is found, the error message includes the source_id.
+        """
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+        store.register_source(
+            source_id="source-2",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source-2",
+        )
+
+        hash_b = _make_hash("b")
+
+        # Create chunk in source-1 only
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_b],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_b = Chunk(
+            chunk_hash=hash_b,
+            content="test",
+            chunk_index=0,
+        )
+
+        lineage_1 = LineageRecord(
+            chunk_hash=hash_b,
+            source_id="source-1",
+            source_version_id=version_id_1,
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk_b], [lineage_1])
+
+        # Try to trace with a different source_id that has no lineage for this chunk
+        with pytest.raises(ValueError) as exc_info:
+            trace_chunk_provenance(store, hash_b, source_id="source-2")
+
+        error_msg = str(exc_info.value)
+        assert "Lineage record not found for chunk" in error_msg
+        # Should include source_id in message (provided to function)
+        assert "with source_id source-2" in error_msg
+
+    def test_trace_chunk_provenance_source_info_not_found(
+        self, store: DocumentStore
+    ) -> None:
+        """Test error path: source info not found for lineage's source_id.
+
+        Tests the error when a lineage record exists but the corresponding
+        source (and its adapter info) cannot be retrieved, simulated by having
+        a chunk's lineage reference a source_id that doesn't exist in the
+        sources table.
+        """
+        adapter_config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(adapter_config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://origin",
+        )
+
+        hash_c = _make_hash("c")
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_c],
+            adapter_id="test-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk_c = Chunk(
+            chunk_hash=hash_c,
+            content="test",
+            chunk_index=0,
+        )
+
+        # Create a lineage record pointing to test-source
+        lineage = [
+            LineageRecord(
+                chunk_hash=hash_c,
+                source_id="test-source",
+                source_version_id=version_id,
+                adapter_id="test-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk_c], lineage)
+
+        # Simulate missing source info by directly updating the chunk to reference
+        # a source that doesn't exist, bypassing FK checks via temporary disable
+        store.conn.execute("PRAGMA foreign_keys=OFF")
+        store.conn.execute(
+            "UPDATE chunks SET source_id = ? WHERE chunk_hash = ?",
+            ("missing-source", hash_c),
+        )
+        store.conn.execute("PRAGMA foreign_keys=ON")
+        store.conn.commit()
+
+        # Try to trace - should fail with source_info not found error
+        # (get_source_info will return None for missing source)
+        with pytest.raises(ValueError) as exc_info:
+            trace_chunk_provenance(store, hash_c)
+
+        error_msg = str(exc_info.value)
+        assert "Source info not found for source_id" in error_msg
+        assert "missing-source" in error_msg
