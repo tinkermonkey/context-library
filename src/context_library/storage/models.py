@@ -550,6 +550,7 @@ class VersionDiff(BaseModel):
 
     Invariants:
     - source_id must be a non-empty string
+    - from_version must not equal to_version
     - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint
     - added_chunks contains the actual Chunk objects for added hashes
     - removed_chunks contains the actual Chunk objects for removed hashes
@@ -578,10 +579,17 @@ class VersionDiff(BaseModel):
         """Validate VersionDiff invariants after model construction.
 
         Enforces:
+        - from_version and to_version must be different
         - added_hashes, removed_hashes, and unchanged_hashes are disjoint
         - added_chunks contains hashes that match added_hashes
         - removed_chunks contains hashes that match removed_hashes
         """
+        if self.from_version == self.to_version:
+            raise ValueError(
+                f"from_version and to_version must be different, "
+                f"got both as {self.from_version}"
+            )
+
         # Check set disjointness using frozenset operations
         added_and_removed = self.added_hashes & self.removed_hashes
         added_and_unchanged = self.added_hashes & self.unchanged_hashes
@@ -681,6 +689,9 @@ class SourceTimeline(BaseModel):
 
     Invariants:
     - source_id must be a non-empty string
+    - versions must not be empty
+    - versions are ordered chronologically by version number
+    - all versions must have matching source_id
     """
 
     model_config = ConfigDict(frozen=True)
@@ -700,11 +711,12 @@ class SourceTimeline(BaseModel):
         """Validate SourceTimeline invariants after model construction.
 
         Enforces:
+        - versions tuple must not be empty
         - versions are ordered by version number (earliest to latest)
         - all versions have matching source_id
         """
         if not self.versions:
-            return
+            raise ValueError("versions must not be empty")
 
         # Check all versions have matching source_id
         for version in self.versions:

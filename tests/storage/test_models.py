@@ -1572,15 +1572,14 @@ class TestSourceTimeline:
         assert timeline.versions[1].version == 2
         assert timeline.versions[2].version == 3
 
-    def test_source_timeline_empty_versions_allowed(self) -> None:
-        """Test that SourceTimeline can have empty versions."""
+    def test_source_timeline_empty_versions_rejected(self) -> None:
+        """Test that SourceTimeline rejects empty versions."""
 
-        timeline = SourceTimeline(
-            source_id="src-1",
-            versions=(),
-        )
-
-        assert len(timeline.versions) == 0
+        with pytest.raises(ValueError, match="versions must not be empty"):
+            SourceTimeline(
+                source_id="src-1",
+                versions=(),
+            )
 
     def test_source_timeline_version_source_id_mismatch(self) -> None:
         """Test that all versions must have matching source_id."""
@@ -1674,10 +1673,21 @@ class TestSourceTimeline:
 
     def test_source_timeline_frozen_immutability(self) -> None:
         """Test that SourceTimeline is frozen and immutable."""
+        from context_library.storage.models import SourceVersion
+
+        version = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
 
         timeline = SourceTimeline(
             source_id="src-1",
-            versions=(),
+            versions=(version,),
         )
 
         with pytest.raises(Exception):  # Pydantic frozen model
@@ -1685,10 +1695,22 @@ class TestSourceTimeline:
 
     def test_source_timeline_empty_source_id_rejected(self) -> None:
         """Test that SourceTimeline raises ValidationError for empty source_id."""
+        from context_library.storage.models import SourceVersion
+
+        version = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
         with pytest.raises(ValidationError) as exc_info:
             SourceTimeline(
                 source_id="",
-                versions=(),
+                versions=(version,),
             )
         assert "source_id must be a non-empty string" in str(exc_info.value)
 
