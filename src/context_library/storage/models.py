@@ -748,9 +748,18 @@ class ChunkProvenance(BaseModel):
         """Validate ChunkProvenance invariants after model construction.
 
         Enforces:
+        - chunk.chunk_hash == lineage.chunk_hash: chunk and lineage refer to the same content
         - version_chain is non-empty
         - Last chunk in version_chain matches the current chunk
         """
+        # Check that chunk and lineage refer to the same content
+        if self.chunk.chunk_hash != self.lineage.chunk_hash:
+            raise ValueError(
+                f"chunk-lineage hash mismatch: chunk.chunk_hash={self.chunk.chunk_hash} "
+                f"!= lineage.chunk_hash={self.lineage.chunk_hash}. "
+                "Chunk and lineage must refer to the same content."
+            )
+
         if not self.version_chain:
             raise ValueError("version_chain cannot be empty")
 

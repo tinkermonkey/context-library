@@ -85,10 +85,14 @@ def trace_chunk_provenance(
         ValueError: If the chunk doesn't exist, lineage is missing, or source info
                     cannot be retrieved.
     """
-    # Fetch the chunk by hash
-    chunk = document_store.get_chunk_by_hash(chunk_hash)
+    # Fetch the chunk by hash, scoped by source_id when provided to ensure consistency
+    # with lineage and version_chain lookups (avoiding cross-source dedup mixing)
+    chunk = document_store.get_chunk_by_hash(chunk_hash, source_id)
     if chunk is None:
-        raise ValueError(f"Chunk with hash {chunk_hash} not found")
+        raise ValueError(
+            f"Chunk with hash {chunk_hash} not found"
+            + (f" in source {source_id}" if source_id else "")
+        )
 
     # Fetch lineage record
     lineage = document_store.get_lineage(chunk_hash, source_id)

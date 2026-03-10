@@ -710,14 +710,15 @@ class TestTraceChunkProvenance:
 
         store.write_chunks([chunk_b], [lineage_1])
 
-        # Try to trace with a different source_id that has no lineage for this chunk
+        # Try to trace with a different source_id that has no chunk for this hash
+        # With source_id scoping, the chunk lookup fails first (not in source-2)
         with pytest.raises(ValueError) as exc_info:
             trace_chunk_provenance(store, hash_b, source_id="source-2")
 
         error_msg = str(exc_info.value)
-        assert "Lineage record not found for chunk" in error_msg
-        # Should include source_id in message (provided to function)
-        assert "with source_id source-2" in error_msg
+        # Should report chunk not found in the requested source
+        assert "Chunk with hash" in error_msg
+        assert "in source source-2" in error_msg
 
     def test_trace_chunk_provenance_source_info_not_found(
         self, store: DocumentStore
