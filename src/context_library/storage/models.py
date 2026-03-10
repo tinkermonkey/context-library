@@ -549,6 +549,7 @@ class VersionDiff(BaseModel):
     All hash sets are frozen (immutable) for content-addressed integrity.
 
     Invariants:
+    - source_id must be a non-empty string
     - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint
     - added_chunks contains the actual Chunk objects for added hashes
     - removed_chunks contains the actual Chunk objects for removed hashes
@@ -564,6 +565,14 @@ class VersionDiff(BaseModel):
     unchanged_hashes: frozenset[Sha256Hash]
     added_chunks: tuple[Chunk, ...] = ()
     removed_chunks: tuple[Chunk, ...] = ()
+
+    @field_validator("source_id")
+    @classmethod
+    def validate_source_id(cls, value: str) -> str:
+        """Validate that source_id is not empty."""
+        if not value:
+            raise ValueError("source_id must be a non-empty string")
+        return value
 
     def model_post_init(self, __context) -> None:
         """Validate VersionDiff invariants after model construction.
@@ -669,12 +678,23 @@ class SourceTimeline(BaseModel):
 
     Immutable record of a source's version history for provenance tracking.
     Versions are ordered chronologically from earliest to latest.
+
+    Invariants:
+    - source_id must be a non-empty string
     """
 
     model_config = ConfigDict(frozen=True)
 
     source_id: str
     versions: tuple[SourceVersion, ...]
+
+    @field_validator("source_id")
+    @classmethod
+    def validate_source_id(cls, value: str) -> str:
+        """Validate that source_id is not empty."""
+        if not value:
+            raise ValueError("source_id must be a non-empty string")
+        return value
 
     def model_post_init(self, __context) -> None:
         """Validate SourceTimeline invariants after model construction.
@@ -712,8 +732,8 @@ class ChunkProvenance(BaseModel):
     All fields are immutable for content-addressed integrity.
 
     Invariants:
-    - version_chain is ordered from oldest ancestor to newest (chunk itself last)
-    - All chunks in version_chain share the same chunk_hash or have parent-child relationships
+    - version_chain is non-empty
+    - version_chain is ordered with the current chunk at the end
     """
 
     model_config = ConfigDict(frozen=True)
