@@ -176,7 +176,7 @@ def create_ivf_pq_index(
         raise OSError(
             f"Could not read row count from {vector_store_path}"
         ) from e
-    except MemoryError as e:
+    except MemoryError:
         logger.error(
             f"Out of memory while reading row count from {vector_store_path}"
         )
@@ -199,7 +199,7 @@ def create_ivf_pq_index(
                 "vector field not found or has invalid type"
             )
             raise ValueError(
-                f"Invalid schema for chunk_vectors: vector field missing or invalid type"
+                "Invalid schema for chunk_vectors: vector field missing or invalid type"
             ) from e
 
     # Create index with replace=True for idempotency
@@ -217,7 +217,7 @@ def create_ivf_pq_index(
         raise OSError(
             f"Disk I/O error during index creation for {vector_store_path}"
         ) from e
-    except MemoryError as e:
+    except MemoryError:
         logger.error(
             f"Out of memory during index creation for {vector_store_path}"
         )
