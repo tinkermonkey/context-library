@@ -1,12 +1,15 @@
 """SQLite-backed document store; source of truth for versions, chunks, and lineage."""
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentStore:
@@ -631,14 +634,37 @@ class DocumentStore:
         # Fetch actual chunk objects for added and removed hashes
         # Filter out None values in case a chunk hash isn't found (e.g., for old/deleted chunks)
         # Pass source_id to correctly scope lookups in cross-source dedup scenarios
-        added_chunks = tuple(
-            chunk for chunk_hash in added
-            if (chunk := self.get_chunk_by_hash(chunk_hash, source_id)) is not None
-        ) if added else ()
-        removed_chunks = tuple(
-            chunk for chunk_hash in removed
-            if (chunk := self.get_chunk_by_hash(chunk_hash, source_id)) is not None
-        ) if removed else ()
+        added_chunks_list = []
+        missing_added_hashes = []
+        for chunk_hash in added:
+            chunk = self.get_chunk_by_hash(chunk_hash, source_id)
+            if chunk is not None:
+                added_chunks_list.append(chunk)
+            else:
+                missing_added_hashes.append(chunk_hash)
+
+        if missing_added_hashes:
+            logger.warning(
+                f"Source '{source_id}': get_version_diff could not retrieve {len(missing_added_hashes)} "
+                f"added chunk(s) by hash (possible data integrity issue): {missing_added_hashes}"
+            )
+        added_chunks = tuple(added_chunks_list)
+
+        removed_chunks_list = []
+        missing_removed_hashes = []
+        for chunk_hash in removed:
+            chunk = self.get_chunk_by_hash(chunk_hash, source_id)
+            if chunk is not None:
+                removed_chunks_list.append(chunk)
+            else:
+                missing_removed_hashes.append(chunk_hash)
+
+        if missing_removed_hashes:
+            logger.warning(
+                f"Source '{source_id}': get_version_diff could not retrieve {len(missing_removed_hashes)} "
+                f"removed chunk(s) by hash (possible data integrity issue): {missing_removed_hashes}"
+            )
+        removed_chunks = tuple(removed_chunks_list)
 
         return VersionDiff(
             source_id=source_id,

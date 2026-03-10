@@ -595,8 +595,8 @@ class VersionDiff(BaseModel):
             )
 
         # Validate added_chunks contains only hashes that are in added_hashes
-        # Note: added_chunks may be a subset of added_hashes if some chunks aren't available
-        # (e.g., for removed chunks that have been retired from the database)
+        # Note: added_chunks may be a subset of added_hashes if some chunks aren't yet
+        # persisted to the database or due to data integrity issues
         added_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.added_chunks)
         if not added_chunk_hashes.issubset(self.added_hashes):
             invalid_hashes = added_chunk_hashes - self.added_hashes

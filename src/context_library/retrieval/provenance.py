@@ -43,8 +43,7 @@ def get_source_timeline(
     """Retrieve the complete version timeline for a source.
 
     Fetches all versions of a source in chronological order and wraps them in
-    a SourceTimeline. If the source doesn't exist, returns a SourceTimeline with
-    an empty versions tuple (graceful degradation).
+    a SourceTimeline.
 
     Args:
         document_store: The document store instance.
@@ -52,8 +51,13 @@ def get_source_timeline(
 
     Returns:
         A SourceTimeline with all versions for the source ordered chronologically.
+
+    Raises:
+        ValueError: If the source doesn't exist.
     """
     versions = document_store.get_version_history(source_id)
+    if not versions:
+        raise ValueError(f"Source '{source_id}' does not exist or has no versions")
     return SourceTimeline(source_id=source_id, versions=tuple(versions))
 
 
