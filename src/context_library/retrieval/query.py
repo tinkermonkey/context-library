@@ -243,9 +243,11 @@ def retrieve(
         chunk_hash = row["chunk_hash"]
         distance = row.get("_distance")
 
-        # LanceDB returns Euclidean distance; convert to similarity score [0, 1]
-        # For normalized embeddings, distance ranges [0, 4], so similarity = 1 - (distance / 2)
-        # This maps distance 0 (identical) to similarity 1.0, and clamps high distances to 0.
+        # LanceDB returns cosine distance (range [0, 2]); convert to similarity score [0, 1]
+        # Cosine distance = 1 - cosine_similarity, so:
+        # similarity = 1 - distance. Since distance ranges [0, 2], we normalize by dividing by 2.
+        # This maps distance 0 (identical, cosine_sim=1) to similarity 1.0,
+        # and distance 2 (opposite, cosine_sim=-1) to similarity 0.0.
         # max(0.0, ...) handles any floating-point drift that could produce negative scores.
         if distance is None:
             # LanceDB should always return _distance; raise error if missing to avoid false positives

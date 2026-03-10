@@ -102,8 +102,14 @@ def should_create_index(
     except FileNotFoundError:
         # Vector store path doesn't exist; index creation not needed yet
         return False
+    except PermissionError as e:
+        # Permission error must not be silently masked as "below threshold"
+        logger.error(
+            f"Permission denied accessing vector store at {vector_store_path}: {e}"
+        )
+        raise
     except OSError as e:
-        # Disk errors, permission errors, file system issues
+        # Other disk errors and file system issues (not permission-related)
         logger.warning(
             f"Could not access vector store at {vector_store_path}: {e}"
         )
