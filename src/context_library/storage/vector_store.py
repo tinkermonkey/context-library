@@ -114,9 +114,12 @@ def should_create_index(
             f"Out of memory while checking index threshold for {vector_store_path}"
         )
         raise
-    except (ValueError, RuntimeError):
+    except (ValueError, RuntimeError) as e:
         # LanceDB-specific errors: table not found, database corruption, etc.
-        # These are expected conditions that indicate index creation is not needed
+        # Log for visibility but continue gracefully; index creation is not needed
+        logger.error(
+            f"Unexpected error while checking index threshold for {vector_store_path}: {type(e).__name__}: {e}"
+        )
         return False
 
 
