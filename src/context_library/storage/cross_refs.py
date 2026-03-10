@@ -85,7 +85,8 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
     # has_below_ref will also be True. The set-based referenced_hashes deduplicates any chunks added
     # through both has_positional_pattern and the directional branches of has_explicit_pattern,
     # so no duplicate refs are created. Non-directional patterns (1st and 2nd alternations)
-    # fall through to the bidirectional fallback at line 136 when neither directional flag is set.
+    # fall through to the bidirectional fallback (if not has_above_ref and not has_below_ref)
+    # when neither directional flag is set.
 
     # For positional patterns, link only to nearby chunks to avoid noise
     if has_positional_pattern:

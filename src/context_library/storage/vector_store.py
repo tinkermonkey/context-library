@@ -30,10 +30,11 @@ class ChunkVector(LanceModel):
     Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
 
     IMPORTANT: This schema IS used by the pipeline for field validation (e.g., created_at
-    ISO 8601 format). See IngestionPipeline.ingest() in core/pipeline.py:304-312 where each chunk
-    vector is instantiated as ChunkVector for validation before being converted to a dict
-    for LanceDB. The vector field dimension is still enforced by the pyarrow schema during
-    table creation, not by Pydantic (since vector length cannot be parameterized in v2).
+    ISO 8601 format). See IngestionPipeline.ingest() in core/pipeline.py where each chunk
+    vector is instantiated as ChunkVector for validation (search for "chunk_vector = ChunkVector(")
+    before being converted to a dict for LanceDB. The vector field dimension is still enforced
+    by the pyarrow schema during table creation, not by Pydantic (since vector length cannot
+    be parameterized in v2).
     """
 
     model_config = ConfigDict(frozen=True)
