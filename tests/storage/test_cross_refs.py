@@ -8,7 +8,6 @@ Covers:
 - Deterministic ordering of results
 """
 
-import pytest
 
 from context_library.storage.cross_refs import detect_cross_references
 from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash

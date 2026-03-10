@@ -1358,7 +1358,6 @@ class TestVersionDiff:
 
     def test_version_diff_basic_construction(self) -> None:
         """Test basic construction of VersionDiff model."""
-        from context_library.storage.models import VersionDiff
 
         diff = VersionDiff(
             source_id="src-1",
@@ -1377,7 +1376,7 @@ class TestVersionDiff:
 
     def test_version_diff_with_chunks(self) -> None:
         """Test VersionDiff with actual chunk objects."""
-        from context_library.storage.models import VersionDiff, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType
 
         chunk1 = Chunk(
             chunk_hash="a" * 64,
@@ -1404,7 +1403,6 @@ class TestVersionDiff:
 
     def test_version_diff_disjoint_hashes_validation(self) -> None:
         """Test that VersionDiff validates hash set disjointness."""
-        from context_library.storage.models import VersionDiff
 
         # added and removed should be disjoint
         with pytest.raises(ValueError, match="added_hashes and removed_hashes must be disjoint"):
@@ -1419,7 +1417,6 @@ class TestVersionDiff:
 
     def test_version_diff_added_and_unchanged_disjoint(self) -> None:
         """Test that added_hashes and unchanged_hashes must be disjoint."""
-        from context_library.storage.models import VersionDiff
 
         with pytest.raises(ValueError, match="added_hashes and unchanged_hashes must be disjoint"):
             VersionDiff(
@@ -1433,7 +1430,6 @@ class TestVersionDiff:
 
     def test_version_diff_removed_and_unchanged_disjoint(self) -> None:
         """Test that removed_hashes and unchanged_hashes must be disjoint."""
-        from context_library.storage.models import VersionDiff
 
         with pytest.raises(ValueError, match="removed_hashes and unchanged_hashes must be disjoint"):
             VersionDiff(
@@ -1447,7 +1443,7 @@ class TestVersionDiff:
 
     def test_version_diff_added_chunks_must_match_hashes(self) -> None:
         """Test that added_chunks hashes must be in added_hashes."""
-        from context_library.storage.models import VersionDiff, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType
 
         chunk = Chunk(
             chunk_hash="b" * 64,  # Not in added_hashes!
@@ -1472,7 +1468,7 @@ class TestVersionDiff:
 
     def test_version_diff_removed_chunks_must_match_hashes(self) -> None:
         """Test that removed_chunks hashes must be in removed_hashes."""
-        from context_library.storage.models import VersionDiff, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType
 
         chunk = Chunk(
             chunk_hash="b" * 64,  # Not in removed_hashes!
@@ -1497,7 +1493,6 @@ class TestVersionDiff:
 
     def test_version_diff_frozen_immutability(self) -> None:
         """Test that VersionDiff is frozen and immutable."""
-        from context_library.storage.models import VersionDiff
 
         diff = VersionDiff(
             source_id="src-1",
@@ -1517,7 +1512,7 @@ class TestSourceTimeline:
 
     def test_source_timeline_basic_construction(self) -> None:
         """Test basic construction of SourceTimeline."""
-        from context_library.storage.models import SourceTimeline, SourceVersion
+        from context_library.storage.models import SourceVersion
 
         version1 = SourceVersion(
             source_id="src-1",
@@ -1539,7 +1534,7 @@ class TestSourceTimeline:
 
     def test_source_timeline_multiple_versions_ordered(self) -> None:
         """Test SourceTimeline with multiple ordered versions."""
-        from context_library.storage.models import SourceTimeline, SourceVersion
+        from context_library.storage.models import SourceVersion
 
         versions = []
         for v in range(1, 4):
@@ -1566,7 +1561,6 @@ class TestSourceTimeline:
 
     def test_source_timeline_empty_versions_allowed(self) -> None:
         """Test that SourceTimeline can have empty versions."""
-        from context_library.storage.models import SourceTimeline
 
         timeline = SourceTimeline(
             source_id="src-1",
@@ -1577,7 +1571,7 @@ class TestSourceTimeline:
 
     def test_source_timeline_version_source_id_mismatch(self) -> None:
         """Test that all versions must have matching source_id."""
-        from context_library.storage.models import SourceTimeline, SourceVersion
+        from context_library.storage.models import SourceVersion
 
         version1 = SourceVersion(
             source_id="src-1",
@@ -1607,7 +1601,7 @@ class TestSourceTimeline:
 
     def test_source_timeline_versions_must_be_ordered(self) -> None:
         """Test that versions must be ordered by version number."""
-        from context_library.storage.models import SourceTimeline, SourceVersion
+        from context_library.storage.models import SourceVersion
 
         version1 = SourceVersion(
             source_id="src-1",
@@ -1637,7 +1631,7 @@ class TestSourceTimeline:
 
     def test_source_timeline_duplicate_version_numbers_rejected(self) -> None:
         """Test that duplicate version numbers are rejected."""
-        from context_library.storage.models import SourceTimeline, SourceVersion
+        from context_library.storage.models import SourceVersion
 
         version1 = SourceVersion(
             source_id="src-1",
@@ -1667,7 +1661,6 @@ class TestSourceTimeline:
 
     def test_source_timeline_frozen_immutability(self) -> None:
         """Test that SourceTimeline is frozen and immutable."""
-        from context_library.storage.models import SourceTimeline
 
         timeline = SourceTimeline(
             source_id="src-1",
@@ -1683,7 +1676,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_basic_construction(self) -> None:
         """Test basic construction of ChunkProvenance."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk = Chunk(
             chunk_hash="a" * 64,
@@ -1719,7 +1712,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_multiple_versions_in_chain(self) -> None:
         """Test ChunkProvenance with multiple chunks in version_chain."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk1 = Chunk(
             chunk_hash="a" * 64,
@@ -1763,7 +1756,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_empty_version_chain_rejected(self) -> None:
         """Test that empty version_chain is rejected."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk = Chunk(
             chunk_hash="a" * 64,
@@ -1796,7 +1789,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_last_chunk_must_match_current(self) -> None:
         """Test that last chunk in version_chain must match current chunk."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk1 = Chunk(
             chunk_hash="a" * 64,
@@ -1839,7 +1832,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_chain_ordering(self) -> None:
         """Test that version_chain maintains proper ordering with current chunk last."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk1 = Chunk(
             chunk_hash="a" * 64,
@@ -1897,7 +1890,7 @@ class TestChunkProvenance:
 
     def test_chunk_provenance_frozen_immutability(self) -> None:
         """Test that ChunkProvenance is frozen and immutable."""
-        from context_library.storage.models import ChunkProvenance, LineageRecord
+        from context_library.storage.models import LineageRecord
 
         chunk = Chunk(
             chunk_hash="a" * 64,

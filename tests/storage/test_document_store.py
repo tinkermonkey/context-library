@@ -720,7 +720,7 @@ class TestGetChunkByHashWithSourceId:
         source_id, adapter_id, version1_id = self._setup_with_version(store, version=1)
 
         # Create version 2
-        version2_id = store.create_source_version(
+        store.create_source_version(
             source_id=source_id,
             version=2,
             markdown="# Content v2",
