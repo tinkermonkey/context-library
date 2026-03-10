@@ -20,33 +20,6 @@ if TYPE_CHECKING:
     from context_library.storage.models import Chunk, Sha256Hash
 
 
-def detect_cross_source_references(
-    chunk: "Chunk",
-    all_chunks: list["Chunk"],
-    cross_source_enabled: bool = False,
-) -> tuple["Sha256Hash", ...]:
-    """Detect cross-references across multiple sources based on semantic similarity.
-
-    When cross_source_enabled is False, behaves identically to detect_cross_references,
-    linking only chunks within the same source using positional patterns.
-
-    When cross_source_enabled is True, also attempts to identify semantic references
-    to chunks in other sources (future enhancement). Currently a stub for roadmap compliance.
-
-    Args:
-        chunk: The chunk to analyze for cross-references
-        all_chunks: All chunks (potentially from multiple sources)
-        cross_source_enabled: If True, attempt to detect cross-source references (future)
-
-    Returns:
-        Tuple of chunk hashes that are referenced by this chunk
-    """
-    # For now, use single-source detection as the implementation
-    # Future enhancement: Add semantic similarity matching across sources
-    # when cross_source_enabled=True, using embeddings or semantic analysis
-    return detect_cross_references(chunk, all_chunks)
-
-
 def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple["Sha256Hash", ...]:
     """Detect cross-references from a chunk to other chunks within the same source.
 
@@ -79,8 +52,11 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
     # Detect references to relative positions ("above", "below", etc.)
     # When detected, link to nearby chunks (within 3 positions) rather than all preceding/following chunks
     # to avoid excessive noise from broad positional references
-    # Use word boundaries (\b) to avoid false positives from words like "above" appearing in other contexts
-    # (e.g., "above-mentioned" or "earlier" in "earlier this year")
+    # NOTE: Word boundaries (\b) alone are insufficient to prevent false positives from bare keywords
+    # like "earlier" in "earlier this year". False positive prevention relies on the two-gate logic:
+    # a keyword must match BOTH (1) the bare keyword pattern AND (2) a compound phrase pattern
+    # (positional or explicit) to create cross-references. Bare keywords without phrase patterns
+    # do not generate refs. See test_isolated_keywords_without_phrase_pattern for verification.
     has_above_ref = bool(re.search(r"\b(?:above|earlier|previous|preceding)\b", content_lower))
     has_below_ref = bool(re.search(r"\b(?:below|following|next|later)\b", content_lower))
 

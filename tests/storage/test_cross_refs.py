@@ -352,8 +352,13 @@ class TestNoPatternMatch:
         # Pattern requires phrases like "see above" or "as shown above"
         assert refs == ()
 
-    def test_word_boundary_prevents_false_positives_earlier(self) -> None:
-        """Test that 'earlier this year' does not trigger false positives with word boundaries."""
+    def test_bare_directional_keyword_without_phrase_pattern(self) -> None:
+        """Test that bare 'earlier' keyword without phrase pattern doesn't trigger refs.
+
+        The two-gate mechanism requires both (1) a directional keyword AND (2) a compound
+        phrase pattern to create cross-references. Bare keywords without phrase context
+        do not generate refs, even though they match the directional keyword regex.
+        """
         chunks = [
             _make_chunk("Previous context", 0),
             _make_chunk("More context", 1),
@@ -362,12 +367,18 @@ class TestNoPatternMatch:
 
         refs = detect_cross_references(chunks[2], chunks)
 
-        # "earlier" in "earlier this year" should not match the directional pattern
-        # because it's not used in a phrase pattern like "as shown earlier" or "see earlier"
+        # "earlier" matches has_above_ref, but no compound phrase pattern (positional or explicit)
+        # is present, so no cross-references are generated. The two-gate logic prevents this.
         assert refs == ()
 
-    def test_word_boundary_prevents_false_positives_below_combined(self) -> None:
-        """Test that compound words with 'below' don't trigger false positives."""
+    def test_compound_word_with_directional_keyword_no_phrase_pattern(self) -> None:
+        """Test that compound words with 'below' don't trigger refs without phrase pattern.
+
+        The two-gate mechanism requires both a directional keyword and a compound phrase pattern.
+        Word boundaries (\b) are insufficient to prevent false positives because "below" in
+        "below-mentioned" is a standalone word (hyphen is a word boundary). The actual
+        protection is the requirement for a matching phrase pattern.
+        """
         chunks = [
             _make_chunk("Content 1", 0),
             _make_chunk("Content 2", 1),
@@ -376,8 +387,8 @@ class TestNoPatternMatch:
 
         refs = detect_cross_references(chunks[2], chunks)
 
-        # "below" in "below-mentioned" should not trigger directional matching
-        # because word boundary requires standalone word
+        # "below" matches has_below_ref, but no phrase pattern is present, so no refs generated.
+        # This demonstrates that phrase pattern requirement is the actual guard, not \b.
         assert refs == ()
 
 
