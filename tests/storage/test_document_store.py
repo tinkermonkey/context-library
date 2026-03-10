@@ -533,6 +533,255 @@ class TestChunkWriteAndRead:
         assert retrieved.domain_metadata == metadata
 
 
+class TestGetChunkByHashWithSourceId:
+    """Tests for get_chunk_by_hash with source_id parameter."""
+
+    _counter = 0
+
+    def _setup_with_version(self, store: DocumentStore, version: int = 1) -> tuple[str, str, int]:
+        """Set up adapter, source, and version for testing."""
+        TestGetChunkByHashWithSourceId._counter += 1
+        n = TestGetChunkByHashWithSourceId._counter
+
+        adapter_id = f"adapter-{n}"
+        source_id = f"source-{n}"
+
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"origin-{n}",
+            poll_strategy=PollStrategy.PULL,
+        )
+
+        version_id = store.create_source_version(
+            source_id=source_id,
+            version=version,
+            markdown="# Content",
+            chunk_hashes=[],
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        return source_id, adapter_id, version_id
+
+    def test_get_chunk_by_hash_with_source_id_scoped_lookup(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id parameter scopes chunk lookup to specific source."""
+        # Set up source
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Create chunk
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Query without source_id returns the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"))
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+        # Query with matching source_id should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+        # Query with non-existent source_id returns None
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id="nonexistent-source")
+        assert result is None
+
+    def test_get_chunk_by_hash_with_source_id_returns_none_if_not_in_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id parameter returns None if chunk not in that source."""
+        source1_id, adapter1_id, version1_id = self._setup_with_version(store)
+        source2_id, adapter2_id, version2_id = self._setup_with_version(store)
+
+        # Write chunk to source 1 only
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Only in source 1",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source1_id,
+            source_version_id=version1_id,
+            adapter_id=adapter1_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Querying source 2 should return None
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source2_id)
+        assert result is None
+
+        # But querying source 1 should succeed
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source1_id)
+        assert result is not None
+
+    def test_get_chunk_by_hash_without_source_id_returns_earliest(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that without source_id, earliest-created instance is returned."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Without source_id, should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"))
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+    def test_get_chunk_by_hash_source_id_excludes_retired_chunks(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id scoped lookup excludes retired chunks."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Will be retired",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Verify it's retrievable
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+
+        # Retire the chunk (needs source_id and version)
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """UPDATE chunks SET retired_at = CURRENT_TIMESTAMP
+               WHERE chunk_hash = ? AND source_id = ?""",
+            (_make_hash("a"), source_id),
+        )
+        store.conn.commit()
+
+        # Now it should not be found
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is None
+
+    def test_get_chunk_by_hash_multiple_versions_same_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test get_chunk_by_hash with multiple versions of same source."""
+        source_id, adapter_id, version1_id = self._setup_with_version(store, version=1)
+
+        # Create version 2
+        version2_id = store.create_source_version(
+            source_id=source_id,
+            version=2,
+            markdown="# Content v2",
+            chunk_hashes=[],
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="In both versions",
+            chunk_index=0,
+        )
+
+        # Write to version 1
+        lineage1 = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version1_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage1])
+
+        # Query with source_id should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+    def test_get_chunk_by_hash_source_id_none_returns_any_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id=None returns chunk from any source."""
+        source1_id, adapter1_id, version1_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source1_id,
+            source_version_id=version1_id,
+            adapter_id=adapter1_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Query with source_id=None should succeed
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=None)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+
 class TestLineageTracking:
     """Tests for lineage record operations."""
 
