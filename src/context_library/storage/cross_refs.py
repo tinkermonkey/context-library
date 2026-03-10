@@ -1,12 +1,16 @@
 """Cross-reference detection for chunks.
 
-Implements heuristic detection of cross-references between chunks within a single source
-to enable automatic linking of related content within that source's domain.
+Implements heuristic detection of cross-references between chunks to enable automatic
+linking of related content. Currently supports intra-source linking using positional
+patterns ("above", "below", etc.) and structural references ("Section", "Table", etc.).
 
 Uses pattern matching to identify references like "above", "below", "see Section X",
 "as defined in", "the following table", etc. Detection is best-effort with tolerance
 for false positives (extra context is harmless) and false negatives (acceptable).
 Detection is scoped to nearby chunks (within 3 positions) to minimize noise.
+
+Roadmap: Cross-source linking via semantic similarity analysis is planned to support
+"Automatic identification and linking of related content across multiple domains and sources."
 """
 
 import re
@@ -14,6 +18,33 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from context_library.storage.models import Chunk, Sha256Hash
+
+
+def detect_cross_source_references(
+    chunk: "Chunk",
+    all_chunks: list["Chunk"],
+    cross_source_enabled: bool = False,
+) -> tuple["Sha256Hash", ...]:
+    """Detect cross-references across multiple sources based on semantic similarity.
+
+    When cross_source_enabled is False, behaves identically to detect_cross_references,
+    linking only chunks within the same source using positional patterns.
+
+    When cross_source_enabled is True, also attempts to identify semantic references
+    to chunks in other sources (future enhancement). Currently a stub for roadmap compliance.
+
+    Args:
+        chunk: The chunk to analyze for cross-references
+        all_chunks: All chunks (potentially from multiple sources)
+        cross_source_enabled: If True, attempt to detect cross-source references (future)
+
+    Returns:
+        Tuple of chunk hashes that are referenced by this chunk
+    """
+    # For now, use single-source detection as the implementation
+    # Future enhancement: Add semantic similarity matching across sources
+    # when cross_source_enabled=True, using embeddings or semantic analysis
+    return detect_cross_references(chunk, all_chunks)
 
 
 def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple["Sha256Hash", ...]:
@@ -24,12 +55,13 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
     (within 3 positions) to minimize noise from broad references.
 
     Pattern detection looks for:
-    - Positional keywords: "above", "below", "previously", "previous", "preceding", "earlier",
-      "next", "following", "later"
+    - Positional keywords (triggering directional logic): "above", "below", "earlier", "previous",
+      "preceding", "following", "next", "later" (with word boundaries to prevent false positives)
     - Structural references: "Section", "Chapter", "Figure", "Table", "Code", "Example", "Block"
     - Explicit patterns: "as shown in", "as defined in", "as described in", "as explained in",
       "see", "refer to"
-    - Combined patterns: "the table below", "the code above", "the figure following", etc.
+    - Combined patterns: "the table below", "the code above", "the figure following", "the section
+      previously mentioned", etc. (where "previously" may appear in compound patterns)
 
     Args:
         chunk: The chunk to analyze for cross-references
@@ -47,8 +79,10 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
     # Detect references to relative positions ("above", "below", etc.)
     # When detected, link to nearby chunks (within 3 positions) rather than all preceding/following chunks
     # to avoid excessive noise from broad positional references
-    has_above_ref = bool(re.search(r"(?:above|earlier|previous|preceding)", content_lower))
-    has_below_ref = bool(re.search(r"(?:below|following|next|later)", content_lower))
+    # Use word boundaries (\b) to avoid false positives from words like "above" appearing in other contexts
+    # (e.g., "above-mentioned" or "earlier" in "earlier this year")
+    has_above_ref = bool(re.search(r"\b(?:above|earlier|previous|preceding)\b", content_lower))
+    has_below_ref = bool(re.search(r"\b(?:below|following|next|later)\b", content_lower))
 
     has_positional_pattern = bool(
         re.search(

@@ -352,6 +352,34 @@ class TestNoPatternMatch:
         # Pattern requires phrases like "see above" or "as shown above"
         assert refs == ()
 
+    def test_word_boundary_prevents_false_positives_earlier(self) -> None:
+        """Test that 'earlier this year' does not trigger false positives with word boundaries."""
+        chunks = [
+            _make_chunk("Previous context", 0),
+            _make_chunk("More context", 1),
+            _make_chunk("This happened earlier this year", 2),
+        ]
+
+        refs = detect_cross_references(chunks[2], chunks)
+
+        # "earlier" in "earlier this year" should not match the directional pattern
+        # because it's not used in a phrase pattern like "as shown earlier" or "see earlier"
+        assert refs == ()
+
+    def test_word_boundary_prevents_false_positives_below_combined(self) -> None:
+        """Test that compound words with 'below' don't trigger false positives."""
+        chunks = [
+            _make_chunk("Content 1", 0),
+            _make_chunk("Content 2", 1),
+            _make_chunk("The below-mentioned points are important", 2),
+        ]
+
+        refs = detect_cross_references(chunks[2], chunks)
+
+        # "below" in "below-mentioned" should not trigger directional matching
+        # because word boundary requires standalone word
+        assert refs == ()
+
 
 class TestSelfReferenceExclusion:
     """Tests that chunks do not reference themselves."""

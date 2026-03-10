@@ -3605,3 +3605,229 @@ class TestGetLineageWithSourceId:
         assert result_without_source_id is not None
         assert result_with_source_id.source_id == result_without_source_id.source_id
         assert result_with_source_id.source_version_id == result_without_source_id.source_version_id
+
+
+class TestCrossReferencesRoundTrip:
+    """Tests for cross-references serialization and deserialization round-trips.
+
+    Verifies that cross_refs are correctly:
+    - Written into domain_metadata JSON (under "_system_cross_refs" key) during write_chunks
+    - Extracted and removed from domain_metadata during _build_chunk_from_row
+    - Properly reconstructed as chunk.cross_refs in the returned Chunk object
+    """
+
+    def _setup_with_version(self, store: DocumentStore) -> tuple[str, str, int]:
+        """Set up a source and version for testing."""
+        config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="test content",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="test-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        return "test-source", "test-adapter", version_id
+
+    def test_cross_refs_write_and_read_empty(self, store: DocumentStore) -> None:
+        """Test that chunks with no cross-references are handled correctly."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content without references",
+            chunk_index=0,
+            cross_refs=(),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == ()
+
+    def test_cross_refs_write_and_read_single_reference(self, store: DocumentStore) -> None:
+        """Test writing and reading a chunk with a single cross-reference."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="See the section above",
+            chunk_index=1,
+            cross_refs=(_make_hash("b"),),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify cross_refs are preserved
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == (_make_hash("b"),)
+
+    def test_cross_refs_write_and_read_multiple_references(self, store: DocumentStore) -> None:
+        """Test writing and reading a chunk with multiple cross-references."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        cross_refs = (_make_hash("b"), _make_hash("c"), _make_hash("d"))
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="As shown above and following patterns",
+            chunk_index=2,
+            cross_refs=cross_refs,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify all cross_refs are preserved in order
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == cross_refs
+
+    def test_cross_refs_with_domain_metadata(self, store: DocumentStore) -> None:
+        """Test that cross_refs are merged with domain_metadata correctly."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Referenced content",
+            chunk_index=0,
+            domain_metadata={"custom_key": "custom_value", "nested": {"data": 123}},
+            cross_refs=(_make_hash("b"), _make_hash("c")),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify both domain_metadata and cross_refs are preserved
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == (_make_hash("b"), _make_hash("c"))
+        assert retrieved.domain_metadata == {"custom_key": "custom_value", "nested": {"data": 123}}
+
+    def test_cross_refs_metadata_key_isolation(self, store: DocumentStore) -> None:
+        """Test that _system_cross_refs key is removed from domain_metadata after extraction."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+            domain_metadata={"user_key": "user_value"},
+            cross_refs=(_make_hash("d"), _make_hash("e")),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify _system_cross_refs was removed from domain_metadata
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        # The user's metadata should be intact, not including _system_cross_refs
+        assert retrieved.domain_metadata == {"user_key": "user_value"}
+        assert "_system_cross_refs" not in (retrieved.domain_metadata or {})
+        # Cross refs should be in the cross_refs field, not metadata
+        assert retrieved.cross_refs == (_make_hash("d"), _make_hash("e"))
+
+    def test_cross_refs_empty_metadata_cleanup(self, store: DocumentStore) -> None:
+        """Test that domain_metadata is set to None when only _system_cross_refs remains."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+            domain_metadata=None,
+            cross_refs=(_make_hash("b"),),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify domain_metadata is None (not an empty dict)
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.domain_metadata is None
+        assert retrieved.cross_refs == (_make_hash("b"),)
