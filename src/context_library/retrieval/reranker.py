@@ -11,7 +11,7 @@ from typing import Optional
 from sentence_transformers import CrossEncoder
 
 from context_library.core.exceptions import RerankerError
-from context_library.retrieval.query import RerankedResult, RetrievalResult
+from context_library.retrieval.query import RetrievalResult
 
 
 def _sigmoid(x: float) -> float:
@@ -55,17 +55,22 @@ class Reranker:
                        Defaults to "cross-encoder/ms-marco-MiniLM-L-6-v2".
 
         Raises:
-            OSError: If the model cannot be downloaded or loaded.
+            RerankerError: If the model cannot be downloaded or loaded.
         """
         self._model_name = model_name
-        self._model = CrossEncoder(model_name)
+        try:
+            self._model = CrossEncoder(model_name)
+        except (OSError, ValueError) as e:
+            raise RerankerError(
+                f"Failed to load cross-encoder model '{model_name}': {type(e).__name__}: {e}"
+            ) from e
 
     def rerank(
         self,
         query: str,
         candidates: list[RetrievalResult],
         top_k: Optional[int] = None,
-    ) -> list[RerankedResult]:
+    ) -> list[RetrievalResult]:
         """Rerank candidates by cross-encoder relevance score.
 
         Scores all candidates in a single batch inference call.
@@ -79,10 +84,11 @@ class Reranker:
                    Must be positive if provided.
 
         Returns:
-            List of RerankedResult objects reordered by descending normalized
+            List of RetrievalResult objects reordered by descending normalized
             cross-encoder score, optionally truncated to top_k.
-            Reranker scores normalized to [0, 1] via sigmoid.
-            Original vector similarity scores preserved in retrieval_result.
+            Reranker scores (normalized to [0, 1] via sigmoid) are placed in
+            the similarity_score field of returned results, replacing original
+            vector similarity scores.
 
         Raises:
             ValueError: If query is empty/whitespace or top_k is not positive.
@@ -104,25 +110,28 @@ class Reranker:
 
         try:
             raw_scores = self._model.predict(pairs)
+        except MemoryError:
+            raise
         except Exception as e:
             raise RerankerError(
                 f"Cross-encoder prediction failed: {type(e).__name__}: {e}",
                 num_candidates=len(candidates),
             ) from e
 
-        # Normalize scores via sigmoid and wrap RetrievalResult objects in RerankedResult
-        reranked_results: list[RerankedResult] = []
+        # Normalize scores via sigmoid and create new RetrievalResult with reranker score
+        reranked_results: list[RetrievalResult] = []
         for candidate, raw_score in zip(candidates, raw_scores):
             normalized_score = _sigmoid(float(raw_score))
             reranked_results.append(
-                RerankedResult(
-                    retrieval_result=candidate,
-                    reranker_score=normalized_score,
+                RetrievalResult(
+                    chunk=candidate.chunk,
+                    lineage=candidate.lineage,
+                    similarity_score=normalized_score,
                 )
             )
 
         # Sort by descending reranker score
-        reranked_results.sort(key=lambda r: r.reranker_score, reverse=True)
+        reranked_results.sort(key=lambda r: r.similarity_score, reverse=True)
 
         # Truncate to top_k if specified
         if top_k is not None:
