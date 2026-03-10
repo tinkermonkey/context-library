@@ -2898,7 +2898,7 @@ class TestVersionDiff:
         store.write_chunks(chunks_v1, lineage_v1)
 
         # Create version 2 with only b, c (a is removed)
-        version_id_2 = store.create_source_version(
+        store.create_source_version(
             source_id="source-1",
             version=2,
             markdown="# v2",
