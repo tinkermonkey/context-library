@@ -114,11 +114,9 @@ def should_create_index(
             f"Out of memory while checking index threshold for {vector_store_path}"
         )
         raise
-    except Exception as e:
-        # Catch-all for database corruption, LanceDB-specific errors, etc.
-        logger.error(
-            f"Unexpected error checking index threshold for {vector_store_path}: {type(e).__name__}: {e}"
-        )
+    except (ValueError, RuntimeError):
+        # LanceDB-specific errors: table not found, database corruption, etc.
+        # These are expected conditions that indicate index creation is not needed
         return False
 
 
@@ -142,11 +140,44 @@ def create_ivf_pq_index(
         num_sub_vectors: Number of sub-vectors for PQ (default: embedding_dimension // 8).
 
     Raises:
-        Exception: If the chunk_vectors table does not exist or indexing fails.
+        FileNotFoundError: If the vector store path does not exist.
+        ValueError: If the chunk_vectors table does not exist or schema is invalid.
+        OSError: If disk I/O or permissions prevent table access.
+        MemoryError: If indexing exhausts available memory.
+        RuntimeError: If the indexing operation fails.
     """
-    db = lancedb.connect(str(vector_store_path))
-    table = db.open_table("chunk_vectors")
-    row_count = table.count_rows()
+    try:
+        db = lancedb.connect(str(vector_store_path))
+    except FileNotFoundError as e:
+        logger.error(f"Vector store path does not exist: {vector_store_path}")
+        raise FileNotFoundError(
+            f"Vector store path does not exist: {vector_store_path}"
+        ) from e
+
+    try:
+        table = db.open_table("chunk_vectors")
+    except FileNotFoundError as e:
+        logger.error(
+            f"chunk_vectors table does not exist at {vector_store_path}"
+        )
+        raise ValueError(
+            f"chunk_vectors table does not exist at {vector_store_path}"
+        ) from e
+
+    try:
+        row_count = table.count_rows()
+    except OSError as e:
+        logger.error(
+            f"Could not read row count from {vector_store_path}: {e}"
+        )
+        raise OSError(
+            f"Could not read row count from {vector_store_path}"
+        ) from e
+    except MemoryError as e:
+        logger.error(
+            f"Out of memory while reading row count from {vector_store_path}"
+        )
+        raise
 
     # Default num_partitions to sqrt(row_count) if not provided
     if num_partitions is None:
@@ -154,15 +185,44 @@ def create_ivf_pq_index(
 
     # Default num_sub_vectors to dimension // 8 if not provided
     if num_sub_vectors is None:
-        schema = table.schema
-        vec_field = schema.field("vector")
-        dimension = vec_field.type.list_size
-        num_sub_vectors = max(1, dimension // 8)
+        try:
+            schema = table.schema
+            vec_field = schema.field("vector")
+            dimension = vec_field.type.list_size
+            num_sub_vectors = max(1, dimension // 8)
+        except (KeyError, AttributeError) as e:
+            logger.error(
+                f"Invalid schema for chunk_vectors at {vector_store_path}: "
+                "vector field not found or has invalid type"
+            )
+            raise ValueError(
+                f"Invalid schema for chunk_vectors: vector field missing or invalid type"
+            ) from e
 
     # Create index with replace=True for idempotency
-    table.create_index(
-        metric="cosine",
-        num_partitions=num_partitions,
-        num_sub_vectors=num_sub_vectors,
-        replace=True,
-    )
+    try:
+        table.create_index(
+            metric="cosine",
+            num_partitions=num_partitions,
+            num_sub_vectors=num_sub_vectors,
+            replace=True,
+        )
+    except OSError as e:
+        logger.error(
+            f"Disk I/O error during index creation for {vector_store_path}: {e}"
+        )
+        raise OSError(
+            f"Disk I/O error during index creation for {vector_store_path}"
+        ) from e
+    except MemoryError as e:
+        logger.error(
+            f"Out of memory during index creation for {vector_store_path}"
+        )
+        raise
+    except (ValueError, RuntimeError) as e:
+        logger.error(
+            f"Index creation failed for {vector_store_path}: {type(e).__name__}: {e}"
+        )
+        raise RuntimeError(
+            f"Index creation failed for {vector_store_path}"
+        ) from e
