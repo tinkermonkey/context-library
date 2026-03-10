@@ -272,6 +272,24 @@ class TestIndexCreation:
 
             assert "Out of memory" in caplog.text
 
+    def test_should_create_index_reraises_permission_error(self, tmp_path, caplog):
+        """Test that should_create_index logs and re-raises permission errors."""
+        from unittest.mock import patch
+
+        lancedb_path = tmp_path / "lancedb"
+        lancedb_path.mkdir()
+
+        # Mock lancedb.connect to raise PermissionError
+        with patch("context_library.storage.vector_store.lancedb.connect") as mock_connect:
+            mock_connect.side_effect = PermissionError("Permission denied")
+
+            # should_create_index should log an error and re-raise (not return False)
+            with caplog.at_level(logging.ERROR):
+                with pytest.raises(PermissionError):
+                    should_create_index(lancedb_path)
+
+            assert "Permission denied accessing vector store" in caplog.text
+
     def test_should_create_index_logs_unexpected_error(self, tmp_path, caplog):
         """Test that should_create_index logs unexpected errors with type information."""
         from unittest.mock import patch
