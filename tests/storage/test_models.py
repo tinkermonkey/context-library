@@ -1519,6 +1519,18 @@ class TestVersionDiff:
             )
         assert "source_id must be a non-empty string" in str(exc_info.value)
 
+    def test_version_diff_same_version_rejected(self) -> None:
+        """Test that VersionDiff rejects from_version == to_version."""
+        with pytest.raises(ValueError, match="from_version and to_version must be different"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=1,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
+            )
+
 
 class TestSourceTimeline:
     """Tests for SourceTimeline model."""
