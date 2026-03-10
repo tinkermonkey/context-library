@@ -6,6 +6,8 @@ Covers:
 - Reranking logic: ordering, score normalization, top_k truncation
 - Batch inference (all candidates scored in single predict() call)
 - Input validation (query, top_k)
+- Error handling (RerankerError on prediction failures)
+- RerankedResult model (wrapping RetrievalResult with separate reranker_score)
 - Edge cases (empty candidates, empty query, extreme scores)
 """
 
@@ -13,7 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from context_library.retrieval.query import RetrievalResult
+from context_library.core.exceptions import RerankerError
+from context_library.retrieval.query import RerankedResult, RetrievalResult
 from context_library.retrieval.reranker import Reranker, _sigmoid
 from context_library.storage.models import Chunk, Domain, LineageRecord
 
@@ -144,9 +147,9 @@ class TestRerankerRerank:
         assert results[1].chunk.chunk_hash == _make_hash("c")
         assert results[2].chunk.chunk_hash == _make_hash("b")
 
-        # Verify scores are in descending order
-        assert results[0].similarity_score > results[1].similarity_score
-        assert results[1].similarity_score > results[2].similarity_score
+        # Verify reranker scores are in descending order
+        assert results[0].reranker_score > results[1].reranker_score
+        assert results[1].reranker_score > results[2].reranker_score
 
     @patch("context_library.retrieval.reranker.CrossEncoder")
     def test_rerank_score_normalization(self, mock_ce_class) -> None:
@@ -167,7 +170,7 @@ class TestRerankerRerank:
         results = reranker.rerank("test query", candidates)
 
         # sigmoid(0.0) = 0.5
-        assert results[0].similarity_score == 0.5
+        assert results[0].reranker_score == 0.5
 
     @patch("context_library.retrieval.reranker.CrossEncoder")
     def test_rerank_top_k_one(self, mock_ce_class) -> None:
@@ -440,7 +443,7 @@ class TestRerankerRerank:
 
     @patch("context_library.retrieval.reranker.CrossEncoder")
     def test_rerank_immutability(self, mock_ce_class) -> None:
-        """Test rerank creates new RetrievalResult objects (immutability)."""
+        """Test rerank creates new RerankedResult objects (immutability)."""
         mock_instance = MagicMock()
         mock_ce_class.return_value = mock_instance
         mock_instance.predict.return_value = [0.5]
@@ -455,9 +458,9 @@ class TestRerankerRerank:
         reranker = Reranker()
         results = reranker.rerank("test query", candidates)
 
-        # Verify new object was created with different score
+        # Verify new RerankedResult object was created with different reranker_score
         assert results[0] is not original
-        assert results[0].similarity_score != original.similarity_score
+        assert results[0].reranker_score != original.similarity_score
 
     @patch("context_library.retrieval.reranker.CrossEncoder")
     def test_rerank_multiple_calls_independent(self, mock_ce_class) -> None:
@@ -485,8 +488,8 @@ class TestRerankerRerank:
         results_1 = reranker.rerank("query 1", candidates_1)
         results_2 = reranker.rerank("query 2", candidates_2)
 
-        # Verify both calls succeeded with different scores
-        assert results_1[0].similarity_score > results_2[0].similarity_score
+        # Verify both calls succeeded with different reranker scores
+        assert results_1[0].reranker_score > results_2[0].reranker_score
 
     @patch("context_library.retrieval.reranker.CrossEncoder")
     def test_rerank_extreme_scores_normalized(self, mock_ce_class) -> None:
@@ -516,9 +519,206 @@ class TestRerankerRerank:
         reranker = Reranker()
         results = reranker.rerank("test query", candidates)
 
-        # Verify all scores are in [0, 1]
-        assert all(0.0 <= r.similarity_score <= 1.0 for r in results)
+        # Verify all reranker_scores are in [0, 1]
+        assert all(0.0 <= r.reranker_score <= 1.0 for r in results)
         # Verify extreme values map to 0 and 1
-        assert results[0].similarity_score == 1.0  # 1000 -> 1
-        assert results[1].similarity_score == 0.5  # 0 -> 0.5
-        assert results[2].similarity_score == 0.0  # -1000 -> 0
+        assert results[0].reranker_score == 1.0  # 1000 -> 1
+        assert results[1].reranker_score == 0.5  # 0 -> 0.5
+        assert results[2].reranker_score == 0.0  # -1000 -> 0
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_rerank_returns_reranked_results(self, mock_ce_class) -> None:
+        """Test rerank returns RerankedResult objects, not RetrievalResult."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.return_value = [0.5]
+
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=0.5,
+            ),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        assert len(results) == 1
+        assert isinstance(results[0], RerankedResult)
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_rerank_preserves_vector_similarity_score(self, mock_ce_class) -> None:
+        """Test rerank preserves original vector similarity score in RerankedResult."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        # Raw score 0.0 normalizes to 0.5
+        mock_instance.predict.return_value = [0.0]
+
+        original_similarity_score = 0.7
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=original_similarity_score,
+            ),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        # Original vector similarity score should be preserved
+        assert results[0].similarity_score == original_similarity_score
+        # Reranker score should be different (normalized from raw score)
+        assert results[0].reranker_score == 0.5
+        assert results[0].reranker_score != results[0].similarity_score
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_rerank_distinguishes_scores(self, mock_ce_class) -> None:
+        """Test that vector similarity and reranker scores are distinct."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.return_value = [2.0]
+
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=0.3,  # Low vector similarity
+            ),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        # Vector similarity: 0.3
+        # Reranker score: sigmoid(2.0) ≈ 0.88
+        # These should be clearly distinguishable
+        assert results[0].similarity_score == 0.3
+        assert results[0].reranker_score > 0.87 and results[0].reranker_score < 0.89
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_rerank_model_error_raises_reranker_error(self, mock_ce_class) -> None:
+        """Test rerank wraps CrossEncoder exceptions as RerankerError."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.side_effect = RuntimeError("Model load failed")
+
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=0.5,
+            ),
+        ]
+
+        reranker = Reranker()
+        with pytest.raises(RerankerError, match="Model load failed"):
+            reranker.rerank("test query", candidates)
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_reranker_error_includes_candidate_count(self, mock_ce_class) -> None:
+        """Test RerankerError includes number of candidates that failed."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.side_effect = ValueError("Prediction failed")
+
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=0.5,
+            ),
+            RetrievalResult(
+                chunk=_create_test_chunk("b"),
+                lineage=_create_test_lineage("b"),
+                similarity_score=0.6,
+            ),
+        ]
+
+        reranker = Reranker()
+        with pytest.raises(RerankerError) as exc_info:
+            reranker.rerank("test query", candidates)
+
+        assert exc_info.value.num_candidates == 2
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_reranked_result_to_dict(self, mock_ce_class) -> None:
+        """Test RerankedResult.to_dict() includes both scores."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.return_value = [1.0]
+
+        chunk = _create_test_chunk("a")
+        lineage = _create_test_lineage("a")
+        candidates = [
+            RetrievalResult(chunk=chunk, lineage=lineage, similarity_score=0.6),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        result_dict = results[0].to_dict()
+        assert "similarity_score" in result_dict
+        assert "reranker_score" in result_dict
+        assert result_dict["similarity_score"] == 0.6
+        assert result_dict["reranker_score"] > 0.7  # sigmoid(1.0) ≈ 0.73
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_reranked_result_properties(self, mock_ce_class) -> None:
+        """Test RerankedResult provides convenient access to underlying data."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        mock_instance.predict.return_value = [0.0]
+
+        chunk = _create_test_chunk("a")
+        lineage = _create_test_lineage("a")
+        candidates = [
+            RetrievalResult(chunk=chunk, lineage=lineage, similarity_score=0.4),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        # Test property access
+        assert results[0].chunk == chunk
+        assert results[0].lineage == lineage
+        assert results[0].similarity_score == 0.4
+        # Direct access to reranker_score
+        assert results[0].reranker_score == 0.5
+
+    @patch("context_library.retrieval.reranker.CrossEncoder")
+    def test_rerank_sorts_by_reranker_score(self, mock_ce_class) -> None:
+        """Test rerank sorts results by reranker_score, not original similarity_score."""
+        mock_instance = MagicMock()
+        mock_ce_class.return_value = mock_instance
+        # Raw scores in opposite order of original vector similarities
+        mock_instance.predict.return_value = [3.0, 0.0, -3.0]
+
+        candidates = [
+            RetrievalResult(
+                chunk=_create_test_chunk("a"),
+                lineage=_create_test_lineage("a"),
+                similarity_score=0.2,  # Low vector similarity
+            ),
+            RetrievalResult(
+                chunk=_create_test_chunk("b"),
+                lineage=_create_test_lineage("b"),
+                similarity_score=0.5,  # Medium vector similarity
+            ),
+            RetrievalResult(
+                chunk=_create_test_chunk("c"),
+                lineage=_create_test_lineage("c"),
+                similarity_score=0.9,  # High vector similarity
+            ),
+        ]
+
+        reranker = Reranker()
+        results = reranker.rerank("test query", candidates)
+
+        # Results should be sorted by reranker_score (descending): a > b > c
+        assert results[0].chunk.chunk_hash == _make_hash("a")
+        assert results[1].chunk.chunk_hash == _make_hash("b")
+        assert results[2].chunk.chunk_hash == _make_hash("c")
+        # Original vector scores are different from sort order
+        assert results[0].similarity_score < results[2].similarity_score

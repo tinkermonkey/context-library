@@ -70,6 +70,27 @@ class ChunkingError(PipelineError):
         self.source_id = source_id
 
 
+class RerankerError(PipelineError):
+    """Error during reranking with cross-encoder model.
+
+    Raised when the cross-encoder model fails to score candidates,
+    such as model initialization failures, prediction failures, or invalid input.
+
+    Attributes:
+        num_candidates: Number of candidates that failed to rerank
+    """
+
+    def __init__(self, message: str, num_candidates: int | None = None):
+        """Initialize RerankerError.
+
+        Args:
+            message: Error message
+            num_candidates: Number of candidates that failed to rerank
+        """
+        super().__init__(message)
+        self.num_candidates = num_candidates
+
+
 class AllSourcesFailedError(PipelineError):
     """Error raised when all sources fail during ingestion.
 

@@ -10,7 +10,8 @@ from typing import Optional
 
 from sentence_transformers import CrossEncoder
 
-from context_library.retrieval.query import RetrievalResult
+from context_library.core.exceptions import RerankerError
+from context_library.retrieval.query import RerankedResult, RetrievalResult
 
 
 def _sigmoid(x: float) -> float:
@@ -64,7 +65,7 @@ class Reranker:
         query: str,
         candidates: list[RetrievalResult],
         top_k: Optional[int] = None,
-    ) -> list[RetrievalResult]:
+    ) -> list[RerankedResult]:
         """Rerank candidates by cross-encoder relevance score.
 
         Scores all candidates in a single batch inference call.
@@ -78,12 +79,14 @@ class Reranker:
                    Must be positive if provided.
 
         Returns:
-            List of RetrievalResult objects reordered by descending normalized
+            List of RerankedResult objects reordered by descending normalized
             cross-encoder score, optionally truncated to top_k.
-            Similarity scores normalized to [0, 1] via sigmoid.
+            Reranker scores normalized to [0, 1] via sigmoid.
+            Original vector similarity scores preserved in retrieval_result.
 
         Raises:
             ValueError: If query is empty/whitespace or top_k is not positive.
+            RerankerError: If cross-encoder model fails during prediction.
         """
         # Validate inputs
         if not query or not query.strip():
@@ -98,22 +101,28 @@ class Reranker:
 
         # Build query-candidate pairs and score in batch
         pairs = [(query, candidate.chunk.content) for candidate in candidates]
-        raw_scores = self._model.predict(pairs)
 
-        # Normalize scores via sigmoid and reconstruct RetrievalResult objects
-        reranked_results: list[RetrievalResult] = []
+        try:
+            raw_scores = self._model.predict(pairs)
+        except Exception as e:
+            raise RerankerError(
+                f"Cross-encoder prediction failed: {type(e).__name__}: {e}",
+                num_candidates=len(candidates),
+            ) from e
+
+        # Normalize scores via sigmoid and wrap RetrievalResult objects in RerankedResult
+        reranked_results: list[RerankedResult] = []
         for candidate, raw_score in zip(candidates, raw_scores):
             normalized_score = _sigmoid(float(raw_score))
             reranked_results.append(
-                RetrievalResult(
-                    chunk=candidate.chunk,
-                    lineage=candidate.lineage,
-                    similarity_score=normalized_score,
+                RerankedResult(
+                    retrieval_result=candidate,
+                    reranker_score=normalized_score,
                 )
             )
 
-        # Sort by descending score
-        reranked_results.sort(key=lambda r: r.similarity_score, reverse=True)
+        # Sort by descending reranker score
+        reranked_results.sort(key=lambda r: r.reranker_score, reverse=True)
 
         # Truncate to top_k if specified
         if top_k is not None:

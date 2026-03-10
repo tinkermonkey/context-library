@@ -81,6 +81,58 @@ class RetrievalResult(BaseModel):
         }
 
 
+class RerankedResult(BaseModel):
+    """A reranked retrieval result with distinct vector and cross-encoder scores.
+
+    Wraps a RetrievalResult with a separate reranker_score field to distinguish
+    the original vector-similarity score from the cross-encoder relevance score.
+    Enables callers to access both scoring signals for diagnostics or hybrid ranking.
+
+    Immutable data class following the same pattern as RetrievalResult.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    retrieval_result: RetrievalResult
+    reranker_score: float
+
+    @field_validator("reranker_score")
+    @classmethod
+    def validate_reranker_score(cls, value: float) -> float:
+        """Validate that reranker_score is in the valid range [0, 1]."""
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(
+                f"reranker_score must be in range [0, 1], got {value}"
+            )
+        return value
+
+    @property
+    def chunk(self) -> Chunk:
+        """Access the underlying chunk."""
+        return self.retrieval_result.chunk
+
+    @property
+    def lineage(self) -> LineageRecord:
+        """Access the underlying lineage."""
+        return self.retrieval_result.lineage
+
+    @property
+    def similarity_score(self) -> float:
+        """Access the original vector similarity score."""
+        return self.retrieval_result.similarity_score
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert result to dictionary format.
+
+        Returns:
+            Dictionary with chunk content, source metadata, vector similarity score,
+            and reranker score.
+        """
+        result_dict = self.retrieval_result.to_dict()
+        result_dict["reranker_score"] = self.reranker_score
+        return result_dict
+
+
 def retrieve(
     query: str,
     embedder: Embedder,
