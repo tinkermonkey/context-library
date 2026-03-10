@@ -2827,6 +2827,99 @@ class TestVersionDiff:
         with pytest.raises(AttributeError):
             diff.added_hashes.add(_make_hash("x"))
 
+    def test_get_version_diff_retrieves_retired_removed_chunks(self, store: DocumentStore) -> None:
+        """Test that removed chunks can be retrieved even if they've been retired.
+
+        This tests the fix for the issue where get_version_diff was returning empty
+        removed_chunks because retired chunks (marked as removed from the version)
+        were being filtered out by get_chunk_by_hash. Now _get_chunk_by_hash_including_retired
+        should retrieve them correctly.
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        # Create version 1 with chunks a, b, c
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# v1",
+            chunk_hashes=[_make_hash("a"), _make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        # Write the chunks for version 1
+        chunks_v1 = [
+            Chunk(chunk_hash=_make_hash("a"), content="Content a", chunk_index=0),
+            Chunk(chunk_hash=_make_hash("b"), content="Content b", chunk_index=1),
+            Chunk(chunk_hash=_make_hash("c"), content="Content c", chunk_index=2),
+        ]
+        lineage_v1 = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=_make_hash("b"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=_make_hash("c"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+        store.write_chunks(chunks_v1, lineage_v1)
+
+        # Create version 2 with only b, c (a is removed)
+        version_id_2 = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="# v2",
+            chunk_hashes=[_make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        # Retire chunk 'a' since it's no longer in version 2
+        store.retire_chunks({_make_hash("a")}, "source-1", 1)
+
+        # Now get the version diff - should still retrieve the retired chunk 'a' in removed_chunks
+        diff = store.get_version_diff("source-1", 1, 2)
+
+        assert diff.removed_hashes == frozenset({_make_hash("a")})
+        # The critical test: removed_chunks should contain the retired chunk
+        assert len(diff.removed_chunks) == 1
+        assert diff.removed_chunks[0].chunk_hash == _make_hash("a")
+        assert diff.removed_chunks[0].content == "Content a"
+
 
 class TestChunkVersionChain:
     """Tests for get_chunk_version_chain method."""
@@ -3831,3 +3924,77 @@ class TestCrossReferencesRoundTrip:
         assert retrieved is not None
         assert retrieved.domain_metadata is None
         assert retrieved.cross_refs == (_make_hash("b"),)
+
+    def test_build_chunk_from_row_malformed_json_raises_value_error(self, store: DocumentStore) -> None:
+        """Test that malformed JSON in domain_metadata raises informative ValueError."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Manually insert a chunk with corrupt JSON in domain_metadata
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, content, chunk_index, source_id, source_version, adapter_id,
+             domain, fetch_timestamp, normalizer_version, embedding_model_id,
+             domain_metadata, context_header, chunk_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("corrupt"),
+                "Content",
+                0,
+                source_id,
+                1,
+                adapter_id,
+                "notes",
+                datetime.now(timezone.utc).isoformat(),
+                "1.0.0",
+                "test-model",
+                "{invalid json",  # Malformed JSON
+                None,
+                "standard",
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        store.conn.commit()
+
+        # Attempting to retrieve should raise ValueError with informative message
+        with pytest.raises(ValueError, match=r"domain_metadata contains malformed JSON"):
+            store.get_chunk_by_hash(_make_hash("corrupt"), source_id)
+
+    def test_build_chunk_from_row_non_iterable_cross_refs_raises_value_error(self, store: DocumentStore) -> None:
+        """Test that non-iterable _system_cross_refs value raises informative ValueError."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Manually insert a chunk with non-iterable _system_cross_refs
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, content, chunk_index, source_id, source_version, adapter_id,
+             domain, fetch_timestamp, normalizer_version, embedding_model_id,
+             domain_metadata, context_header, chunk_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("non_iter"),
+                "Content",
+                0,
+                source_id,
+                1,
+                adapter_id,
+                "notes",
+                datetime.now(timezone.utc).isoformat(),
+                "1.0.0",
+                "test-model",
+                '{"_system_cross_refs": 42}',  # Non-iterable value (int instead of list)
+                None,
+                "standard",
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        store.conn.commit()
+
+        # Attempting to retrieve should raise ValueError with informative message
+        with pytest.raises(ValueError, match=r"_system_cross_refs must be iterable"):
+            store.get_chunk_by_hash(_make_hash("non_iter"), source_id)

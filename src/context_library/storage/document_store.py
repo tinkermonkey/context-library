@@ -653,7 +653,9 @@ class DocumentStore:
         removed_chunks_list = []
         missing_removed_hashes = []
         for chunk_hash in removed:
-            chunk = self.get_chunk_by_hash(chunk_hash, source_id)
+            # For removed chunks, query including retired chunks since they're typically
+            # retired by retire_chunks() when removed from a version
+            chunk = self._get_chunk_by_hash_including_retired(chunk_hash, source_id)
             if chunk is not None:
                 removed_chunks_list.append(chunk)
             else:
@@ -690,22 +692,37 @@ class DocumentStore:
 
         Returns:
             Chunk object with cross_refs tuple and cleaned domain_metadata dict.
+
+        Raises:
+            ValueError: If domain_metadata JSON is malformed or _system_cross_refs is not iterable.
         """
-        domain_metadata = (
-            json.loads(row["domain_metadata"])
-            if row["domain_metadata"]
-            else None
-        )
+        chunk_hash = row["chunk_hash"]
+        domain_metadata = None
+
+        if row["domain_metadata"]:
+            try:
+                domain_metadata = json.loads(row["domain_metadata"])
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Chunk '{chunk_hash}': domain_metadata contains malformed JSON: {e}"
+                ) from e
+
         # Extract cross_refs from domain_metadata using reserved "_system_cross_refs" key
         cross_refs = ()
         if domain_metadata and "_system_cross_refs" in domain_metadata:
-            cross_refs = tuple(domain_metadata.pop("_system_cross_refs"))
+            cross_refs_value = domain_metadata.pop("_system_cross_refs")
+            try:
+                cross_refs = tuple(cross_refs_value)
+            except TypeError as e:
+                raise ValueError(
+                    f"Chunk '{chunk_hash}': _system_cross_refs must be iterable, got {type(cross_refs_value).__name__}"
+                ) from e
             # Remove from domain_metadata if it's now empty
             if not domain_metadata:
                 domain_metadata = None
 
         return Chunk(
-            chunk_hash=row["chunk_hash"],
+            chunk_hash=chunk_hash,
             content=row["content"],
             context_header=row["context_header"],
             chunk_index=row["chunk_index"],
@@ -853,6 +870,35 @@ class DocumentStore:
                 """,
                 (chunk_hash,),
             )
+        row = cursor.fetchone()
+        return self._build_chunk_from_row(row) if row else None
+
+    def _get_chunk_by_hash_including_retired(self, chunk_hash: str, source_id: str) -> Optional[Chunk]:
+        """Get a chunk by its hash, including retired chunks.
+
+        Internal helper for get_version_diff to retrieve removed chunks that may have been
+        retired between versions. Unlike get_chunk_by_hash, this method does NOT filter out
+        retired chunks, since removed chunks are typically retired by retire_chunks().
+
+        Args:
+            chunk_hash: SHA-256 hash of the chunk.
+            source_id: Source ID to scope the lookup.
+
+        Returns:
+            Chunk object (including retired chunks), or None if not found.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
+                   domain_metadata
+            FROM chunks
+            WHERE chunk_hash = ? AND source_id = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (chunk_hash, source_id),
+        )
         row = cursor.fetchone()
         return self._build_chunk_from_row(row) if row else None
 
