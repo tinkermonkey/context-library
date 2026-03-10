@@ -732,6 +732,7 @@ class ChunkProvenance(BaseModel):
     All fields are immutable for content-addressed integrity.
 
     Invariants:
+    - chunk.chunk_hash == lineage.chunk_hash: chunk and lineage refer to the same content
     - version_chain is non-empty
     - version_chain is ordered with the current chunk at the end
     """

@@ -1852,6 +1852,40 @@ class TestChunkProvenance:
                 version_chain=(chunk1,),  # Missing chunk2!
             )
 
+    def test_chunk_provenance_hash_mismatch_rejected(self) -> None:
+        """Test that chunk/lineage hash mismatch is rejected."""
+        from context_library.storage.models import LineageRecord
+
+        chunk = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        # Lineage with different hash
+        lineage = LineageRecord(
+            chunk_hash="b" * 64,  # Different from chunk!
+            source_id="source-1",
+            source_version_id=1,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        with pytest.raises(ValueError, match="chunk-lineage hash mismatch"):
+            ChunkProvenance(
+                chunk=chunk,
+                lineage=lineage,
+                source_origin_ref="test-source",
+                adapter_type="test",
+                version_chain=(chunk,),
+            )
+
     def test_chunk_provenance_chain_ordering(self) -> None:
         """Test that version_chain maintains proper ordering with current chunk last."""
         from context_library.storage.models import LineageRecord
