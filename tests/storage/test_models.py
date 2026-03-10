@@ -1506,6 +1506,19 @@ class TestVersionDiff:
         with pytest.raises(Exception):  # Pydantic frozen model
             diff.source_id = "src-2"  # type: ignore
 
+    def test_version_diff_empty_source_id_rejected(self) -> None:
+        """Test that VersionDiff raises ValidationError for empty source_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            VersionDiff(
+                source_id="",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
+            )
+        assert "source_id must be a non-empty string" in str(exc_info.value)
+
 
 class TestSourceTimeline:
     """Tests for SourceTimeline model."""
@@ -1669,6 +1682,15 @@ class TestSourceTimeline:
 
         with pytest.raises(Exception):  # Pydantic frozen model
             timeline.source_id = "src-2"  # type: ignore
+
+    def test_source_timeline_empty_source_id_rejected(self) -> None:
+        """Test that SourceTimeline raises ValidationError for empty source_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            SourceTimeline(
+                source_id="",
+                versions=(),
+            )
+        assert "source_id must be a non-empty string" in str(exc_info.value)
 
 
 class TestChunkProvenance:

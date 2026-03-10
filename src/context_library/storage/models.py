@@ -748,7 +748,6 @@ class ChunkProvenance(BaseModel):
         """Validate ChunkProvenance invariants after model construction.
 
         Enforces:
-        - version_chain is ordered from oldest ancestor to newest (chunk itself last)
         - version_chain is non-empty
         - Last chunk in version_chain matches the current chunk
         """
