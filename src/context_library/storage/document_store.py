@@ -632,7 +632,7 @@ class DocumentStore:
         unchanged = frozenset(from_set & to_set)
 
         # Fetch actual chunk objects for added and removed hashes
-        # Filter out None values in case a chunk hash isn't found (e.g., for old/deleted chunks)
+        # Log warnings for missing chunks (possible data integrity issues)
         # Pass source_id to correctly scope lookups in cross-source dedup scenarios
         added_chunks_list = []
         missing_added_hashes = []

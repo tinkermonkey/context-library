@@ -192,11 +192,9 @@ class TestGetSourceTimeline:
         assert timeline.versions[2].version == 3
 
     def test_get_source_timeline_nonexistent_source(self, store: DocumentStore) -> None:
-        """Test timeline for nonexistent source returns empty."""
-        timeline = get_source_timeline(store, "nonexistent-source")
-        assert isinstance(timeline, SourceTimeline)
-        assert timeline.source_id == "nonexistent-source"
-        assert timeline.versions == ()
+        """Test timeline for nonexistent source raises ValueError."""
+        with pytest.raises(ValueError):
+            get_source_timeline(store, "nonexistent-source")
 
     def test_get_source_timeline_single_version(self, store: DocumentStore) -> None:
         """Test timeline with single version."""

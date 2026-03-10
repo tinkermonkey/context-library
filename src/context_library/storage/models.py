@@ -606,7 +606,8 @@ class VersionDiff(BaseModel):
             )
 
         # Validate removed_chunks contains only hashes that are in removed_hashes
-        # Note: removed_chunks may be a subset of removed_hashes if some chunks aren't available
+        # Note: removed_chunks may be a subset of removed_hashes if some chunks aren't yet
+        # persisted to the database or due to data integrity issues
         removed_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.removed_chunks)
         if not removed_chunk_hashes.issubset(self.removed_hashes):
             invalid_hashes = removed_chunk_hashes - self.removed_hashes
