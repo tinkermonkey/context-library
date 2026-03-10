@@ -269,6 +269,10 @@ class DocumentStore:
 
         Chunks are linked to their sources and versions via lineage records.
 
+        Cross-references are persisted in domain_metadata JSON under the reserved "_system_cross_refs" key.
+        This key is reserved to prevent collisions with domain-provided metadata. Domain implementations
+        must not use "_system_cross_refs" in their own domain_metadata dictionaries.
+
         Idempotent behavior: Uses INSERT OR IGNORE with UNIQUE (source_id, source_version, chunk_index)
         constraint to atomically skip duplicates. If a chunk at a given position already exists,
         the insertion is silently ignored without raising an error. This provides thread-safe
@@ -305,10 +309,11 @@ class DocumentStore:
         with self.conn:
             for chunk in chunks:
                 # Merge domain_metadata with cross_refs
-                # cross_refs are stored in domain_metadata JSON under the "cross_refs" key
+                # cross_refs are stored in domain_metadata JSON under the reserved "_system_cross_refs" key
+                # (reserved to prevent collisions with domain-provided metadata)
                 merged_metadata = dict(chunk.domain_metadata) if chunk.domain_metadata else {}
                 if chunk.cross_refs:
-                    merged_metadata["cross_refs"] = list(chunk.cross_refs)
+                    merged_metadata["_system_cross_refs"] = list(chunk.cross_refs)
 
                 domain_metadata_json = (
                     json.dumps(merged_metadata)
@@ -646,6 +651,43 @@ class DocumentStore:
             removed_chunks=removed_chunks,
         )
 
+    def _build_chunk_from_row(self, row: sqlite3.Row) -> Chunk:
+        """Build a Chunk object from a database row, extracting cross_refs from domain_metadata.
+
+        Deserializes domain_metadata JSON, extracts and removes the reserved "_system_cross_refs"
+        key (cross-reference hashes), and reconstructs the Chunk with both metadata and cross_refs.
+        If domain_metadata becomes empty after cross_refs extraction, it is set to None.
+
+        Args:
+            row: Database row with chunk_hash, content, context_header, chunk_index, chunk_type,
+                 and domain_metadata columns.
+
+        Returns:
+            Chunk object with cross_refs tuple and cleaned domain_metadata dict.
+        """
+        domain_metadata = (
+            json.loads(row["domain_metadata"])
+            if row["domain_metadata"]
+            else None
+        )
+        # Extract cross_refs from domain_metadata using reserved "_system_cross_refs" key
+        cross_refs = ()
+        if domain_metadata and "_system_cross_refs" in domain_metadata:
+            cross_refs = tuple(domain_metadata.pop("_system_cross_refs"))
+            # Remove from domain_metadata if it's now empty
+            if not domain_metadata:
+                domain_metadata = None
+
+        return Chunk(
+            chunk_hash=row["chunk_hash"],
+            content=row["content"],
+            context_header=row["context_header"],
+            chunk_index=row["chunk_index"],
+            chunk_type=row["chunk_type"],
+            domain_metadata=domain_metadata,
+            cross_refs=cross_refs,
+        )
+
     def get_chunk_version_chain(self, chunk_hash: str, source_id: str) -> list[Chunk]:
         """Get the recursive ancestry chain of a chunk via parent_chunk_hash.
 
@@ -697,35 +739,7 @@ class DocumentStore:
             (chunk_hash, source_id),
         )
         rows = cursor.fetchall()
-
-        chunks = []
-        for row in rows:
-            domain_metadata = (
-                json.loads(row["domain_metadata"])
-                if row["domain_metadata"]
-                else None
-            )
-            # Extract cross_refs from domain_metadata if present
-            cross_refs = ()
-            if domain_metadata and "cross_refs" in domain_metadata:
-                cross_refs = tuple(domain_metadata.pop("cross_refs"))
-                # Remove from domain_metadata if it's now empty
-                if not domain_metadata:
-                    domain_metadata = None
-
-            chunks.append(
-                Chunk(
-                    chunk_hash=row["chunk_hash"],
-                    content=row["content"],
-                    context_header=row["context_header"],
-                    chunk_index=row["chunk_index"],
-                    chunk_type=row["chunk_type"],
-                    domain_metadata=domain_metadata,
-                    cross_refs=cross_refs,
-                )
-            )
-
-        return chunks
+        return [self._build_chunk_from_row(row) for row in rows]
 
     def get_chunks_by_source(
         self,
@@ -768,35 +782,7 @@ class DocumentStore:
             (source_id, version),
         )
         rows = cursor.fetchall()
-
-        chunks = []
-        for row in rows:
-            domain_metadata = (
-                json.loads(row["domain_metadata"])
-                if row["domain_metadata"]
-                else None
-            )
-            # Extract cross_refs from domain_metadata if present
-            cross_refs = ()
-            if domain_metadata and "cross_refs" in domain_metadata:
-                cross_refs = tuple(domain_metadata.pop("cross_refs"))
-                # Remove from domain_metadata if it's now empty
-                if not domain_metadata:
-                    domain_metadata = None
-
-            chunks.append(
-                Chunk(
-                    chunk_hash=row["chunk_hash"],
-                    content=row["content"],
-                    context_header=row["context_header"],
-                    chunk_index=row["chunk_index"],
-                    chunk_type=row["chunk_type"],
-                    domain_metadata=domain_metadata,
-                    cross_refs=cross_refs,
-                )
-            )
-
-        return chunks
+        return [self._build_chunk_from_row(row) for row in rows]
 
     def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
         """Get a chunk by its hash.
@@ -842,30 +828,7 @@ class DocumentStore:
                 (chunk_hash,),
             )
         row = cursor.fetchone()
-
-        if not row:
-            return None
-
-        domain_metadata = (
-            json.loads(row["domain_metadata"]) if row["domain_metadata"] else None
-        )
-        # Extract cross_refs from domain_metadata if present
-        cross_refs = ()
-        if domain_metadata and "cross_refs" in domain_metadata:
-            cross_refs = tuple(domain_metadata.pop("cross_refs"))
-            # Remove from domain_metadata if it's now empty
-            if not domain_metadata:
-                domain_metadata = None
-
-        return Chunk(
-            chunk_hash=row["chunk_hash"],
-            content=row["content"],
-            context_header=row["context_header"],
-            chunk_index=row["chunk_index"],
-            chunk_type=row["chunk_type"],
-            domain_metadata=domain_metadata,
-            cross_refs=cross_refs,
-        )
+        return self._build_chunk_from_row(row) if row else None
 
     def is_chunk_retired(self, chunk_hash: str) -> bool:
         """Check if a chunk is retired (exists but marked as retired).

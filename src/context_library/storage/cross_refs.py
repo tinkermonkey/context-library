@@ -13,10 +13,10 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from context_library.storage.models import Chunk
+    from context_library.storage.models import Chunk, Sha256Hash
 
 
-def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[str, ...]:
+def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple["Sha256Hash", ...]:
     """Detect cross-references from a chunk to other chunks within the same source.
 
     Identifies heuristic patterns that indicate references to other chunks
@@ -69,6 +69,13 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
             content_lower,
         )
     )
+
+    # NOTE: The 3rd and 4th alternations of has_explicit_pattern contain directional keywords
+    # (following, next, above, previous, below). When these alternations match, has_above_ref or
+    # has_below_ref will also be True. The set-based referenced_hashes deduplicates any chunks added
+    # through both has_positional_pattern and the directional branches of has_explicit_pattern,
+    # so no duplicate refs are created. Non-directional patterns (1st and 2nd alternations)
+    # fall through to the bidirectional fallback at line 119 when neither directional flag is set.
 
     # For positional patterns, link only to nearby chunks to avoid noise
     if has_positional_pattern:
