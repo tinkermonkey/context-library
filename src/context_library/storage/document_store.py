@@ -304,9 +304,15 @@ class DocumentStore:
 
         with self.conn:
             for chunk in chunks:
+                # Merge domain_metadata with cross_refs
+                # cross_refs are stored in domain_metadata JSON under the "cross_refs" key
+                merged_metadata = dict(chunk.domain_metadata) if chunk.domain_metadata else {}
+                if chunk.cross_refs:
+                    merged_metadata["cross_refs"] = list(chunk.cross_refs)
+
                 domain_metadata_json = (
-                    json.dumps(chunk.domain_metadata)
-                    if chunk.domain_metadata
+                    json.dumps(merged_metadata)
+                    if merged_metadata
                     else None
                 )
 
@@ -699,6 +705,14 @@ class DocumentStore:
                 if row["domain_metadata"]
                 else None
             )
+            # Extract cross_refs from domain_metadata if present
+            cross_refs = ()
+            if domain_metadata and "cross_refs" in domain_metadata:
+                cross_refs = tuple(domain_metadata.pop("cross_refs"))
+                # Remove from domain_metadata if it's now empty
+                if not domain_metadata:
+                    domain_metadata = None
+
             chunks.append(
                 Chunk(
                     chunk_hash=row["chunk_hash"],
@@ -707,6 +721,7 @@ class DocumentStore:
                     chunk_index=row["chunk_index"],
                     chunk_type=row["chunk_type"],
                     domain_metadata=domain_metadata,
+                    cross_refs=cross_refs,
                 )
             )
 
@@ -761,6 +776,14 @@ class DocumentStore:
                 if row["domain_metadata"]
                 else None
             )
+            # Extract cross_refs from domain_metadata if present
+            cross_refs = ()
+            if domain_metadata and "cross_refs" in domain_metadata:
+                cross_refs = tuple(domain_metadata.pop("cross_refs"))
+                # Remove from domain_metadata if it's now empty
+                if not domain_metadata:
+                    domain_metadata = None
+
             chunks.append(
                 Chunk(
                     chunk_hash=row["chunk_hash"],
@@ -769,6 +792,7 @@ class DocumentStore:
                     chunk_index=row["chunk_index"],
                     chunk_type=row["chunk_type"],
                     domain_metadata=domain_metadata,
+                    cross_refs=cross_refs,
                 )
             )
 
@@ -825,6 +849,13 @@ class DocumentStore:
         domain_metadata = (
             json.loads(row["domain_metadata"]) if row["domain_metadata"] else None
         )
+        # Extract cross_refs from domain_metadata if present
+        cross_refs = ()
+        if domain_metadata and "cross_refs" in domain_metadata:
+            cross_refs = tuple(domain_metadata.pop("cross_refs"))
+            # Remove from domain_metadata if it's now empty
+            if not domain_metadata:
+                domain_metadata = None
 
         return Chunk(
             chunk_hash=row["chunk_hash"],
@@ -833,6 +864,7 @@ class DocumentStore:
             chunk_index=row["chunk_index"],
             chunk_type=row["chunk_type"],
             domain_metadata=domain_metadata,
+            cross_refs=cross_refs,
         )
 
     def is_chunk_retired(self, chunk_hash: str) -> bool:

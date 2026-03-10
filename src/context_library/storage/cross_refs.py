@@ -1,11 +1,12 @@
 """Cross-reference detection for chunks.
 
-Implements heuristic detection of cross-references between chunks to enable
-automatic linking and retrieval of related content across multiple domains.
+Implements heuristic detection of cross-references between chunks within a single source
+to enable automatic linking of related content within that source's domain.
 
 Uses pattern matching to identify references like "above", "below", "see Section X",
 "as defined in", "the following table", etc. Detection is best-effort with tolerance
 for false positives (extra context is harmless) and false negatives (acceptable).
+Detection is scoped to nearby chunks (within 3 positions) to minimize noise.
 """
 
 import re
@@ -16,26 +17,26 @@ if TYPE_CHECKING:
 
 
 def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[str, ...]:
-    """Detect cross-references from a chunk to other chunks.
+    """Detect cross-references from a chunk to other chunks within the same source.
 
     Identifies heuristic patterns that indicate references to other chunks
-    and returns the hashes of referenced chunks.
+    and returns the hashes of referenced chunks. Detection is scoped to nearby chunks
+    (within 3 positions) to minimize noise from broad references.
 
     Pattern detection looks for:
-    - "above", "below", "previously", "following"
-    - "Section X", "Chapter X", "Figure X", "Table X"
-    - "as shown in", "as defined in", "see X"
-    - "the table below", "the code above", etc.
-
-    When positional references are detected, links to nearby chunks (within 3 positions).
-    This limits noise from over-broad references.
+    - Positional keywords: "above", "below", "previously", "previous", "preceding", "earlier",
+      "next", "following", "later"
+    - Structural references: "Section", "Chapter", "Figure", "Table", "Code", "Example", "Block"
+    - Explicit patterns: "as shown in", "as defined in", "as described in", "as explained in",
+      "see", "refer to"
+    - Combined patterns: "the table below", "the code above", "the figure following", etc.
 
     Args:
         chunk: The chunk to analyze for cross-references
-        all_chunks: All chunks in the source (for context about what exists)
+        all_chunks: All chunks in the same source (provides context for reference resolution)
 
     Returns:
-        Tuple of chunk hashes that are referenced by this chunk
+        Tuple of chunk hashes (as SHA-256 hex strings) that are referenced by this chunk
     """
     if not chunk.content:
         return ()
@@ -92,8 +93,18 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
                 referenced_hashes.add(later_chunk.chunk_hash)
 
     # For explicit patterns (e.g., "see Section X", "as defined in the table"),
-    # also use nearby chunk scope
+    # also use nearby chunk scope. If direction is specified (above/below), use that.
+    # If no direction is specified, link to nearby chunks in both directions.
     if has_explicit_pattern:
+        if has_above_ref:
+            nearby_earlier = [
+                c for c in all_chunks
+                if c.chunk_index < chunk.chunk_index
+                and chunk.chunk_index - c.chunk_index <= 3
+            ]
+            for earlier_chunk in nearby_earlier:
+                referenced_hashes.add(earlier_chunk.chunk_hash)
+
         if has_below_ref:
             nearby_later = [
                 c for c in all_chunks
@@ -103,14 +114,17 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
             for later_chunk in nearby_later:
                 referenced_hashes.add(later_chunk.chunk_hash)
 
-        if has_above_ref:
-            nearby_earlier = [
+        # If explicit pattern found but no directional keyword, link to nearby chunks
+        # in both directions to capture references like "see Section X", "as shown in the table"
+        if not has_above_ref and not has_below_ref:
+            # Link to up to 3 chunks before and after
+            nearby_all = [
                 c for c in all_chunks
-                if c.chunk_index < chunk.chunk_index
-                and chunk.chunk_index - c.chunk_index <= 3
+                if abs(c.chunk_index - chunk.chunk_index) <= 3
+                and c.chunk_index != chunk.chunk_index
             ]
-            for earlier_chunk in nearby_earlier:
-                referenced_hashes.add(earlier_chunk.chunk_hash)
+            for nearby_chunk in nearby_all:
+                referenced_hashes.add(nearby_chunk.chunk_hash)
 
     # Remove self-references (chunk should not reference itself)
     referenced_hashes.discard(chunk.chunk_hash)

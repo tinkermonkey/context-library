@@ -424,8 +424,9 @@ class Chunk(BaseModel):
     chunk_type is validated against a fixed set of allowed values (standard, oversized,
     table_part, code, table) to ensure consistency with SQLite schema constraints.
 
-    cross_refs contains hashes of other chunks that are referenced by this chunk, enabling
-    automatic identification and linking of related content across multiple domains and sources.
+    cross_refs contains SHA-256 hashes of other chunks (within the same source) that are
+    referenced by this chunk, enabling automatic identification and linking of related content
+    within the source. All hashes are validated as SHA-256.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -436,7 +437,7 @@ class Chunk(BaseModel):
     chunk_index: int
     chunk_type: ChunkType = ChunkType.STANDARD
     domain_metadata: dict[str, object] | None = None
-    cross_refs: tuple[str, ...] = ()
+    cross_refs: tuple[Sha256Hash, ...] = ()
 
 
 class LineageRecord(BaseModel):
