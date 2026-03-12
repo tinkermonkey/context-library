@@ -25,6 +25,7 @@ from context_library.storage.models import (
     Domain,
     LineageRecord,
     PollStrategy,
+    VersionDiff,
 )
 
 
@@ -530,6 +531,255 @@ class TestChunkWriteAndRead:
         retrieved = store.get_chunk_by_hash(_make_hash("d"))
         assert retrieved is not None
         assert retrieved.domain_metadata == metadata
+
+
+class TestGetChunkByHashWithSourceId:
+    """Tests for get_chunk_by_hash with source_id parameter."""
+
+    _counter = 0
+
+    def _setup_with_version(self, store: DocumentStore, version: int = 1) -> tuple[str, str, int]:
+        """Set up adapter, source, and version for testing."""
+        TestGetChunkByHashWithSourceId._counter += 1
+        n = TestGetChunkByHashWithSourceId._counter
+
+        adapter_id = f"adapter-{n}"
+        source_id = f"source-{n}"
+
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"origin-{n}",
+            poll_strategy=PollStrategy.PULL,
+        )
+
+        version_id = store.create_source_version(
+            source_id=source_id,
+            version=version,
+            markdown="# Content",
+            chunk_hashes=[],
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        return source_id, adapter_id, version_id
+
+    def test_get_chunk_by_hash_with_source_id_scoped_lookup(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id parameter scopes chunk lookup to specific source."""
+        # Set up source
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Create chunk
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Query without source_id returns the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"))
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+        # Query with matching source_id should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+        # Query with non-existent source_id returns None
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id="nonexistent-source")
+        assert result is None
+
+    def test_get_chunk_by_hash_with_source_id_returns_none_if_not_in_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id parameter returns None if chunk not in that source."""
+        source1_id, adapter1_id, version1_id = self._setup_with_version(store)
+        source2_id, adapter2_id, version2_id = self._setup_with_version(store)
+
+        # Write chunk to source 1 only
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Only in source 1",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source1_id,
+            source_version_id=version1_id,
+            adapter_id=adapter1_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Querying source 2 should return None
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source2_id)
+        assert result is None
+
+        # But querying source 1 should succeed
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source1_id)
+        assert result is not None
+
+    def test_get_chunk_by_hash_without_source_id_returns_earliest(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that without source_id, earliest-created instance is returned."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Without source_id, should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"))
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+    def test_get_chunk_by_hash_source_id_excludes_retired_chunks(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id scoped lookup excludes retired chunks."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Will be retired",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Verify it's retrievable
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+
+        # Retire the chunk (needs source_id and version)
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """UPDATE chunks SET retired_at = CURRENT_TIMESTAMP
+               WHERE chunk_hash = ? AND source_id = ?""",
+            (_make_hash("a"), source_id),
+        )
+        store.conn.commit()
+
+        # Now it should not be found
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is None
+
+    def test_get_chunk_by_hash_multiple_versions_same_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test get_chunk_by_hash with multiple versions of same source."""
+        source_id, adapter_id, version1_id = self._setup_with_version(store, version=1)
+
+        # Create version 2
+        store.create_source_version(
+            source_id=source_id,
+            version=2,
+            markdown="# Content v2",
+            chunk_hashes=[],
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="In both versions",
+            chunk_index=0,
+        )
+
+        # Write to version 1
+        lineage1 = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source_id,
+            source_version_id=version1_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage1])
+
+        # Query with source_id should return the chunk
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=source_id)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+
+    def test_get_chunk_by_hash_source_id_none_returns_any_source(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that source_id=None returns chunk from any source."""
+        source1_id, adapter1_id, version1_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id=source1_id,
+            source_version_id=version1_id,
+            adapter_id=adapter1_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+
+        # Query with source_id=None should succeed
+        result = store.get_chunk_by_hash(_make_hash("a"), source_id=None)
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
 
 
 class TestLineageTracking:
@@ -2372,3 +2622,1379 @@ class TestSourceScheduling:
         # Attempt to update a non-existent source
         with pytest.raises(RuntimeError):
             store.update_last_fetched_at("nonexistent-source")
+
+
+class TestVersionDiff:
+    """Tests for get_version_diff method."""
+
+    def _setup_versions(self, store: DocumentStore) -> tuple[str, int, int]:
+        """Helper to set up two source versions with different chunk hashes.
+
+        Returns:
+            Tuple of (source_id, version1_id, version2_id)
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        # Version 1: hashes a, b, c
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content v1",
+            chunk_hashes=[_make_hash("a"), _make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        # Version 2: hashes b, c, d (added d, removed a)
+        version_id_2 = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="# Content v2",
+            chunk_hashes=[_make_hash("b"), _make_hash("c"), _make_hash("d")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        return "source-1", version_id_1, version_id_2
+
+    def test_get_version_diff_basic(self, store: DocumentStore) -> None:
+        """Test basic version diff computation."""
+        source_id, _, _ = self._setup_versions(store)
+
+        diff = store.get_version_diff(source_id, 1, 2)
+
+        assert isinstance(diff, VersionDiff)
+        assert diff.source_id == source_id
+        assert diff.from_version == 1
+        assert diff.to_version == 2
+
+        # v1: a, b, c
+        # v2: b, c, d
+        # added: d, removed: a, unchanged: b, c
+        assert diff.added_hashes == frozenset({_make_hash("d")})
+        assert diff.removed_hashes == frozenset({_make_hash("a")})
+        assert diff.unchanged_hashes == frozenset({_make_hash("b"), _make_hash("c")})
+
+    def test_get_version_diff_all_new_chunks(self, store: DocumentStore) -> None:
+        """Test diff when all chunks are new (v2 has no overlap with v1)."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-2",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-2",
+        )
+
+        store.create_source_version(
+            source_id="source-2",
+            version=1,
+            markdown="# v1",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        store.create_source_version(
+            source_id="source-2",
+            version=2,
+            markdown="# v2",
+            chunk_hashes=[_make_hash("e"), _make_hash("f")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        diff = store.get_version_diff("source-2", 1, 2)
+
+        assert diff.added_hashes == frozenset({_make_hash("e"), _make_hash("f")})
+        assert diff.removed_hashes == frozenset({_make_hash("a"), _make_hash("b")})
+        assert diff.unchanged_hashes == frozenset()
+
+    def test_get_version_diff_no_changes(self, store: DocumentStore) -> None:
+        """Test diff when versions have identical chunk hashes."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-3",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-3",
+        )
+
+        store.create_source_version(
+            source_id="source-3",
+            version=1,
+            markdown="# v1",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        store.create_source_version(
+            source_id="source-3",
+            version=2,
+            markdown="# v2 (same chunks)",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        diff = store.get_version_diff("source-3", 1, 2)
+
+        assert diff.added_hashes == frozenset()
+        assert diff.removed_hashes == frozenset()
+        assert diff.unchanged_hashes == frozenset({_make_hash("a"), _make_hash("b")})
+
+    def test_get_version_diff_reverse_order(self, store: DocumentStore) -> None:
+        """Test diff in reverse order (from v2 to v1)."""
+        source_id, _, _ = self._setup_versions(store)
+
+        diff = store.get_version_diff(source_id, 2, 1)
+
+        # v2: b, c, d
+        # v1: a, b, c
+        # added: a, removed: d, unchanged: b, c
+        assert diff.added_hashes == frozenset({_make_hash("a")})
+        assert diff.removed_hashes == frozenset({_make_hash("d")})
+        assert diff.unchanged_hashes == frozenset({_make_hash("b"), _make_hash("c")})
+
+    def test_get_version_diff_same_version(self, store: DocumentStore) -> None:
+        """Test that get_version_diff raises ValueError when from_version == to_version."""
+        source_id, _, _ = self._setup_versions(store)
+
+        with pytest.raises(ValueError, match="from_version and to_version must be different"):
+            store.get_version_diff(source_id, 1, 1)
+
+    def test_get_version_diff_nonexistent_source(self, store: DocumentStore) -> None:
+        """Test that get_version_diff raises ValueError for non-existent source."""
+        with pytest.raises(ValueError, match="does not exist"):
+            store.get_version_diff("nonexistent", 1, 2)
+
+    def test_get_version_diff_missing_from_version(self, store: DocumentStore) -> None:
+        """Test that get_version_diff raises ValueError when from_version doesn't exist."""
+        source_id, _, _ = self._setup_versions(store)
+
+        with pytest.raises(ValueError, match="does not have version\\(s\\)"):
+            store.get_version_diff(source_id, 99, 2)
+
+    def test_get_version_diff_missing_to_version(self, store: DocumentStore) -> None:
+        """Test that get_version_diff raises ValueError when to_version doesn't exist."""
+        source_id, _, _ = self._setup_versions(store)
+
+        with pytest.raises(ValueError, match="does not have version\\(s\\)"):
+            store.get_version_diff(source_id, 1, 99)
+
+    def test_get_version_diff_frozenset_immutability(self, store: DocumentStore) -> None:
+        """Test that returned hash sets are frozensets (immutable)."""
+        source_id, _, _ = self._setup_versions(store)
+
+        diff = store.get_version_diff(source_id, 1, 2)
+
+        # Verify all are frozensets
+        assert isinstance(diff.added_hashes, frozenset)
+        assert isinstance(diff.removed_hashes, frozenset)
+        assert isinstance(diff.unchanged_hashes, frozenset)
+
+        # Verify they are immutable
+        with pytest.raises(AttributeError):
+            diff.added_hashes.add(_make_hash("x"))
+
+    def test_get_version_diff_retrieves_retired_removed_chunks(self, store: DocumentStore) -> None:
+        """Test that removed chunks can be retrieved even if they've been retired.
+
+        This tests the fix for the issue where get_version_diff was returning empty
+        removed_chunks because retired chunks (marked as removed from the version)
+        were being filtered out by get_chunk_by_hash. Now _get_chunk_by_hash_including_retired
+        should retrieve them correctly.
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        # Create version 1 with chunks a, b, c
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# v1",
+            chunk_hashes=[_make_hash("a"), _make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        # Write the chunks for version 1
+        chunks_v1 = [
+            Chunk(chunk_hash=_make_hash("a"), content="Content a", chunk_index=0),
+            Chunk(chunk_hash=_make_hash("b"), content="Content b", chunk_index=1),
+            Chunk(chunk_hash=_make_hash("c"), content="Content c", chunk_index=2),
+        ]
+        lineage_v1 = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=_make_hash("b"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=_make_hash("c"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+        store.write_chunks(chunks_v1, lineage_v1)
+
+        # Create version 2 with only b, c (a is removed)
+        store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="# v2",
+            chunk_hashes=[_make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T11:00:00Z",
+        )
+
+        # Retire chunk 'a' since it's no longer in version 2
+        store.retire_chunks({_make_hash("a")}, "source-1", 1)
+
+        # Now get the version diff - should still retrieve the retired chunk 'a' in removed_chunks
+        diff = store.get_version_diff("source-1", 1, 2)
+
+        assert diff.removed_hashes == frozenset({_make_hash("a")})
+        # The critical test: removed_chunks should contain the retired chunk
+        assert len(diff.removed_chunks) == 1
+        assert diff.removed_chunks[0].chunk_hash == _make_hash("a")
+        assert diff.removed_chunks[0].content == "Content a"
+
+
+class TestChunkVersionChain:
+    """Tests for get_chunk_version_chain method."""
+
+    def test_get_chunk_version_chain_single_chunk(self, store: DocumentStore) -> None:
+        """Test getting chain for chunk with no parent (single element)."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Standalone chunk",
+            chunk_index=0,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("a"),
+            source_id="source-1",
+            source_version_id=version_id,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+
+        chain = store.get_chunk_version_chain(_make_hash("a"), "source-1")
+
+        assert len(chain) == 1
+        assert chain[0].chunk_hash == _make_hash("a")
+        assert chain[0].content == "Standalone chunk"
+
+    def test_get_chunk_version_chain_with_parent(self, store: DocumentStore) -> None:
+        """Test getting chain for chunk with one parent."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        # Create chunks with parent relationship via manual INSERT
+        cursor = store.conn.cursor()
+
+        # Parent chunk a (no parent)
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("a"),  # chunk_hash
+                "source-1",  # source_id
+                version_id,  # source_version
+                0,  # chunk_index
+                "Parent chunk",  # content
+                None,  # context_header
+                "notes",  # domain
+                "adapter-1",  # adapter_id
+                "2025-03-02T10:00:00Z",  # fetch_timestamp
+                "1.0.0",  # normalizer_version
+                "test-model",  # embedding_model_id
+                None,  # domain_metadata
+                "standard",  # chunk_type
+                None,  # parent_chunk_hash
+                "2025-03-02T10:00:00Z",  # created_at
+            ),
+        )
+
+        # Child chunk b (parent is a)
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("b"),  # chunk_hash
+                "source-1",  # source_id
+                version_id,  # source_version
+                1,  # chunk_index
+                "Child chunk",  # content
+                None,  # context_header
+                "notes",  # domain
+                "adapter-1",  # adapter_id
+                "2025-03-02T10:00:00Z",  # fetch_timestamp
+                "1.0.0",  # normalizer_version
+                "test-model",  # embedding_model_id
+                None,  # domain_metadata
+                "standard",  # chunk_type
+                _make_hash("a"),  # parent_chunk_hash
+                "2025-03-02T10:00:01Z",  # created_at (1 second after parent)
+            ),
+        )
+
+        chain = store.get_chunk_version_chain(_make_hash("b"), "source-1")
+
+        # Should have both chunks in order (oldest first)
+        assert len(chain) == 2
+        assert chain[0].chunk_hash == _make_hash("a")
+        assert chain[0].content == "Parent chunk"
+        assert chain[1].chunk_hash == _make_hash("b")
+        assert chain[1].content == "Child chunk"
+
+    def test_get_chunk_version_chain_deep_ancestry(self, store: DocumentStore) -> None:
+        """Test getting chain with multiple ancestors."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("a"), _make_hash("b"), _make_hash("c")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        # Create a chain: a -> b -> c
+        cursor = store.conn.cursor()
+
+        # Root chunk a
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("a"),
+                "source-1",
+                version_id,
+                0,
+                "Root",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T10:00:00Z",
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                None,
+                "2025-03-02T10:00:00Z",
+            ),
+        )
+
+        # Chunk b with parent a
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("b"),
+                "source-1",
+                version_id,
+                1,
+                "Middle",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T11:00:00Z",
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                _make_hash("a"),
+                "2025-03-02T10:00:01Z",
+            ),
+        )
+
+        # Chunk c with parent b
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("c"),
+                "source-1",
+                version_id,
+                2,
+                "Leaf",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T12:00:00Z",
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                _make_hash("b"),
+                "2025-03-02T10:00:02Z",
+            ),
+        )
+
+        chain = store.get_chunk_version_chain(_make_hash("c"), "source-1")
+
+        # Should have all three chunks ordered by created_at (oldest first)
+        assert len(chain) == 3
+        assert chain[0].chunk_hash == _make_hash("a")
+        assert chain[0].content == "Root"
+        assert chain[1].chunk_hash == _make_hash("b")
+        assert chain[1].content == "Middle"
+        assert chain[2].chunk_hash == _make_hash("c")
+        assert chain[2].content == "Leaf"
+
+    def test_get_chunk_version_chain_nonexistent_chunk(self, store: DocumentStore) -> None:
+        """Test that chain is empty for non-existent chunk."""
+        chain = store.get_chunk_version_chain(_make_hash("f"), "source-1")
+        assert chain == []
+
+    def test_get_chunk_version_chain_ordered_by_created_at(self, store: DocumentStore) -> None:
+        """Test that chain is ordered by created_at ascending (oldest first)."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("3"), _make_hash("4"), _make_hash("5")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        cursor = store.conn.cursor()
+
+        # Create chunks with deliberately out-of-order timestamps
+        # 4 points to 3, 5 points to 4
+        # Insert in reverse order to test ordering
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("5"),
+                "source-1",
+                version_id,
+                2,
+                "Newest",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T12:00:00Z",  # Newest timestamp
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                _make_hash("4"),
+                "2025-03-02T10:00:02Z",  # created_at for ordering
+            ),
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("3"),
+                "source-1",
+                version_id,
+                0,
+                "Oldest",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T10:00:00Z",  # Oldest timestamp
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                None,
+                "2025-03-02T10:00:00Z",  # created_at for ordering
+            ),
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content,
+             context_header, domain, adapter_id, fetch_timestamp,
+             normalizer_version, embedding_model_id, domain_metadata, chunk_type, parent_chunk_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("4"),
+                "source-1",
+                version_id,
+                1,
+                "Middle",
+                None,
+                "notes",
+                "adapter-1",
+                "2025-03-02T11:00:00Z",  # Middle timestamp
+                "1.0.0",
+                "test-model",
+                None,
+                "standard",
+                _make_hash("3"),
+                "2025-03-02T10:00:01Z",  # created_at for ordering
+            ),
+        )
+
+        chain = store.get_chunk_version_chain(_make_hash("5"), "source-1")
+
+        # Should be ordered by created_at, not by insertion order
+        assert len(chain) == 3
+        assert chain[0].chunk_hash == _make_hash("3")
+        assert chain[0].content == "Oldest"
+        assert chain[1].chunk_hash == _make_hash("4")
+        assert chain[1].content == "Middle"
+        assert chain[2].chunk_hash == _make_hash("5")
+        assert chain[2].content == "Newest"
+
+    def test_get_chunk_version_chain_with_domain_metadata(self, store: DocumentStore) -> None:
+        """Test that domain_metadata is preserved in chain."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="# Content",
+            chunk_hashes=[_make_hash("6")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        metadata = {"source": "email", "sender": "user@example.com"}
+        chunk = Chunk(
+            chunk_hash=_make_hash("6"),
+            content="With metadata",
+            chunk_index=0,
+            domain_metadata=metadata,
+        )
+
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("6"),
+            source_id="source-1",
+            source_version_id=version_id,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+
+        store.write_chunks([chunk], [lineage])
+
+        chain = store.get_chunk_version_chain(_make_hash("6"), "source-1")
+
+        assert len(chain) == 1
+        assert chain[0].domain_metadata == metadata
+
+
+class TestGetSourceInfo:
+    """Tests for DocumentStore.get_source_info method.
+
+    Covers direct retrieval of source metadata (origin_ref, adapter_type)
+    via JOIN query.
+    """
+
+    def test_get_source_info_success(self, store: DocumentStore) -> None:
+        """Test successful retrieval of source info."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="gmail",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.MESSAGES,
+            origin_ref="user@gmail.com",
+        )
+
+        # Retrieve source info
+        source_info = store.get_source_info("source-1")
+
+        assert source_info is not None
+        assert source_info.origin_ref == "user@gmail.com"
+        assert source_info.adapter_type == "gmail"
+
+    def test_get_source_info_nonexistent_source(self, store: DocumentStore) -> None:
+        """Test that get_source_info returns None for nonexistent source."""
+        result = store.get_source_info("nonexistent-source")
+        assert result is None
+
+    def test_get_source_info_multiple_sources(self, store: DocumentStore) -> None:
+        """Test retrieving info for different sources independently."""
+        config1 = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="slack",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        config2 = AdapterConfig(
+            adapter_id="adapter-2",
+            adapter_type="discord",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config1)
+        store.register_adapter(config2)
+
+        store.register_source(
+            source_id="slack-workspace",
+            adapter_id="adapter-1",
+            domain=Domain.MESSAGES,
+            origin_ref="slack://workspace-id",
+        )
+        store.register_source(
+            source_id="discord-server",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="discord://server-id",
+        )
+
+        # Verify each source retrieves correct info
+        slack_info = store.get_source_info("slack-workspace")
+        discord_info = store.get_source_info("discord-server")
+
+        assert slack_info is not None
+        assert slack_info.origin_ref == "slack://workspace-id"
+        assert slack_info.adapter_type == "slack"
+
+        assert discord_info is not None
+        assert discord_info.origin_ref == "discord://server-id"
+        assert discord_info.adapter_type == "discord"
+
+
+class TestGetLineageWithSourceId:
+    """Tests for DocumentStore.get_lineage with source_id parameter.
+
+    Covers the source_id-filtered SQL query branch which handles
+    cross-source deduplication scenarios.
+    """
+
+    def test_get_lineage_with_source_id_filter(self, store: DocumentStore) -> None:
+        """Test get_lineage with source_id filter returns correct record."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Retrieve with source_id filter
+        result = store.get_lineage(_make_hash("a"), source_id="source-1")
+
+        assert result is not None
+        assert result.chunk_hash == _make_hash("a")
+        assert result.source_id == "source-1"
+        assert result.embedding_model_id == "model-1"
+
+    def test_get_lineage_with_source_id_not_found(self, store: DocumentStore) -> None:
+        """Test get_lineage with source_id returns None when source_id doesn't match."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Try to retrieve with non-matching source_id
+        result = store.get_lineage(_make_hash("a"), source_id="different-source")
+
+        assert result is None
+
+    def test_get_lineage_cross_source_dedup_scenario(self, store: DocumentStore) -> None:
+        """Test get_lineage correctly handles cross-source dedup scenario.
+
+        Tests the documented use case: when the same chunk_hash appears in
+        different versions of the same source, source_id parameter allows
+        retrieving the lineage record scoped to that source.
+
+        The source_id parameter is critical for distinguishing lineage records
+        when a chunk_hash is potentially duplicated across source versions.
+        """
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        # Create two versions with the same chunk hash
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content v1",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[_make_hash("a")],  # Same hash - unchanged chunk
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        # Write chunk to both versions
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="shared content",
+            chunk_index=0,
+        )
+
+        # Both versions have the chunk, so we write once (idempotent)
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id_1,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # When querying without source_id, get_lineage returns the first match
+        result_no_filter = store.get_lineage(_make_hash("a"))
+        assert result_no_filter is not None
+        assert result_no_filter.source_id == "source-1"
+
+        # When querying with source_id, can explicitly filter to a specific source
+        result_with_filter = store.get_lineage(_make_hash("a"), source_id="source-1")
+        assert result_with_filter is not None
+        assert result_with_filter.source_id == "source-1"
+
+        # Both queries return consistent results for this source
+        assert result_no_filter.chunk_hash == result_with_filter.chunk_hash
+        assert result_no_filter.source_id == result_with_filter.source_id
+
+    def test_get_lineage_source_id_vs_no_source_id(self, store: DocumentStore) -> None:
+        """Test difference between get_lineage with and without source_id parameter."""
+        config = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[_make_hash("a")],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="content",
+            chunk_index=0,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id="source-1",
+                source_version_id=version_id,
+                adapter_id="adapter-1",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                embedding_model_id="model-1",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Both queries should return the same result when there's only one source
+        result_with_source_id = store.get_lineage(_make_hash("a"), source_id="source-1")
+        result_without_source_id = store.get_lineage(_make_hash("a"))
+
+        assert result_with_source_id is not None
+        assert result_without_source_id is not None
+        assert result_with_source_id.source_id == result_without_source_id.source_id
+        assert result_with_source_id.source_version_id == result_without_source_id.source_version_id
+
+
+class TestCrossReferencesRoundTrip:
+    """Tests for cross-references serialization and deserialization round-trips.
+
+    Verifies that cross_refs are correctly:
+    - Written into domain_metadata JSON (under "_system_cross_refs" key) during write_chunks
+    - Extracted and removed from domain_metadata during _build_chunk_from_row
+    - Properly reconstructed as chunk.cross_refs in the returned Chunk object
+    """
+
+    def _setup_with_version(self, store: DocumentStore) -> tuple[str, str, int]:
+        """Set up a source and version for testing."""
+        config = AdapterConfig(
+            adapter_id="test-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id="test-source",
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+        version_id = store.create_source_version(
+            source_id="test-source",
+            version=1,
+            markdown="test content",
+            chunk_hashes=[_make_hash("a"), _make_hash("b")],
+            adapter_id="test-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        return "test-source", "test-adapter", version_id
+
+    def test_cross_refs_write_and_read_empty(self, store: DocumentStore) -> None:
+        """Test that chunks with no cross-references are handled correctly."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content without references",
+            chunk_index=0,
+            cross_refs=(),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == ()
+
+    def test_cross_refs_write_and_read_single_reference(self, store: DocumentStore) -> None:
+        """Test writing and reading a chunk with a single cross-reference."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="See the section above",
+            chunk_index=1,
+            cross_refs=(_make_hash("b"),),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify cross_refs are preserved
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == (_make_hash("b"),)
+
+    def test_cross_refs_write_and_read_multiple_references(self, store: DocumentStore) -> None:
+        """Test writing and reading a chunk with multiple cross-references."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        cross_refs = (_make_hash("b"), _make_hash("c"), _make_hash("d"))
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="As shown above and following patterns",
+            chunk_index=2,
+            cross_refs=cross_refs,
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify all cross_refs are preserved in order
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == cross_refs
+
+    def test_cross_refs_with_domain_metadata(self, store: DocumentStore) -> None:
+        """Test that cross_refs are merged with domain_metadata correctly."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Referenced content",
+            chunk_index=0,
+            domain_metadata={"custom_key": "custom_value", "nested": {"data": 123}},
+            cross_refs=(_make_hash("b"), _make_hash("c")),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify both domain_metadata and cross_refs are preserved
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.cross_refs == (_make_hash("b"), _make_hash("c"))
+        assert retrieved.domain_metadata == {"custom_key": "custom_value", "nested": {"data": 123}}
+
+    def test_cross_refs_metadata_key_isolation(self, store: DocumentStore) -> None:
+        """Test that _system_cross_refs key is removed from domain_metadata after extraction."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+            domain_metadata={"user_key": "user_value"},
+            cross_refs=(_make_hash("d"), _make_hash("e")),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify _system_cross_refs was removed from domain_metadata
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        # The user's metadata should be intact, not including _system_cross_refs
+        assert retrieved.domain_metadata == {"user_key": "user_value"}
+        assert "_system_cross_refs" not in (retrieved.domain_metadata or {})
+        # Cross refs should be in the cross_refs field, not metadata
+        assert retrieved.cross_refs == (_make_hash("d"), _make_hash("e"))
+
+    def test_cross_refs_empty_metadata_cleanup(self, store: DocumentStore) -> None:
+        """Test that domain_metadata is set to None when only _system_cross_refs remains."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        chunk = Chunk(
+            chunk_hash=_make_hash("a"),
+            content="Content",
+            chunk_index=0,
+            domain_metadata=None,
+            cross_refs=(_make_hash("b"),),
+        )
+
+        lineage = [
+            LineageRecord(
+                chunk_hash=_make_hash("a"),
+                source_id=source_id,
+                source_version_id=version_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+
+        store.write_chunks([chunk], lineage)
+
+        # Read back and verify domain_metadata is None (not an empty dict)
+        retrieved = store.get_chunk_by_hash(_make_hash("a"))
+        assert retrieved is not None
+        assert retrieved.domain_metadata is None
+        assert retrieved.cross_refs == (_make_hash("b"),)
+
+    def test_build_chunk_from_row_malformed_json_raises_value_error(self, store: DocumentStore) -> None:
+        """Test that malformed JSON in domain_metadata raises informative ValueError."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Manually insert a chunk with corrupt JSON in domain_metadata
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, content, chunk_index, source_id, source_version, adapter_id,
+             domain, fetch_timestamp, normalizer_version, embedding_model_id,
+             domain_metadata, context_header, chunk_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("corrupt"),
+                "Content",
+                0,
+                source_id,
+                1,
+                adapter_id,
+                "notes",
+                datetime.now(timezone.utc).isoformat(),
+                "1.0.0",
+                "test-model",
+                "{invalid json",  # Malformed JSON
+                None,
+                "standard",
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        store.conn.commit()
+
+        # Attempting to retrieve should raise ValueError with informative message
+        with pytest.raises(ValueError, match=r"domain_metadata contains malformed JSON"):
+            store.get_chunk_by_hash(_make_hash("corrupt"), source_id)
+
+    def test_build_chunk_from_row_non_iterable_cross_refs_raises_value_error(self, store: DocumentStore) -> None:
+        """Test that non-iterable _system_cross_refs value raises informative ValueError."""
+        source_id, adapter_id, version_id = self._setup_with_version(store)
+
+        # Manually insert a chunk with non-iterable _system_cross_refs
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, content, chunk_index, source_id, source_version, adapter_id,
+             domain, fetch_timestamp, normalizer_version, embedding_model_id,
+             domain_metadata, context_header, chunk_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _make_hash("non_iter"),
+                "Content",
+                0,
+                source_id,
+                1,
+                adapter_id,
+                "notes",
+                datetime.now(timezone.utc).isoformat(),
+                "1.0.0",
+                "test-model",
+                '{"_system_cross_refs": 42}',  # Non-iterable value (int instead of list)
+                None,
+                "standard",
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        store.conn.commit()
+
+        # Attempting to retrieve should raise ValueError with informative message
+        with pytest.raises(ValueError, match=r"_system_cross_refs must be iterable"):
+            store.get_chunk_by_hash(_make_hash("non_iter"), source_id)

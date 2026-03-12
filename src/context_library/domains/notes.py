@@ -107,7 +107,7 @@ class NotesDomain(BaseDomain):
         # and should be propagated to every chunk's domain_metadata
         extra_metadata = content.structural_hints.extra_metadata or {}
 
-        # Compute hashes and assign indices
+        # First pass: create chunks without cross-references to build the full list
         chunks = []
         for index, candidate in enumerate(final_chunks):
             # Content hash is computed from content alone (excluding context header)
@@ -130,7 +130,8 @@ class NotesDomain(BaseDomain):
             )
             chunks.append(chunk)
 
-        return chunks
+        # Apply cross-reference detection to all chunks
+        return self._apply_cross_references(chunks)
 
     def _build_candidates(self, ast: list[dict[str, Any]]) -> list[CandidateChunk]:
         """Build candidate chunks from AST by walking block structure.

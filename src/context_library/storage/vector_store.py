@@ -1,7 +1,10 @@
 """LanceDB-backed vector index; derived and fully rebuildable from the document store."""
 
+import logging
+import math
 from pathlib import Path
 
+import lancedb
 import pyarrow as pa
 from lancedb.pydantic import LanceModel  # type: ignore[import-untyped]
 from pydantic import ConfigDict, field_validator
@@ -10,6 +13,8 @@ from context_library.storage.models import Domain, Sha256Hash
 from context_library.storage.validators import (
     validate_iso8601_timestamp,
 )
+
+logger = logging.getLogger(__name__)
 
 VECTOR_DIR = Path.home() / ".context-library" / "vectors"
 
@@ -25,10 +30,11 @@ class ChunkVector(LanceModel):
     Immutable by design: frozen=True enforces that validators cannot be bypassed by assignment.
 
     IMPORTANT: This schema IS used by the pipeline for field validation (e.g., created_at
-    ISO 8601 format). See IngestionPipeline.ingest() pipeline.py:191-199 where each chunk
-    vector is instantiated as ChunkVector for validation before being converted to a dict
-    for LanceDB. The vector field dimension is still enforced by the pyarrow schema during
-    table creation, not by Pydantic (since vector length cannot be parameterized in v2).
+    ISO 8601 format). See IngestionPipeline.ingest() in core/pipeline.py where each chunk
+    vector is instantiated as ChunkVector for validation (search for "chunk_vector = ChunkVector(")
+    before being converted to a dict for LanceDB. The vector field dimension is still enforced
+    by the pyarrow schema during table creation, not by Pydantic (since vector length cannot
+    be parameterized in v2).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -70,3 +76,163 @@ def create_chunk_vector_schema(embedding_dimension: int) -> pa.Schema:
         ("source_version", pa.int32()),
         ("created_at", pa.string()),
     ])
+
+
+def should_create_index(
+    vector_store_path: Path,
+    threshold: int = 10_000,
+) -> bool:
+    """Return True if chunk count in LanceDB exceeds threshold.
+
+    This utility determines whether to create an IVF-PQ index based on the
+    current chunk count. Below ~10K chunks, brute-force search is fast enough.
+    Above that, IVF-PQ provides meaningful latency improvement.
+
+    Args:
+        vector_store_path: Path to the LanceDB directory.
+        threshold: Row count threshold (default 10,000).
+
+    Returns:
+        True if the chunk_vectors table exists and has >= threshold rows,
+        False otherwise (including when the table does not exist).
+    """
+    try:
+        db = lancedb.connect(str(vector_store_path))
+        table = db.open_table("chunk_vectors")
+        return bool(table.count_rows() >= threshold)
+    except FileNotFoundError:
+        # Vector store path doesn't exist; index creation not needed yet
+        return False
+    except PermissionError as e:
+        # Permission error must not be silently masked as "below threshold"
+        logger.error(
+            f"Permission denied accessing vector store at {vector_store_path}: {e}"
+        )
+        raise
+    except OSError as e:
+        # Other disk errors and file system issues (not permission-related)
+        logger.warning(
+            f"Could not access vector store at {vector_store_path}: {e}"
+        )
+        return False
+    except MemoryError:
+        # Out of memory during database operations; non-recoverable system condition
+        logger.error(
+            f"Out of memory while checking index threshold for {vector_store_path}"
+        )
+        raise
+    except (ValueError, RuntimeError) as e:
+        # LanceDB-specific errors: table not found, database corruption, etc.
+        # Log for visibility but continue gracefully; index creation is not needed
+        logger.error(
+            f"Unexpected error while checking index threshold for {vector_store_path}: {type(e).__name__}: {e}"
+        )
+        return False
+
+
+def create_ivf_pq_index(
+    vector_store_path: Path,
+    num_partitions: int | None = None,
+    num_sub_vectors: int | None = None,
+) -> None:
+    """Create an IVF-PQ ANN index on chunk_vectors.
+
+    IVF-PQ indexing is an offline/maintenance operation that does not block
+    ingestion. After indexing, table.search(vector) continues to work identically
+    as LanceDB uses the index transparently.
+
+    Index creation is idempotent: calling it on a table that already has an
+    IVF-PQ index will not raise an error (via replace=True).
+
+    Args:
+        vector_store_path: Path to the LanceDB directory.
+        num_partitions: Number of IVF partitions (default: int(sqrt(row_count))).
+        num_sub_vectors: Number of sub-vectors for PQ (default: embedding_dimension // 8).
+
+    Raises:
+        FileNotFoundError: If the vector store path does not exist.
+        ValueError: If the chunk_vectors table does not exist or schema is invalid.
+        OSError: If disk I/O or permissions prevent table access.
+        MemoryError: If indexing exhausts available memory.
+        RuntimeError: If the indexing operation fails.
+    """
+    try:
+        db = lancedb.connect(str(vector_store_path))
+    except FileNotFoundError as e:
+        logger.error(f"Vector store path does not exist: {vector_store_path}")
+        raise FileNotFoundError(
+            f"Vector store path does not exist: {vector_store_path}"
+        ) from e
+
+    try:
+        table = db.open_table("chunk_vectors")
+    except FileNotFoundError as e:
+        logger.error(
+            f"chunk_vectors table does not exist at {vector_store_path}"
+        )
+        raise ValueError(
+            f"chunk_vectors table does not exist at {vector_store_path}"
+        ) from e
+
+    try:
+        row_count = table.count_rows()
+    except OSError as e:
+        logger.error(
+            f"Could not read row count from {vector_store_path}: {e}"
+        )
+        raise OSError(
+            f"Could not read row count from {vector_store_path}"
+        ) from e
+    except MemoryError:
+        logger.error(
+            f"Out of memory while reading row count from {vector_store_path}"
+        )
+        raise
+
+    # Default num_partitions to sqrt(row_count) if not provided
+    if num_partitions is None:
+        num_partitions = max(1, int(math.sqrt(row_count)))
+
+    # Default num_sub_vectors to dimension // 8 if not provided
+    if num_sub_vectors is None:
+        try:
+            schema = table.schema
+            vec_field = schema.field("vector")
+            dimension = vec_field.type.list_size
+            num_sub_vectors = max(1, dimension // 8)
+        except (KeyError, AttributeError) as e:
+            logger.error(
+                f"Invalid schema for chunk_vectors at {vector_store_path}: "
+                "vector field not found or has invalid type"
+            )
+            raise ValueError(
+                "Invalid schema for chunk_vectors: vector field missing or invalid type"
+            ) from e
+
+    # Create index with replace=True for idempotency
+    try:
+        table.create_index(
+            metric="cosine",
+            num_partitions=num_partitions,
+            num_sub_vectors=num_sub_vectors,
+            replace=True,
+        )
+    except OSError as e:
+        logger.error(
+            f"Disk I/O error during index creation for {vector_store_path}: {e}"
+        )
+        raise OSError(
+            f"Disk I/O error during index creation for {vector_store_path}"
+        ) from e
+    except MemoryError:
+        logger.error(
+            f"Out of memory during index creation for {vector_store_path}"
+        )
+        raise
+    except (ValueError, RuntimeError) as e:
+        logger.error(
+            f"Index creation failed for {vector_store_path}: {type(e).__name__}: {e}"
+        )
+        raise RuntimeError(
+            f"Index creation failed for {vector_store_path}"
+        ) from e

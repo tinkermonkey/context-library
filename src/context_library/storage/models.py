@@ -423,6 +423,10 @@ class Chunk(BaseModel):
 
     chunk_type is validated against a fixed set of allowed values (standard, oversized,
     table_part, code, table) to ensure consistency with SQLite schema constraints.
+
+    cross_refs contains SHA-256 hashes of other chunks (within the same source) that are
+    referenced by this chunk, enabling automatic identification and linking of related content
+    within the source. All hashes are validated as SHA-256.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -433,6 +437,7 @@ class Chunk(BaseModel):
     chunk_index: int
     chunk_type: ChunkType = ChunkType.STANDARD
     domain_metadata: dict[str, object] | None = None
+    cross_refs: tuple[Sha256Hash, ...] = ()
 
 
 class LineageRecord(BaseModel):
@@ -537,6 +542,98 @@ class DiffResult(BaseModel):
                 )
 
 
+class VersionDiff(BaseModel):
+    """Difference between two versions of a source based on chunk hashes.
+
+    Computed by comparing the chunk_hashes sets of two source versions.
+    All hash sets are frozen (immutable) for content-addressed integrity.
+
+    Invariants:
+    - source_id must be a non-empty string
+    - from_version must not equal to_version
+    - added_hashes, removed_hashes, and unchanged_hashes are mutually disjoint
+    - added_chunks contains the actual Chunk objects for added hashes
+    - removed_chunks contains the actual Chunk objects for removed hashes
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: str
+    from_version: int
+    to_version: int
+    added_hashes: frozenset[Sha256Hash]
+    removed_hashes: frozenset[Sha256Hash]
+    unchanged_hashes: frozenset[Sha256Hash]
+    added_chunks: tuple[Chunk, ...] = ()
+    removed_chunks: tuple[Chunk, ...] = ()
+
+    @field_validator("source_id")
+    @classmethod
+    def validate_source_id(cls, value: str) -> str:
+        """Validate that source_id is not empty."""
+        if not value:
+            raise ValueError("source_id must be a non-empty string")
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate VersionDiff invariants after model construction.
+
+        Enforces:
+        - from_version and to_version must be different
+        - added_hashes, removed_hashes, and unchanged_hashes are disjoint
+        - added_chunks contains hashes that match added_hashes
+        - removed_chunks contains hashes that match removed_hashes
+        """
+        if self.from_version == self.to_version:
+            raise ValueError(
+                f"from_version and to_version must be different, "
+                f"got both as {self.from_version}"
+            )
+
+        # Check set disjointness using frozenset operations
+        added_and_removed = self.added_hashes & self.removed_hashes
+        added_and_unchanged = self.added_hashes & self.unchanged_hashes
+        removed_and_unchanged = self.removed_hashes & self.unchanged_hashes
+
+        if added_and_removed:
+            raise ValueError(
+                f"added_hashes and removed_hashes must be disjoint, "
+                f"but found overlap: {added_and_removed}"
+            )
+        if added_and_unchanged:
+            raise ValueError(
+                f"added_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {added_and_unchanged}"
+            )
+        if removed_and_unchanged:
+            raise ValueError(
+                f"removed_hashes and unchanged_hashes must be disjoint, "
+                f"but found overlap: {removed_and_unchanged}"
+            )
+
+        # Validate added_chunks contains only hashes that are in added_hashes
+        # Note: added_chunks may be a subset of added_hashes if some chunks aren't yet
+        # persisted to the database or due to data integrity issues
+        added_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.added_chunks)
+        if not added_chunk_hashes.issubset(self.added_hashes):
+            invalid_hashes = added_chunk_hashes - self.added_hashes
+            raise ValueError(
+                f"added_chunks must be a subset of added_hashes. "
+                f"Found invalid hashes not in added_hashes: {invalid_hashes}"
+            )
+
+        # Validate removed_chunks contains only hashes that are in removed_hashes
+        # Note: removed_chunks may be a subset of removed_hashes if some chunks aren't yet
+        # persisted to the database or due to data integrity issues
+        removed_chunk_hashes = frozenset(chunk.chunk_hash for chunk in self.removed_chunks)
+        if not removed_chunk_hashes.issubset(self.removed_hashes):
+            invalid_hashes = removed_chunk_hashes - self.removed_hashes
+            raise ValueError(
+                f"removed_chunks must be a subset of removed_hashes. "
+                f"Found invalid hashes not in removed_hashes: {invalid_hashes}"
+            )
+
+
 class AdapterConfig(BaseModel):
     """Configuration for a registered adapter.
 
@@ -550,6 +647,143 @@ class AdapterConfig(BaseModel):
     domain: Domain
     normalizer_version: str
     config: dict[str, object] | None = None
+
+
+class SourceInfo(BaseModel):
+    """Source metadata for provenance tracing.
+
+    Captures the origin reference and adapter type information needed to trace
+    a chunk back to its source and understand how it was processed.
+
+    Invariants:
+    - origin_ref and adapter_type must be non-empty strings
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    origin_ref: str
+    adapter_type: str
+
+    @field_validator("origin_ref")
+    @classmethod
+    def validate_origin_ref(cls, value: str) -> str:
+        """Validate that origin_ref is not empty."""
+        if not value:
+            raise ValueError("origin_ref must be a non-empty string")
+        return value
+
+    @field_validator("adapter_type")
+    @classmethod
+    def validate_adapter_type(cls, value: str) -> str:
+        """Validate that adapter_type is not empty."""
+        if not value:
+            raise ValueError("adapter_type must be a non-empty string")
+        return value
+
+
+class SourceTimeline(BaseModel):
+    """Timeline of versions for a source.
+
+    Immutable record of a source's version history for provenance tracking.
+    Versions are ordered chronologically from earliest to latest.
+
+    Invariants:
+    - source_id must be a non-empty string
+    - versions must not be empty
+    - versions are ordered chronologically by version number
+    - all versions must have matching source_id
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    source_id: str
+    versions: tuple[SourceVersion, ...]
+
+    @field_validator("source_id")
+    @classmethod
+    def validate_source_id(cls, value: str) -> str:
+        """Validate that source_id is not empty."""
+        if not value:
+            raise ValueError("source_id must be a non-empty string")
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate SourceTimeline invariants after model construction.
+
+        Enforces:
+        - versions tuple must not be empty
+        - versions are ordered by version number (earliest to latest)
+        - all versions have matching source_id
+        """
+        if not self.versions:
+            raise ValueError("versions must not be empty")
+
+        # Check all versions have matching source_id
+        for version in self.versions:
+            if version.source_id != self.source_id:
+                raise ValueError(
+                    f"All versions must have source_id={self.source_id!r}, "
+                    f"but got source_id={version.source_id!r} in version {version.version}"
+                )
+
+        # Check versions are ordered chronologically by version number
+        prev_version = self.versions[0].version
+        for version in self.versions[1:]:
+            if version.version <= prev_version:
+                raise ValueError(
+                    f"versions must be ordered chronologically by version number, "
+                    f"but version {version.version} is not greater than previous version {prev_version}"
+                )
+            prev_version = version.version
+
+
+class ChunkProvenance(BaseModel):
+    """Complete provenance information for a chunk.
+
+    Traces a chunk back to its source, lineage, and version history.
+    All fields are immutable for content-addressed integrity.
+
+    Invariants:
+    - chunk.chunk_hash == lineage.chunk_hash: chunk and lineage refer to the same content
+    - version_chain is non-empty
+    - version_chain is ordered with the current chunk at the end
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    chunk: Chunk
+    lineage: LineageRecord
+    source_origin_ref: str
+    adapter_type: str
+    version_chain: tuple[Chunk, ...]
+
+    def model_post_init(self, __context) -> None:
+        """Validate ChunkProvenance invariants after model construction.
+
+        Enforces:
+        - chunk.chunk_hash == lineage.chunk_hash: chunk and lineage refer to the same content
+        - version_chain is non-empty
+        - Last chunk in version_chain matches the current chunk
+        """
+        # Check that chunk and lineage refer to the same content
+        if self.chunk.chunk_hash != self.lineage.chunk_hash:
+            raise ValueError(
+                f"chunk-lineage hash mismatch: chunk.chunk_hash={self.chunk.chunk_hash} "
+                f"!= lineage.chunk_hash={self.lineage.chunk_hash}. "
+                "Chunk and lineage must refer to the same content."
+            )
+
+        if not self.version_chain:
+            raise ValueError("version_chain cannot be empty")
+
+        # Check that the last chunk in version_chain matches the current chunk
+        # (ensuring version_chain is ordered with chunk itself at the end)
+        if self.version_chain[-1].chunk_hash != self.chunk.chunk_hash:
+            raise ValueError(
+                f"version_chain must end with the current chunk. "
+                f"Expected chunk_hash {self.chunk.chunk_hash!r}, "
+                f"but version_chain[-1].chunk_hash is {self.version_chain[-1].chunk_hash!r}"
+            )
 
 
 def compute_chunk_hash(content: str) -> str:

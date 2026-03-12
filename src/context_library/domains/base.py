@@ -3,6 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 
+from context_library.storage.cross_refs import detect_cross_references
 from context_library.storage.models import Chunk, NormalizedContent
 
 
@@ -129,3 +130,26 @@ class BaseDomain(ABC):
             segments.append(current_segment.strip())
 
         return segments if segments else [text]
+
+    def _apply_cross_references(self, chunks: list[Chunk]) -> list[Chunk]:
+        """Apply cross-reference detection to chunks using Pydantic's model_copy.
+
+        Detects cross-references between chunks and reconstructs chunks with
+        populated cross_refs fields. Uses model_copy for safe, idiomatic updates.
+
+        Args:
+            chunks: List of chunks to process
+
+        Returns:
+            List of chunks with cross_refs fields populated via heuristic detection
+        """
+        result = []
+        for chunk in chunks:
+            cross_refs = detect_cross_references(chunk, chunks)
+            if cross_refs:
+                # Use Pydantic's model_copy for safe, idiomatic mutation of frozen model
+                chunk_with_refs = chunk.model_copy(update={"cross_refs": cross_refs})
+                result.append(chunk_with_refs)
+            else:
+                result.append(chunk)
+        return result

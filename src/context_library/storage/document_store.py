@@ -1,12 +1,15 @@
 """SQLite-backed document store; source of truth for versions, chunks, and lineage."""
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceVersion, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentStore:
@@ -269,6 +272,10 @@ class DocumentStore:
 
         Chunks are linked to their sources and versions via lineage records.
 
+        Cross-references are persisted in domain_metadata JSON under the reserved "_system_cross_refs" key.
+        This key is reserved to prevent collisions with domain-provided metadata. Domain implementations
+        must not use "_system_cross_refs" in their own domain_metadata dictionaries.
+
         Idempotent behavior: Uses INSERT OR IGNORE with UNIQUE (source_id, source_version, chunk_index)
         constraint to atomically skip duplicates. If a chunk at a given position already exists,
         the insertion is silently ignored without raising an error. This provides thread-safe
@@ -280,11 +287,17 @@ class DocumentStore:
             lineage_records: List of LineageRecord objects with provenance info.
 
         Raises:
-            ValueError: If a chunk has no matching lineage record.
+            ValueError: If a chunk has no matching lineage record, or if cross-source
+                        dedup is detected without proper matching context.
             sqlite3.IntegrityError: If foreign key or CHECK constraint violations occur.
         """
-        # Create a map of chunk_hash to lineage for quick lookup
-        lineage_map = {lr.chunk_hash: lr for lr in lineage_records}
+        # Create a map of chunk_hash to list of lineage records.
+        # Preserves all records to detect cross-source chunks and prevent silent overwrites.
+        lineage_map: dict[str, list[LineageRecord]] = {}
+        for lr in lineage_records:
+            if lr.chunk_hash not in lineage_map:
+                lineage_map[lr.chunk_hash] = []
+            lineage_map[lr.chunk_hash].append(lr)
 
         # Validate that all chunks have matching lineage
         for chunk in chunks:
@@ -297,16 +310,41 @@ class DocumentStore:
         batch_timestamp = datetime.now(timezone.utc).isoformat()
 
         with self.conn:
-            self.conn.cursor()
             for chunk in chunks:
+                # Merge domain_metadata with cross_refs
+                # cross_refs are stored in domain_metadata JSON under the reserved "_system_cross_refs" key
+                # (reserved to prevent collisions with domain-provided metadata)
+                merged_metadata = dict(chunk.domain_metadata) if chunk.domain_metadata else {}
+                if chunk.cross_refs:
+                    merged_metadata["_system_cross_refs"] = list(chunk.cross_refs)
+
                 domain_metadata_json = (
-                    json.dumps(chunk.domain_metadata)
-                    if chunk.domain_metadata
+                    json.dumps(merged_metadata)
+                    if merged_metadata
                     else None
                 )
 
-                # Get lineage info for this chunk (guaranteed non-None due to validation above)
-                lineage = lineage_map[chunk.chunk_hash]
+                # Get lineage records for this chunk hash
+                lineage_records_for_chunk = lineage_map[chunk.chunk_hash]
+
+                # If multiple lineage records exist for this chunk hash, all should have
+                # the same source_id and source_version_id (enforced by lineage generation).
+                # Validate this assumption and use the first record.
+                if len(lineage_records_for_chunk) > 1:
+                    first_lr = lineage_records_for_chunk[0]
+                    for lr in lineage_records_for_chunk[1:]:
+                        if (lr.source_id != first_lr.source_id or
+                            lr.source_version_id != first_lr.source_version_id):
+                            raise ValueError(
+                                f"Cross-source dedup detected for chunk_hash={chunk.chunk_hash}: "
+                                f"multiple lineage records with different source contexts. "
+                                f"Expected all records for a chunk in a single write_chunks call to be from "
+                                f"the same source ({first_lr.source_id}/{first_lr.source_version_id}), "
+                                f"but found ({lr.source_id}/{lr.source_version_id}). "
+                                f"Cannot safely select lineage without explicit source context."
+                            )
+
+                lineage = lineage_records_for_chunk[0]
 
                 # Use INSERT OR IGNORE to atomically skip duplicates without TOCTOU race.
                 # Duplicate detection is based on UNIQUE constraint on (source_id, source_version, chunk_index).
@@ -513,6 +551,239 @@ class DocumentStore:
 
         return versions
 
+    def get_version_diff(
+        self,
+        source_id: str,
+        from_version: int,
+        to_version: int,
+    ) -> VersionDiff:
+        """Get the difference between two source versions based on chunk hashes.
+
+        Computes set-based diff of chunk hashes between two versions, returning
+        added, removed, and unchanged hashes. Enables efficient re-embedding by
+        identifying only new/modified chunks.
+
+        Args:
+            source_id: ID of the source.
+            from_version: Starting version number.
+            to_version: Ending version number.
+
+        Returns:
+            VersionDiff with added_hashes, removed_hashes, and unchanged_hashes
+            as frozensets.
+
+        Raises:
+            ValueError: If source_id does not exist, either version does not exist,
+                or from_version and to_version are the same.
+        """
+        if from_version == to_version:
+            raise ValueError(
+                f"from_version and to_version must be different, got both as {from_version}"
+            )
+
+        cursor = self.conn.cursor()
+        # First check if source exists
+        cursor.execute(
+            "SELECT source_id FROM sources WHERE source_id = ?",
+            (source_id,),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError(f"Source '{source_id}' does not exist")
+
+        # Then fetch both versions
+        cursor.execute(
+            """
+            SELECT version, chunk_hashes
+            FROM source_versions
+            WHERE source_id = ? AND version IN (?, ?)
+            """,
+            (source_id, from_version, to_version),
+        )
+        rows = cursor.fetchall()
+
+        if len(rows) < 2:
+            # Determine which versions are missing
+            found_versions = {row["version"] for row in rows}
+            missing_versions = []
+            if from_version not in found_versions:
+                missing_versions.append(from_version)
+            if to_version not in found_versions:
+                missing_versions.append(to_version)
+
+            missing_str = ", ".join(str(v) for v in missing_versions)
+            raise ValueError(
+                f"Source '{source_id}' does not have version(s): {missing_str}"
+            )
+
+        # Parse the two versions
+        version_map = {}
+        for row in rows:
+            version_map[row["version"]] = json.loads(row["chunk_hashes"])
+
+        from_hashes = version_map[from_version]
+        to_hashes = version_map[to_version]
+
+        # Compute set operations
+        from_set = set(from_hashes)
+        to_set = set(to_hashes)
+
+        added = frozenset(to_set - from_set)
+        removed = frozenset(from_set - to_set)
+        unchanged = frozenset(from_set & to_set)
+
+        # Fetch actual chunk objects for added and removed hashes
+        # Log warnings for missing chunks (possible data integrity issues)
+        # Pass source_id to correctly scope lookups in cross-source dedup scenarios
+        added_chunks_list = []
+        missing_added_hashes = []
+        for chunk_hash in added:
+            chunk = self.get_chunk_by_hash(chunk_hash, source_id)
+            if chunk is not None:
+                added_chunks_list.append(chunk)
+            else:
+                missing_added_hashes.append(chunk_hash)
+
+        if missing_added_hashes:
+            logger.warning(
+                f"Source '{source_id}': get_version_diff could not retrieve {len(missing_added_hashes)} "
+                f"added chunk(s) by hash (possible data integrity issue): {missing_added_hashes}"
+            )
+        added_chunks = tuple(added_chunks_list)
+
+        removed_chunks_list = []
+        missing_removed_hashes = []
+        for chunk_hash in removed:
+            # For removed chunks, query including retired chunks since they're typically
+            # retired by retire_chunks() when removed from a version
+            chunk = self._get_chunk_by_hash_including_retired(chunk_hash, source_id)
+            if chunk is not None:
+                removed_chunks_list.append(chunk)
+            else:
+                missing_removed_hashes.append(chunk_hash)
+
+        if missing_removed_hashes:
+            logger.warning(
+                f"Source '{source_id}': get_version_diff could not retrieve {len(missing_removed_hashes)} "
+                f"removed chunk(s) by hash (possible data integrity issue): {missing_removed_hashes}"
+            )
+        removed_chunks = tuple(removed_chunks_list)
+
+        return VersionDiff(
+            source_id=source_id,
+            from_version=from_version,
+            to_version=to_version,
+            added_hashes=added,
+            removed_hashes=removed,
+            unchanged_hashes=unchanged,
+            added_chunks=added_chunks,
+            removed_chunks=removed_chunks,
+        )
+
+    def _build_chunk_from_row(self, row: sqlite3.Row) -> Chunk:
+        """Build a Chunk object from a database row, extracting cross_refs from domain_metadata.
+
+        Deserializes domain_metadata JSON, extracts and removes the reserved "_system_cross_refs"
+        key (cross-reference hashes), and reconstructs the Chunk with both metadata and cross_refs.
+        If domain_metadata becomes empty after cross_refs extraction, it is set to None.
+
+        Args:
+            row: Database row with chunk_hash, content, context_header, chunk_index, chunk_type,
+                 and domain_metadata columns.
+
+        Returns:
+            Chunk object with cross_refs tuple and cleaned domain_metadata dict.
+
+        Raises:
+            ValueError: If domain_metadata JSON is malformed or _system_cross_refs is not iterable.
+        """
+        chunk_hash = row["chunk_hash"]
+        domain_metadata = None
+
+        if row["domain_metadata"]:
+            try:
+                domain_metadata = json.loads(row["domain_metadata"])
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Chunk '{chunk_hash}': domain_metadata contains malformed JSON: {e}"
+                ) from e
+
+        # Extract cross_refs from domain_metadata using reserved "_system_cross_refs" key
+        cross_refs = ()
+        if domain_metadata and "_system_cross_refs" in domain_metadata:
+            cross_refs_value = domain_metadata.pop("_system_cross_refs")
+            try:
+                cross_refs = tuple(cross_refs_value)
+            except TypeError as e:
+                raise ValueError(
+                    f"Chunk '{chunk_hash}': _system_cross_refs must be iterable, got {type(cross_refs_value).__name__}"
+                ) from e
+            # Remove from domain_metadata if it's now empty
+            if not domain_metadata:
+                domain_metadata = None
+
+        return Chunk(
+            chunk_hash=chunk_hash,
+            content=row["content"],
+            context_header=row["context_header"],
+            chunk_index=row["chunk_index"],
+            chunk_type=row["chunk_type"],
+            domain_metadata=domain_metadata,
+            cross_refs=cross_refs,
+        )
+
+    def get_chunk_version_chain(self, chunk_hash: str, source_id: str) -> list[Chunk]:
+        """Get the recursive ancestry chain of a chunk via parent_chunk_hash.
+
+        Walks backward through chunk history using parent_chunk_hash references,
+        returning all ancestors of the chunk (including the chunk itself), ordered
+        by created_at ascending (oldest ancestor first).
+
+        Uses a recursive CTE for efficient ancestry traversal. An empty list is
+        returned if the chunk does not exist. A single-element list is returned
+        if the chunk has no parent (is the oldest version).
+
+        The traversal includes an explicit depth limit (1000) for safety. This prevents
+        infinite traversal in the presence of circular parent_chunk_hash references. Uses
+        UNION to deduplicate chunks, ensuring each chunk appears only once even if
+        circular references exist.
+
+        Only non-retired chunks (retired_at IS NULL) are included in the chain.
+        The CTE is scoped by source_id to correctly handle cross-source chunks
+        with identical hashes.
+
+        Args:
+            chunk_hash: SHA-256 hash of the chunk to trace.
+            source_id: ID of the source to scope the ancestry chain.
+
+        Returns:
+            List of Chunk objects ordered by created_at ascending (oldest first).
+            Empty list if chunk_hash does not exist in the specified source.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT chunk_hash, source_id, content, context_header, chunk_index, chunk_type,
+                       domain_metadata, created_at, parent_chunk_hash, 1 AS depth
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                UNION
+                SELECT c.chunk_hash, c.source_id, c.content, c.context_header, c.chunk_index, c.chunk_type,
+                       c.domain_metadata, c.created_at, c.parent_chunk_hash, ch.depth + 1
+                FROM chunks c
+                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash AND c.source_id = ch.source_id
+                WHERE ch.depth < 1000 AND c.retired_at IS NULL
+            )
+            SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                   domain_metadata
+            FROM chain
+            ORDER BY created_at ASC
+            """,
+            (chunk_hash, source_id),
+        )
+        rows = cursor.fetchall()
+        return [self._build_chunk_from_row(row) for row in rows]
+
     def get_chunks_by_source(
         self,
         source_id: str,
@@ -554,37 +825,67 @@ class DocumentStore:
             (source_id, version),
         )
         rows = cursor.fetchall()
+        return [self._build_chunk_from_row(row) for row in rows]
 
-        chunks = []
-        for row in rows:
-            domain_metadata = (
-                json.loads(row["domain_metadata"])
-                if row["domain_metadata"]
-                else None
-            )
-            chunks.append(
-                Chunk(
-                    chunk_hash=row["chunk_hash"],
-                    content=row["content"],
-                    context_header=row["context_header"],
-                    chunk_index=row["chunk_index"],
-                    chunk_type=row["chunk_type"],
-                    domain_metadata=domain_metadata,
-                )
-            )
-
-        return chunks
-
-    def get_chunk_by_hash(self, chunk_hash: str) -> Optional[Chunk]:
+    def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
         """Get a chunk by its hash.
 
         Only returns non-retired chunks. Retired chunks are not returned.
 
+        When source_id is not provided and the same chunk_hash exists across multiple sources,
+        returns the earliest-created instance (deterministic behavior). Callers should pass
+        source_id when they need a specific source's version of the chunk.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
+            source_id: Optional source ID to scope the lookup. If provided, returns the chunk
+                       from this specific source. If None and the chunk appears in multiple sources,
+                       returns the earliest-created instance.
 
         Returns:
             Chunk object, or None if not found or if the chunk is retired.
+        """
+        cursor = self.conn.cursor()
+        if source_id is not None:
+            cursor.execute(
+                """
+                SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
+                       domain_metadata
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (chunk_hash, source_id),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
+                       domain_metadata
+                FROM chunks
+                WHERE chunk_hash = ? AND retired_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (chunk_hash,),
+            )
+        row = cursor.fetchone()
+        return self._build_chunk_from_row(row) if row else None
+
+    def _get_chunk_by_hash_including_retired(self, chunk_hash: str, source_id: str) -> Optional[Chunk]:
+        """Get a chunk by its hash, including retired chunks.
+
+        Internal helper for get_version_diff to retrieve removed chunks that may have been
+        retired between versions. Unlike get_chunk_by_hash, this method does NOT filter out
+        retired chunks, since removed chunks are typically retired by retire_chunks().
+
+        Args:
+            chunk_hash: SHA-256 hash of the chunk.
+            source_id: Source ID to scope the lookup.
+
+        Returns:
+            Chunk object (including retired chunks), or None if not found.
         """
         cursor = self.conn.cursor()
         cursor.execute(
@@ -592,28 +893,14 @@ class DocumentStore:
             SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
                    domain_metadata
             FROM chunks
-            WHERE chunk_hash = ? AND retired_at IS NULL
+            WHERE chunk_hash = ? AND source_id = ?
+            ORDER BY created_at ASC
             LIMIT 1
             """,
-            (chunk_hash,),
+            (chunk_hash, source_id),
         )
         row = cursor.fetchone()
-
-        if not row:
-            return None
-
-        domain_metadata = (
-            json.loads(row["domain_metadata"]) if row["domain_metadata"] else None
-        )
-
-        return Chunk(
-            chunk_hash=row["chunk_hash"],
-            content=row["content"],
-            context_header=row["context_header"],
-            chunk_index=row["chunk_index"],
-            chunk_type=row["chunk_type"],
-            domain_metadata=domain_metadata,
-        )
+        return self._build_chunk_from_row(row) if row else None
 
     def is_chunk_retired(self, chunk_hash: str) -> bool:
         """Check if a chunk is retired (exists but marked as retired).
@@ -653,24 +940,30 @@ class DocumentStore:
         Retrieves the full provenance information for a chunk, including the
         embedding model ID that was used when the chunk was vectorized.
 
+        When source_id is not provided and the same chunk_hash exists across multiple sources,
+        returns the earliest-created instance (deterministic behavior). Callers should pass
+        source_id when they need the lineage from a specific source.
+
         Args:
             chunk_hash: SHA-256 hash of the chunk.
             source_id: Optional source ID to scope the lookup. If provided, returns the lineage
                        for this specific source. Important for cross-source dedup where the same
                        hash can appear in multiple sources—callers should pass source_id to get
-                       the correct record.
+                       the correct record. If None and the chunk appears in multiple sources,
+                       returns the earliest-created instance.
 
         Returns:
             LineageRecord with complete provenance information, or None if not found.
         """
         cursor = self.conn.cursor()
-        if source_id:
+        if source_id is not None:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
                        normalizer_version, embedding_model_id
                 FROM chunks
                 WHERE chunk_hash = ? AND source_id = ?
+                ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (chunk_hash, source_id),
@@ -682,6 +975,7 @@ class DocumentStore:
                        normalizer_version, embedding_model_id
                 FROM chunks
                 WHERE chunk_hash = ?
+                ORDER BY created_at ASC
                 LIMIT 1
                 """,
                 (chunk_hash,),
@@ -868,6 +1162,33 @@ class DocumentStore:
         )
         rows = cursor.fetchall()
         return [row["chunk_hash"] for row in rows]
+
+    def get_source_info(self, source_id: str) -> Optional[SourceInfo]:
+        """Fetch origin_ref and adapter_type for a source.
+
+        Joins sources and adapters tables to retrieve both pieces of metadata
+        needed for chunk provenance tracing.
+
+        Args:
+            source_id: The source to retrieve info for.
+
+        Returns:
+            SourceInfo with origin_ref and adapter_type if source exists, None otherwise.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.origin_ref, a.adapter_type
+            FROM sources s
+            JOIN adapters a ON s.adapter_id = a.adapter_id
+            WHERE s.source_id = ?
+            """,
+            (source_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return SourceInfo(origin_ref=row[0], adapter_type=row[1])
 
     def close(self) -> None:
         """Close the database connection.

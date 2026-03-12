@@ -458,7 +458,7 @@ class TestRetrieve:
     def test_retrieve_similarity_score_calculation(
         self, mock_connect, embedder, document_store, tmp_path
     ) -> None:
-        """Test that similarity scores are correctly calculated from Euclidean distance."""
+        """Test that similarity scores are correctly calculated from cosine distance."""
         # Set up document store
         source_id, adapter_id, version_id = self._setup_document_store(document_store)
 

@@ -128,5 +128,6 @@ class MessagesDomain(BaseDomain):
             )
             chunks.append(chunk)
 
-        return chunks
+        # Apply cross-reference detection to all chunks
+        return self._apply_cross_references(chunks)
 

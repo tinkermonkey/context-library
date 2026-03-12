@@ -13,6 +13,8 @@ from pydantic import ValidationError
 from context_library.storage.models import (
     AdapterConfig,
     Chunk,
+    ChunkProvenance,
+    ChunkType,
     Domain,
     DiffResult,
     EventMetadata,
@@ -20,9 +22,11 @@ from context_library.storage.models import (
     MessageMetadata,
     NormalizedContent,
     PollStrategy,
+    SourceTimeline,
     SourceVersion,
     StructuralHints,
     TaskMetadata,
+    VersionDiff,
     compute_chunk_hash,
 )
 
@@ -1347,3 +1351,664 @@ class TestComputeChunkHash:
         curr_hash = compute_chunk_hash(curr_content)
 
         assert prev_hash == curr_hash, "Blank-line-only changes should not produce different hashes"
+
+
+class TestVersionDiff:
+    """Tests for VersionDiff model."""
+
+    def test_version_diff_basic_construction(self) -> None:
+        """Test basic construction of VersionDiff model."""
+
+        diff = VersionDiff(
+            source_id="src-1",
+            from_version=1,
+            to_version=2,
+            added_hashes=frozenset(["a" * 64]),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset(["b" * 64]),
+        )
+
+        assert diff.source_id == "src-1"
+        assert diff.from_version == 1
+        assert diff.to_version == 2
+        assert "a" * 64 in diff.added_hashes
+        assert diff.added_chunks == ()
+
+    def test_version_diff_with_chunks(self) -> None:
+        """Test VersionDiff with actual chunk objects."""
+        from context_library.storage.models import Chunk, ChunkType
+
+        chunk1 = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Added content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        diff = VersionDiff(
+            source_id="src-1",
+            from_version=1,
+            to_version=2,
+            added_hashes=frozenset(["a" * 64]),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset(),
+            added_chunks=(chunk1,),
+        )
+
+        assert len(diff.added_chunks) == 1
+        assert diff.added_chunks[0].chunk_hash == "a" * 64
+
+    def test_version_diff_disjoint_hashes_validation(self) -> None:
+        """Test that VersionDiff validates hash set disjointness."""
+
+        # added and removed should be disjoint
+        with pytest.raises(ValueError, match="added_hashes and removed_hashes must be disjoint"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(["a" * 64]),
+                removed_hashes=frozenset(["a" * 64]),  # Overlap!
+                unchanged_hashes=frozenset(),
+            )
+
+    def test_version_diff_added_and_unchanged_disjoint(self) -> None:
+        """Test that added_hashes and unchanged_hashes must be disjoint."""
+
+        with pytest.raises(ValueError, match="added_hashes and unchanged_hashes must be disjoint"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(["a" * 64]),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(["a" * 64]),  # Overlap!
+            )
+
+    def test_version_diff_removed_and_unchanged_disjoint(self) -> None:
+        """Test that removed_hashes and unchanged_hashes must be disjoint."""
+
+        with pytest.raises(ValueError, match="removed_hashes and unchanged_hashes must be disjoint"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(["a" * 64]),
+                unchanged_hashes=frozenset(["a" * 64]),  # Overlap!
+            )
+
+    def test_version_diff_added_chunks_must_match_hashes(self) -> None:
+        """Test that added_chunks hashes must be in added_hashes."""
+        from context_library.storage.models import Chunk, ChunkType
+
+        chunk = Chunk(
+            chunk_hash="b" * 64,  # Not in added_hashes!
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        with pytest.raises(ValueError, match="added_chunks must be a subset of added_hashes"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(["a" * 64]),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
+                added_chunks=(chunk,),
+            )
+
+    def test_version_diff_removed_chunks_must_match_hashes(self) -> None:
+        """Test that removed_chunks hashes must be in removed_hashes."""
+        from context_library.storage.models import Chunk, ChunkType
+
+        chunk = Chunk(
+            chunk_hash="b" * 64,  # Not in removed_hashes!
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        with pytest.raises(ValueError, match="removed_chunks must be a subset of removed_hashes"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(["a" * 64]),
+                unchanged_hashes=frozenset(),
+                removed_chunks=(chunk,),
+            )
+
+    def test_version_diff_frozen_immutability(self) -> None:
+        """Test that VersionDiff is frozen and immutable."""
+
+        diff = VersionDiff(
+            source_id="src-1",
+            from_version=1,
+            to_version=2,
+            added_hashes=frozenset(),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset(),
+        )
+
+        with pytest.raises(Exception):  # Pydantic frozen model
+            diff.source_id = "src-2"  # type: ignore
+
+    def test_version_diff_empty_source_id_rejected(self) -> None:
+        """Test that VersionDiff raises ValidationError for empty source_id."""
+        with pytest.raises(ValidationError) as exc_info:
+            VersionDiff(
+                source_id="",
+                from_version=1,
+                to_version=2,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
+            )
+        assert "source_id must be a non-empty string" in str(exc_info.value)
+
+    def test_version_diff_same_version_rejected(self) -> None:
+        """Test that VersionDiff rejects from_version == to_version."""
+        with pytest.raises(ValueError, match="from_version and to_version must be different"):
+            VersionDiff(
+                source_id="src-1",
+                from_version=1,
+                to_version=1,
+                added_hashes=frozenset(),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset(),
+            )
+
+
+class TestSourceTimeline:
+    """Tests for SourceTimeline model."""
+
+    def test_source_timeline_basic_construction(self) -> None:
+        """Test basic construction of SourceTimeline."""
+        from context_library.storage.models import SourceVersion
+
+        version1 = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content v1",
+            chunk_hashes=("a" * 64,),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        timeline = SourceTimeline(
+            source_id="src-1",
+            versions=(version1,),
+        )
+
+        assert timeline.source_id == "src-1"
+        assert len(timeline.versions) == 1
+
+    def test_source_timeline_multiple_versions_ordered(self) -> None:
+        """Test SourceTimeline with multiple ordered versions."""
+        from context_library.storage.models import SourceVersion
+
+        versions = []
+        for v in range(1, 4):
+            version = SourceVersion(
+                source_id="src-1",
+                version=v,
+                markdown=f"Content v{v}",
+                chunk_hashes=(f"{chr(97 + v)}" * 64,),
+                adapter_id="adapter-1",
+                normalizer_version="1.0.0",
+                fetch_timestamp="2025-03-02T10:00:00Z",
+            )
+            versions.append(version)
+
+        timeline = SourceTimeline(
+            source_id="src-1",
+            versions=tuple(versions),
+        )
+
+        assert len(timeline.versions) == 3
+        assert timeline.versions[0].version == 1
+        assert timeline.versions[1].version == 2
+        assert timeline.versions[2].version == 3
+
+    def test_source_timeline_empty_versions_rejected(self) -> None:
+        """Test that SourceTimeline rejects empty versions."""
+
+        with pytest.raises(ValueError, match="versions must not be empty"):
+            SourceTimeline(
+                source_id="src-1",
+                versions=(),
+            )
+
+    def test_source_timeline_version_source_id_mismatch(self) -> None:
+        """Test that all versions must have matching source_id."""
+        from context_library.storage.models import SourceVersion
+
+        version1 = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        version2 = SourceVersion(
+            source_id="src-2",  # Mismatched!
+            version=2,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        with pytest.raises(ValueError, match="All versions must have source_id"):
+            SourceTimeline(
+                source_id="src-1",
+                versions=(version1, version2),
+            )
+
+    def test_source_timeline_versions_must_be_ordered(self) -> None:
+        """Test that versions must be ordered by version number."""
+        from context_library.storage.models import SourceVersion
+
+        version1 = SourceVersion(
+            source_id="src-1",
+            version=2,  # Out of order!
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        version2 = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        with pytest.raises(ValueError, match="versions must be ordered chronologically"):
+            SourceTimeline(
+                source_id="src-1",
+                versions=(version1, version2),
+            )
+
+    def test_source_timeline_duplicate_version_numbers_rejected(self) -> None:
+        """Test that duplicate version numbers are rejected."""
+        from context_library.storage.models import SourceVersion
+
+        version1 = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        version2 = SourceVersion(
+            source_id="src-1",
+            version=1,  # Duplicate!
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        with pytest.raises(ValueError, match="versions must be ordered chronologically"):
+            SourceTimeline(
+                source_id="src-1",
+                versions=(version1, version2),
+            )
+
+    def test_source_timeline_frozen_immutability(self) -> None:
+        """Test that SourceTimeline is frozen and immutable."""
+        from context_library.storage.models import SourceVersion
+
+        version = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        timeline = SourceTimeline(
+            source_id="src-1",
+            versions=(version,),
+        )
+
+        with pytest.raises(Exception):  # Pydantic frozen model
+            timeline.source_id = "src-2"  # type: ignore
+
+    def test_source_timeline_empty_source_id_rejected(self) -> None:
+        """Test that SourceTimeline raises ValidationError for empty source_id."""
+        from context_library.storage.models import SourceVersion
+
+        version = SourceVersion(
+            source_id="src-1",
+            version=1,
+            markdown="Content",
+            chunk_hashes=(),
+            adapter_id="adapter-1",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2025-03-02T10:00:00Z",
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceTimeline(
+                source_id="",
+                versions=(version,),
+            )
+        assert "source_id must be a non-empty string" in str(exc_info.value)
+
+
+class TestChunkProvenance:
+    """Tests for ChunkProvenance model."""
+
+    def test_chunk_provenance_basic_construction(self) -> None:
+        """Test basic construction of ChunkProvenance."""
+        from context_library.storage.models import LineageRecord
+
+        chunk = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="a" * 64,
+            source_id="source-1",
+            source_version_id=1,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        provenance = ChunkProvenance(
+            chunk=chunk,
+            lineage=lineage,
+            source_origin_ref="test-source",
+            adapter_type="test",
+            version_chain=(chunk,),
+        )
+
+        assert provenance.chunk.chunk_hash == "a" * 64
+        assert provenance.source_origin_ref == "test-source"
+        assert len(provenance.version_chain) == 1
+
+    def test_chunk_provenance_multiple_versions_in_chain(self) -> None:
+        """Test ChunkProvenance with multiple chunks in version_chain."""
+        from context_library.storage.models import LineageRecord
+
+        chunk1 = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Version 1",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        chunk2 = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Version 2",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="a" * 64,
+            source_id="source-1",
+            source_version_id=2,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        provenance = ChunkProvenance(
+            chunk=chunk2,
+            lineage=lineage,
+            source_origin_ref="test-source",
+            adapter_type="test",
+            version_chain=(chunk1, chunk2),
+        )
+
+        assert len(provenance.version_chain) == 2
+
+    def test_chunk_provenance_empty_version_chain_rejected(self) -> None:
+        """Test that empty version_chain is rejected."""
+        from context_library.storage.models import LineageRecord
+
+        chunk = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="a" * 64,
+            source_id="source-1",
+            source_version_id=1,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        with pytest.raises(ValueError, match="version_chain cannot be empty"):
+            ChunkProvenance(
+                chunk=chunk,
+                lineage=lineage,
+                source_origin_ref="test-source",
+                adapter_type="test",
+                version_chain=(),
+            )
+
+    def test_chunk_provenance_last_chunk_must_match_current(self) -> None:
+        """Test that last chunk in version_chain must match current chunk."""
+        from context_library.storage.models import LineageRecord
+
+        chunk1 = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Version 1",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        chunk2 = Chunk(
+            chunk_hash="b" * 64,  # Different hash!
+            chunk_index=0,
+            content="Version 2",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="b" * 64,
+            source_id="source-1",
+            source_version_id=2,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        with pytest.raises(ValueError, match="version_chain must end with the current chunk"):
+            ChunkProvenance(
+                chunk=chunk2,
+                lineage=lineage,
+                source_origin_ref="test-source",
+                adapter_type="test",
+                version_chain=(chunk1,),  # Missing chunk2!
+            )
+
+    def test_chunk_provenance_hash_mismatch_rejected(self) -> None:
+        """Test that chunk/lineage hash mismatch is rejected."""
+        from context_library.storage.models import LineageRecord
+
+        chunk = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        # Lineage with different hash
+        lineage = LineageRecord(
+            chunk_hash="b" * 64,  # Different from chunk!
+            source_id="source-1",
+            source_version_id=1,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        with pytest.raises(ValueError, match="chunk-lineage hash mismatch"):
+            ChunkProvenance(
+                chunk=chunk,
+                lineage=lineage,
+                source_origin_ref="test-source",
+                adapter_type="test",
+                version_chain=(chunk,),
+            )
+
+    def test_chunk_provenance_chain_ordering(self) -> None:
+        """Test that version_chain maintains proper ordering with current chunk last."""
+        from context_library.storage.models import LineageRecord
+
+        chunk1 = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Version 1",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        chunk2 = Chunk(
+            chunk_hash="b" * 64,
+            chunk_index=0,
+            content="Version 2",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        chunk3 = Chunk(
+            chunk_hash="c" * 64,
+            chunk_index=0,
+            content="Version 3",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="c" * 64,
+            source_id="source-1",
+            source_version_id=3,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        provenance = ChunkProvenance(
+            chunk=chunk3,
+            lineage=lineage,
+            source_origin_ref="test-source",
+            adapter_type="test",
+            version_chain=(chunk1, chunk2, chunk3),
+        )
+
+        # Verify order: oldest to newest
+        assert provenance.version_chain[0].chunk_hash == "a" * 64
+        assert provenance.version_chain[1].chunk_hash == "b" * 64
+        assert provenance.version_chain[2].chunk_hash == "c" * 64
+        assert provenance.version_chain[-1].chunk_hash == provenance.chunk.chunk_hash
+
+    def test_chunk_provenance_frozen_immutability(self) -> None:
+        """Test that ChunkProvenance is frozen and immutable."""
+        from context_library.storage.models import LineageRecord
+
+        chunk = Chunk(
+            chunk_hash="a" * 64,
+            chunk_index=0,
+            content="Content",
+            chunk_type=ChunkType.STANDARD,
+            context_header="",
+            domain_metadata={},
+            cross_refs=(),
+        )
+
+        lineage = LineageRecord(
+            chunk_hash="a" * 64,
+            source_id="source-1",
+            source_version_id=1,
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="model-1",
+        )
+
+        provenance = ChunkProvenance(
+            chunk=chunk,
+            lineage=lineage,
+            source_origin_ref="test-source",
+            adapter_type="test",
+            version_chain=(chunk,),
+        )
+
+        with pytest.raises(Exception):  # Pydantic frozen model
+            provenance.source_origin_ref = "other-source"  # type: ignore
