@@ -40,6 +40,17 @@ class TestRemoteAdapterServiceUrlValidation:
                 adapter_id="test",
             )
 
+    def test_init_rejects_bare_localhost_without_scheme(self):
+        """__init__ rejects bare 'localhost:8000' (common user mistake)."""
+        # This is the key case from requirements - localhost:8000 parsed
+        # as scheme='localhost', netloc='', path='8000', should be rejected
+        with pytest.raises(ValueError, match="service_url must include a host"):
+            RemoteAdapter(
+                service_url="localhost:8000",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
+
     def test_init_accepts_http_scheme(self):
         """__init__ accepts http:// scheme."""
         adapter = RemoteAdapter(
@@ -490,8 +501,8 @@ class TestRemoteAdapterFetch:
         with pytest.raises(ValidationError):
             list(adapter.fetch("source_ref"))
 
-    def test_fetch_specific_validation_error_propagates(self, mock_httpx_client):
-        """fetch() catches only ValidationError, letting other exceptions propagate."""
+    def test_fetch_non_validation_errors_propagate(self, mock_httpx_client):
+        """fetch() allows non-ValidationError exceptions to propagate."""
         adapter = RemoteAdapter(
             service_url="http://localhost:8000",
             domain=Domain.NOTES,
@@ -499,6 +510,8 @@ class TestRemoteAdapterFetch:
         )
 
         fetch_url = "http://localhost:8000/fetch"
+        # Mock the response to return data that will cause a non-ValidationError
+        # when we force an exception during model_validate
         mock_httpx_client.set_response(
             fetch_url,
             {
@@ -518,13 +531,17 @@ class TestRemoteAdapterFetch:
             },
         )
 
+        from unittest.mock import patch
         from pydantic import ValidationError
 
-        # The test verifies that ValidationError is caught and re-raised
-        # while non-ValidationError exceptions would propagate naturally
-        results = list(adapter.fetch("source_ref"))
-        assert len(results) == 1
-        assert isinstance(results[0], NormalizedContent)
+        # Patch NormalizedContent.model_validate to raise a non-ValidationError
+        # This verifies that non-ValidationError exceptions are not caught
+        with patch.object(NormalizedContent, 'model_validate') as mock_validate:
+            mock_validate.side_effect = RuntimeError("Unexpected runtime error")
+
+            # RuntimeError should propagate, not be caught as a validation failure
+            with pytest.raises(RuntimeError, match="Unexpected runtime error"):
+                list(adapter.fetch("source_ref"))
 
 
 class TestRemoteAdapterContextManager:
