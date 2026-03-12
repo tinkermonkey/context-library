@@ -52,7 +52,7 @@ if importlib.util.find_spec("httpx") is not None:
         )
 
         __all__.append("AppleRemindersAdapter")
-    except ImportError:
+    except Exception:
         pass
 
 # Check if apple_health adapter's dependencies are available
@@ -63,7 +63,7 @@ if importlib.util.find_spec("httpx") is not None:
         )
 
         __all__.append("AppleHealthAdapter")
-    except ImportError:
+    except Exception:
         pass
 
 # Check if remote adapter's dependencies are available
@@ -74,5 +74,5 @@ if importlib.util.find_spec("httpx") is not None:
         )
 
         __all__.append("RemoteAdapter")
-    except ImportError:
+    except Exception:
         pass
