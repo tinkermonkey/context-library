@@ -426,7 +426,7 @@ serve_adapter(
 | `adapter` | `BaseAdapter` | — | The adapter instance to serve |
 | `host` | `str` | `"0.0.0.0"` | Bind address. Use `"0.0.0.0"` for remote access, `"127.0.0.1"` for localhost-only |
 | `port` | `int` | `8000` | Port number (1024–65535; <1024 requires elevated privileges) |
-| `api_key` | `str \| None` | `None` | Optional Bearer token; if set, all requests must include `Authorization: Bearer <token>` |
+| `api_key` | `str \| None` | `None` | Optional Bearer token; if set, POST /fetch requests must include `Authorization: Bearer <token>`. GET /health does not require authentication. |
 
 ### Linux-Side: `RemoteAdapter()` Parameters
 
@@ -550,7 +550,7 @@ from context_library.adapters import (
     RemoteAdapter,
     FilesystemAdapter,
 )
-from context_library.storage.models import Domain
+from context_library.storage.models import Domain, AdapterConfig
 from context_library.storage.document_store import DocumentStore
 
 # Initialize document store
@@ -584,12 +584,9 @@ adapters = [
 
 # Register adapters with document store
 for adapter in adapters:
-    source_id = adapter.register(store)
+    config = AdapterConfig(adapter_id=adapter.adapter_id, domain=adapter.domain)
+    source_id = store.register_adapter(config)
     print(f"Registered {adapter.adapter_id}: {source_id}")
-
-# Perform initial ingestion
-for adapter in adapters:
-    store.ingest_from_adapter(adapter)
 ```
 
 ### Deployment Checklist

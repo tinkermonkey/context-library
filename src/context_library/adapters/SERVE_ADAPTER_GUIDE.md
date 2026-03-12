@@ -94,7 +94,7 @@ Calls `adapter.fetch(source_ref)` and returns normalized content.
 **Response (500 Internal Server Error):** Adapter exception
 ```json
 {
-  "error": "<exception message>"
+  "error": "Internal server error"
 }
 ```
 
@@ -340,7 +340,7 @@ For production use, consider:
 4. **Use strong API keys** with sufficient entropy
 5. **Monitor resource usage** (memory, connections)
 
-Example systemd service file for macOS (launchd):
+Example launchd plist file for macOS:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
