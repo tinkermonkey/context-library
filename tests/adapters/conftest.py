@@ -143,7 +143,14 @@ def mock_httpx_get(monkeypatch):
 
         def __call__(self, url, params=None, headers=None, timeout=None):
             self.requests.append({"url": url, "params": params, "headers": headers})
-            return self.responses.get(url, MockResponse({}, url=url))
+            if url not in self.responses:
+                configured_urls = list(self.responses.keys())
+                raise AssertionError(
+                    f"MockHTTPXGet: Unconfigured URL '{url}'\n"
+                    f"Configured URLs: {configured_urls}\n"
+                    f"Call set_response('{url}', data) to configure this URL."
+                )
+            return self.responses[url]
 
         def set_response(self, url, data, status_code=200):
             self.responses[url] = MockResponse(data, status_code, url=url)

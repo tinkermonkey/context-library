@@ -681,8 +681,13 @@ class TestRemoteAdapterRetry:
 
         assert call_count == 1  # Should not retry
 
-    def test_fetch_retries_on_request_error_timeout(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on httpx.RequestError timeout and succeeds on retry."""
+    @pytest.mark.parametrize("error_cls", [
+        httpx.ReadTimeout,
+        httpx.ConnectError,
+        httpx.NetworkError,
+    ])
+    def test_fetch_retries_on_request_error(self, error_cls, mock_httpx_client, monkeypatch):
+        """fetch() retries on httpx.RequestError (timeout, connection, DNS) and succeeds on retry."""
         adapter = RemoteAdapter(
             service_url="http://localhost:8000",
             domain=Domain.NOTES,
@@ -695,94 +700,8 @@ class TestRemoteAdapterRetry:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                # First call raises timeout error
-                raise httpx.ReadTimeout("Request timed out")
-            else:
-                # Second call succeeds
-                return MockResponse(
-                    {"normalized_contents": [
-                        {
-                            "markdown": "# Test",
-                            "source_id": "test",
-                            "structural_hints": {
-                                "has_headings": True,
-                                "has_lists": False,
-                                "has_tables": False,
-                                "natural_boundaries": (),
-                            },
-                            "normalizer_version": "1.0.0",
-                        }
-                    ]},
-                    status_code=200,
-                    url=url,
-                )
-
-        mock_httpx_client.post = tracking_post
-        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
-
-        results = list(adapter.fetch("source_ref"))
-        assert len(results) == 1
-        assert call_count == 2  # Should have retried once
-
-    def test_fetch_retries_on_request_error_connection_refused(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on httpx.RequestError connection refused and succeeds on retry."""
-        adapter = RemoteAdapter(
-            service_url="http://localhost:8000",
-            domain=Domain.NOTES,
-            adapter_id="test_adapter",
-        )
-
-        call_count = 0
-
-        def tracking_post(url, json=None, headers=None, timeout=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call raises connection refused error
-                raise httpx.ConnectError("Connection refused")
-            else:
-                # Second call succeeds
-                return MockResponse(
-                    {"normalized_contents": [
-                        {
-                            "markdown": "# Test",
-                            "source_id": "test",
-                            "structural_hints": {
-                                "has_headings": True,
-                                "has_lists": False,
-                                "has_tables": False,
-                                "natural_boundaries": (),
-                            },
-                            "normalizer_version": "1.0.0",
-                        }
-                    ]},
-                    status_code=200,
-                    url=url,
-                )
-
-        mock_httpx_client.post = tracking_post
-        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
-
-        results = list(adapter.fetch("source_ref"))
-        assert len(results) == 1
-        assert call_count == 2  # Should have retried once
-
-    def test_fetch_retries_on_request_error_dns_failure(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on httpx.RequestError DNS failure and succeeds on retry."""
-        adapter = RemoteAdapter(
-            service_url="http://localhost:8000",
-            domain=Domain.NOTES,
-            adapter_id="test_adapter",
-        )
-
-        call_count = 0
-
-        def tracking_post(url, json=None, headers=None, timeout=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call raises DNS lookup error
-                raise httpx.NetworkError("DNS lookup failed")
+                # First call raises the parameterized error
+                raise error_cls("Connection error")
             else:
                 # Second call succeeds
                 return MockResponse(
