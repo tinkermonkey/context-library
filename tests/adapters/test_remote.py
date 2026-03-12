@@ -5,7 +5,7 @@ import pytest
 import httpx
 
 from context_library.adapters.remote import RemoteAdapter
-from context_library.storage.models import Domain, NormalizedContent, StructuralHints
+from context_library.storage.models import Domain, NormalizedContent
 
 
 class TestRemoteAdapterInitialization:
