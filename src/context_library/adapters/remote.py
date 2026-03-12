@@ -120,6 +120,11 @@ class RemoteAdapter(BaseAdapter):
                 f"service_url must include a scheme (e.g., 'http://localhost:8000', "
                 f"'https://example.com'). Got: {service_url}"
             )
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"service_url must use http or https scheme, got: {parsed.scheme}. "
+                f"Full URL: {service_url}"
+            )
         if not parsed.netloc:
             raise ValueError(
                 f"service_url must include a host (e.g., 'http://localhost:8000', "
@@ -181,6 +186,7 @@ class RemoteAdapter(BaseAdapter):
         Raises:
             httpx.HTTPStatusError: If the HTTP request fails with non-transient errors
             httpx.RequestError: If the request fails after max retries (connection, timeout, etc.)
+            ValueError: If the response body cannot be parsed as JSON
             KeyError: If response is missing normalized_contents key
             TypeError: If normalized_contents is not a list
             pydantic.ValidationError: If any response item fails NormalizedContent validation
@@ -248,15 +254,22 @@ class RemoteAdapter(BaseAdapter):
                         f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
                     )
 
-                # Deserialize and yield each NormalizedContent
+                # Validate and collect all items before yielding
+                # This ensures callers receive either all valid items or an exception,
+                # preventing partial results if validation fails mid-stream
+                validated_items = []
                 for idx, item in enumerate(normalized_contents):
                     try:
-                        yield NormalizedContent.model_validate(item)
+                        validated_items.append(NormalizedContent.model_validate(item))
                     except ValidationError as e:
                         logger.error(
                             f"Failed to validate NormalizedContent at index {idx}: {e}"
                         )
                         raise
+
+                # All items validated successfully; now yield them to the caller
+                for item in validated_items:
+                    yield item
 
                 # Success - exit retry loop
                 return

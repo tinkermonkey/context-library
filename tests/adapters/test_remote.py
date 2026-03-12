@@ -43,8 +43,9 @@ class TestRemoteAdapterServiceUrlValidation:
     def test_init_rejects_bare_localhost_without_scheme(self):
         """__init__ rejects bare 'localhost:8000' (common user mistake)."""
         # This is the key case from requirements - localhost:8000 parsed
-        # as scheme='localhost', netloc='', path='8000', should be rejected
-        with pytest.raises(ValueError, match="service_url must include a host"):
+        # as scheme='localhost', netloc='', path='8000', should be rejected.
+        # The scheme validation catches this first since 'localhost' is not http/https.
+        with pytest.raises(ValueError, match="service_url must use http or https scheme"):
             RemoteAdapter(
                 service_url="localhost:8000",
                 domain=Domain.NOTES,
@@ -86,6 +87,24 @@ class TestRemoteAdapterServiceUrlValidation:
             adapter_id="test",
         )
         assert adapter._service_url == "https://api.example.com"
+
+    def test_init_rejects_ftp_scheme(self):
+        """__init__ rejects ftp:// scheme."""
+        with pytest.raises(ValueError, match="service_url must use http or https scheme"):
+            RemoteAdapter(
+                service_url="ftp://example.com",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
+
+    def test_init_rejects_file_scheme(self):
+        """__init__ rejects file:// scheme."""
+        with pytest.raises(ValueError, match="service_url must use http or https scheme"):
+            RemoteAdapter(
+                service_url="file:///etc/passwd",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
 
 
 class TestRemoteAdapterAPIKeyValidation:
