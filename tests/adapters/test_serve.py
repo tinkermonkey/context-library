@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from context_library.adapters.base import BaseAdapter
-from context_library.adapters.serve import AdapterHTTPServer, serve_adapter
+from context_library.adapters.serve import serve_adapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
