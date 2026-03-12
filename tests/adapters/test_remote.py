@@ -532,7 +532,6 @@ class TestRemoteAdapterFetch:
         )
 
         from unittest.mock import patch
-        from pydantic import ValidationError
 
         # Patch NormalizedContent.model_validate to raise a non-ValidationError
         # This verifies that non-ValidationError exceptions are not caught
