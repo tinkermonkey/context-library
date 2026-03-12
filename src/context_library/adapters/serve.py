@@ -155,6 +155,10 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
         if self.server.api_key is not None:
             auth_result = self._check_bearer_token()
             if not auth_result:
+                logger.warning(
+                    "Failed authentication attempt from %s",
+                    self.client_address[0],
+                )
                 self._error_response(401, "Unauthorized")
                 return
 
