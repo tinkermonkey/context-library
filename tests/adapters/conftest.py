@@ -82,7 +82,11 @@ def mock_httpx_client(monkeypatch):
             self.timeout = kwargs.get("timeout")
 
         def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"url": url, "params": params, "headers": headers})
+            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+            return self.responses.get(url, MockResponse({}, url=url))
+
+        def post(self, url, json=None, headers=None, timeout=None):
+            self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
             return self.responses.get(url, MockResponse({}, url=url))
 
         def set_response(self, url, data, status_code=200):
