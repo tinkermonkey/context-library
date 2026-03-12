@@ -681,6 +681,184 @@ class TestRemoteAdapterRetry:
 
         assert call_count == 1  # Should not retry
 
+    def test_fetch_retries_on_request_error_timeout(self, mock_httpx_client, monkeypatch):
+        """fetch() retries on httpx.RequestError timeout and succeeds on retry."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        call_count = 0
+
+        def tracking_post(url, json=None, headers=None, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call raises timeout error
+                raise httpx.ReadTimeout("Request timed out")
+            else:
+                # Second call succeeds
+                return MockResponse(
+                    {"normalized_contents": [
+                        {
+                            "markdown": "# Test",
+                            "source_id": "test",
+                            "structural_hints": {
+                                "has_headings": True,
+                                "has_lists": False,
+                                "has_tables": False,
+                                "natural_boundaries": (),
+                            },
+                            "normalizer_version": "1.0.0",
+                        }
+                    ]},
+                    status_code=200,
+                    url=url,
+                )
+
+        mock_httpx_client.post = tracking_post
+        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
+
+        results = list(adapter.fetch("source_ref"))
+        assert len(results) == 1
+        assert call_count == 2  # Should have retried once
+
+    def test_fetch_retries_on_request_error_connection_refused(self, mock_httpx_client, monkeypatch):
+        """fetch() retries on httpx.RequestError connection refused and succeeds on retry."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        call_count = 0
+
+        def tracking_post(url, json=None, headers=None, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call raises connection refused error
+                raise httpx.ConnectError("Connection refused")
+            else:
+                # Second call succeeds
+                return MockResponse(
+                    {"normalized_contents": [
+                        {
+                            "markdown": "# Test",
+                            "source_id": "test",
+                            "structural_hints": {
+                                "has_headings": True,
+                                "has_lists": False,
+                                "has_tables": False,
+                                "natural_boundaries": (),
+                            },
+                            "normalizer_version": "1.0.0",
+                        }
+                    ]},
+                    status_code=200,
+                    url=url,
+                )
+
+        mock_httpx_client.post = tracking_post
+        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
+
+        results = list(adapter.fetch("source_ref"))
+        assert len(results) == 1
+        assert call_count == 2  # Should have retried once
+
+    def test_fetch_retries_on_request_error_dns_failure(self, mock_httpx_client, monkeypatch):
+        """fetch() retries on httpx.RequestError DNS failure and succeeds on retry."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        call_count = 0
+
+        def tracking_post(url, json=None, headers=None, timeout=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call raises DNS lookup error
+                raise httpx.NetworkError("DNS lookup failed")
+            else:
+                # Second call succeeds
+                return MockResponse(
+                    {"normalized_contents": [
+                        {
+                            "markdown": "# Test",
+                            "source_id": "test",
+                            "structural_hints": {
+                                "has_headings": True,
+                                "has_lists": False,
+                                "has_tables": False,
+                                "natural_boundaries": (),
+                            },
+                            "normalizer_version": "1.0.0",
+                        }
+                    ]},
+                    status_code=200,
+                    url=url,
+                )
+
+        mock_httpx_client.post = tracking_post
+        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
+
+        results = list(adapter.fetch("source_ref"))
+        assert len(results) == 1
+        assert call_count == 2  # Should have retried once
+
+    def test_fetch_raises_after_max_retries_on_request_error(self, mock_httpx_client, monkeypatch):
+        """fetch() raises httpx.RequestError after max retries exceeded for connection failures."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        def tracking_post(url, json=None, headers=None, timeout=None):
+            # Always raise request error
+            raise httpx.ConnectError("Connection refused")
+
+        mock_httpx_client.post = tracking_post
+        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
+
+        with pytest.raises(httpx.RequestError):
+            list(adapter.fetch("source_ref"))
+
+    def test_fetch_json_parse_error_raises_value_error(self, mock_httpx_client):
+        """fetch() raises ValueError when response.json() fails (malformed JSON/HTML response)."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        class MockResponseWithBadJson:
+            """Mock response that returns 200 but json() raises ValueError."""
+            def __init__(self):
+                self.status_code = 200
+                self.url = "http://localhost:8000/fetch"
+                self.text = "<html>Error Page</html>"
+
+            def json(self):
+                # Simulate response.json() raising ValueError (e.g., HTML returned instead of JSON)
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+            def raise_for_status(self):
+                pass
+
+        def tracking_post(url, json=None, headers=None, timeout=None):
+            return MockResponseWithBadJson()
+
+        mock_httpx_client.post = tracking_post
+
+        with pytest.raises(ValueError) as exc_info:
+            list(adapter.fetch("source_ref"))
+        assert "Expecting value" in str(exc_info.value)
+
 
 class TestRemoteAdapterIntegration:
     """Integration tests for RemoteAdapter."""
