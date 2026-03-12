@@ -3,6 +3,20 @@
 This adapter consumes a local HTTP REST API served by a macOS helper process that exposes
 Apple HealthKit data (workouts, activity summaries, mindfulness sessions) via a local HTTP API.
 
+Architecture
+============
+
+The adapter uses a layered architecture for security:
+
+- **Helper process**: Runs on 127.0.0.1 only (localhost), exposing the Apple HealthKit API
+  to local consumers only. This design is intentional: direct HealthKit access is
+  restricted to the local machine.
+
+- **Remote access**: To expose health data to remote clients, use serve_adapter() which
+  wraps this adapter in an HTTP server. The serve_adapter can be configured to bind to
+  0.0.0.0 or a specific network interface, providing the remote exposure layer while
+  keeping the underlying helper process local and secure.
+
 Expected local service API contract
 ===================================
 
@@ -28,10 +42,7 @@ GET /workouts
       }
     ]
 
-Security Note: The helper process MUST bind to 127.0.0.1 only and not expose the API
-on network interfaces. Communication should occur only on the local machine.
-
-Example usage:
+Example usage (local):
     adapter = AppleHealthAdapter(
         api_url="http://127.0.0.1:7124",
         activity_type="running",
@@ -44,6 +55,11 @@ Example usage:
     # Incremental fetch (only workouts starting after given timestamp)
     for normalized_content in adapter.fetch("2025-03-07T10:00:00+00:00"):
         print(normalized_content.markdown)
+
+Example usage (remote via serve_adapter):
+    adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+    serve_adapter(adapter, host="0.0.0.0", port=8000, api_key="secret")
+    # Now remote clients can access via http://<mac-ip>:8000/fetch
 """
 
 from __future__ import annotations

@@ -1,8 +1,21 @@
 """AppleRemindersAdapter for ingesting reminders from a macOS helper service.
 
 This adapter consumes a local HTTP REST API served by a macOS helper process that reads
-from Apple EventKit and exposes Reminders data. The helper process runs on 127.0.0.1 only
-(never on network interfaces) for security.
+from Apple EventKit and exposes Reminders data.
+
+Architecture
+============
+
+The adapter uses a layered architecture for security:
+
+- **Helper process**: Runs on 127.0.0.1 only (localhost), exposing the Apple Reminders API
+  to local consumers only. This design is intentional: direct EventKit access is
+  restricted to the local machine.
+
+- **Remote access**: To expose reminders data to remote clients, use serve_adapter() which
+  wraps this adapter in an HTTP server. The serve_adapter can be configured to bind to
+  0.0.0.0 or a specific network interface, providing the remote exposure layer while
+  keeping the underlying helper process local and secure.
 
 Expected Local Service API Contract:
 ====================================
