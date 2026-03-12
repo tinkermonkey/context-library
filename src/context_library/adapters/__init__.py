@@ -44,35 +44,37 @@ if (
 
     __all__.append("CalDAVAdapter")
 
-# Check if apple reminders adapter's dependencies are available
+# Check if httpx is available (shared dependency for apple_reminders, apple_health, and remote adapters)
 if importlib.util.find_spec("httpx") is not None:
+    # Apple reminders adapter
     try:
         from context_library.adapters.apple_reminders import (  # noqa: F401
             AppleRemindersAdapter as AppleRemindersAdapter,
         )
 
         __all__.append("AppleRemindersAdapter")
-    except ImportError:
+    except Exception:
+        # Silently skip if import fails (e.g., syntax error, circular import, missing transitive dependency)
         pass
 
-# Check if apple health adapter's dependencies are available
-if importlib.util.find_spec("httpx") is not None:
+    # Apple health adapter
     try:
         from context_library.adapters.apple_health import (  # noqa: F401
             AppleHealthAdapter as AppleHealthAdapter,
         )
 
         __all__.append("AppleHealthAdapter")
-    except ImportError:
+    except Exception:
+        # Silently skip if import fails (e.g., syntax error, circular import, missing transitive dependency)
         pass
 
-# Check if remote adapter's dependencies are available
-if importlib.util.find_spec("httpx") is not None:
+    # Remote adapter
     try:
         from context_library.adapters.remote import (  # noqa: F401
             RemoteAdapter as RemoteAdapter,
         )
 
         __all__.append("RemoteAdapter")
-    except ImportError:
+    except Exception:
+        # Silently skip if import fails (e.g., syntax error, circular import, missing transitive dependency)
         pass
