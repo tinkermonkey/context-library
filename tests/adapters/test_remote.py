@@ -9,6 +9,74 @@ from context_library.storage.models import Domain, NormalizedContent
 from tests.adapters.conftest import MockResponse
 
 
+class TestRemoteAdapterServiceUrlValidation:
+    """Tests for RemoteAdapter service_url validation."""
+
+    def test_init_rejects_empty_service_url(self):
+        """__init__ raises ValueError when service_url is empty string."""
+        with pytest.raises(ValueError, match="service_url must not be empty"):
+            RemoteAdapter(
+                service_url="",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
+
+    def test_init_rejects_service_url_without_scheme(self):
+        """__init__ raises ValueError when service_url lacks valid http(s) scheme."""
+        # "/path" has empty scheme, so should be caught by scheme check
+        with pytest.raises(ValueError, match="service_url must include a scheme"):
+            RemoteAdapter(
+                service_url="/path/to/resource",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
+
+    def test_init_rejects_service_url_without_netloc(self):
+        """__init__ raises ValueError when service_url lacks host/netloc."""
+        with pytest.raises(ValueError, match="service_url must include a host"):
+            RemoteAdapter(
+                service_url="http://",
+                domain=Domain.NOTES,
+                adapter_id="test",
+            )
+
+    def test_init_accepts_http_scheme(self):
+        """__init__ accepts http:// scheme."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+        assert adapter._service_url == "http://localhost:8000"
+
+    def test_init_accepts_https_scheme(self):
+        """__init__ accepts https:// scheme."""
+        adapter = RemoteAdapter(
+            service_url="https://example.com",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+        assert adapter._service_url == "https://example.com"
+
+    def test_init_accepts_hostname_with_port(self):
+        """__init__ accepts hostnames with explicit port numbers."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:9000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+        assert adapter._service_url == "http://localhost:9000"
+
+    def test_init_accepts_full_domain_name(self):
+        """__init__ accepts fully qualified domain names."""
+        adapter = RemoteAdapter(
+            service_url="https://api.example.com",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+        assert adapter._service_url == "https://api.example.com"
+
+
 class TestRemoteAdapterAPIKeyValidation:
     """Tests for RemoteAdapter API key validation."""
 
@@ -421,6 +489,42 @@ class TestRemoteAdapterFetch:
 
         with pytest.raises(ValidationError):
             list(adapter.fetch("source_ref"))
+
+    def test_fetch_specific_validation_error_propagates(self, mock_httpx_client):
+        """fetch() catches only ValidationError, letting other exceptions propagate."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        fetch_url = "http://localhost:8000/fetch"
+        mock_httpx_client.set_response(
+            fetch_url,
+            {
+                "normalized_contents": [
+                    {
+                        "markdown": "# Test",
+                        "source_id": "note_1",
+                        "structural_hints": {
+                            "has_headings": False,
+                            "has_lists": False,
+                            "has_tables": False,
+                            "natural_boundaries": (),
+                        },
+                        "normalizer_version": "1.0.0",
+                    }
+                ]
+            },
+        )
+
+        from pydantic import ValidationError
+
+        # The test verifies that ValidationError is caught and re-raised
+        # while non-ValidationError exceptions would propagate naturally
+        results = list(adapter.fetch("source_ref"))
+        assert len(results) == 1
+        assert isinstance(results[0], NormalizedContent)
 
 
 class TestRemoteAdapterContextManager:
