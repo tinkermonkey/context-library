@@ -10,7 +10,8 @@ Security Notes:
   as it is intended for health checks and monitoring. It exposes adapter_id and domain.
 - All Bearer token comparisons use constant-time comparison (hmac.compare_digest).
 - Request body size is limited to prevent memory exhaustion attacks.
-- Exception details from adapter.fetch() are logged but not returned to clients.
+- Exception details from adapter.fetch() are returned in the 500 response (adapter
+  is internal, not exposed to untrusted clients). Exceptions are also logged.
 
 Example:
     Launch an Obsidian adapter service:
@@ -169,7 +170,7 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
             logger.exception(
                 "adapter.fetch() failed for source_ref=%s", source_ref
             )
-            self._error_response(500, "Internal server error")
+            self._error_response(500, str(e))
 
     def _check_bearer_token(self) -> bool:
         """Check if Authorization header contains correct Bearer token.

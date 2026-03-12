@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from context_library.adapters.base import BaseAdapter
-from context_library.adapters.serve import serve_adapter
+from context_library.adapters.serve import AdapterHTTPServer, serve_adapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -17,8 +17,8 @@ from context_library.storage.models import (
 )
 
 
-class TestAdapter(BaseAdapter):
-    """Test adapter for testing serve_adapter wrapper."""
+class MockAdapter(BaseAdapter):
+    """Mock adapter for testing serve_adapter wrapper."""
 
     def __init__(
         self,
@@ -63,12 +63,39 @@ class TestAdapter(BaseAdapter):
             )
 
 
+@pytest.fixture
+def adapter_server():
+    """Fixture that starts an AdapterHTTPServer on a unique port and cleans it up.
+
+    Yields (server, port, client_url) tuple.
+    """
+    adapter = MockAdapter(adapter_id="test:server", domain=Domain.NOTES)
+    port = 18001
+
+    server = AdapterHTTPServer(("127.0.0.1", port), adapter)
+
+    # Start server in background thread
+    server_thread = threading.Thread(target=server.serve_forever, daemon=False)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Give server a moment to start
+    time.sleep(0.1)
+
+    yield server, port, f"http://127.0.0.1:{port}"
+
+    # Cleanup
+    server.shutdown()
+    server.server_close()
+    server_thread.join(timeout=2)
+
+
 class TestServerStartStop:
     """Tests for server startup and shutdown."""
 
     def test_serve_adapter_starts_server(self):
         """serve_adapter() starts an HTTP server on the specified port."""
-        adapter = TestAdapter(adapter_id="test:1", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:1", domain=Domain.NOTES)
         port = 18001
 
         # Start server in background thread
@@ -86,7 +113,7 @@ class TestServerStartStop:
 
     def test_serve_adapter_default_host_is_0_0_0_0(self):
         """serve_adapter() binds to 0.0.0.0 by default."""
-        adapter = TestAdapter(adapter_id="test:2", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:2", domain=Domain.NOTES)
         port = 18002
 
         # Start server in background thread (using default host="0.0.0.0")
@@ -116,7 +143,7 @@ class TestHealthEndpoint:
 
     def test_health_returns_200_ok(self):
         """GET /health returns 200 status code."""
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:health", domain=Domain.NOTES
         )
         port = 18003
@@ -132,7 +159,7 @@ class TestHealthEndpoint:
 
     def test_health_returns_json(self):
         """GET /health returns JSON response."""
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:health", domain=Domain.NOTES
         )
         port = 18004
@@ -149,7 +176,7 @@ class TestHealthEndpoint:
 
     def test_health_contains_status(self):
         """GET /health returns status field set to 'ok'."""
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:health", domain=Domain.NOTES
         )
         port = 18005
@@ -166,7 +193,7 @@ class TestHealthEndpoint:
 
     def test_health_contains_adapter_id(self):
         """GET /health returns adapter_id field."""
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="my:custom:id", domain=Domain.NOTES
         )
         port = 18006
@@ -183,7 +210,7 @@ class TestHealthEndpoint:
 
     def test_health_contains_domain(self):
         """GET /health returns domain field with domain value."""
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:domain", domain=Domain.TASKS
         )
         port = 18007
@@ -201,7 +228,7 @@ class TestHealthEndpoint:
     def test_health_with_different_domains(self):
         """GET /health correctly returns domain for all domain types."""
         for domain in [Domain.MESSAGES, Domain.NOTES, Domain.EVENTS, Domain.TASKS]:
-            adapter = TestAdapter(adapter_id="test", domain=domain)
+            adapter = MockAdapter(adapter_id="test", domain=domain)
             port = 18008 + list(Domain).index(domain)
 
             server_thread = threading.Thread(
@@ -220,7 +247,7 @@ class TestFetchEndpoint:
 
     def test_fetch_returns_200_on_success(self):
         """POST /fetch returns 200 status code for valid request."""
-        adapter = TestAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
         port = 18012
 
         server_thread = threading.Thread(
@@ -237,7 +264,7 @@ class TestFetchEndpoint:
 
     def test_fetch_returns_json(self):
         """POST /fetch returns JSON response."""
-        adapter = TestAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
         port = 18013
 
         server_thread = threading.Thread(
@@ -255,7 +282,7 @@ class TestFetchEndpoint:
 
     def test_fetch_returns_normalized_contents(self):
         """POST /fetch returns normalized_contents field."""
-        adapter = TestAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
         port = 18014
 
         server_thread = threading.Thread(
@@ -291,7 +318,7 @@ class TestFetchEndpoint:
                 normalizer_version="1.0.0",
             )
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:fetch",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -313,7 +340,7 @@ class TestFetchEndpoint:
 
     def test_fetch_serializes_normalized_content(self):
         """POST /fetch serializes NormalizedContent objects correctly."""
-        adapter = TestAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
         port = 18016
 
         server_thread = threading.Thread(
@@ -336,7 +363,7 @@ class TestFetchEndpoint:
 
     def test_fetch_includes_structural_hints(self):
         """POST /fetch includes structural_hints in response."""
-        adapter = TestAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
         port = 18017
 
         server_thread = threading.Thread(
@@ -375,7 +402,7 @@ class TestFetchEndpoint:
                     normalizer_version="1.0.0",
                 )
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:fetch",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -404,7 +431,7 @@ class TestFetchEndpoint:
             return
             yield  # This line is unreachable, making this a generator that yields nothing
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:fetch",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -430,7 +457,7 @@ class TestFetchValidation:
 
     def test_fetch_missing_source_ref_returns_400(self):
         """POST /fetch without source_ref returns 400 Bad Request."""
-        adapter = TestAdapter(adapter_id="test:validation", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
         port = 18020
 
         server_thread = threading.Thread(
@@ -447,7 +474,7 @@ class TestFetchValidation:
 
     def test_fetch_null_source_ref_returns_400(self):
         """POST /fetch with null source_ref returns 400 Bad Request."""
-        adapter = TestAdapter(adapter_id="test:validation", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
         port = 18021
 
         server_thread = threading.Thread(
@@ -464,7 +491,7 @@ class TestFetchValidation:
 
     def test_fetch_non_string_source_ref_returns_400(self):
         """POST /fetch with non-string source_ref returns 400 Bad Request."""
-        adapter = TestAdapter(adapter_id="test:validation", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
         port = 18022
 
         server_thread = threading.Thread(
@@ -481,7 +508,7 @@ class TestFetchValidation:
 
     def test_fetch_invalid_json_returns_400(self):
         """POST /fetch with invalid JSON returns 400 Bad Request."""
-        adapter = TestAdapter(adapter_id="test:validation", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
         port = 18023
 
         server_thread = threading.Thread(
@@ -499,7 +526,7 @@ class TestFetchValidation:
 
     def test_fetch_empty_body_returns_400(self):
         """POST /fetch with empty body returns 400 Bad Request."""
-        adapter = TestAdapter(adapter_id="test:validation", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
         port = 18024
 
         server_thread = threading.Thread(
@@ -520,7 +547,7 @@ class TestFetchValidation:
         def custom_fetch(source_ref):
             raise ValueError("Test error from adapter")
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:error",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -540,11 +567,11 @@ class TestFetchValidation:
         assert response.status_code == 500
 
     def test_fetch_error_response_contains_error_field(self):
-        """POST /fetch 500 response contains error field with generic message."""
+        """POST /fetch 500 response contains error field with exception message."""
         def custom_fetch(source_ref):
             raise ValueError("Internal database connection failed")
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:error",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -563,8 +590,8 @@ class TestFetchValidation:
         )
         data = response.json()
         assert "error" in data
-        # Error message is generic to avoid leaking internal details
-        assert data["error"] == "Internal server error"
+        # Error message from exception is returned for debugging
+        assert data["error"] == "Internal database connection failed"
 
 
 class TestAuthentication:
@@ -572,7 +599,7 @@ class TestAuthentication:
 
     def test_fetch_without_auth_succeeds_when_no_api_key(self):
         """POST /fetch succeeds without auth when api_key is None."""
-        adapter = TestAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
         port = 18027
 
         server_thread = threading.Thread(
@@ -592,7 +619,7 @@ class TestAuthentication:
 
     def test_fetch_with_auth_header_succeeds_when_no_api_key(self):
         """POST /fetch with auth header succeeds when api_key is None."""
-        adapter = TestAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
         port = 18028
 
         server_thread = threading.Thread(
@@ -613,7 +640,7 @@ class TestAuthentication:
 
     def test_fetch_without_auth_returns_401_when_api_key_set(self):
         """POST /fetch without auth header returns 401 when api_key is set."""
-        adapter = TestAdapter(adapter_id="test:auth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
         port = 18029
 
         server_thread = threading.Thread(
@@ -633,7 +660,7 @@ class TestAuthentication:
 
     def test_fetch_with_correct_token_succeeds(self):
         """POST /fetch with correct Bearer token succeeds."""
-        adapter = TestAdapter(adapter_id="test:auth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
         port = 18030
 
         server_thread = threading.Thread(
@@ -654,7 +681,7 @@ class TestAuthentication:
 
     def test_fetch_with_incorrect_token_returns_401(self):
         """POST /fetch with incorrect Bearer token returns 401."""
-        adapter = TestAdapter(adapter_id="test:auth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
         port = 18031
 
         server_thread = threading.Thread(
@@ -675,7 +702,7 @@ class TestAuthentication:
 
     def test_fetch_with_malformed_auth_header_returns_401(self):
         """POST /fetch with malformed auth header returns 401."""
-        adapter = TestAdapter(adapter_id="test:auth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
         port = 18032
 
         server_thread = threading.Thread(
@@ -696,7 +723,7 @@ class TestAuthentication:
 
     def test_health_without_auth_succeeds_when_no_api_key(self):
         """GET /health succeeds without auth when api_key is None."""
-        adapter = TestAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
         port = 18033
 
         server_thread = threading.Thread(
@@ -713,7 +740,7 @@ class TestAuthentication:
 
     def test_health_does_not_require_auth_even_when_api_key_set(self):
         """GET /health succeeds without auth even when api_key is set."""
-        adapter = TestAdapter(adapter_id="test:health", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:health", domain=Domain.NOTES)
         port = 18034
 
         server_thread = threading.Thread(
@@ -734,7 +761,7 @@ class TestNotFound:
 
     def test_unknown_path_returns_404(self):
         """GET /unknown returns 404 Not Found."""
-        adapter = TestAdapter(adapter_id="test:404", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:404", domain=Domain.NOTES)
         port = 18035
 
         server_thread = threading.Thread(
@@ -748,7 +775,7 @@ class TestNotFound:
 
     def test_post_to_unknown_path_returns_404(self):
         """POST /unknown returns 404 Not Found."""
-        adapter = TestAdapter(adapter_id="test:404", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:404", domain=Domain.NOTES)
         port = 18036
 
         server_thread = threading.Thread(
@@ -769,7 +796,7 @@ class TestContentTypes:
 
     def test_health_response_has_json_content_type(self):
         """GET /health response includes Content-Type: application/json header."""
-        adapter = TestAdapter(adapter_id="test:ct", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
         port = 18037
 
         server_thread = threading.Thread(
@@ -783,7 +810,7 @@ class TestContentTypes:
 
     def test_fetch_response_has_json_content_type(self):
         """POST /fetch response includes Content-Type: application/json header."""
-        adapter = TestAdapter(adapter_id="test:ct", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
         port = 18038
 
         server_thread = threading.Thread(
@@ -800,7 +827,7 @@ class TestContentTypes:
 
     def test_error_response_has_json_content_type(self):
         """Error responses include Content-Type: application/json header."""
-        adapter = TestAdapter(adapter_id="test:ct", domain=Domain.NOTES)
+        adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
         port = 18039
 
         server_thread = threading.Thread(
@@ -843,7 +870,7 @@ class TestRoundTrip:
         def custom_fetch(source_ref):
             yield original
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:roundtrip",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -901,7 +928,7 @@ class TestRoundTrip:
         def custom_fetch(source_ref):
             yield original
 
-        adapter = TestAdapter(
+        adapter = MockAdapter(
             adapter_id="test:metadata",
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
@@ -931,3 +958,150 @@ class TestRoundTrip:
         assert reconstructed.structural_hints.extra_metadata["null_val"] is None
         assert reconstructed.structural_hints.extra_metadata["list_val"] == [1, 2, 3]
         assert reconstructed.structural_hints.extra_metadata["nested_dict"] == {"inner": "value"}
+
+
+class TestRemoteAdapterIntegration:
+    """End-to-end integration tests with RemoteAdapter consuming from serve_adapter."""
+
+    def test_remote_adapter_fetches_from_served_adapter(self):
+        """RemoteAdapter can fetch from an adapter served by serve_adapter."""
+        # Import RemoteAdapter (gated by httpx availability)
+        try:
+            from context_library.adapters.remote import RemoteAdapter
+        except ImportError:
+            pytest.skip("httpx not available")
+
+        # Create and start a mock adapter via serve_adapter
+        adapter = MockAdapter(
+            adapter_id="test:served",
+            domain=Domain.NOTES,
+        )
+        port = 18042
+
+        server_thread = threading.Thread(
+            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
+        )
+        server_thread.start()
+        time.sleep(0.2)
+
+        # Create a RemoteAdapter client pointing to the served adapter
+        remote = RemoteAdapter(
+            service_url=f"http://127.0.0.1:{port}",
+            domain=Domain.NOTES,
+            adapter_id="remote:test",
+        )
+
+        # Fetch via RemoteAdapter
+        results = list(remote.fetch("test_source"))
+
+        # Verify results
+        assert len(results) == 1
+        assert isinstance(results[0], NormalizedContent)
+        assert results[0].markdown == "# test_source\n\nContent for test_source"
+        assert results[0].source_id == "src:test_source"
+
+    def test_remote_adapter_with_extra_metadata_round_trip(self):
+        """NormalizedContent with extra_metadata round-trips through serve_adapter → RemoteAdapter."""
+        # Import RemoteAdapter (gated by httpx availability)
+        try:
+            from context_library.adapters.remote import RemoteAdapter
+        except ImportError:
+            pytest.skip("httpx not available")
+
+        # Create original content with rich metadata
+        original_hints = StructuralHints(
+            has_headings=True,
+            has_lists=True,
+            has_tables=False,
+            natural_boundaries=[100, 200],
+            extra_metadata={
+                "author": "Test Author",
+                "tags": ["tag1", "tag2"],
+                "version": 2,
+                "nested": {"level": 2, "value": "deep"},
+            },
+        )
+
+        original = NormalizedContent(
+            markdown="# Test\n\nContent",
+            source_id="src:original",
+            structural_hints=original_hints,
+            normalizer_version="1.2.0",
+        )
+
+        def custom_fetch(source_ref):
+            yield original
+
+        # Create and start the adapter service
+        adapter = MockAdapter(
+            adapter_id="test:metadata_service",
+            domain=Domain.NOTES,
+            fetch_impl=custom_fetch,
+        )
+        port = 18043
+
+        server_thread = threading.Thread(
+            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
+        )
+        server_thread.start()
+        time.sleep(0.2)
+
+        # Connect via RemoteAdapter
+        remote = RemoteAdapter(
+            service_url=f"http://127.0.0.1:{port}",
+            domain=Domain.NOTES,
+            adapter_id="remote:metadata",
+        )
+
+        # Fetch and verify round-trip
+        results = list(remote.fetch("test"))
+        assert len(results) == 1
+
+        reconstructed = results[0]
+        assert reconstructed.markdown == original.markdown
+        assert reconstructed.source_id == original.source_id
+        assert reconstructed.normalizer_version == original.normalizer_version
+
+        # Verify extra_metadata survived the round-trip
+        assert reconstructed.structural_hints.extra_metadata == original.structural_hints.extra_metadata
+        assert reconstructed.structural_hints.extra_metadata["author"] == "Test Author"
+        assert reconstructed.structural_hints.extra_metadata["tags"] == ["tag1", "tag2"]
+        assert reconstructed.structural_hints.extra_metadata["version"] == 2
+        assert reconstructed.structural_hints.extra_metadata["nested"]["level"] == 2
+
+    def test_remote_adapter_with_api_key(self):
+        """RemoteAdapter can authenticate with serve_adapter using API key."""
+        # Import RemoteAdapter (gated by httpx availability)
+        try:
+            from context_library.adapters.remote import RemoteAdapter
+        except ImportError:
+            pytest.skip("httpx not available")
+
+        adapter = MockAdapter(
+            adapter_id="test:auth_service",
+            domain=Domain.NOTES,
+        )
+        port = 18044
+        api_key = "test-secret-key"
+
+        # Start server with API key
+        server_thread = threading.Thread(
+            target=serve_adapter,
+            args=(adapter, "127.0.0.1", port),
+            kwargs={"api_key": api_key},
+            daemon=True,
+        )
+        server_thread.start()
+        time.sleep(0.2)
+
+        # Create RemoteAdapter with matching API key
+        remote = RemoteAdapter(
+            service_url=f"http://127.0.0.1:{port}",
+            domain=Domain.NOTES,
+            adapter_id="remote:auth",
+            api_key=api_key,
+        )
+
+        # Should succeed with correct key
+        results = list(remote.fetch("test"))
+        assert len(results) == 1

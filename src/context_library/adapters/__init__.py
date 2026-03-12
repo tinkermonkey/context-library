@@ -4,10 +4,16 @@ import importlib.util
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters.filesystem import FilesystemAdapter
+from context_library.adapters.serve import (  # noqa: F401
+    AdapterHTTPServer as AdapterHTTPServer,
+    serve_adapter as serve_adapter,
+)
 
 __all__ = [
     "BaseAdapter",
     "FilesystemAdapter",
+    "serve_adapter",
+    "AdapterHTTPServer",
 ]
 
 # Check if obsidian adapter's dependencies are available
@@ -53,11 +59,7 @@ if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.remote import (  # noqa: F401
         RemoteAdapter as RemoteAdapter,
     )
-    from context_library.adapters.serve import (  # noqa: F401
-        serve_adapter as serve_adapter,
-    )
 
     __all__.append("AppleRemindersAdapter")
     __all__.append("AppleHealthAdapter")
     __all__.append("RemoteAdapter")
-    __all__.append("serve_adapter")
