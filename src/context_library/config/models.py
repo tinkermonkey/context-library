@@ -101,6 +101,14 @@ class LocalAdapterConfig(BaseModel):
     Specifies the adapter type and domain, plus optional configuration
     parameters passed to the adapter constructor.
 
+    Note on domain and adapter_id:
+        These fields are used for validation and identification within the
+        configuration file. However, the actual domain and adapter_id used by
+        the adapter instance are typically derived from the adapter's own
+        configuration or hardcoded values. For example, FilesystemAdapter
+        hardcodes domain=NOTES and derives adapter_id from its file path.
+        These configuration fields are NOT passed to the adapter constructor.
+
     Invariants:
     - adapter_type must be a non-empty string
     - domain must be a valid Domain enum value

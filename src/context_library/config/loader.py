@@ -12,6 +12,8 @@ Example usage:
         print(f"Loaded: {adapter.adapter_id}")
 """
 
+import importlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -205,8 +207,6 @@ def _parse_json(config_path: Path) -> dict[str, Any]:
     Raises:
         Exception: If JSON parsing fails
     """
-    import json
-
     try:
         with open(config_path) as f:
             data = json.load(f)
@@ -274,12 +274,14 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
     Raises:
         ValueError: If adapter_type is unknown or config format is invalid
         ImportError: If adapter class cannot be imported or dependencies are missing
-        Exception: If adapter instantiation fails
+        RuntimeError: If adapter instantiation fails
 
     Note:
-        Adapter constructors vary - some accept domain/adapter_id parameters,
-        others derive these from their configuration. This function passes only
-        the parameters defined in the config object's 'config' field.
+        LocalAdapterConfig.domain and adapter_id are used for validation and
+        identification within the configuration file. However, most local adapters
+        derive their actual domain and adapter_id from their own configuration or
+        hardcoded values (e.g., FilesystemAdapter hardcodes domain=NOTES).
+        The config fields are not passed to the adapter constructor.
     """
     # Map adapter types to module paths and class names
     adapter_registry = {
@@ -311,8 +313,6 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
 
     # Dynamically import the adapter class
     try:
-        import importlib
-
         module = importlib.import_module(module_path)
         adapter_class = getattr(module, class_name)
     except (ImportError, AttributeError) as e:
@@ -326,8 +326,12 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
 
     try:
         adapter: BaseAdapter = adapter_class(**config_dict)
+        logger.debug(
+            f"Instantiated {class_name} with adapter_id={config.adapter_id} "
+            f"(domain={config.domain})"
+        )
         return adapter
     except Exception as e:
-        raise Exception(
+        raise RuntimeError(
             f"Failed to instantiate {class_name} with config {config_dict}: {e}"
         ) from e
