@@ -46,33 +46,24 @@ if (
 
 # Check if apple_reminders adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    try:
-        from context_library.adapters.apple_reminders import (  # noqa: F401
-            AppleRemindersAdapter as AppleRemindersAdapter,
-        )
+    from context_library.adapters.apple_reminders import (  # noqa: F401
+        AppleRemindersAdapter as AppleRemindersAdapter,
+    )
 
-        __all__.append("AppleRemindersAdapter")
-    except Exception:
-        pass
+    __all__.append("AppleRemindersAdapter")
 
 # Check if apple_health adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    try:
-        from context_library.adapters.apple_health import (  # noqa: F401
-            AppleHealthAdapter as AppleHealthAdapter,
-        )
+    from context_library.adapters.apple_health import (  # noqa: F401
+        AppleHealthAdapter as AppleHealthAdapter,
+    )
 
-        __all__.append("AppleHealthAdapter")
-    except Exception:
-        pass
+    __all__.append("AppleHealthAdapter")
 
 # Check if remote adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    try:
-        from context_library.adapters.remote import (  # noqa: F401
-            RemoteAdapter as RemoteAdapter,
-        )
+    from context_library.adapters.remote import (  # noqa: F401
+        RemoteAdapter as RemoteAdapter,
+    )
 
-        __all__.append("RemoteAdapter")
-    except Exception:
-        pass
+    __all__.append("RemoteAdapter")
