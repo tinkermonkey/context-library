@@ -137,17 +137,23 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
                 self._error_response(401, "Unauthorized")
                 return
 
-        # Read and parse request body
+        # Parse Content-Length header (reject non-integer or out-of-range values)
         try:
             content_length = int(self.headers.get("Content-Length", 0))
-            if content_length == 0 or content_length > MAX_BODY_SIZE:
-                self._error_response(400, "Bad request")
-                return
+        except ValueError:
+            self._error_response(400, "Bad request")
+            return
 
+        if content_length <= 0 or content_length > MAX_BODY_SIZE:
+            self._error_response(400, "Bad request")
+            return
+
+        # Read and decode request body
+        try:
             body_bytes = self.rfile.read(content_length)
             body_str = body_bytes.decode("utf-8")
             body = json.loads(body_str)
-        except (ValueError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError):
             self._error_response(400, "Bad request")
             return
 
@@ -158,21 +164,24 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
             return
 
         # Call adapter.fetch() and collect results
-        try:
-            if self.server.adapter is None:
-                self._error_response(500, "Adapter not configured")
-                return
+        if self.server.adapter is None:
+            self._error_response(500, "Adapter not configured")
+            return
 
+        try:
             results = list(self.server.adapter.fetch(source_ref))
-            response = {
-                "normalized_contents": [item.model_dump() for item in results]
-            }
-            self._json_response(200, response)
         except Exception as e:
             logger.exception(
                 "adapter.fetch() failed for source_ref=%s", source_ref
             )
             self._error_response(500, str(e))
+            return
+
+        # Serialize and send response (connection errors propagate naturally)
+        response = {
+            "normalized_contents": [item.model_dump() for item in results]
+        }
+        self._json_response(200, response)
 
     def _check_bearer_token(self) -> bool:
         """Check if Authorization header contains correct Bearer token.
