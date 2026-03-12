@@ -550,7 +550,7 @@ from context_library.adapters import (
     RemoteAdapter,
     FilesystemAdapter,
 )
-from context_library.storage.models import Domain, AdapterConfig
+from context_library.storage.models import Domain
 from context_library.storage.document_store import DocumentStore
 
 # Initialize document store
@@ -584,8 +584,7 @@ adapters = [
 
 # Register adapters with document store
 for adapter in adapters:
-    config = AdapterConfig(adapter_id=adapter.adapter_id, domain=adapter.domain)
-    source_id = store.register_adapter(config)
+    source_id = adapter.register(store)
     print(f"Registered {adapter.adapter_id}: {source_id}")
 ```
 
