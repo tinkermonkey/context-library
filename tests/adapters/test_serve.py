@@ -538,7 +538,7 @@ class TestFetchValidation:
         assert response.status_code == 500
 
     def test_fetch_error_response_contains_error_field(self):
-        """POST /fetch 500 response contains error field with exception message."""
+        """POST /fetch 500 response contains generic error message (details logged server-side)."""
         def custom_fetch(source_ref):
             raise ValueError("Internal database connection failed")
 
@@ -561,8 +561,8 @@ class TestFetchValidation:
         )
         data = response.json()
         assert "error" in data
-        # Error message from exception is returned for debugging
-        assert data["error"] == "Internal database connection failed"
+        # Error message is generic; exception details are logged server-side only
+        assert data["error"] == "Internal server error"
 
 
 class TestAuthentication:

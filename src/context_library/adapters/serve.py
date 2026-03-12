@@ -184,8 +184,10 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
         try:
             results = list(self.server.adapter.fetch(source_ref))
         except Exception as e:
+            # Sanitize source_ref to prevent log injection (truncate and use repr)
+            sanitized_source_ref = repr(source_ref[:200])
             logger.exception(
-                "adapter.fetch() failed for source_ref=%s", source_ref
+                "adapter.fetch() failed for source_ref=%s", sanitized_source_ref
             )
             self._error_response(500, "Internal server error")
             return
