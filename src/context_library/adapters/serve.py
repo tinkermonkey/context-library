@@ -183,7 +183,7 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
 
         try:
             results = list(self.server.adapter.fetch(source_ref))
-        except Exception as e:
+        except Exception:
             # Sanitize source_ref to prevent log injection (truncate and use repr)
             sanitized_source_ref = repr(source_ref[:200])
             logger.exception(
