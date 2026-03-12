@@ -931,6 +931,48 @@ class TestRoundTrip:
         assert reconstructed.structural_hints.extra_metadata["nested_dict"] == {"inner": "value"}
 
 
+class TestAPIKeyValidation:
+    """Tests for API key validation."""
+
+    def test_serve_adapter_rejects_empty_api_key(self):
+        """serve_adapter() raises ValueError when api_key is empty string."""
+        adapter = MockAdapter(adapter_id="test:empty_key", domain=Domain.NOTES)
+        with pytest.raises(ValueError, match="must not be an empty string"):
+            serve_adapter(adapter, api_key="")
+
+    def test_serve_adapter_accepts_none_api_key(self):
+        """serve_adapter() accepts None as api_key (disables auth)."""
+        adapter = MockAdapter(adapter_id="test:no_auth", domain=Domain.NOTES)
+        port = 18045
+        # Should not raise
+        server_thread = threading.Thread(
+            target=serve_adapter,
+            args=(adapter, "127.0.0.1", port),
+            kwargs={"api_key": None},
+            daemon=True,
+        )
+        server_thread.start()
+        time.sleep(0.2)
+        response = httpx.get(f"http://127.0.0.1:{port}/health")
+        assert response.status_code == 200
+
+    def test_serve_adapter_accepts_non_empty_api_key(self):
+        """serve_adapter() accepts non-empty api_key."""
+        adapter = MockAdapter(adapter_id="test:valid_key", domain=Domain.NOTES)
+        port = 18046
+        # Should not raise
+        server_thread = threading.Thread(
+            target=serve_adapter,
+            args=(adapter, "127.0.0.1", port),
+            kwargs={"api_key": "valid-secret-key"},
+            daemon=True,
+        )
+        server_thread.start()
+        time.sleep(0.2)
+        response = httpx.get(f"http://127.0.0.1:{port}/health")
+        assert response.status_code == 200
+
+
 class TestRemoteAdapterIntegration:
     """End-to-end integration tests with RemoteAdapter consuming from serve_adapter."""
 

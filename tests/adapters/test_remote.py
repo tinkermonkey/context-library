@@ -8,6 +8,40 @@ from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import Domain, NormalizedContent
 
 
+class TestRemoteAdapterAPIKeyValidation:
+    """Tests for RemoteAdapter API key validation."""
+
+    def test_init_rejects_empty_api_key(self):
+        """__init__ raises ValueError when api_key is empty string."""
+        with pytest.raises(ValueError, match="must not be an empty string"):
+            RemoteAdapter(
+                service_url="http://localhost:8000",
+                domain=Domain.NOTES,
+                adapter_id="test",
+                api_key="",
+            )
+
+    def test_init_accepts_none_api_key(self):
+        """__init__ accepts None as api_key (disables auth)."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+            api_key=None,
+        )
+        assert adapter._api_key is None
+
+    def test_init_accepts_non_empty_api_key(self):
+        """__init__ accepts non-empty api_key."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+            api_key="valid-secret-key",
+        )
+        assert adapter._api_key == "valid-secret-key"
+
+
 class TestRemoteAdapterInitialization:
     """Tests for RemoteAdapter initialization."""
 

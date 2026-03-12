@@ -315,7 +315,10 @@ def serve_adapter(
         port: Bind port. Defaults to 8000.
         api_key: Optional API key for Bearer token authentication. If set, all
                  requests must include Authorization: Bearer <api_key> header.
-                 If None, authentication is disabled.
+                 If None, authentication is disabled. Must not be an empty string.
+
+    Raises:
+        ValueError: If api_key is an empty string.
 
     Example:
         Serve an ObsidianAdapter on 0.0.0.0:8001 with API key protection:
@@ -336,6 +339,9 @@ def serve_adapter(
         single-machine, low-concurrency use cases. For higher concurrency, consider
         wrapping this with async/ASGI infrastructure.
     """
+    if api_key is not None and api_key == "":
+        raise ValueError("api_key must not be an empty string")
+
     server = AdapterHTTPServer((host, port), adapter, api_key)
     logger.info(
         "Starting adapter HTTP server on %s:%d for adapter_id=%s, domain=%s",

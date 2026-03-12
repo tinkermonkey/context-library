@@ -86,17 +86,21 @@ class RemoteAdapter(BaseAdapter):
             domain: Domain that this adapter serves
             adapter_id: Deterministic identifier for this adapter instance
             normalizer_version: Version of the normalizer implementation (default: "1.0.0")
-            api_key: Optional bearer token for API authentication
+            api_key: Optional bearer token for API authentication. Must not be an empty string.
             timeout: HTTP request timeout in seconds (default: 30.0)
 
         Raises:
             ImportError: If httpx is not installed.
+            ValueError: If api_key is an empty string.
         """
         if not HAS_HTTPX:
             raise ImportError(
                 "httpx is required for RemoteAdapter. "
                 "Install with: pip install context-library[remote-adapter]"
             )
+
+        if api_key is not None and api_key == "":
+            raise ValueError("api_key must not be an empty string")
 
         self._service_url = service_url.rstrip("/")
         self._domain = domain
