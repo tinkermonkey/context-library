@@ -670,3 +670,32 @@ class TestRemoteAdapterImportError:
             # Restore original values
             remote_module.HAS_HTTPX = original_has_httpx
             remote_module._IMPORT_ERROR = original_import_error
+
+    def test_init_raises_import_error_when_httpx_not_available(self, monkeypatch):
+        """RemoteAdapter.__init__ raises ImportError when httpx is not installed."""
+        import context_library.adapters.remote as remote_module
+
+        original_has_httpx = remote_module.HAS_HTTPX
+        original_import_error = remote_module._IMPORT_ERROR
+
+        try:
+            # Simulate httpx not being installed
+            remote_module.HAS_HTTPX = False
+            remote_module._IMPORT_ERROR = None
+
+            with pytest.raises(ImportError) as exc_info:
+                RemoteAdapter(
+                    service_url="http://localhost:8000",
+                    domain=Domain.NOTES,
+                    adapter_id="test",
+                )
+
+            error_msg = str(exc_info.value)
+            # Verify installation instructions are present
+            assert "pip install context-library[remote-adapter]" in error_msg
+            # Verify error message indicates httpx is required
+            assert "httpx is required" in error_msg
+        finally:
+            # Restore original values
+            remote_module.HAS_HTTPX = original_has_httpx
+            remote_module._IMPORT_ERROR = original_import_error

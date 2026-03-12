@@ -1,5 +1,7 @@
 """Integration tests for the serve_adapter HTTP wrapper."""
 
+import json
+import socket
 import threading
 import time
 
@@ -7,12 +9,64 @@ import httpx
 import pytest
 
 from context_library.adapters.base import BaseAdapter
-from context_library.adapters.serve import serve_adapter
+from context_library.adapters.serve import serve_adapter, MAX_BODY_SIZE
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
     StructuralHints,
 )
+
+
+def find_free_port() -> int:
+    """Find a free port by binding to port 0 and getting the assigned port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
+
+
+def wait_for_server(host: str, port: int, timeout: float = 5.0) -> bool:
+    """Wait for server to be ready by polling /health endpoint.
+
+    Returns True if server is ready, False on timeout.
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            response = httpx.get(f"http://{host}:{port}/health", timeout=0.5)
+            if response.status_code == 200:
+                return True
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.RequestError):
+            time.sleep(0.05)
+    return False
+
+
+def start_test_server(adapter: "BaseAdapter", host: str = "127.0.0.1", api_key: str | None = None) -> tuple[int, threading.Thread]:
+    """Start a test server and wait for it to be ready.
+
+    Args:
+        adapter: The adapter to serve
+        host: Host to bind to (default: 127.0.0.1)
+        api_key: Optional API key for authentication
+
+    Returns:
+        Tuple of (port, server_thread)
+    """
+    port = find_free_port()
+    server_thread = threading.Thread(
+        target=serve_adapter,
+        args=(adapter, host, port),
+        kwargs={"api_key": api_key} if api_key is not None else {},
+        daemon=True,
+    )
+    server_thread.start()
+
+    # Wait for server to be ready
+    if not wait_for_server(host, port):
+        raise RuntimeError(f"Server on {host}:{port} failed to start within timeout")
+
+    return port, server_thread
 
 
 class MockAdapter(BaseAdapter):
@@ -67,16 +121,7 @@ class TestServerStartStop:
     def test_serve_adapter_starts_server(self):
         """serve_adapter() starts an HTTP server on the specified port."""
         adapter = MockAdapter(adapter_id="test:1", domain=Domain.NOTES)
-        port = 18001
-
-        # Start server in background thread
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-
-        # Wait for server to start
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         # Verify server is responding
         response = httpx.get(f"http://127.0.0.1:{port}/health")
@@ -85,16 +130,7 @@ class TestServerStartStop:
     def test_serve_adapter_default_host_is_0_0_0_0(self):
         """serve_adapter() binds to 0.0.0.0 by default."""
         adapter = MockAdapter(adapter_id="test:2", domain=Domain.NOTES)
-        port = 18002
-
-        # Start server in background thread (using default host="0.0.0.0")
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "0.0.0.0", port), daemon=True
-        )
-        server_thread.start()
-
-        # Wait for server to start
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, host="0.0.0.0")
 
         # Verify server responds on localhost
         response = httpx.get(f"http://127.0.0.1:{port}/health")
@@ -114,32 +150,16 @@ class TestHealthEndpoint:
 
     def test_health_returns_200_ok(self):
         """GET /health returns 200 status code."""
-        adapter = MockAdapter(
-            adapter_id="test:health", domain=Domain.NOTES
-        )
-        port = 18003
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        adapter = MockAdapter(adapter_id="test:health", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.status_code == 200
 
     def test_health_returns_json(self):
         """GET /health returns JSON response."""
-        adapter = MockAdapter(
-            adapter_id="test:health", domain=Domain.NOTES
-        )
-        port = 18004
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        adapter = MockAdapter(adapter_id="test:health", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         data = response.json()
@@ -147,16 +167,8 @@ class TestHealthEndpoint:
 
     def test_health_contains_status(self):
         """GET /health returns status field set to 'ok'."""
-        adapter = MockAdapter(
-            adapter_id="test:health", domain=Domain.NOTES
-        )
-        port = 18005
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        adapter = MockAdapter(adapter_id="test:health", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         data = response.json()
@@ -164,16 +176,8 @@ class TestHealthEndpoint:
 
     def test_health_contains_adapter_id(self):
         """GET /health returns adapter_id field."""
-        adapter = MockAdapter(
-            adapter_id="my:custom:id", domain=Domain.NOTES
-        )
-        port = 18006
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        adapter = MockAdapter(adapter_id="my:custom:id", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         data = response.json()
@@ -181,16 +185,8 @@ class TestHealthEndpoint:
 
     def test_health_contains_domain(self):
         """GET /health returns domain field with domain value."""
-        adapter = MockAdapter(
-            adapter_id="test:domain", domain=Domain.TASKS
-        )
-        port = 18007
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        adapter = MockAdapter(adapter_id="test:domain", domain=Domain.TASKS)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         data = response.json()
@@ -200,13 +196,7 @@ class TestHealthEndpoint:
         """GET /health correctly returns domain for all domain types."""
         for domain in [Domain.MESSAGES, Domain.NOTES, Domain.EVENTS, Domain.TASKS]:
             adapter = MockAdapter(adapter_id="test", domain=domain)
-            port = 18008 + list(Domain).index(domain)
-
-            server_thread = threading.Thread(
-                target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-            )
-            server_thread.start()
-            time.sleep(0.2)
+            port, _ = start_test_server(adapter)
 
             response = httpx.get(f"http://127.0.0.1:{port}/health")
             data = response.json()
@@ -219,13 +209,7 @@ class TestFetchEndpoint:
     def test_fetch_returns_200_on_success(self):
         """POST /fetch returns 200 status code for valid request."""
         adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
-        port = 18012
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -236,13 +220,7 @@ class TestFetchEndpoint:
     def test_fetch_returns_json(self):
         """POST /fetch returns JSON response."""
         adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
-        port = 18013
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -254,13 +232,7 @@ class TestFetchEndpoint:
     def test_fetch_returns_normalized_contents(self):
         """POST /fetch returns normalized_contents field."""
         adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
-        port = 18014
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -294,13 +266,7 @@ class TestFetchEndpoint:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18015
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -312,13 +278,7 @@ class TestFetchEndpoint:
     def test_fetch_serializes_normalized_content(self):
         """POST /fetch serializes NormalizedContent objects correctly."""
         adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
-        port = 18016
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -335,13 +295,7 @@ class TestFetchEndpoint:
     def test_fetch_includes_structural_hints(self):
         """POST /fetch includes structural_hints in response."""
         adapter = MockAdapter(adapter_id="test:fetch", domain=Domain.NOTES)
-        port = 18017
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -378,13 +332,7 @@ class TestFetchEndpoint:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18018
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -407,13 +355,7 @@ class TestFetchEndpoint:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18019
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -429,13 +371,7 @@ class TestFetchValidation:
     def test_fetch_missing_source_ref_returns_400(self):
         """POST /fetch without source_ref returns 400 Bad Request."""
         adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
-        port = 18020
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -446,13 +382,7 @@ class TestFetchValidation:
     def test_fetch_null_source_ref_returns_400(self):
         """POST /fetch with null source_ref returns 400 Bad Request."""
         adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
-        port = 18021
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -463,13 +393,7 @@ class TestFetchValidation:
     def test_fetch_non_string_source_ref_returns_400(self):
         """POST /fetch with non-string source_ref returns 400 Bad Request."""
         adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
-        port = 18022
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -480,13 +404,7 @@ class TestFetchValidation:
     def test_fetch_invalid_json_returns_400(self):
         """POST /fetch with invalid JSON returns 400 Bad Request."""
         adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
-        port = 18023
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -498,13 +416,7 @@ class TestFetchValidation:
     def test_fetch_empty_body_returns_400(self):
         """POST /fetch with empty body returns 400 Bad Request."""
         adapter = MockAdapter(adapter_id="test:validation", domain=Domain.NOTES)
-        port = 18024
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -523,13 +435,7 @@ class TestFetchValidation:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18025
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -547,13 +453,7 @@ class TestFetchValidation:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18026
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -564,6 +464,21 @@ class TestFetchValidation:
         # Error message is generic; exception details are logged server-side only
         assert data["error"] == "Internal server error"
 
+    def test_fetch_oversized_body_returns_400(self):
+        """POST /fetch with body exceeding MAX_BODY_SIZE returns 400."""
+        adapter = MockAdapter(adapter_id="test:size", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
+
+        # Create a body larger than MAX_BODY_SIZE
+        oversized_json = json.dumps({"source_ref": "x" * (MAX_BODY_SIZE + 1)})
+
+        response = httpx.post(
+            f"http://127.0.0.1:{port}/fetch",
+            content=oversized_json,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 400
+
 
 class TestAuthentication:
     """Tests for Bearer token authentication."""
@@ -571,16 +486,7 @@ class TestAuthentication:
     def test_fetch_without_auth_succeeds_when_no_api_key(self):
         """POST /fetch succeeds without auth when api_key is None."""
         adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
-        port = 18027
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": None},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key=None)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -591,16 +497,7 @@ class TestAuthentication:
     def test_fetch_with_auth_header_succeeds_when_no_api_key(self):
         """POST /fetch with auth header succeeds when api_key is None."""
         adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
-        port = 18028
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": None},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key=None)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -612,16 +509,7 @@ class TestAuthentication:
     def test_fetch_without_auth_returns_401_when_api_key_set(self):
         """POST /fetch without auth header returns 401 when api_key is set."""
         adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
-        port = 18029
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "secret"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="secret")
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -632,16 +520,7 @@ class TestAuthentication:
     def test_fetch_with_correct_token_succeeds(self):
         """POST /fetch with correct Bearer token succeeds."""
         adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
-        port = 18030
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "secret-key"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="secret-key")
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -653,16 +532,7 @@ class TestAuthentication:
     def test_fetch_with_incorrect_token_returns_401(self):
         """POST /fetch with incorrect Bearer token returns 401."""
         adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
-        port = 18031
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "correct-secret"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="correct-secret")
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -674,16 +544,7 @@ class TestAuthentication:
     def test_fetch_with_malformed_auth_header_returns_401(self):
         """POST /fetch with malformed auth header returns 401."""
         adapter = MockAdapter(adapter_id="test:auth", domain=Domain.NOTES)
-        port = 18032
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "secret"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="secret")
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -695,16 +556,7 @@ class TestAuthentication:
     def test_health_without_auth_succeeds_when_no_api_key(self):
         """GET /health succeeds without auth when api_key is None."""
         adapter = MockAdapter(adapter_id="test:noauth", domain=Domain.NOTES)
-        port = 18033
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": None},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key=None)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.status_code == 200
@@ -712,16 +564,7 @@ class TestAuthentication:
     def test_health_does_not_require_auth_even_when_api_key_set(self):
         """GET /health succeeds without auth even when api_key is set."""
         adapter = MockAdapter(adapter_id="test:health", domain=Domain.NOTES)
-        port = 18034
-
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "secret"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="secret")
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.status_code == 200
@@ -733,13 +576,7 @@ class TestNotFound:
     def test_unknown_path_returns_404(self):
         """GET /unknown returns 404 Not Found."""
         adapter = MockAdapter(adapter_id="test:404", domain=Domain.NOTES)
-        port = 18035
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/unknown")
         assert response.status_code == 404
@@ -747,13 +584,7 @@ class TestNotFound:
     def test_post_to_unknown_path_returns_404(self):
         """POST /unknown returns 404 Not Found."""
         adapter = MockAdapter(adapter_id="test:404", domain=Domain.NOTES)
-        port = 18036
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/unknown",
@@ -768,13 +599,7 @@ class TestContentTypes:
     def test_health_response_has_json_content_type(self):
         """GET /health response includes Content-Type: application/json header."""
         adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
-        port = 18037
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.headers.get("content-type") == "application/json"
@@ -782,13 +607,7 @@ class TestContentTypes:
     def test_fetch_response_has_json_content_type(self):
         """POST /fetch response includes Content-Type: application/json header."""
         adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
-        port = 18038
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -799,13 +618,7 @@ class TestContentTypes:
     def test_error_response_has_json_content_type(self):
         """Error responses include Content-Type: application/json header."""
         adapter = MockAdapter(adapter_id="test:ct", domain=Domain.NOTES)
-        port = 18039
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -846,13 +659,7 @@ class TestRoundTrip:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18040
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         # Make request and get JSON response
         response = httpx.post(
@@ -904,13 +711,7 @@ class TestRoundTrip:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18041
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         response = httpx.post(
             f"http://127.0.0.1:{port}/fetch",
@@ -943,32 +744,14 @@ class TestAPIKeyValidation:
     def test_serve_adapter_accepts_none_api_key(self):
         """serve_adapter() accepts None as api_key (disables auth)."""
         adapter = MockAdapter(adapter_id="test:no_auth", domain=Domain.NOTES)
-        port = 18045
-        # Should not raise
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": None},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key=None)
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.status_code == 200
 
     def test_serve_adapter_accepts_non_empty_api_key(self):
         """serve_adapter() accepts non-empty api_key."""
         adapter = MockAdapter(adapter_id="test:valid_key", domain=Domain.NOTES)
-        port = 18046
-        # Should not raise
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": "valid-secret-key"},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key="valid-secret-key")
         response = httpx.get(f"http://127.0.0.1:{port}/health")
         assert response.status_code == 200
 
@@ -989,13 +772,7 @@ class TestRemoteAdapterIntegration:
             adapter_id="test:served",
             domain=Domain.NOTES,
         )
-        port = 18042
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         # Create a RemoteAdapter client pointing to the served adapter
         remote = RemoteAdapter(
@@ -1051,13 +828,7 @@ class TestRemoteAdapterIntegration:
             domain=Domain.NOTES,
             fetch_impl=custom_fetch,
         )
-        port = 18043
-
-        server_thread = threading.Thread(
-            target=serve_adapter, args=(adapter, "127.0.0.1", port), daemon=True
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter)
 
         # Connect via RemoteAdapter
         remote = RemoteAdapter(
@@ -1094,18 +865,8 @@ class TestRemoteAdapterIntegration:
             adapter_id="test:auth_service",
             domain=Domain.NOTES,
         )
-        port = 18044
         api_key = "test-secret-key"
-
-        # Start server with API key
-        server_thread = threading.Thread(
-            target=serve_adapter,
-            args=(adapter, "127.0.0.1", port),
-            kwargs={"api_key": api_key},
-            daemon=True,
-        )
-        server_thread.start()
-        time.sleep(0.2)
+        port, _ = start_test_server(adapter, api_key=api_key)
 
         # Create RemoteAdapter with matching API key
         remote = RemoteAdapter(
@@ -1118,3 +879,32 @@ class TestRemoteAdapterIntegration:
         # Should succeed with correct key
         results = list(remote.fetch("test"))
         assert len(results) == 1
+
+    def test_remote_adapter_with_wrong_api_key_returns_401(self):
+        """RemoteAdapter with wrong API key fails with 401."""
+        # Import RemoteAdapter (gated by httpx availability)
+        try:
+            from context_library.adapters.remote import RemoteAdapter
+        except ImportError:
+            pytest.skip("httpx not available")
+
+        adapter = MockAdapter(
+            adapter_id="test:auth_mismatch",
+            domain=Domain.NOTES,
+        )
+        correct_key = "correct-secret-key"
+        wrong_key = "wrong-secret-key"
+        port, _ = start_test_server(adapter, api_key=correct_key)
+
+        # Create RemoteAdapter with wrong API key
+        remote = RemoteAdapter(
+            service_url=f"http://127.0.0.1:{port}",
+            domain=Domain.NOTES,
+            adapter_id="remote:wrong_auth",
+            api_key=wrong_key,
+        )
+
+        # Should fail with httpx.HTTPStatusError (401 Unauthorized)
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(remote.fetch("test"))
+        assert exc_info.value.response.status_code == 401
