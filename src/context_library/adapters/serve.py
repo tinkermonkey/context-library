@@ -10,8 +10,13 @@ Security Notes:
   as it is intended for health checks and monitoring. It exposes adapter_id and domain.
 - All Bearer token comparisons use constant-time comparison (hmac.compare_digest).
 - Request body size is limited to prevent memory exhaustion attacks.
-- Exception details from adapter.fetch() are returned in the 500 response (adapter
-  is internal, not exposed to untrusted clients). Exceptions are also logged.
+- Exception details from adapter.fetch() are NOT returned to clients. Generic
+  "Internal server error" message is sent; detailed exception information is logged
+  server-side only. This prevents information disclosure of file paths, connection
+  strings, or internal state.
+- All 400 errors (invalid Content-Length, oversized body, invalid JSON, invalid UTF-8,
+  missing source_ref) are logged server-side with specific details, while clients
+  receive generic "Bad request" response.
 
 Example:
     Launch an Obsidian adapter service:
@@ -126,9 +131,9 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
 
         Returns:
         - 200: {"normalized_contents": [<NormalizedContent.model_dump()>, ...]}
-        - 400: {"error": "Bad request"} - malformed body or missing source_ref
+        - 400: {"error": "Bad request"} - malformed body or missing source_ref (details logged)
         - 401: {"error": "Unauthorized"} - missing or invalid Bearer token
-        - 500: {"error": "<exception message>"} - adapter error
+        - 500: {"error": "Internal server error"} - adapter error (details logged)
         """
         # Check authentication if api_key is configured
         if self.server.api_key is not None:
@@ -141,10 +146,12 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", 0))
         except ValueError:
+            logger.warning("Invalid Content-Length header: %s", self.headers.get("Content-Length"))
             self._error_response(400, "Bad request")
             return
 
         if content_length <= 0 or content_length > MAX_BODY_SIZE:
+            logger.warning("Invalid Content-Length: %d (valid range: 1-%d)", content_length, MAX_BODY_SIZE)
             self._error_response(400, "Bad request")
             return
 
@@ -153,13 +160,19 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
             body_bytes = self.rfile.read(content_length)
             body_str = body_bytes.decode("utf-8")
             body = json.loads(body_str)
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except UnicodeDecodeError as e:
+            logger.warning("Invalid UTF-8 in request body: %s", e)
+            self._error_response(400, "Bad request")
+            return
+        except json.JSONDecodeError as e:
+            logger.warning("Invalid JSON in request body: %s", e)
             self._error_response(400, "Bad request")
             return
 
         # Extract and validate source_ref
         source_ref = body.get("source_ref")
         if source_ref is None or not isinstance(source_ref, str):
+            logger.warning("Missing or invalid source_ref in request body")
             self._error_response(400, "Bad request")
             return
 
@@ -174,7 +187,7 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
             logger.exception(
                 "adapter.fetch() failed for source_ref=%s", source_ref
             )
-            self._error_response(500, str(e))
+            self._error_response(500, "Internal server error")
             return
 
         # Serialize and send response (connection errors propagate naturally)
@@ -295,8 +308,8 @@ def serve_adapter(
         }
 
     Response 401: { "error": "Unauthorized" }      (missing/invalid token)
-    Response 400: { "error": "Bad request" }        (malformed body)
-    Response 500: { "error": "<exception message>" } (adapter error)
+    Response 400: { "error": "Bad request" }        (malformed body; details logged server-side)
+    Response 500: { "error": "Internal server error" } (adapter error; details logged server-side)
 
     GET /health
     -----------
