@@ -103,6 +103,22 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
         else:
             self._error_response(404, "Not Found")
 
+    def do_PUT(self) -> None:
+        """Handle unsupported PUT requests."""
+        self._error_response(405, "Method Not Allowed")
+
+    def do_DELETE(self) -> None:
+        """Handle unsupported DELETE requests."""
+        self._error_response(405, "Method Not Allowed")
+
+    def do_PATCH(self) -> None:
+        """Handle unsupported PATCH requests."""
+        self._error_response(405, "Method Not Allowed")
+
+    def do_OPTIONS(self) -> None:
+        """Handle unsupported OPTIONS requests."""
+        self._error_response(405, "Method Not Allowed")
+
     def _handle_health(self) -> None:
         """Handle GET /health endpoint.
 
@@ -192,11 +208,20 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
             self._error_response(500, "Internal server error")
             return
 
-        # Serialize and send response (connection errors propagate naturally)
-        response = {
-            "normalized_contents": [item.model_dump() for item in results]
-        }
-        self._json_response(200, response)
+        # Serialize and send response
+        try:
+            response = {
+                "normalized_contents": [item.model_dump() for item in results]
+            }
+            self._json_response(200, response)
+        except Exception:
+            # Handle JSON serialization failures (e.g., non-serializable types in extra_metadata)
+            logger.exception(
+                "Failed to serialize NormalizedContent for source_ref=%s",
+                repr(source_ref[:200]),
+            )
+            self._error_response(500, "Internal server error")
+            return
 
     def _check_bearer_token(self) -> bool:
         """Check if Authorization header contains correct Bearer token.
@@ -255,7 +280,14 @@ class AdapterHTTPServer(HTTPServer):
     The adapter and api_key are stored as instance attributes on the server object,
     and handlers access them via self.server.adapter and self.server.api_key.
     This avoids thread-safety issues with class-level mutation.
+
+    The server sets allow_reuse_address = True to enable SO_REUSEADDR, allowing
+    the server to bind to a port immediately after shutdown without waiting for
+    TIME_WAIT socket closure (~60s).
     """
+
+    # Enable SO_REUSEADDR to allow immediate restart
+    allow_reuse_address = True
 
     def __init__(
         self,

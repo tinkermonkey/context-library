@@ -908,3 +908,101 @@ class TestRemoteAdapterIntegration:
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
             list(remote.fetch("test"))
         assert exc_info.value.response.status_code == 401
+
+
+class TestUnsupportedMethods:
+    """Tests for unsupported HTTP methods returning JSON errors."""
+
+    def test_put_returns_405_with_json(self):
+        """PUT request returns 405 Method Not Allowed with JSON response."""
+        adapter = MockAdapter(adapter_id="test:methods", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
+
+        response = httpx.put(
+            f"http://127.0.0.1:{port}/fetch",
+            json={"source_ref": "test"},
+        )
+        assert response.status_code == 405
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "Method Not Allowed"
+        assert response.headers.get("content-type") == "application/json"
+
+    def test_delete_returns_405_with_json(self):
+        """DELETE request returns 405 Method Not Allowed with JSON response."""
+        adapter = MockAdapter(adapter_id="test:methods", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
+
+        response = httpx.delete(f"http://127.0.0.1:{port}/fetch")
+        assert response.status_code == 405
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "Method Not Allowed"
+        assert response.headers.get("content-type") == "application/json"
+
+    def test_patch_returns_405_with_json(self):
+        """PATCH request returns 405 Method Not Allowed with JSON response."""
+        adapter = MockAdapter(adapter_id="test:methods", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
+
+        response = httpx.patch(
+            f"http://127.0.0.1:{port}/fetch",
+            json={"source_ref": "test"},
+        )
+        assert response.status_code == 405
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "Method Not Allowed"
+        assert response.headers.get("content-type") == "application/json"
+
+    def test_options_returns_405_with_json(self):
+        """OPTIONS request returns 405 Method Not Allowed with JSON response."""
+        adapter = MockAdapter(adapter_id="test:methods", domain=Domain.NOTES)
+        port, _ = start_test_server(adapter)
+
+        response = httpx.request("OPTIONS", f"http://127.0.0.1:{port}/fetch")
+        assert response.status_code == 405
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "Method Not Allowed"
+        assert response.headers.get("content-type") == "application/json"
+
+
+class TestJSONSerializationFailure:
+    """Tests for JSON serialization error handling."""
+
+    def test_non_serializable_type_in_extra_metadata_returns_500(self):
+        """POST /fetch returns 500 when model_dump() contains non-JSON-serializable types."""
+        # Create a NormalizedContent with a non-serializable object in extra_metadata
+        def custom_fetch(source_ref):
+            # Create a non-serializable object (datetime, custom object, etc.)
+            hints = StructuralHints(
+                has_headings=False,
+                has_lists=False,
+                has_tables=False,
+                natural_boundaries=[],
+                extra_metadata={"non_serializable": object()},  # object() is not JSON serializable
+            )
+            yield NormalizedContent(
+                markdown="test",
+                source_id="src",
+                structural_hints=hints,
+                normalizer_version="1.0.0",
+            )
+
+        adapter = MockAdapter(
+            adapter_id="test:serialize",
+            domain=Domain.NOTES,
+            fetch_impl=custom_fetch,
+        )
+        port, _ = start_test_server(adapter)
+
+        response = httpx.post(
+            f"http://127.0.0.1:{port}/fetch",
+            json={"source_ref": "test"},
+        )
+        # Should return 500 with generic error message
+        assert response.status_code == 500
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "Internal server error"
