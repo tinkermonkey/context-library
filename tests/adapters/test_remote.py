@@ -520,6 +520,61 @@ class TestRemoteAdapterFetch:
         with pytest.raises(ValidationError):
             list(adapter.fetch("source_ref"))
 
+    def test_fetch_no_partial_results_on_validation_failure(self, mock_httpx_client):
+        """fetch() does not yield any items if a later item fails validation.
+
+        This test verifies the core fix for the partial results bug:
+        when item N fails validation, earlier items should NOT have been
+        yielded to the caller. All items are collected and validated before
+        any are yielded.
+        """
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test_adapter",
+        )
+
+        fetch_url = "http://localhost:8000/fetch"
+        # Response with a valid item followed by an invalid item
+        mock_httpx_client.set_response(
+            fetch_url,
+            {
+                "normalized_contents": [
+                    {  # Valid item
+                        "markdown": "# Valid",
+                        "source_id": "valid_1",
+                        "structural_hints": {
+                            "has_headings": True,
+                            "has_lists": False,
+                            "has_tables": False,
+                            "natural_boundaries": (),
+                        },
+                        "normalizer_version": "1.0.0",
+                    },
+                    {  # Invalid item - missing required 'markdown' field
+                        "source_id": "invalid_1",
+                        "structural_hints": {
+                            "has_headings": False,
+                            "has_lists": False,
+                            "has_tables": False,
+                            "natural_boundaries": (),
+                        },
+                        "normalizer_version": "1.0.0",
+                    },
+                ]
+            },
+        )
+
+        from pydantic import ValidationError
+
+        results = []
+        with pytest.raises(ValidationError):
+            for item in adapter.fetch("source_ref"):
+                results.append(item)
+
+        # Key assertion: no items should have been yielded before the error
+        assert len(results) == 0
+
     def test_fetch_non_validation_errors_propagate(self, mock_httpx_client):
         """fetch() allows non-ValidationError exceptions to propagate."""
         adapter = RemoteAdapter(
