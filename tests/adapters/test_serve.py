@@ -1,9 +1,7 @@
 """Integration tests for the serve_adapter HTTP wrapper."""
 
-import json
 import threading
 import time
-from unittest.mock import MagicMock
 
 import httpx
 import pytest

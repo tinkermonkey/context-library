@@ -82,6 +82,8 @@ class AdapterHTTPHandler(BaseHTTPRequestHandler):
     Bearer token authentication is enforced if api_key is configured on the server.
     """
 
+    server: "AdapterHTTPServer"
+
     def do_GET(self) -> None:
         """Handle GET requests."""
         if self.path == "/health":
