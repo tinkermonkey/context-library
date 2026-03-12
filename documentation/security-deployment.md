@@ -77,7 +77,7 @@ from context_library.storage.models import Domain
 
 adapters = [
     # Local adapter for filesystem notes
-    FilesystemAdapter(root="/home/user/notes"),
+    FilesystemAdapter(directory="/home/user/notes"),
 
     # Remote Mac service: Obsidian notes
     RemoteAdapter(
@@ -148,54 +148,97 @@ openssl x509 -req -days 365 -in client.csr -CA ca.crt -CAkey ca.key \
 ```python
 from context_library.adapters import ObsidianAdapter
 from context_library.adapters.serve import serve_adapter
-import ssl
 
 obsidian = ObsidianAdapter(vault_path="/Users/me/Documents/Obsidian")
 
-# Configure HTTPS with mTLS
-ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ssl_context.load_cert_chain(
-    certfile="/etc/context-library/server.crt",
-    keyfile="/etc/context-library/server.key",
-)
-ssl_context.load_verify_locations("/etc/context-library/ca.crt")
-ssl_context.verify_mode = ssl.CERT_REQUIRED  # Require client certificate
+# Current serve_adapter does not natively support mTLS configuration
+# To use mTLS, you must run serve_adapter behind a reverse proxy
+# (e.g., nginx, Caddy) that handles TLS termination and client certificate verification
 
 serve_adapter(
     obsidian,
-    host="0.0.0.0",
+    host="127.0.0.1",      # Bind to localhost; reverse proxy handles external access
     port=8001,
-    ssl_context=ssl_context,  # Note: Uvicorn/Starlette parameter
 )
 ```
 
+**mTLS Setup with Reverse Proxy:**
+
+For mTLS support, configure a reverse proxy (nginx/Caddy) in front of `serve_adapter`:
+
+1. Reverse proxy listens on `0.0.0.0:8443` (HTTPS) with mTLS enabled
+2. Reverse proxy requires and verifies client certificates
+3. Reverse proxy forwards requests to `serve_adapter` on `127.0.0.1:8001`
+4. `serve_adapter` remains unchanged and continues to run on localhost
+
+**Example nginx configuration snippet:**
+
+```nginx
+server {
+    listen 8443 ssl;
+    ssl_certificate /etc/context-library/server.crt;
+    ssl_certificate_key /etc/context-library/server.key;
+    ssl_client_certificate /etc/context-library/ca.crt;
+    ssl_verify_client on;
+    ssl_verify_depth 1;
+
+    location /fetch {
+        proxy_pass http://127.0.0.1:8001/fetch;
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:8001/health;
+    }
+}
+```
+
+This approach leverages `serve_adapter`'s existing design while adding mTLS support through a standard reverse proxy.
+
 **Linux side configuration (`RemoteAdapter`):**
+
+Currently, `RemoteAdapter` does not natively support mTLS because it creates its own internal `httpx` client without exposing TLS configuration options. To use mTLS with `RemoteAdapter`, extend the class to accept a pre-configured client:
 
 ```python
 from context_library.adapters import RemoteAdapter
 from context_library.storage.models import Domain
 import httpx
 
-# Create HTTP client with mTLS configuration
-mtls_client = httpx.Client(
-    cert=("/home/user/.context-lib/client.crt", "/home/user/.context-lib/client.key"),
-    verify="/home/user/.context-lib/ca.crt",
-)
+# This is an aspirational example showing the intended usage pattern.
+# Current RemoteAdapter does not support passing a custom httpx.Client.
 
-adapter = RemoteAdapter(
+# To implement mTLS support in RemoteAdapter, subclass it and override
+# the internal client creation:
+
+class MtlsRemoteAdapter(RemoteAdapter):
+    """RemoteAdapter with mTLS support."""
+
+    def __init__(self, service_url: str, domain: Domain, adapter_id: str,
+                 cert_file: str, key_file: str, ca_file: str, **kwargs):
+        super().__init__(service_url, domain, adapter_id, **kwargs)
+        # Override the internal client with mTLS configuration
+        self._client = httpx.Client(
+            cert=(cert_file, key_file),
+            verify=ca_file,
+        )
+
+# Usage:
+adapter = MtlsRemoteAdapter(
     service_url="https://mac.example.com:8001",
     domain=Domain.NOTES,
     adapter_id="obsidian:vault-main",
-    # RemoteAdapter will use the configured client for connections
+    cert_file="/home/user/.context-lib/client.crt",
+    key_file="/home/user/.context-lib/client.key",
+    ca_file="/home/user/.context-lib/ca.crt",
 )
 ```
 
-**Security benefits:**
+**Security benefits (mTLS):**
 - No shared secrets transmitted in cleartext
 - Server authenticates client via certificate
 - Client verifies server certificate (prevents man-in-the-middle)
 - Suitable for deployments across untrusted networks or the internet
 - Supports certificate rotation and expiration policies
+- Requires code extension to `RemoteAdapter` for custom client configuration
 
 ---
 
@@ -370,9 +413,8 @@ serve_adapter(adapter, host="192.168.1.10", port=8001)
 serve_adapter(
     adapter,                    # BaseAdapter instance (required)
     host="0.0.0.0",            # Bind address; use "127.0.0.1" for localhost-only
-    port=8001,                 # Port number (required)
+    port=8000,                 # Port number (default: 8000)
     api_key=None,              # Optional Bearer token for authentication
-    request_body_limit=10485760, # Request body size limit (10 MB default)
 )
 ```
 
@@ -382,9 +424,8 @@ serve_adapter(
 |-----------|------|---------|-------------|
 | `adapter` | `BaseAdapter` | — | The adapter instance to serve |
 | `host` | `str` | `"0.0.0.0"` | Bind address. Use `"0.0.0.0"` for remote access, `"127.0.0.1"` for localhost-only |
-| `port` | `int` | — | Port number (1024–65535; <1024 requires elevated privileges) |
+| `port` | `int` | `8000` | Port number (1024–65535; <1024 requires elevated privileges) |
 | `api_key` | `str \| None` | `None` | Optional Bearer token; if set, all requests must include `Authorization: Bearer <token>` |
-| `request_body_limit` | `int` | 10 MB | Maximum request body size to prevent memory exhaustion attacks |
 
 ### Linux-Side: `RemoteAdapter()` Parameters
 
@@ -407,8 +448,9 @@ RemoteAdapter(
 | `service_url` | `str` | — | Full HTTP(S) URL to the remote service (required) |
 | `domain` | `Domain` | — | Domain (MESSAGES, NOTES, EVENTS, TASKS) |
 | `adapter_id` | `str` | — | Unique identifier for this adapter instance |
+| `normalizer_version` | `str` | `"1.0.0"` | Version of the normalizer implementation (optional) |
 | `api_key` | `str \| None` | `None` | Bearer token; must match the `api_key` on Mac side |
-| `timeout` | `int` | 30 | Request timeout in seconds |
+| `timeout` | `float` | `30.0` | Request timeout in seconds |
 
 ---
 
@@ -477,8 +519,8 @@ if __name__ == "__main__":
     obsidian_thread.start()
     reminders_thread.start()
 
-    print("✓ Obsidian adapter listening on 0.0.0.0:8001")
-    print("✓ Reminders adapter listening on 0.0.0.0:8002")
+    print("OK: Obsidian adapter listening on 0.0.0.0:8001")
+    print("OK: Reminders adapter listening on 0.0.0.0:8002")
 
     # Keep main thread alive
     try:
@@ -494,8 +536,8 @@ Run the launcher:
 chmod +x ~/bin/start_adapters.py
 python3 ~/bin/start_adapters.py
 # Output:
-# ✓ Obsidian adapter listening on 0.0.0.0:8001
-# ✓ Reminders adapter listening on 0.0.0.0:8002
+# OK: Obsidian adapter listening on 0.0.0.0:8001
+# OK: Reminders adapter listening on 0.0.0.0:8002
 ```
 
 ### Linux Backend Setup
@@ -517,7 +559,7 @@ store = DocumentStore(db_path="/home/user/.context-lib/context.db")
 adapters = [
     # Local adapter: Filesystem notes on Linux
     FilesystemAdapter(
-        root="/home/user/notes",
+        directory="/home/user/notes",
     ),
 
     # Remote adapter: Obsidian vault from Mac
