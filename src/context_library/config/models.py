@@ -18,7 +18,7 @@ Configuration examples:
       domain: notes
       adapter_id: local:filesystem
       config:
-        root_path: /path/to/files
+        directory: /path/to/files
 """
 
 from typing import Any

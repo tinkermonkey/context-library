@@ -216,10 +216,11 @@ class MtlsRemoteAdapter(RemoteAdapter):
         super().__init__(service_url, domain, adapter_id, **kwargs)
         # Close the default client created by parent __init__
         self._client.close()
-        # Override the internal client with mTLS configuration
+        # Override the internal client with mTLS configuration, preserving timeout
         self._client = httpx.Client(
             cert=(cert_file, key_file),
             verify=ca_file,
+            timeout=self.timeout,
         )
 
 # Usage:
@@ -752,8 +753,10 @@ Before deploying, verify:
 
 3. Bearer token is in the request:
    ```bash
-   curl -H "Authorization: Bearer your-secret-key" \
-        http://mac.local:8001/health
+   curl -X POST -H "Content-Type: application/json" \
+        -H "Authorization: Bearer your-secret-key" \
+        -d '{"source_ref": "test"}' \
+        http://mac.local:8001/fetch
    ```
 
 ### "certificate verify failed" (mTLS)
