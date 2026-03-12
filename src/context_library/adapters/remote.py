@@ -46,6 +46,9 @@ This adapter:
 import logging
 import time
 from typing import Iterator
+from urllib.parse import urlparse
+
+from pydantic import ValidationError
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import Domain, NormalizedContent
@@ -93,7 +96,7 @@ class RemoteAdapter(BaseAdapter):
 
         Raises:
             ImportError: If httpx is not installed.
-            ValueError: If api_key is an empty string.
+            ValueError: If api_key is an empty string or if service_url format is invalid.
         """
         if not HAS_HTTPX:
             msg = (
@@ -106,6 +109,22 @@ class RemoteAdapter(BaseAdapter):
 
         if api_key is not None and api_key == "":
             raise ValueError("api_key must not be an empty string")
+
+        # Validate service_url format
+        if not service_url:
+            raise ValueError("service_url must not be empty")
+
+        parsed = urlparse(service_url)
+        if not parsed.scheme:
+            raise ValueError(
+                f"service_url must include a scheme (e.g., 'http://localhost:8000', "
+                f"'https://example.com'). Got: {service_url}"
+            )
+        if not parsed.netloc:
+            raise ValueError(
+                f"service_url must include a host (e.g., 'http://localhost:8000', "
+                f"'https://example.com'). Got: {service_url}"
+            )
 
         self._service_url = service_url.rstrip("/")
         self._domain = domain
@@ -233,7 +252,7 @@ class RemoteAdapter(BaseAdapter):
                 for idx, item in enumerate(normalized_contents):
                     try:
                         yield NormalizedContent.model_validate(item)
-                    except Exception as e:
+                    except ValidationError as e:
                         logger.error(
                             f"Failed to validate NormalizedContent at index {idx}: {e}"
                         )
