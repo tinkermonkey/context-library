@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.config.loader import load_adapters_from_file
 from context_library.storage.models import Domain

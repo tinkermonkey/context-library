@@ -26,7 +26,6 @@ from context_library.config.models import (
     LocalAdapterConfig,
     RemoteAdapterConfig,
 )
-from context_library.storage.models import Domain
 
 logger = logging.getLogger(__name__)
 
