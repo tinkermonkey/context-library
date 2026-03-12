@@ -51,7 +51,7 @@ Example:
 
         adapter = AppleHealthAdapter(
             api_url="http://localhost:7124",
-            account_id="default"
+            device_id="default"
         )
         serve_adapter(adapter, host="0.0.0.0", port=8003)
 

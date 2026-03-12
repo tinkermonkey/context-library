@@ -227,7 +227,7 @@ from context_library.adapters.serve import serve_adapter
 # Point to the localhost Apple Health helper service (macOS helper)
 adapter = AppleHealthAdapter(
     api_url="http://localhost:7124",
-    account_id="default"
+    device_id="default"
 )
 
 # Start server on 0.0.0.0:8003 with API key protection
