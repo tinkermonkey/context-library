@@ -44,6 +44,7 @@ This adapter:
 """
 
 import logging
+import time
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
@@ -53,13 +54,14 @@ logger = logging.getLogger(__name__)
 
 # Try to import optional dependencies
 HAS_HTTPX = False
+_IMPORT_ERROR: str | None = None
 
 try:
     import httpx
 
     HAS_HTTPX = True
-except ImportError:
-    pass
+except ImportError as e:
+    _IMPORT_ERROR = str(e)
 
 
 class RemoteAdapter(BaseAdapter):
@@ -94,10 +96,13 @@ class RemoteAdapter(BaseAdapter):
             ValueError: If api_key is an empty string.
         """
         if not HAS_HTTPX:
-            raise ImportError(
+            msg = (
                 "httpx is required for RemoteAdapter. "
                 "Install with: pip install context-library[remote-adapter]"
             )
+            if _IMPORT_ERROR:
+                msg += f"\n\nDiagnostics: Failed to import httpx due to: {_IMPORT_ERROR}"
+            raise ImportError(msg)
 
         if api_key is not None and api_key == "":
             raise ValueError("api_key must not be an empty string")
@@ -145,6 +150,8 @@ class RemoteAdapter(BaseAdapter):
         source_ref in the request body. Deserializes the response into
         NormalizedContent objects via Pydantic validation.
 
+        Implements exponential backoff retry for transient failures (502, 503, 504).
+
         Args:
             source_ref: Source-specific reference to fetch from remote service
 
@@ -152,43 +159,93 @@ class RemoteAdapter(BaseAdapter):
             NormalizedContent for each item in response["normalized_contents"]
 
         Raises:
-            httpx.HTTPError: If the HTTP request fails (4xx, 5xx status codes)
+            httpx.HTTPStatusError: If the HTTP request fails with non-transient errors
+            httpx.RequestError: If the request fails (connection, timeout, etc.)
             KeyError: If response is missing normalized_contents key
             TypeError: If normalized_contents is not a list
             pydantic.ValidationError: If any response item fails NormalizedContent validation
         """
+        # Retry configuration for transient failures
+        max_retries = 3
+        base_delay = 1.0  # seconds
+        max_delay = 32.0  # seconds
+
         # Build headers with bearer token if api_key is set
         headers = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        # Send POST request to remote service
-        response = self._client.post(
-            f"{self._service_url}/fetch",
-            json={"source_ref": source_ref},
-            headers=headers,
-        )
+        # Retry loop for transient failures
+        for attempt in range(max_retries + 1):
+            try:
+                # Send POST request to remote service
+                response = self._client.post(
+                    f"{self._service_url}/fetch",
+                    json={"source_ref": source_ref},
+                    headers=headers,
+                )
 
-        # Propagate HTTP errors (4xx, 5xx)
-        response.raise_for_status()
+                # Check for transient errors (502, 503, 504) and retry
+                if response.status_code in (502, 503, 504):
+                    if attempt < max_retries:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        logger.warning(
+                            f"Transient error {response.status_code} from remote service, "
+                            f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                        )
+                        time.sleep(delay)
+                        continue
+                    # On final attempt, raise the error
+                    response.raise_for_status()
 
-        # Parse JSON response
-        data = response.json()
+                # Propagate other HTTP errors (4xx, 5xx)
+                response.raise_for_status()
 
-        # Validate normalized_contents is present
-        if "normalized_contents" not in data:
-            raise KeyError(
-                f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
-            )
+                # Parse JSON response
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    logger.error(f"Failed to parse JSON response from remote service: {e}")
+                    raise
 
-        normalized_contents = data["normalized_contents"]
+                # Validate normalized_contents is present
+                if "normalized_contents" not in data:
+                    logger.error(
+                        f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
+                    )
+                    raise KeyError(
+                        f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
+                    )
 
-        # Validate normalized_contents is a list
-        if not isinstance(normalized_contents, list):
-            raise TypeError(
-                f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
-            )
+                normalized_contents = data["normalized_contents"]
 
-        # Deserialize and yield each NormalizedContent
-        for item in normalized_contents:
-            yield NormalizedContent.model_validate(item)
+                # Validate normalized_contents is a list
+                if not isinstance(normalized_contents, list):
+                    logger.error(
+                        f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
+                    )
+                    raise TypeError(
+                        f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
+                    )
+
+                # Deserialize and yield each NormalizedContent
+                for idx, item in enumerate(normalized_contents):
+                    try:
+                        yield NormalizedContent.model_validate(item)
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to validate NormalizedContent at index {idx}: {e}"
+                        )
+                        raise
+
+                # Success - exit retry loop
+                return
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"HTTP error from remote service: {e.response.status_code} {e.response.text}"
+                )
+                raise
+            except httpx.RequestError as e:
+                logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
+                raise
