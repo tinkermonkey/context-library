@@ -476,26 +476,23 @@ class TestRemoteAdapterContextManager:
 class TestRemoteAdapterRetry:
     """Tests for RemoteAdapter retry behavior with transient errors."""
 
-    def test_fetch_retries_on_502_bad_gateway(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on 502 Bad Gateway and succeeds on retry."""
+    @pytest.mark.parametrize("status_code", [502, 503, 504])
+    def test_fetch_retries_on_transient_errors(self, status_code, mock_httpx_client, monkeypatch):
+        """fetch() retries on transient HTTP errors (502, 503, 504) and succeeds on retry."""
         adapter = RemoteAdapter(
             service_url="http://localhost:8000",
             domain=Domain.NOTES,
             adapter_id="test_adapter",
         )
 
-        fetch_url = "http://localhost:8000/fetch"
         call_count = 0
-
-        # Create a custom post method that tracks retries
-        original_post = mock_httpx_client.post
 
         def tracking_post(url, json=None, headers=None, timeout=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                # First call returns 502
-                return MockResponse({"error": "Bad Gateway"}, status_code=502, url=url)
+                # First call returns transient error
+                return MockResponse({"error": "Transient error"}, status_code=status_code, url=url)
             else:
                 # Second call succeeds
                 return MockResponse(
@@ -517,95 +514,11 @@ class TestRemoteAdapterRetry:
                 )
 
         mock_httpx_client.post = tracking_post
-
-        # Mock time.sleep to avoid waiting in tests
         monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
 
         results = list(adapter.fetch("source_ref"))
         assert len(results) == 1
         assert call_count == 2  # Should have retried once
-
-    def test_fetch_retries_on_503_service_unavailable(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on 503 Service Unavailable and succeeds on retry."""
-        adapter = RemoteAdapter(
-            service_url="http://localhost:8000",
-            domain=Domain.NOTES,
-            adapter_id="test_adapter",
-        )
-
-        call_count = 0
-
-        def tracking_post(url, json=None, headers=None, timeout=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return MockResponse({"error": "Service Unavailable"}, status_code=503, url=url)
-            else:
-                return MockResponse(
-                    {"normalized_contents": [
-                        {
-                            "markdown": "# Test",
-                            "source_id": "test",
-                            "structural_hints": {
-                                "has_headings": True,
-                                "has_lists": False,
-                                "has_tables": False,
-                                "natural_boundaries": (),
-                            },
-                            "normalizer_version": "1.0.0",
-                        }
-                    ]},
-                    status_code=200,
-                    url=url,
-                )
-
-        mock_httpx_client.post = tracking_post
-        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
-
-        results = list(adapter.fetch("source_ref"))
-        assert len(results) == 1
-        assert call_count == 2
-
-    def test_fetch_retries_on_504_gateway_timeout(self, mock_httpx_client, monkeypatch):
-        """fetch() retries on 504 Gateway Timeout and succeeds on retry."""
-        adapter = RemoteAdapter(
-            service_url="http://localhost:8000",
-            domain=Domain.NOTES,
-            adapter_id="test_adapter",
-        )
-
-        call_count = 0
-
-        def tracking_post(url, json=None, headers=None, timeout=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return MockResponse({"error": "Gateway Timeout"}, status_code=504, url=url)
-            else:
-                return MockResponse(
-                    {"normalized_contents": [
-                        {
-                            "markdown": "# Test",
-                            "source_id": "test",
-                            "structural_hints": {
-                                "has_headings": True,
-                                "has_lists": False,
-                                "has_tables": False,
-                                "natural_boundaries": (),
-                            },
-                            "normalizer_version": "1.0.0",
-                        }
-                    ]},
-                    status_code=200,
-                    url=url,
-                )
-
-        mock_httpx_client.post = tracking_post
-        monkeypatch.setattr("context_library.adapters.remote.time.sleep", lambda x: None)
-
-        results = list(adapter.fetch("source_ref"))
-        assert len(results) == 1
-        assert call_count == 2
 
     def test_fetch_raises_after_max_retries_exceeded(self, mock_httpx_client, monkeypatch):
         """fetch() raises HTTPStatusError after max retries exceeded for transient errors."""
@@ -722,3 +635,38 @@ class TestRemoteAdapterIntegration:
         assert hints.modified_at == "2025-01-01T12:00:00Z"
         assert hints.file_size_bytes == 1024
         assert hints.extra_metadata == {"custom_field": "custom_value"}
+
+
+class TestRemoteAdapterImportError:
+    """Tests for RemoteAdapter import error handling."""
+
+    def test_init_import_error_includes_transitive_dependency_diagnostics(self, monkeypatch):
+        """RemoteAdapter.__init__ includes diagnostic info when httpx import fails due to transitive dependency."""
+        # Simulate transitive dependency failure by setting _IMPORT_ERROR
+        import context_library.adapters.remote as remote_module
+
+        original_has_httpx = remote_module.HAS_HTTPX
+        original_import_error = remote_module._IMPORT_ERROR
+
+        try:
+            # Simulate httpx import failure with a transitive dependency error
+            remote_module.HAS_HTTPX = False
+            remote_module._IMPORT_ERROR = "No module named 'h11'"
+
+            with pytest.raises(ImportError) as exc_info:
+                RemoteAdapter(
+                    service_url="http://localhost:8000",
+                    domain=Domain.NOTES,
+                    adapter_id="test",
+                )
+
+            error_msg = str(exc_info.value)
+            # Verify diagnostic section is present
+            assert "Diagnostics:" in error_msg
+            assert "h11" in error_msg
+            # Verify original installation instructions are still present
+            assert "pip install" in error_msg
+        finally:
+            # Restore original values
+            remote_module.HAS_HTTPX = original_has_httpx
+            remote_module._IMPORT_ERROR = original_import_error

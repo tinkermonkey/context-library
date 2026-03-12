@@ -150,7 +150,8 @@ class RemoteAdapter(BaseAdapter):
         source_ref in the request body. Deserializes the response into
         NormalizedContent objects via Pydantic validation.
 
-        Implements exponential backoff retry for transient failures (502, 503, 504).
+        Implements exponential backoff retry for transient failures (502, 503, 504,
+        connection errors, and timeouts).
 
         Args:
             source_ref: Source-specific reference to fetch from remote service
@@ -160,7 +161,7 @@ class RemoteAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPStatusError: If the HTTP request fails with non-transient errors
-            httpx.RequestError: If the request fails (connection, timeout, etc.)
+            httpx.RequestError: If the request fails after max retries (connection, timeout, etc.)
             KeyError: If response is missing normalized_contents key
             TypeError: If normalized_contents is not a list
             pydantic.ValidationError: If any response item fails NormalizedContent validation
@@ -247,5 +248,15 @@ class RemoteAdapter(BaseAdapter):
                 )
                 raise
             except httpx.RequestError as e:
+                # Retry on connection-level transient failures (connection errors, timeouts, DNS failures)
+                if attempt < max_retries:
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    logger.warning(
+                        f"Request error connecting to remote service: {e}, "
+                        f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    time.sleep(delay)
+                    continue
+                # On final attempt, log and re-raise
                 logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
                 raise
