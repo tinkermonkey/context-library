@@ -4,16 +4,12 @@ import importlib.util
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters.filesystem import FilesystemAdapter
-from context_library.adapters.serve import (  # noqa: F401
-    AdapterHTTPServer as AdapterHTTPServer,
-    serve_adapter as serve_adapter,
-)
+from context_library.adapters.serve import serve_adapter as serve_adapter  # noqa: F401
 
 __all__ = [
     "BaseAdapter",
     "FilesystemAdapter",
     "serve_adapter",
-    "AdapterHTTPServer",
 ]
 
 # Check if obsidian adapter's dependencies are available

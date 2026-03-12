@@ -63,33 +63,6 @@ class MockAdapter(BaseAdapter):
             )
 
 
-@pytest.fixture
-def adapter_server():
-    """Fixture that starts an AdapterHTTPServer on a unique port and cleans it up.
-
-    Yields (server, port, client_url) tuple.
-    """
-    adapter = MockAdapter(adapter_id="test:server", domain=Domain.NOTES)
-    port = 18001
-
-    server = AdapterHTTPServer(("127.0.0.1", port), adapter)
-
-    # Start server in background thread
-    server_thread = threading.Thread(target=server.serve_forever, daemon=False)
-    server_thread.daemon = True
-    server_thread.start()
-
-    # Give server a moment to start
-    time.sleep(0.1)
-
-    yield server, port, f"http://127.0.0.1:{port}"
-
-    # Cleanup
-    server.shutdown()
-    server.server_close()
-    server_thread.join(timeout=2)
-
-
 class TestServerStartStop:
     """Tests for server startup and shutdown."""
 
