@@ -23,6 +23,7 @@ obsidian = ["obsidiantools", "python-frontmatter", "PyYAML", "watchdog"]
 caldav = ["caldav", "icalendar"]
 apple-reminders = ["httpx"]
 apple-health = ["httpx"]
+remote-adapter = ["httpx"]
 dev = ["ruff", "mypy", "pytest", "types-PyYAML", "watchdog", "watchfiles"]
 
 [tool.mypy]
