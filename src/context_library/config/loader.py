@@ -262,7 +262,6 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
     - "caldav" -> CalDAVAdapter
     - "apple_reminders" -> AppleRemindersAdapter
     - "apple_health" -> AppleHealthAdapter
-    - "remote" -> RemoteAdapter (handled separately)
 
     Args:
         config: LocalAdapterConfig with adapter type and parameters
@@ -332,5 +331,5 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
         return adapter
     except Exception as e:
         raise RuntimeError(
-            f"Failed to instantiate {class_name} with config {config_dict}: {e}"
+            f"Failed to instantiate {class_name} with adapter_id={config.adapter_id}: {e}"
         ) from e

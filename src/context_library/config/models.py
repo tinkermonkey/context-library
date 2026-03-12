@@ -43,7 +43,7 @@ class RemoteAdapterConfig(BaseModel):
     - timeout must be positive
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     service_url: str
     domain: Domain
@@ -116,7 +116,7 @@ class LocalAdapterConfig(BaseModel):
     - config dict values can be any JSON-serializable type
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     adapter_type: str
     domain: Domain
@@ -153,10 +153,10 @@ class AdaptersConfig(BaseModel):
     - All adapter_ids (across both lists) must be unique within the configuration
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    remote_adapters: list[RemoteAdapterConfig] = []
-    local_adapters: list[LocalAdapterConfig] = []
+    remote_adapters: tuple[RemoteAdapterConfig, ...] = ()
+    local_adapters: tuple[LocalAdapterConfig, ...] = ()
 
     def model_post_init(self, __context: Any) -> None:
         """Validate AdaptersConfig invariants after model construction.
