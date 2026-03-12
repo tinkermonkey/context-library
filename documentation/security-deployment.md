@@ -215,12 +215,13 @@ class MtlsRemoteAdapter(RemoteAdapter):
                  cert_file: str, key_file: str, ca_file: str, **kwargs):
         super().__init__(service_url, domain, adapter_id, **kwargs)
         # Close the default client created by parent __init__
+        _timeout = self._client.timeout
         self._client.close()
         # Override the internal client with mTLS configuration, preserving timeout
         self._client = httpx.Client(
             cert=(cert_file, key_file),
             verify=ca_file,
-            timeout=self.timeout,
+            timeout=_timeout,
         )
 
 # Usage:
