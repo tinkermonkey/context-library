@@ -136,30 +136,34 @@ serve_adapter(adapter, host="0.0.0.0", port=8001, api_key="shared-secret")
 
 ## Launching Mac-Side Services
 
+Context Library provides **standalone, production-ready service scripts** for each adapter.
+These scripts are committed to the repository as deployable artifacts and can be run
+directly without copying code snippets.
+
 ### Obsidian Adapter Service
 
-```python
-#!/usr/bin/env python3
-"""Launch Obsidian adapter as HTTP service."""
+**Location:** `examples/obsidian_service.py`
 
-from context_library.adapters import ObsidianAdapter
-from context_library.adapters.serve import serve_adapter
+```bash
+# Make executable
+chmod +x examples/obsidian_service.py
 
-# Configure your Obsidian vault path
-adapter = ObsidianAdapter(vault_path="/Users/me/Documents/Obsidian")
-
-# Start server on 0.0.0.0:8001 with API key protection
-serve_adapter(
-    adapter,
-    host="0.0.0.0",
-    port=8001,
-    api_key="your-secure-api-key-here"
-)
+# Run directly
+python examples/obsidian_service.py
 ```
 
-Run:
-```bash
-python obsidian_service.py
+The script includes:
+- Configurable vault path, bind address, port, and API key
+- Graceful startup and shutdown handling
+- Helpful logging and diagnostics
+- Validation of vault path existence
+
+Edit the `main()` function to configure:
+```python
+VAULT_PATH = "/Users/me/Documents/Obsidian"
+BIND_HOST = "0.0.0.0"  # Accept remote connections
+BIND_PORT = 8001
+API_KEY = "your-secure-api-key-here"
 ```
 
 Test:
@@ -176,31 +180,30 @@ curl -X POST http://localhost:8001/fetch \
 
 ### Apple Reminders Adapter Service
 
-```python
-#!/usr/bin/env python3
-"""Launch Apple Reminders adapter as HTTP service."""
+**Location:** `examples/apple_reminders_service.py`
 
-from context_library.adapters import AppleRemindersAdapter
-from context_library.adapters.serve import serve_adapter
+```bash
+# Make executable
+chmod +x examples/apple_reminders_service.py
 
-# Point to the localhost Apple Reminders helper service (macOS helper)
-adapter = AppleRemindersAdapter(
-    api_url="http://localhost:7123",
-    account_id="default"
-)
-
-# Start server on 0.0.0.0:8002 with API key protection
-serve_adapter(
-    adapter,
-    host="0.0.0.0",
-    port=8002,
-    api_key="your-secure-api-key-here"
-)
+# Run directly
+python examples/apple_reminders_service.py
 ```
 
-Run:
-```bash
-python reminders_service.py
+The script includes:
+- Connection to the local macOS helper service (default: 127.0.0.1:7123)
+- Optional filtering by Reminders list
+- Configurable bind address, port, and API key
+- Graceful startup and shutdown handling
+
+Edit the `main()` function to configure:
+```python
+HELPER_URL = "http://127.0.0.1:7123"  # Local helper service
+ACCOUNT_ID = "default"
+LIST_NAME = None  # Optional: filter to specific list
+BIND_HOST = "0.0.0.0"  # Accept remote connections
+BIND_PORT = 8002
+API_KEY = "your-secure-api-key-here"
 ```
 
 Test:
@@ -212,36 +215,35 @@ curl http://localhost:8002/health
 curl -X POST http://localhost:8002/fetch \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secure-api-key-here" \
-  -d '{"source_ref": "All"}'
+  -d '{"source_ref": ""}'
 ```
 
 ### Apple Health Adapter Service
 
-```python
-#!/usr/bin/env python3
-"""Launch Apple Health adapter as HTTP service."""
+**Location:** `examples/apple_health_service.py`
 
-from context_library.adapters import AppleHealthAdapter
-from context_library.adapters.serve import serve_adapter
+```bash
+# Make executable
+chmod +x examples/apple_health_service.py
 
-# Point to the localhost Apple Health helper service (macOS helper)
-adapter = AppleHealthAdapter(
-    api_url="http://localhost:7124",
-    device_id="default"
-)
-
-# Start server on 0.0.0.0:8003 with API key protection
-serve_adapter(
-    adapter,
-    host="0.0.0.0",
-    port=8003,
-    api_key="your-secure-api-key-here"
-)
+# Run directly
+python examples/apple_health_service.py
 ```
 
-Run:
-```bash
-python health_service.py
+The script includes:
+- Connection to the local macOS helper service (default: 127.0.0.1:7124)
+- Optional filtering by activity type (running, cycling, yoga, mindfulness, etc.)
+- Configurable bind address, port, and API key
+- Graceful startup and shutdown handling
+
+Edit the `main()` function to configure:
+```python
+HELPER_URL = "http://127.0.0.1:7124"  # Local helper service
+DEVICE_ID = "default"
+ACTIVITY_TYPE = None  # Optional: filter to specific activity type
+BIND_HOST = "0.0.0.0"  # Accept remote connections
+BIND_PORT = 8003
+API_KEY = "your-secure-api-key-here"
 ```
 
 Test:
@@ -253,7 +255,7 @@ curl http://localhost:8003/health
 curl -X POST http://localhost:8003/fetch \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-secure-api-key-here" \
-  -d '{"source_ref": "all"}'
+  -d '{"source_ref": ""}'
 ```
 
 ## Localhost Helper Services

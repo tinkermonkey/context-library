@@ -79,14 +79,16 @@ except ImportError:
 
 
 class AppleRemindersAdapter(BaseAdapter):
-    """Adapter that ingests reminders from a local macOS Apple Reminders helper service.
+    """Adapter that ingests reminders from a local or remote macOS Apple Reminders helper service.
 
-    This adapter communicates with a local HTTP service (running on 127.0.0.1) that
-    reads from Apple EventKit and exposes Reminders data via REST API.
+    This adapter communicates with an HTTP service that reads from Apple EventKit and
+    exposes Reminders data via REST API. The helper service can run on the local machine
+    (127.0.0.1:7123) or be accessible from a remote machine via serve_adapter.
 
     Usage: Start the macOS helper service (which should be running on 127.0.0.1:7123
-    by default), then instantiate this adapter with the helper's base URL. The adapter
-    will fetch reminders and normalize them to TaskMetadata for indexing.
+    by default on the Mac), then instantiate this adapter with the helper's base URL.
+    The adapter will fetch reminders and normalize them to TaskMetadata for indexing.
+    For remote access, use serve_adapter() to expose this adapter over HTTP.
     """
 
     def __init__(
@@ -99,7 +101,9 @@ class AppleRemindersAdapter(BaseAdapter):
         """Initialize AppleRemindersAdapter.
 
         Args:
-            api_url: Base URL of the local macOS helper API (default: http://127.0.0.1:7123)
+            api_url: Base URL of the macOS helper API (default: http://127.0.0.1:7123).
+                     Can be localhost for single-machine deployments or a remote URL
+                     when accessed via serve_adapter() for cross-machine access.
             api_key: Optional bearer token for API authentication
             list_name: Optional filter to specific Reminders list name
             account_id: Account identifier for adapter_id generation (default: "default")

@@ -74,10 +74,12 @@ except ImportError:
 
 
 class AppleHealthAdapter(BaseAdapter):
-    """Adapter for consuming Apple HealthKit data via local HTTP REST API.
+    """Adapter for consuming Apple HealthKit data via local or remote HTTP REST API.
 
     The adapter fetches health and fitness data (workouts, activities, mindfulness sessions)
-    from a macOS helper process that wraps Apple HealthKit APIs.
+    from a macOS helper process that wraps Apple HealthKit APIs. The helper service can
+    run on the local machine (127.0.0.1:7124) or be accessible from a remote machine via
+    serve_adapter for cross-machine deployments.
 
     Each workout is mapped to an EventMetadata with:
     - title: Capitalized activity type (e.g., "Running", "Cycling")
@@ -113,7 +115,9 @@ class AppleHealthAdapter(BaseAdapter):
         """Initialize AppleHealthAdapter.
 
         Args:
-            api_url: Base URL of the local helper API (default: http://127.0.0.1:7124)
+            api_url: Base URL of the helper API (default: http://127.0.0.1:7124).
+                     Can be localhost for single-machine deployments or a remote URL
+                     when accessed via serve_adapter() for cross-machine access.
             api_key: Optional API key for authentication (Bearer token)
             activity_type: Optional filter by activity type (e.g., "running", "cycling")
             device_id: Device identifier for adapter_id computation (default: "default")

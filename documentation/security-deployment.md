@@ -467,7 +467,20 @@ This example demonstrates a complete deployment with:
 
 ### Mac Service Setup
 
-Create a service launcher script on the Mac (`~/bin/start_adapters.py`):
+Context Library provides **production-ready service scripts** in the `examples/` directory:
+- `examples/obsidian_service.py` - Obsidian vault adapter
+- `examples/apple_reminders_service.py` - Apple Reminders adapter
+- `examples/apple_health_service.py` - Apple Health adapter
+
+You can use these scripts directly or as a template. To start the services:
+
+```bash
+# Run each service in the background
+python3 examples/obsidian_service.py &
+python3 examples/apple_reminders_service.py &
+```
+
+Alternatively, create your own launcher script on the Mac (`~/bin/start_adapters.py`):
 
 ```python
 #!/usr/bin/env python3
