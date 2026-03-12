@@ -53,7 +53,11 @@ if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.remote import (  # noqa: F401
         RemoteAdapter as RemoteAdapter,
     )
+    from context_library.adapters.serve import (  # noqa: F401
+        serve_adapter as serve_adapter,
+    )
 
     __all__.append("AppleRemindersAdapter")
     __all__.append("AppleHealthAdapter")
     __all__.append("RemoteAdapter")
+    __all__.append("serve_adapter")
