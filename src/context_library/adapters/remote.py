@@ -153,7 +153,6 @@ class RemoteAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the HTTP request fails (4xx, 5xx status codes)
-            ValueError: If response is malformed (missing normalized_contents key)
             KeyError: If response is missing normalized_contents key
             TypeError: If normalized_contents is not a list
             pydantic.ValidationError: If any response item fails NormalizedContent validation

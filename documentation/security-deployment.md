@@ -56,7 +56,6 @@ serve_adapter(
 )
 
 # Apple Reminders adapter on a different port
-from context_library.adapters import AppleRemindersAdapter
 reminders = AppleRemindersAdapter(
     api_url="http://127.0.0.1:7123",
     account_id="default"
@@ -215,6 +214,8 @@ class MtlsRemoteAdapter(RemoteAdapter):
     def __init__(self, service_url: str, domain: Domain, adapter_id: str,
                  cert_file: str, key_file: str, ca_file: str, **kwargs):
         super().__init__(service_url, domain, adapter_id, **kwargs)
+        # Close the default client created by parent __init__
+        self._client.close()
         # Override the internal client with mTLS configuration
         self._client = httpx.Client(
             cert=(cert_file, key_file),

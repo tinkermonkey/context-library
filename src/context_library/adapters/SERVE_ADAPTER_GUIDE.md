@@ -21,7 +21,7 @@ def serve_adapter(
 - **adapter** (`BaseAdapter`): The adapter instance to serve. Works with any `BaseAdapter` subclass without adapter-specific code.
 - **host** (str): Bind address. Defaults to `"0.0.0.0"` to accept remote connections. Use `"127.0.0.1"` for localhost-only access.
 - **port** (int): Bind port. Defaults to 8000.
-- **api_key** (str | None): Optional API key for Bearer token authentication. If set, all requests must include `Authorization: Bearer <api_key>` header. If None, authentication is disabled.
+- **api_key** (str | None): Optional API key for Bearer token authentication. If set, POST /fetch requests must include `Authorization: Bearer <api_key>` header. GET /health does not require authentication. If None, authentication is disabled.
 
 ## HTTP Endpoints
 
@@ -185,8 +185,8 @@ from context_library.adapters.serve import serve_adapter
 
 # Point to the localhost Apple Reminders helper service (macOS helper)
 adapter = AppleRemindersAdapter(
-    service_url="http://localhost:7123",
-    api_key="reminders-helper-key"
+    api_url="http://localhost:7123",
+    account_id="default"
 )
 
 # Start server on 0.0.0.0:8002 with API key protection
@@ -226,8 +226,8 @@ from context_library.adapters.serve import serve_adapter
 
 # Point to the localhost Apple Health helper service (macOS helper)
 adapter = AppleHealthAdapter(
-    service_url="http://localhost:7124",
-    api_key="health-helper-key"
+    api_url="http://localhost:7124",
+    account_id="default"
 )
 
 # Start server on 0.0.0.0:8003 with API key protection
