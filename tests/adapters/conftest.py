@@ -75,15 +75,35 @@ def mock_httpx_client(monkeypatch):
     """
 
     class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
+        """Mock httpx.Client that tracks requests and returns configured responses.
+
+        Raises AssertionError if attempting to access a URL that hasn't been
+        configured with set_response(), to catch tests that hit the wrong endpoint.
+        """
         def __init__(self, *args, **kwargs):
             self.requests = []
             self.responses = {}
             self.timeout = kwargs.get("timeout")
 
         def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"url": url, "params": params, "headers": headers})
-            return self.responses.get(url, MockResponse({}, url=url))
+            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+            if url not in self.responses:
+                raise AssertionError(
+                    f"MockClient.get() called with unconfigured URL: {url}. "
+                    f"Configured URLs: {list(self.responses.keys())}. "
+                    f"Did you call set_response() for this URL?"
+                )
+            return self.responses[url]
+
+        def post(self, url, json=None, headers=None, timeout=None):
+            self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
+            if url not in self.responses:
+                raise AssertionError(
+                    f"MockClient.post() called with unconfigured URL: {url}. "
+                    f"Configured URLs: {list(self.responses.keys())}. "
+                    f"Did you call set_response() for this URL?"
+                )
+            return self.responses[url]
 
         def set_response(self, url, data, status_code=200):
             self.responses[url] = MockResponse(data, status_code, url=url)
@@ -96,6 +116,10 @@ def mock_httpx_client(monkeypatch):
 
     monkeypatch.setattr(
         "context_library.adapters.apple_reminders.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+    monkeypatch.setattr(
+        "context_library.adapters.remote.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
 
@@ -119,7 +143,14 @@ def mock_httpx_get(monkeypatch):
 
         def __call__(self, url, params=None, headers=None, timeout=None):
             self.requests.append({"url": url, "params": params, "headers": headers})
-            return self.responses.get(url, MockResponse({}, url=url))
+            if url not in self.responses:
+                configured_urls = list(self.responses.keys())
+                raise AssertionError(
+                    f"MockHTTPXGet: Unconfigured URL '{url}'\n"
+                    f"Configured URLs: {configured_urls}\n"
+                    f"Call set_response('{url}', data) to configure this URL."
+                )
+            return self.responses[url]
 
         def set_response(self, url, data, status_code=200):
             self.responses[url] = MockResponse(data, status_code, url=url)

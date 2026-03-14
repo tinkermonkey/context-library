@@ -4,10 +4,12 @@ import importlib.util
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters.filesystem import FilesystemAdapter
+from context_library.adapters.serve import serve_adapter as serve_adapter  # noqa: F401
 
 __all__ = [
     "BaseAdapter",
     "FilesystemAdapter",
+    "serve_adapter",
 ]
 
 # Check if obsidian adapter's dependencies are available
@@ -42,14 +44,26 @@ if (
 
     __all__.append("CalDAVAdapter")
 
-# Check if apple reminders/health adapters' dependencies are available
+# Check if apple_reminders adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_reminders import (  # noqa: F401
         AppleRemindersAdapter as AppleRemindersAdapter,
     )
+
+    __all__.append("AppleRemindersAdapter")
+
+# Check if apple_health adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_health import (  # noqa: F401
         AppleHealthAdapter as AppleHealthAdapter,
     )
 
-    __all__.append("AppleRemindersAdapter")
     __all__.append("AppleHealthAdapter")
+
+# Check if remote adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.remote import (  # noqa: F401
+        RemoteAdapter as RemoteAdapter,
+    )
+
+    __all__.append("RemoteAdapter")

@@ -1,0 +1,79 @@
+# Example Adapter Configuration File
+#
+# This file demonstrates how to declaratively configure both remote and local
+# adapters using YAML. The configuration is loaded at runtime and instantiates
+# adapter objects without requiring Python code.
+#
+# Supported Formats: YAML (.yaml, .yml), TOML (.toml), JSON (.json)
+
+# Remote adapters: services accessed via HTTP
+remote_adapters:
+  # Example: Obsidian vault on a Mac server
+  - service_url: http://mac-server:8001
+    domain: notes
+    adapter_id: obsidian:vault
+    api_key: shared-secret-key  # Store sensitive values securely; env var interpolation not yet supported
+    normalizer_version: "1.0.0"
+    timeout: 30.0
+
+  # Example: Email adapter on a remote Mac server
+  - service_url: https://mac-server:8002
+    domain: messages
+    adapter_id: mail:primary
+    normalizer_version: "1.0.0"
+    timeout: 60.0
+
+# Local adapters: directly instantiated from the context_library
+local_adapters:
+  # Example: Filesystem adapter reading from local directory
+  - adapter_type: filesystem
+    domain: notes
+    adapter_id: local:documents
+    config:
+      directory: /home/user/Documents
+
+  # Example: Another filesystem adapter
+  - adapter_type: filesystem
+    domain: notes
+    adapter_id: local:calendar
+    config:
+      directory: /home/user/Calendar
+
+# Loading Configuration
+# --------------------
+# from context_library.config import load_adapters_from_file
+#
+# adapters = load_adapters_from_file("examples/adapters.yaml")
+# for adapter in adapters:
+#     print(f"Loaded {adapter.adapter_id}: {adapter.domain}")
+
+# Configuration Schema
+# --------------------
+#
+# Remote Adapters:
+#   service_url (required): HTTP(S) URL of the remote adapter service
+#   domain (required): Domain type - must be one of: notes, messages, events, tasks
+#   adapter_id (required): Unique identifier for this adapter instance
+#   api_key (optional): Bearer token for authentication. Omit or set to null if not needed
+#   normalizer_version (optional): Version of the normalization algorithm. Default: "1.0.0"
+#   timeout (optional): HTTP request timeout in seconds. Default: 30.0
+#
+# Local Adapters:
+#   adapter_type (required): Type of adapter - filesystem, obsidian, email, caldav, etc.
+#   domain (required): Domain type - must be one of: notes, messages, events, tasks
+#   adapter_id (required): Unique identifier for this adapter instance
+#   config (optional): Dict of adapter-specific configuration parameters
+#
+# Domains:
+#   - notes: Document and note content
+#   - messages: Email and messaging content
+#   - events: Calendar events
+#   - tasks: Task lists and TODO items
+
+# Validation Rules
+# ----------------
+# - All adapter_ids must be unique (across both remote and local)
+# - At least one adapter must be defined
+# - service_url must start with http:// or https://
+# - timeout must be a positive number
+# - domain must be a valid Domain value
