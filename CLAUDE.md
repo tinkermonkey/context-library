@@ -76,3 +76,49 @@ All in `storage/models.py` using Pydantic v2. Key types: `NormalizedContent`, `C
 ### SQLite Schema
 
 Defined in `storage/schema.sql`. Uses WAL mode, foreign keys ON, compound primary keys for deduplication. The `lancedb_sync_log` table tracks pending vector store operations for consistency recovery.
+
+## Server
+
+The FastAPI server (`src/context_library/server/`) exposes the pipeline over HTTP for push-based ingestion and semantic search.
+
+### Running locally
+
+```bash
+pip install -e ".[server]"
+uvicorn context_library.server.app:app --host 0.0.0.0 --port 8000
+```
+
+### Running with Docker
+
+```bash
+# Build and start (data persisted in named volumes)
+WEBHOOK_SECRET=your-secret docker compose up --build
+
+# Without webhook auth
+docker compose up --build
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/webhooks/ingest` | Push pre-normalized content from external sources (EmailEngine, Apple helpers) |
+| `POST` | `/query` | Semantic search with optional domain/source filtering and reranking |
+| `GET` | `/health` | Validates SQLite and ChromaDB connectivity |
+
+Webhook auth: if `CTX_WEBHOOK_SECRET` is set, requests to `/webhooks/ingest` must include `Authorization: Bearer <secret>`.
+
+### Environment variables
+
+All variables use the `CTX_` prefix (set in env or `.env` file):
+
+| Variable | Default | Description |
+|---|---|---|
+| `CTX_SQLITE_DB_PATH` | `/data/sqlite/documents.db` | SQLite database path |
+| `CTX_CHROMADB_PATH` | `/data/chromadb` | ChromaDB persistence directory |
+| `CTX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model (pre-downloaded in Docker image) |
+| `CTX_ENABLE_RERANKER` | `false` | Enable cross-encoder reranking on `/query` |
+| `CTX_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model (only used if reranker enabled) |
+| `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest` |
+| `CTX_HOST` | `0.0.0.0` | Bind address |
+| `CTX_PORT` | `8000` | Bind port |
