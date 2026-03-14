@@ -156,14 +156,129 @@ context library/
 
 ---
 
-## Getting Started
+## Running the Server
 
-> **Status:** Architecture phase — not yet implemented.
+The server exposes the ingestion pipeline and all retrieval/inspection endpoints over HTTP. Data is persisted in two named Docker volumes — SQLite as the source of truth and ChromaDB as the search index.
 
-See the design documentation for detailed information:
-- [Architecture](./documentation/Architecture.md) — System design and component structure
-- [Persistence Design](./documentation/persistence-design.md) — Dual-storage architecture and data consistency
-- [Chunking Strategy](./documentation/chunking-strategy.md) — Content-aware chunking for each domain
+### Docker (recommended)
+
+```bash
+# With webhook authentication (recommended)
+WEBHOOK_SECRET=your-random-secret docker compose up --build
+
+# Without webhook auth (ingestion endpoint is open)
+docker compose up --build
+```
+
+The server starts on `http://localhost:8000`. The embedding model (`all-MiniLM-L6-v2`) is baked into the image at build time, so the first request does not incur a download delay.
+
+To run in the background:
+
+```bash
+WEBHOOK_SECRET=your-random-secret docker compose up --build -d
+docker compose logs -f   # tail logs
+docker compose down      # stop and remove containers (volumes are preserved)
+```
+
+### Local (development)
+
+```bash
+pip install -e ".[server]"
+
+# Minimal — uses /data/sqlite and /data/chromadb by default
+uvicorn context_library.server.app:app --reload
+
+# Override storage paths and enable auth
+CTX_SQLITE_DB_PATH=./local.db \
+CTX_CHROMADB_PATH=./local_chroma \
+CTX_WEBHOOK_SECRET=dev-secret \
+uvicorn context_library.server.app:app --reload
+```
+
+### Environment variables
+
+All variables use the `CTX_` prefix. Every variable has a default and none are strictly required.
+
+| Variable | Default | Description |
+|---|---|---|
+| `CTX_SQLITE_DB_PATH` | `/data/sqlite/documents.db` | SQLite database path |
+| `CTX_CHROMADB_PATH` | `/data/chromadb` | ChromaDB persistence directory |
+| `CTX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model for embedding |
+| `CTX_ENABLE_RERANKER` | `false` | Enable cross-encoder reranking on `/query` |
+| `CTX_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model (only used if reranker enabled) |
+| `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest`. If unset, the endpoint is open. |
+| `CTX_HOST` | `0.0.0.0` | Bind address |
+| `CTX_PORT` | `8000` | Bind port |
+
+### Endpoints
+
+#### Ingestion
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/webhooks/ingest` | Bearer token (if secret set) | Push pre-normalized content |
+| `GET` | `/health` | None | Check SQLite and ChromaDB connectivity |
+
+#### Search
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/query` | Semantic search with optional domain/source filter and reranking |
+
+#### Inspection
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/adapters` | List all registered adapters |
+| `GET` | `/adapters/{adapter_id}` | Adapter detail |
+| `GET` | `/sources` | List sources (filter by `domain`, `adapter_id`; paginate with `limit`/`offset`) |
+| `GET` | `/sources/{source_id}` | Source detail with active chunk count |
+| `GET` | `/sources/{source_id}/versions` | Version history |
+| `GET` | `/sources/{source_id}/versions/{version}` | Single version with full markdown and chunk hashes |
+| `GET` | `/sources/{source_id}/chunks` | Active chunks for a source (optionally scoped to a `version`) |
+| `GET` | `/sources/{source_id}/diff` | Hash-set diff between two versions (`from_version`, `to_version` required) |
+| `GET` | `/chunks/{chunk_hash}` | Chunk by content hash |
+| `GET` | `/chunks/{chunk_hash}/provenance` | Full provenance: lineage, source origin, version chain |
+| `GET` | `/chunks/{chunk_hash}/version-chain` | Ancestry chain via `parent_chunk_hash` (`source_id` required) |
+| `GET` | `/stats` | Dataset-level counts by domain, retired chunks, sync queue depth |
+
+All detail responses include a `_links` object with URLs to related resources, so the API is traversable without consulting docs.
+
+#### Example traversal
+
+```bash
+# 1. See what's in the dataset
+curl http://localhost:8000/stats
+
+# 2. List sources in the notes domain
+curl "http://localhost:8000/sources?domain=notes"
+
+# 3. Inspect a source and its version history
+curl http://localhost:8000/sources/my-source-id
+curl http://localhost:8000/sources/my-source-id/versions
+
+# 4. Diff two versions
+curl "http://localhost:8000/sources/my-source-id/diff?from_version=1&to_version=2"
+
+# 5. Trace a retrieved chunk back to its origin
+curl http://localhost:8000/chunks/<chunk_hash>/provenance?source_id=my-source-id
+
+# 6. Semantic search
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "meeting notes from last week", "top_k": 5, "domain_filter": "notes"}'
+
+# 7. Push content via webhook
+curl -X POST http://localhost:8000/webhooks/ingest \
+  -H "Authorization: Bearer your-random-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "adapter_id": "my-adapter",
+    "domain": "notes",
+    "normalizer_version": "1.0.0",
+    "items": [{"source_id": "doc-1", "markdown": "# Hello\nWorld", "structural_hints": {}}]
+  }'
+```
 
 ---
 
