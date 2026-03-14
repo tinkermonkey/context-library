@@ -8,7 +8,13 @@ from fastapi import APIRouter, HTTPException, Request
 
 from context_library.core.exceptions import AllSourcesFailedError
 from context_library.domains.registry import get_domain_chunker
-from context_library.server.schemas import IngestError, WebhookIngestRequest, WebhookIngestResponse
+from context_library.server.schemas import (
+    AppleAdapterResult,
+    AppleIngestResponse,
+    IngestError,
+    WebhookIngestRequest,
+    WebhookIngestResponse,
+)
 from context_library.server.webhook_adapter import WebhookAdapter
 from context_library.storage.models import NormalizedContent
 
@@ -69,3 +75,50 @@ async def webhook_ingest(
         chunks_unchanged=result["chunks_unchanged"],
         errors=[IngestError(**e) for e in result["errors"]],
     )
+
+
+@router.post("/ingest/apple", response_model=AppleIngestResponse)
+async def apple_ingest(request: Request) -> AppleIngestResponse:
+    """Pull and ingest content from all configured Apple helper adapters."""
+    pipeline = request.app.state.pipeline
+    config = request.app.state.config
+    apple_adapters = request.app.state.apple_adapters
+
+    if config.webhook_secret:
+        auth = request.headers.get("Authorization", "")
+        expected = f"Bearer {config.webhook_secret}"
+        if not secrets.compare_digest(auth, expected):
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    if not apple_adapters:
+        raise HTTPException(status_code=503, detail="No Apple helper adapters configured (set CTX_APPLE_HELPER_URL and CTX_APPLE_HELPER_API_KEY)")
+
+    results = []
+    for adapter in apple_adapters:
+        domain_chunker = get_domain_chunker(adapter.domain)
+        try:
+            result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker)
+            results.append(AppleAdapterResult(
+                adapter_id=adapter.adapter_id,
+                status="ok" if result["sources_failed"] == 0 else "partial",
+                sources_processed=result["sources_processed"],
+                sources_failed=result["sources_failed"],
+                chunks_added=result["chunks_added"],
+                chunks_removed=result["chunks_removed"],
+                chunks_unchanged=result["chunks_unchanged"],
+                errors=[IngestError(**e) for e in result["errors"]],
+            ))
+        except Exception as e:
+            logger.error("Apple adapter %s failed: %s", adapter.adapter_id, e, exc_info=True)
+            results.append(AppleAdapterResult(
+                adapter_id=adapter.adapter_id,
+                status="error",
+                sources_processed=0,
+                sources_failed=1,
+                chunks_added=0,
+                chunks_removed=0,
+                chunks_unchanged=0,
+                errors=[IngestError(source_id="", error_type=type(e).__name__, message=str(e))],
+            ))
+
+    return AppleIngestResponse(adapters_run=len(results), results=results)

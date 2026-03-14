@@ -90,6 +90,25 @@ class QueryResponse(BaseModel):
     total: int
 
 
+# ── Apple helper ingestion ─────────────────────────────────────────
+
+
+class AppleAdapterResult(BaseModel):
+    adapter_id: str
+    status: str
+    sources_processed: int
+    sources_failed: int
+    chunks_added: int
+    chunks_removed: int
+    chunks_unchanged: int
+    errors: list[IngestError]
+
+
+class AppleIngestResponse(BaseModel):
+    adapters_run: int
+    results: list[AppleAdapterResult]
+
+
 # ── Health ─────────────────────────────────────────────────────────
 
 

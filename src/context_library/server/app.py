@@ -38,6 +38,27 @@ async def lifespan(app: FastAPI):
 
         reranker = Reranker(config.reranker_model)
 
+    # Build Apple helper adapters if the helper is configured
+    apple_adapters = []
+    if config.apple_helper_url and config.apple_helper_api_key:
+        try:
+            from context_library.adapters.apple_reminders import AppleRemindersAdapter
+            from context_library.adapters.apple_health import AppleHealthAdapter
+            from context_library.adapters.apple_imessage import AppleiMessageAdapter
+            from context_library.adapters.apple_notes import AppleNotesAdapter
+            from context_library.adapters.apple_music import AppleMusicAdapter
+
+            apple_adapters = [
+                AppleRemindersAdapter(api_url=config.apple_helper_url, api_key=config.apple_helper_api_key),
+                AppleHealthAdapter(api_url=config.apple_helper_url, api_key=config.apple_helper_api_key),
+                AppleiMessageAdapter(api_url=config.apple_helper_url, api_key=config.apple_helper_api_key),
+                AppleNotesAdapter(api_url=config.apple_helper_url, api_key=config.apple_helper_api_key),
+                AppleMusicAdapter(api_url=config.apple_helper_url, api_key=config.apple_helper_api_key),
+            ]
+            logger.info("Apple helper adapters configured (%d adapters, url=%s)", len(apple_adapters), config.apple_helper_url)
+        except ImportError as e:
+            logger.warning("Apple helper adapters not available (missing dependency): %s", e)
+
     # Store on app.state for route access
     app.state.config = config
     app.state.document_store = document_store
@@ -45,6 +66,7 @@ async def lifespan(app: FastAPI):
     app.state.vector_store = vector_store
     app.state.pipeline = pipeline
     app.state.reranker = reranker
+    app.state.apple_adapters = apple_adapters
 
     logger.info(
         "Server started (model=%s, dim=%d, vectors=%d)",
