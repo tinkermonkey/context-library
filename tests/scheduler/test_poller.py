@@ -70,13 +70,15 @@ def differ():
 
 @pytest.fixture
 def pipeline(document_store, embedder, differ):
-    """Create a pipeline instance with temp LanceDB directory."""
+    """Create a pipeline instance with temp vector store directory."""
+    from context_library.storage.chromadb_store import ChromaDBVectorStore
     with tempfile.TemporaryDirectory() as tmpdir:
+        vector_store = ChromaDBVectorStore(tmpdir)
         pipeline_obj = IngestionPipeline(
             document_store=document_store,
             embedder=embedder,
             differ=differ,
-            vector_store_path=tmpdir,
+            vector_store=vector_store,
         )
         yield pipeline_obj
 

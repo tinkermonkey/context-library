@@ -71,13 +71,15 @@ def differ():
 
 @pytest.fixture
 def pipeline(document_store, embedder, differ):
-    """Create a pipeline instance with temp LanceDB directory."""
+    """Create a pipeline instance with temp vector store directory."""
+    from context_library.storage.chromadb_store import ChromaDBVectorStore
     with tempfile.TemporaryDirectory() as tmpdir:
+        vector_store = ChromaDBVectorStore(tmpdir)
         pipeline_obj = IngestionPipeline(
             document_store=document_store,
             embedder=embedder,
             differ=differ,
-            vector_store_path=tmpdir,
+            vector_store=vector_store,
         )
         yield pipeline_obj
 
@@ -656,7 +658,7 @@ class TestWatcherPollStrategyValidation:
         chunker = MockDomain()
         file_watcher = Mock(spec=FileSystemWatcher)
 
-        with pytest.raises(ValueError, match="PollStrategy.PULL"):
+        with pytest.raises(ValueError, match="poll_strategy is pull"):
             watcher.register(adapter, chunker, file_watcher)
 
     def test_register_rejects_webhook_strategy(self, pipeline):
@@ -670,7 +672,7 @@ class TestWatcherPollStrategyValidation:
         chunker = MockDomain()
         file_watcher = Mock(spec=FileSystemWatcher)
 
-        with pytest.raises(ValueError, match="PollStrategy.WEBHOOK"):
+        with pytest.raises(ValueError, match="poll_strategy is webhook"):
             watcher.register(adapter, chunker, file_watcher)
 
     def test_register_accepts_push_strategy(self, pipeline):

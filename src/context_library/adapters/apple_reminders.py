@@ -1,8 +1,8 @@
 """AppleRemindersAdapter for ingesting reminders from a macOS helper service.
 
-This adapter consumes a local HTTP REST API served by a macOS helper process that reads
-from Apple EventKit and exposes Reminders data. The helper process runs on 127.0.0.1 only
-(never on network interfaces) for security.
+This adapter consumes an HTTP REST API served by a macOS helper process that reads
+from Apple EventKit and exposes Reminders data. The helper process binds to 0.0.0.0
+and requires a Bearer API token for authentication.
 
 Expected Local Service API Contract:
 ====================================
@@ -41,9 +41,9 @@ Priority Mapping (EventKit uses 0-9):
   - 5-7: medium (maps to 3)
   - 8-9: low (maps to 4)
 
-Authentication:
-  If api_key is provided, send as: Authorization: Bearer <api_key>
-  If api_key is None, omit the Authorization header.
+Security:
+  The helper binds to 0.0.0.0 for network access from remote servers.
+  A Bearer API token is REQUIRED: Authorization: Bearer <api_key>
 
 This adapter:
 - Fetches reminders from the local macOS helper API
@@ -79,39 +79,43 @@ except ImportError:
 
 
 class AppleRemindersAdapter(BaseAdapter):
-    """Adapter that ingests reminders from a local macOS Apple Reminders helper service.
+    """Adapter that ingests reminders from a macOS Apple Reminders helper service.
 
-    This adapter communicates with a local HTTP service (running on 127.0.0.1) that
-    reads from Apple EventKit and exposes Reminders data via REST API.
+    This adapter communicates with an HTTP service on the Mac that reads from
+    Apple EventKit and exposes Reminders data via REST API. The helper binds to
+    0.0.0.0 and requires a Bearer API token for authentication.
 
-    Usage: Start the macOS helper service (which should be running on 127.0.0.1:7123
-    by default), then instantiate this adapter with the helper's base URL. The adapter
-    will fetch reminders and normalize them to TaskMetadata for indexing.
+    Usage: Start the macOS helper service, then instantiate this adapter with
+    the helper's base URL and API key. The adapter will fetch reminders and
+    normalize them to TaskMetadata for indexing.
     """
 
     def __init__(
         self,
-        api_url: str = "http://127.0.0.1:7123",
-        api_key: str | None = None,
+        api_url: str,
+        api_key: str,
         list_name: str | None = None,
         account_id: str = "default",
     ) -> None:
         """Initialize AppleRemindersAdapter.
 
         Args:
-            api_url: Base URL of the local macOS helper API (default: http://127.0.0.1:7123)
-            api_key: Optional bearer token for API authentication
+            api_url: Base URL of the macOS helper API (e.g., "http://192.168.1.50:7123")
+            api_key: Required bearer token for API authentication
             list_name: Optional filter to specific Reminders list name
             account_id: Account identifier for adapter_id generation (default: "default")
 
         Raises:
             ImportError: If httpx is not installed.
+            ValueError: If api_key is empty.
         """
         if not HAS_HTTPX:
             raise ImportError(
                 "httpx is required for AppleRemindersAdapter. "
                 "Install with: pip install context-library[apple-reminders]"
             )
+        if not api_key:
+            raise ValueError("api_key is required for AppleRemindersAdapter")
 
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
@@ -232,9 +236,7 @@ class AppleRemindersAdapter(BaseAdapter):
             params["since"] = since
 
         # Build headers
-        headers = {}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
 
         # Make the API request
         response = self._client.get(

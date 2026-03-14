@@ -13,9 +13,9 @@ class TestAppleRemindersAdapterInitialization:
 
     def test_init_default_parameters(self):
         """__init__ uses default parameters when not provided."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7123"
-        assert adapter._api_key is None
+        assert adapter._api_key == "test-token"
         assert adapter._list_name is None
         assert adapter._account_id == "default"
 
@@ -34,12 +34,12 @@ class TestAppleRemindersAdapterInitialization:
 
     def test_init_strips_trailing_slash_from_url(self):
         """__init__ strips trailing slash from api_url."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123/")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123/", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7123"
 
     def test_init_no_trailing_slash(self):
         """__init__ leaves api_url unchanged if no trailing slash."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7123"
 
 
@@ -48,39 +48,39 @@ class TestAppleRemindersAdapterProperties:
 
     def test_adapter_id_format_default(self):
         """adapter_id has correct format: apple_reminders:{account_id}."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter.adapter_id == "apple_reminders:default"
 
     def test_adapter_id_format_custom_account(self):
         """adapter_id uses custom account_id."""
-        adapter = AppleRemindersAdapter(account_id="work")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token", account_id="work")
         assert adapter.adapter_id == "apple_reminders:work"
 
     def test_adapter_id_deterministic(self):
         """adapter_id is deterministic for the same configuration."""
-        adapter1 = AppleRemindersAdapter(account_id="work")
-        adapter2 = AppleRemindersAdapter(account_id="work")
+        adapter1 = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token", account_id="work")
+        adapter2 = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token", account_id="work")
         assert adapter1.adapter_id == adapter2.adapter_id
 
     def test_different_accounts_different_ids(self):
         """Different account IDs produce different adapter_ids."""
-        adapter1 = AppleRemindersAdapter(account_id="work")
-        adapter2 = AppleRemindersAdapter(account_id="personal")
+        adapter1 = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token", account_id="work")
+        adapter2 = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token", account_id="personal")
         assert adapter1.adapter_id != adapter2.adapter_id
 
     def test_domain_property(self):
         """domain property returns Domain.TASKS."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter.domain == Domain.TASKS
 
     def test_poll_strategy_property(self):
         """poll_strategy property returns PollStrategy.PULL."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter.poll_strategy == PollStrategy.PULL
 
     def test_normalizer_version_property(self):
         """normalizer_version property returns '1.0.0'."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter.normalizer_version == "1.0.0"
 
 
@@ -89,7 +89,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_single_reminder(self, mock_httpx_client):
         """fetch() yields NormalizedContent for a single reminder."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # Mock reminders response
         reminders_url = "http://127.0.0.1:7123/reminders"
@@ -116,7 +116,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_multiple_reminders(self, mock_httpx_client):
         """fetch() yields NormalizedContent for multiple reminders."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -153,7 +153,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_incremental_with_since(self, mock_httpx_client):
         """fetch() passes 'since' query parameter for incremental fetch."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [])
@@ -168,6 +168,7 @@ class TestAppleRemindersAdapterFetch:
         """fetch() passes 'list' query parameter when list_name is set."""
         adapter = AppleRemindersAdapter(
             api_url="http://127.0.0.1:7123",
+            api_key="test-token",
             list_name="Shopping"
         )
 
@@ -196,22 +197,14 @@ class TestAppleRemindersAdapterFetch:
         request = mock_httpx_client.requests[0]
         assert request["headers"]["Authorization"] == "Bearer test_token_123"
 
-    def test_fetch_without_api_key_no_auth_header(self, mock_httpx_client):
-        """fetch() omits Authorization header when api_key is None."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
-
-        reminders_url = "http://127.0.0.1:7123/reminders"
-        mock_httpx_client.set_response(reminders_url, [])
-
-        list(adapter.fetch(""))
-
-        # Verify the request was made without Authorization header
-        request = mock_httpx_client.requests[0]
-        assert "Authorization" not in (request["headers"] or {})
+    def test_init_requires_api_key(self):
+        """__init__ raises ValueError when api_key is empty."""
+        with pytest.raises(ValueError, match="api_key is required"):
+            AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="")
 
     def test_fetch_completed_reminder_status(self, mock_httpx_client):
         """fetch() maps completed=true to status='completed'."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -235,7 +228,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_open_reminder_status(self, mock_httpx_client):
         """fetch() maps completed=false to status='open'."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -259,7 +252,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_priority_mapping(self, mock_httpx_client):
         """fetch() maps EventKit priority values correctly."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -349,7 +342,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_with_collaborators(self, mock_httpx_client):
         """fetch() extracts collaborators list."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -373,7 +366,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_with_due_date(self, mock_httpx_client):
         """fetch() extracts due date."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -397,7 +390,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_task_metadata_contains_required_fields(self, mock_httpx_client):
         """fetch() produces TaskMetadata that passes model_validate."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -426,7 +419,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_http_error_propagates(self, mock_httpx_client):
         """fetch() propagates HTTP errors."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, {}, status_code=500)
@@ -436,7 +429,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_invalid_response_schema_raises(self, mock_httpx_client):
         """fetch() raises ValueError if response is not a list."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, {"reminders": []})  # Should be a list, not dict
@@ -446,7 +439,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_missing_required_field_raises(self, mock_httpx_client):
         """fetch() raises KeyError if reminder is missing required field."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -469,7 +462,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_fetch_invalid_field_type_raises(self, mock_httpx_client):
         """fetch() raises TypeError if reminder field has wrong type."""
-        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123")
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -492,7 +485,7 @@ class TestAppleRemindersAdapterFetch:
 
     def test_context_manager_closes_client(self, mock_httpx_client):
         """Adapter supports context manager and closes client on exit."""
-        with AppleRemindersAdapter(api_url="http://127.0.0.1:7123") as adapter:
+        with AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token") as adapter:
             assert adapter._client is not None
         # Client should be closed after exiting context (close() is called)
 
@@ -515,7 +508,7 @@ class TestAppleRemindersAdapterImportGuard:
             )
 
             with pytest.raises(ImportError, match="httpx is required"):
-                AppleRemindersAdapter()
+                AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         finally:
             # Restore original httpx module
             if original_httpx:
@@ -529,7 +522,7 @@ class TestAppleRemindersAdapterMarkdownGeneration:
 
     def test_markdown_includes_title(self, mock_httpx_client):
         """Generated markdown includes reminder title."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -552,7 +545,7 @@ class TestAppleRemindersAdapterMarkdownGeneration:
 
     def test_markdown_includes_status(self, mock_httpx_client):
         """Generated markdown includes status."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -575,7 +568,7 @@ class TestAppleRemindersAdapterMarkdownGeneration:
 
     def test_markdown_includes_priority(self, mock_httpx_client):
         """Generated markdown includes priority when set."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [
@@ -598,7 +591,7 @@ class TestAppleRemindersAdapterMarkdownGeneration:
 
     def test_markdown_includes_notes(self, mock_httpx_client):
         """Generated markdown includes notes when present."""
-        adapter = AppleRemindersAdapter()
+        adapter = AppleRemindersAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         reminders_url = "http://127.0.0.1:7123/reminders"
         mock_httpx_client.set_response(reminders_url, [

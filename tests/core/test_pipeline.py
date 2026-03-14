@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import lancedb
 import pytest
 
 from context_library.adapters.filesystem import FilesystemAdapter
@@ -13,6 +12,7 @@ from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.domains.notes import NotesDomain
+from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 
 
@@ -74,13 +74,14 @@ def domain_chunker():
 
 @pytest.fixture
 def pipeline(document_store, embedder, differ):
-    """Create a pipeline instance with temp LanceDB directory."""
+    """Create a pipeline instance with temp vector store directory."""
     with tempfile.TemporaryDirectory() as tmpdir:
+        vector_store = ChromaDBVectorStore(tmpdir)
         pipeline_obj = IngestionPipeline(
             document_store=document_store,
             embedder=embedder,
             differ=differ,
-            vector_store_path=tmpdir,
+            vector_store=vector_store,
         )
         yield pipeline_obj
 
@@ -152,21 +153,15 @@ class TestIngestionPipelineFirstIngest:
             assert chunk.content is not None
             assert chunk.chunk_index >= 0
 
-    def test_first_ingest_writes_to_lancedb(
+    def test_first_ingest_writes_to_vector_store(
         self, pipeline, temp_markdown_dir, domain_chunker
     ):
-        """First ingest should write vectors to LanceDB."""
+        """First ingest should write vectors to the vector store."""
         adapter = FilesystemAdapter(temp_markdown_dir)
         result = pipeline.ingest(adapter, domain_chunker)
 
-        # Open LanceDB and verify vectors were written
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        tables = db.list_tables().tables
-        assert "chunk_vectors" in tables
-
-        # Verify row count matches chunks_added
-        table = db.open_table("chunk_vectors")
-        assert table.count_rows() == result["chunks_added"]
+        # Verify vector count matches chunks_added
+        assert pipeline.vector_store.count() == result["chunks_added"]
 
 
 class TestIngestionPipelineReIngestUnchanged:
@@ -260,7 +255,7 @@ Some different text here."""
     def test_reingest_chunk_removal_within_file(
         self, pipeline, temp_markdown_dir, domain_chunker
     ):
-        """Re-ingest after removing a section should retire old chunks and remove from LanceDB."""
+        """Re-ingest after removing a section should retire old chunks and remove from vector store."""
         adapter = FilesystemAdapter(temp_markdown_dir)
 
         # First ingest
@@ -272,11 +267,9 @@ Some different text here."""
         num_chunks_before = len(chunks_before)
         assert num_chunks_before > 0
 
-        # Get LanceDB row count before modification
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        lancedb_count_before = table.count_rows()
-        assert lancedb_count_before > 0
+        # Get vector store count before modification
+        vector_count_before = pipeline.vector_store.count()
+        assert vector_count_before > 0
 
         # Get sync log count before modification
         cursor = pipeline.document_store.conn.cursor()
@@ -307,11 +300,9 @@ Completely new content."""
         retired_chunks = cursor.fetchone()[0]
         assert retired_chunks > 0
 
-        # Verify LanceDB row count decreased (removed vectors)
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        lancedb_count_after = table.count_rows()
-        assert lancedb_count_after < lancedb_count_before
+        # Verify vector store count decreased (removed vectors)
+        vector_count_after = pipeline.vector_store.count()
+        assert vector_count_after < vector_count_before
 
         # Verify sync log records delete operations for removed chunks
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'delete'")
@@ -481,25 +472,18 @@ class TestIntegrationVectorSearch:
         result = pipeline.ingest(adapter, domain_chunker)
         assert result["chunks_added"] > 0, "Should ingest chunks"
 
-        # Create query vector
+        # Create query vector and search via vector store
         embedder = pipeline.embedder
         query_text = "file content section"
         query_vector = embedder.embed_query(query_text)
 
-        # Search LanceDB
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        results = table.search(query_vector).limit(3).to_list()
+        results = pipeline.vector_store.search(query_vector, top_k=3)
 
         # Verify results
         assert len(results) > 0, "Should return results for query"
         for result in results:
-            assert "content" in result, "Result should contain content"
-            assert "chunk_hash" in result, "Result should contain chunk_hash"
-            assert "source_id" in result, "Result should contain source_id"
-            assert "_distance" in result or "score" in result, (
-                "Result should contain relevance score"
-            )
+            assert result.chunk_hash, "Result should contain chunk_hash"
+            assert 0.0 <= result.similarity_score <= 1.0, "Score should be in [0, 1]"
 
 
 class TestFixtureIntegration:
@@ -597,21 +581,15 @@ class TestFixtureIntegration:
         query_text = "file content section"
         query_vector = embedder.embed_query(query_text)
 
-        # Search LanceDB
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        results = table.search(query_vector).limit(5).to_list()
+        # Search via vector store abstraction
+        results = pipeline.vector_store.search(query_vector, top_k=5)
 
         # Verify results exist and have required fields
         assert len(results) > 0, "Should return search results"
 
         for result in results:
-            # LanceDB returns these exact field names
-            assert "content" in result, "Result must contain 'content' field"
-            assert "chunk_hash" in result, "Result must contain 'chunk_hash' field"
-            assert "source_id" in result, "Result must contain 'source_id' field"
-            # LanceDB returns similarity as "_distance" for vector search
-            assert "_distance" in result, "Result must contain '_distance' score field"
+            assert result.chunk_hash, "Result must contain chunk_hash"
+            assert 0.0 <= result.similarity_score <= 1.0, "Score should be in [0, 1]"
 
 
 class TestPipelineEmbeddingValidation:
@@ -735,11 +713,9 @@ class TestEndToEndIngestReIngestRetrieval:
         chunks_in_sqlite_phase1 = cursor.fetchone()[0]
         assert chunks_in_sqlite_phase1 == result_first["chunks_added"]
 
-        # Verify vectors were written to LanceDB
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        vectors_in_lancedb_phase1 = table.count_rows()
-        assert vectors_in_lancedb_phase1 == result_first["chunks_added"]
+        # Verify vectors were written to vector store
+        vectors_in_store_phase1 = pipeline.vector_store.count()
+        assert vectors_in_store_phase1 == result_first["chunks_added"]
 
         # Store version info from phase 1
         versions_phase1 = pipeline.document_store.get_version_history("file1.md")
@@ -789,7 +765,7 @@ More new content here."""
             query,
             pipeline.embedder,
             pipeline.document_store,
-            vector_store_path=pipeline.vector_store_path,
+            vector_store=pipeline.vector_store,
             top_k=5,
         )
 
@@ -813,14 +789,12 @@ More new content here."""
         assert len(file1_results) > 0, "Should retrieve results from modified file1.md"
 
         # Phase 4: Verify store consistency (no orphaned records)
-        # Count total LanceDB vectors (should only include active chunks)
-        db = lancedb.connect(str(pipeline.vector_store_path))
-        table = db.open_table("chunk_vectors")
-        vectors_in_lancedb_phase2 = table.count_rows()
+        # Count total vectors (should only include active chunks)
+        vectors_in_store_phase2 = pipeline.vector_store.count()
 
-        # Every vector in LanceDB should correspond to an active chunk
-        assert vectors_in_lancedb_phase2 <= chunks_in_sqlite_phase2, \
-            "LanceDB vectors should not exceed active chunks"
+        # Every vector should correspond to an active chunk
+        assert vectors_in_store_phase2 <= chunks_in_sqlite_phase2, \
+            "Vector store count should not exceed active chunks"
 
         # Summary of complete lifecycle
         assert result_first["sources_processed"] + result_second["sources_processed"] > 0
@@ -1087,10 +1061,10 @@ class TestPipelineErrorHandling:
             assert error["error_type"] == "StorageError"
             assert error["store_type"] == "sqlite"
 
-    def test_lancedb_inconsistency_detected_and_marked(
+    def test_vector_store_inconsistency_detected_and_marked(
         self, pipeline, temp_markdown_dir, domain_chunker
     ):
-        """Test that SQLite/LanceDB inconsistency is detected and marked."""
+        """Test that SQLite/vector store inconsistency is detected and marked."""
         adapter = FilesystemAdapter(temp_markdown_dir)
 
         # First ingest to populate store
@@ -1106,36 +1080,11 @@ class TestPipelineErrorHandling:
             "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
         )
 
-        # Mock LanceDB table.add to fail (this is called when vectors already exist)
-        original_connect = lancedb.connect
-        fail_count = {"count": 0}
-
-        def mock_connect_with_lancedb_failure(path):
-            db = original_connect(path)
-
-            def create_mock_table_with_add_failure(real_table):
-                original_table_add = real_table.add
-
-                def mock_add(*args, **kwargs):
-                    # Fail on first add attempt (when called for this test)
-                    fail_count["count"] += 1
-                    if fail_count["count"] > 0:  # First add will be from first ingest, second will be from reingest
-                        raise RuntimeError("LanceDB write failed during add")
-                    return original_table_add(*args, **kwargs)
-
-                real_table.add = mock_add
-                return real_table
-
-            original_open = db.open_table
-
-            def mock_open_table(name, *args, **kwargs):
-                table = original_open(name, *args, **kwargs)
-                return create_mock_table_with_add_failure(table)
-
-            db.open_table = mock_open_table
-            return db
-
-        with patch("context_library.core.pipeline.lancedb.connect", side_effect=mock_connect_with_lancedb_failure):
+        # Mock vector store add_vectors to fail
+        with patch.object(
+            pipeline.vector_store, "add_vectors",
+            side_effect=RuntimeError("Vector store write failed"),
+        ):
             result = pipeline.ingest(adapter, domain_chunker)
 
             # Should have error tracked and marked as inconsistent
@@ -1145,7 +1094,7 @@ class TestPipelineErrorHandling:
             # Check error indicates inconsistency
             error = result["errors"][0]
             assert error["error_type"] == "StorageError"
-            assert error["store_type"] == "lancedb"
+            assert error["store_type"] == "vector_store"
             assert error["inconsistent"]
 
             # Store consistency should show inconsistency
