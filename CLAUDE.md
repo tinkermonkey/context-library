@@ -9,26 +9,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -e ".[dev]"
 
 # Install with specific adapter extras
-pip install -e ".[obsidian,email,apple-health,caldav]"
+pip install -e ".[server,obsidian,email,apple-reminders,apple-imessage,apple-notes,apple-health,apple-music,caldav]"
 
 # Run all tests
-.venv/bin/pytest
+pytest
 
 # Run tests for a specific module
-.venv/bin/pytest tests/storage/
-.venv/bin/pytest tests/core/test_pipeline.py
+pytest tests/storage/
+pytest tests/core/test_pipeline.py
 
 # Run a single test
-.venv/bin/pytest tests/storage/test_document_store.py::test_init_memory_database -v
+pytest tests/storage/test_document_store.py::test_init_memory_database -v
 
 # Lint
-.venv/bin/ruff check src/ tests/
+ruff check src/ tests/
 
 # Type check
-.venv/bin/mypy src/context_library/
+mypy src/context_library/
 ```
 
 Python path is configured in `pyproject.toml` so pytest discovers `src/` automatically.
+
+## Running the Server
+
+```bash
+# Docker (recommended)
+WEBHOOK_SECRET=your-secret docker compose up
+
+# With Apple macOS bridge
+WEBHOOK_SECRET=your-secret \
+APPLE_HELPER_URL=http://192.168.1.x:7123 \
+APPLE_HELPER_API_KEY=your-helper-key \
+docker compose up
+
+# Local (requires pip install -e ".[server]")
+CTX_WEBHOOK_SECRET=your-secret uvicorn context_library.server.app:app --reload
+```
+
+Key environment variables (all prefixed `CTX_`):
+- `CTX_WEBHOOK_SECRET` — Bearer token required on all endpoints
+- `CTX_APPLE_HELPER_URL` — Base URL of the macOS bridge (context-helpers)
+- `CTX_APPLE_HELPER_API_KEY` — Must match `server.api_key` in context-helpers config.yaml
+- `CTX_ENABLE_RERANKER` — Set to `true` to enable cross-encoder reranking
 
 ## Architecture
 

@@ -135,11 +135,11 @@ classDiagram
     class BaseAdapter {
         <<abstract>>
         +adapter_id: str
-        +domain(): Domain
-        +fetch(source_ref: SourceRef) RawContent
-        +normalize(raw: RawContent) NormalizedContent
-        +identity(ref: SourceRef) SourceID
-        +poll_strategy() PollStrategy
+        +domain: Domain
+        +normalizer_version: str
+        +poll_strategy: PollStrategy
+        +fetch(source_ref: str) Iterator~NormalizedContent~
+        +register(document_store: DocumentStore) str
     }
 
     class PollStrategy {
@@ -206,10 +206,45 @@ classDiagram
         +normalize(raw) NormalizedContent
     }
 
+    class AppleRemindersAdapter {
+        +domain: Tasks
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class AppleiMessageAdapter {
+        +domain: Messages
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class AppleNotesAdapter {
+        +domain: Notes
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class AppleHealthAdapter {
+        +domain: Events
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class AppleMusicAdapter {
+        +domain: Events
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class ObsidianAdapter {
+        +domain: Notes
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+    class FilesystemAdapter {
+        +domain: Notes
+        +fetch(source_ref) Iterator~NormalizedContent~
+    }
+
     GmailAdapter --|> BaseAdapter
     ObsidianAdapter --|> BaseAdapter
     SpotifyAdapter --|> BaseAdapter
     TodoistAdapter --|> BaseAdapter
+    AppleRemindersAdapter --|> BaseAdapter
+    AppleiMessageAdapter --|> BaseAdapter
+    AppleNotesAdapter --|> BaseAdapter
+    AppleHealthAdapter --|> BaseAdapter
+    AppleMusicAdapter --|> BaseAdapter
+    FilesystemAdapter --|> BaseAdapter
 
     class BaseDomain {
         <<abstract>>
@@ -456,6 +491,38 @@ classDiagram
 
     TaskMetadata --> TaskState
 ```
+
+---
+
+## Server Layer
+
+The FastAPI server (`server/app.py`) exposes the ingestion pipeline over HTTP. Components are initialized in the lifespan context manager and stored on `app.state`:
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Service health and vector count |
+| `POST /webhooks/ingest` | Push pre-normalized content from any adapter |
+| `POST /ingest/apple` | Pull from all configured Apple helper adapters |
+| `POST /query` | Semantic search with optional reranking |
+
+All endpoints require `Authorization: Bearer <CTX_WEBHOOK_SECRET>`.
+
+### macOS Bridge Pattern
+
+Apple data sources (Reminders, iMessage, Notes, Health, Music) require native macOS APIs and cannot run in Docker. The companion `context-helpers` service runs on macOS, exposes those sources over HTTP on port 7123, and this server pulls from it via `POST /ingest/apple`.
+
+```
+macOS (context-helpers)                 Linux/Docker (context-library)
+───────────────────────────             ──────────────────────────────
+FastAPI :7123                           FastAPI :8000
+  GET /reminders   ◄──────────────────  AppleRemindersAdapter
+  GET /messages    ◄──────────────────  AppleiMessageAdapter
+  GET /notes       ◄──────────────────  AppleNotesAdapter
+  GET /workouts    ◄──────────────────  AppleHealthAdapter
+  GET /tracks      ◄──────────────────  AppleMusicAdapter
+```
+
+Configured via `CTX_APPLE_HELPER_URL` and `CTX_APPLE_HELPER_API_KEY` (must match `server.api_key` in context-helpers `config.yaml`).
 
 ---
 

@@ -110,48 +110,54 @@ This supports queries like:
 ## Project Structure
 
 ```
-context library/
-├── core/
-│   ├── pipeline.py          # Orchestrates fetch → normalize → diff → chunk → embed → store
-│   ├── differ.py            # Markdown diff engine, hash comparison, change detection
-│   ├── chunker.py           # Domain-aware chunking strategies
-│   ├── embedder.py          # Embedding interface (swappable models)
-│   └── versioner.py         # Version management, hash tracking, lineage records
-├── domains/
-│   ├── base.py              # Abstract domain with shared behavior
-│   ├── messages.py          # Thread-aware chunking, conversation reconstruction
-│   ├── notes.py             # Semantic chunking with temporal metadata
-│   ├── events.py            # Time-window batching, summary generation
-│   └── tasks.py             # State-transition versioning, hierarchy tracking
+src/context_library/
 ├── adapters/
-│   ├── base.py              # Adapter interface / contract
-│   ├── messages/
-│   │   ├── gmail.py
-│   │   ├── imap.py
-│   │   └── slack.py
-│   ├── notes/
-│   │   ├── apple_notes.py
-│   │   ├── obsidian.py
-│   │   └── photo_ocr.py
-│   ├── events/
-│   │   ├── apple_health.py
-│   │   ├── spotify.py
-│   │   └── strava.py
-│   └── tasks/
-│       ├── todoist.py
-│       ├── github_issues.py
-│       └── reminders.py
+│   ├── base.py              # BaseAdapter abstract class
+│   ├── _watching.py         # Shared filesystem watcher utility
+│   ├── filesystem.py        # Plain markdown files
+│   ├── filesystem_rich.py   # PDF/Office/image ingestion via MarkItDown
+│   ├── obsidian.py          # Obsidian vault (frontmatter, wikilinks)
+│   ├── obsidian_tasks.py    # Obsidian tasks plugin
+│   ├── email.py             # IMAP/EmailEngine
+│   ├── caldav.py            # CalDAV calendars
+│   ├── apple_reminders.py   # Apple Reminders via context-helpers
+│   ├── apple_health.py      # Apple Health via context-helpers
+│   ├── apple_imessage.py    # iMessage via context-helpers
+│   ├── apple_notes.py       # Apple Notes via context-helpers
+│   └── apple_music.py       # Apple Music via context-helpers
+├── core/
+│   ├── pipeline.py          # Orchestrates fetch → diff → chunk → embed → store
+│   ├── differ.py            # Hash-based change detection
+│   └── embedder.py          # Sentence-transformers embedding
+├── domains/
+│   ├── base.py              # BaseDomain abstract class
+│   ├── registry.py          # Domain → chunker lookup
+│   ├── messages.py          # Thread-aware chunking
+│   ├── notes.py             # Heading-based hierarchical chunking
+│   ├── events.py            # Time-window batching
+│   └── tasks.py             # State-transition versioning
 ├── storage/
-│   ├── document_store.py    # Full markdown storage, keyed by source_id + version
-│   ├── vector_store.py      # Chunk embeddings with lineage metadata
-│   └── models.py            # Data classes for chunks, versions, lineage records
+│   ├── models.py            # Pydantic data models
+│   ├── document_store.py    # SQLite source-of-truth
+│   ├── vector_store.py      # VectorStore abstract port
+│   ├── chromadb_store.py    # ChromaDB implementation
+│   └── schema.sql           # SQLite schema
 ├── retrieval/
-│   ├── query.py             # RAG query interface
-│   ├── reranker.py          # Cross-encoder reranking
-│   └── provenance.py        # Source tracing and version history queries
-└── scheduler/
-    ├── poller.py            # Scheduled re-fetch for pull-based adapters
-    └── watcher.py           # Webhook/filesystem watchers for push-based adapters
+│   ├── query.py             # Semantic search
+│   └── reranker.py          # Cross-encoder reranking
+└── server/
+    ├── app.py               # FastAPI app factory + lifespan
+    ├── config.py            # ServerConfig (CTX_ env vars)
+    ├── schemas.py           # Request/response models
+    ├── webhook_adapter.py   # Passthrough adapter for webhook payloads
+    └── routes/
+        ├── health.py        # GET /health
+        ├── ingest.py        # POST /webhooks/ingest, POST /ingest/apple
+        ├── retrieve.py      # POST /query
+        ├── adapters.py      # GET /adapters, /adapters/{id}
+        ├── sources.py       # GET /sources, /sources/{id}, versions, chunks, diff
+        ├── chunks.py        # GET /chunks/{hash}, provenance, version-chain
+        └── stats.py         # GET /stats
 ```
 
 ---
@@ -165,6 +171,12 @@ The server exposes the ingestion pipeline and all retrieval/inspection endpoints
 ```bash
 # With webhook authentication (recommended)
 WEBHOOK_SECRET=your-random-secret docker compose up --build
+
+# With Apple macOS bridge also configured
+WEBHOOK_SECRET=your-random-secret \
+APPLE_HELPER_URL=http://192.168.1.x:7123 \
+APPLE_HELPER_API_KEY=your-helper-key \
+docker compose up --build
 
 # Without webhook auth (ingestion endpoint is open)
 docker compose up --build
@@ -206,9 +218,17 @@ All variables use the `CTX_` prefix. Every variable has a default and none are s
 | `CTX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model for embedding |
 | `CTX_ENABLE_RERANKER` | `false` | Enable cross-encoder reranking on `/query` |
 | `CTX_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model (only used if reranker enabled) |
-| `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest`. If unset, the endpoint is open. |
+| `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on ingest endpoints. If unset, endpoints are open. |
 | `CTX_HOST` | `0.0.0.0` | Bind address |
 | `CTX_PORT` | `8000` | Bind port |
+| `CTX_APPLE_HELPER_URL` | `""` | Base URL of the macOS bridge service (context-helpers) |
+| `CTX_APPLE_HELPER_API_KEY` | `""` | Bearer token for the macOS bridge — must match `server.api_key` in context-helpers config |
+
+### macOS Bridge (context-helpers)
+
+Apple data sources (Reminders, iMessage, Notes, Health, Music) require native macOS access and cannot run in Docker. The [`context-helpers`](../context-helpers) service runs on macOS, exposes those sources over HTTP, and the server pulls from it via `POST /ingest/apple`.
+
+See [context-helpers/README.md](../context-helpers/README.md) for setup instructions.
 
 ### Endpoints
 
@@ -216,7 +236,8 @@ All variables use the `CTX_` prefix. Every variable has a default and none are s
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/webhooks/ingest` | Bearer token (if secret set) | Push pre-normalized content |
+| `POST` | `/webhooks/ingest` | Bearer token (if secret set) | Push pre-normalized content from any adapter |
+| `POST` | `/ingest/apple` | Bearer token (if secret set) | Pull from all configured Apple helper adapters |
 | `GET` | `/health` | None | Check SQLite and ChromaDB connectivity |
 
 #### Search
@@ -278,7 +299,33 @@ curl -X POST http://localhost:8000/webhooks/ingest \
     "normalizer_version": "1.0.0",
     "items": [{"source_id": "doc-1", "markdown": "# Hello\nWorld", "structural_hints": {}}]
   }'
+
+# 8. Pull from Apple macOS bridge
+curl -X POST http://localhost:8000/ingest/apple \
+  -H "Authorization: Bearer your-random-secret"
 ```
+
+### Available Adapters
+
+| Adapter | Domain | Extra | Notes |
+|---|---|---|---|
+| `FilesystemAdapter` | Notes | *(core)* | Markdown files |
+| `FilesystemRichAdapter` | Notes | `rich-fs` | PDF, Office, images via MarkItDown |
+| `ObsidianAdapter` | Notes | `obsidian` | Vault with frontmatter/wikilinks |
+| `EmailAdapter` | Messages | `email` | IMAP via EmailEngine |
+| `CaldavAdapter` | Events | `caldav` | CalDAV calendars |
+| `AppleRemindersAdapter` | Tasks | `apple-reminders` | Via context-helpers bridge |
+| `AppleHealthAdapter` | Events | `apple-health` | Via context-helpers bridge |
+| `AppleiMessageAdapter` | Messages | `apple-imessage` | Via context-helpers bridge |
+| `AppleNotesAdapter` | Notes | `apple-notes` | Via context-helpers bridge |
+| `AppleMusicAdapter` | Events | `apple-music` | Via context-helpers bridge |
+
+### Design Documentation
+
+- [Architecture](./documentation/Architecture.md) — System design and component structure
+- [Persistence Design](./documentation/persistence-design.md) — Dual-storage architecture and data consistency
+- [Chunking Strategy](./documentation/chunking-strategy.md) — Content-aware chunking for each domain
+- [Roadmap](./documentation/roadmap.md) — Implementation phases and status
 
 ---
 
