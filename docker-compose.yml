@@ -8,6 +8,7 @@ services:
     volumes:
       - sqlite-data:/data/sqlite
       - chromadb-data:/data/chromadb
+    restart: unless-stopped
     environment:
       - CTX_EMBEDDING_MODEL=all-MiniLM-L6-v2
       - CTX_WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
