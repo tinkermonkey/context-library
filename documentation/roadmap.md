@@ -28,59 +28,84 @@ Phase 1 establishes the core architecture for semantic document retrieval from m
 
 ---
 
-## Phase 2: Scheduler and Multi-Source Adapters
+## Phase 2: Multi-Source Adapters (Complete)
 
-Phase 2 adds automated ingestion scheduling and support for additional data sources beyond plain markdown files on disk.
+Phase 2 added support for additional data sources beyond plain markdown files on disk.
 
-### Planned Features
+### Delivered
 
-- **Scheduler Components** (`src/context_library/scheduler/poller.py`, `src/context_library/scheduler/watcher.py`) — Automated polling and file system watching for continuous ingestion of new and modified content.
+- **Shared Filesystem Watcher** (`src/context_library/adapters/_watching.py`) — Internal utility module shared by the Filesystem and Obsidian adapters. Wraps [watchdog](https://github.com/gorakhargosh/watchdog) behind a thin adapter-facing interface; each adapter instantiates its own watcher pointed at its own path scope. Maps to `PollStrategy.PUSH`.
 
-- **Email Adapter** — Integration for ingesting and indexing email content as a retrievable source. Uses [EmailEngine](https://github.com/postalsys/emailengine), a headless email client that exposes a unified REST API over IMAP, SMTP, Gmail API, and MS Graph API, abstracting provider-specific auth flows. For direct IMAP/SMTP access, [email-oauth2-proxy](https://github.com/simonrob/email-oauth2-proxy) provides transparent OAuth 2.0 (SASL XOAUTH2) proxying for providers including Gmail, Outlook, Yahoo, and Fastmail, with support for headless deployments and secrets-manager-backed credential storage. Credentials are never stored in plaintext; short-lived access tokens and refresh tokens are managed by the OAuth layer.
+- **Rich Filesystem Adapter** (`src/context_library/adapters/filesystem_rich.py`) — Extends the MVP filesystem adapter to handle non-markdown file formats by converting them to markdown at ingestion time via [MarkItDown](https://github.com/microsoft/markitdown) (PDFs, Office documents, images, HTML). Uses `_watching.py` for filesystem event capture.
 
-- **Shared Filesystem Watcher** (`src/context_library/adapters/_watching.py`) — Internal utility module shared by the Filesystem and Obsidian adapters. Wraps [watchdog](https://github.com/gorakhargosh/watchdog) (cross-platform, event-driven) or [watchfiles](https://github.com/samuelcolvin/watchfiles) (Rust-backed, lower latency) behind a thin adapter-facing interface: each adapter instantiates its own watcher pointed at its own path scope — there is no shared singleton. The module encapsulates watchdog `Observer` lifecycle, translates `FileSystemEvent` objects into `SourceRef` values the pipeline understands, and maps to `PollStrategy.PUSH` so the Scheduler routes events through its existing `handle_webhook` path rather than a polling loop. Code is shared at import time; OS-level watchers remain independent per adapter.
+- **Obsidian Adapter** (`src/context_library/adapters/obsidian.py`) — Ingests an Obsidian vault using `_watching.py` for filesystem event capture. Vault-specific metadata (frontmatter, tags, wikilinks) extracted via [obsidiantools](https://github.com/mfarragher/obsidiantools).
 
-- **Filesystem Adapter** (`src/context_library/adapters/filesystem_rich.py`) — Extends the MVP filesystem adapter to handle non-markdown file formats by converting them to markdown at ingestion time. [MarkItDown](https://github.com/microsoft/markitdown) (Microsoft) converts PDFs, Office documents (docx, xlsx, pptx), images, HTML, and audio files into LLM-ready markdown; [Pandoc](https://pandoc.org/) serves as a fallback for formats MarkItDown does not cover (e.g. LaTeX, EPUB, RST, ODT). Uses `_watching.py` for filesystem event capture. Filesystem metadata — MIME type, file size, creation/modification timestamps, and directory hierarchy — is captured and stored as chunk metadata to augment retrieval.
+- **Email Adapter** (`src/context_library/adapters/email.py`) — IMAP ingestion via [EmailEngine](https://github.com/postalsys/emailengine).
 
-- **Obsidian Adapter** (`src/context_library/adapters/obsidian.py`) — Ingests an Obsidian vault using `_watching.py` for filesystem event capture, without any format conversion since vault notes are already markdown. Vault-specific metadata is extracted using [obsidiantools](https://github.com/mfarragher/obsidiantools) (graph-level analytics: backlinks, wikilinks, note connectivity) and [obsidianmd-parser](https://pypi.org/project/obsidianmd-parser/) (per-note: YAML frontmatter, tags, Dataview fields, aliases). Extracted metadata — tags, aliases, frontmatter properties, wikilink graph edges, and creation/modification dates — is stored alongside chunks to enable metadata-filtered retrieval and graph-aware ranking.
+- **CalDAV Adapter** (`src/context_library/adapters/caldav.py`) — Calendar event ingestion from CalDAV servers.
 
-- **Messages Domain** (`src/context_library/domains/messages.py`) — Domain implementation for chunking and indexing conversational message content with thread and author preservation.
-
----
-
-## Phase 3: Extended Domain Support
-
-Phase 3 expands domain coverage to handle additional content types and data structures beyond notes.
-
-### Planned Features
-
-- **Events Domain** (`src/context_library/domains/events.py`) — Domain implementation for calendar events, meeting notes, and temporal content with time-aware chunking.
-
-- **Tasks Domain** (`src/context_library/domains/tasks.py`) — Domain implementation for structured task lists with hierarchy preservation and status-aware filtering.
-
-- **Additional Adapters** — Further integrations for specialized data sources and APIs.
+- **Messages Domain** (`src/context_library/domains/messages.py`) — Thread-aware chunking and indexing for conversational message content.
 
 ---
 
-## Phase 4: Advanced Retrieval and Optimization
+## Phase 3: Extended Domain Support (Complete)
 
-Phase 4 enhances retrieval capabilities with ranking, provenance tracking, and performance optimization for large-scale deployments.
+Phase 3 expanded domain coverage to handle all four content types.
 
-### Planned Features
+### Delivered
 
-- **Reranker** (`src/context_library/retrieval/reranker.py`) — Cross-encoder-based result ranking to improve semantic search quality beyond vector similarity.
+- **Events Domain** (`src/context_library/domains/events.py`) — One-event-per-chunk with time-window batching for calendar events, health metrics, and music listens.
 
-- **Provenance API** (`src/context_library/retrieval/provenance.py`) — Detailed tracking of retrieved content lineage with source attribution, version history, and confidence scoring.
-
-- **Cross-Reference Detection** — Automatic identification and linking of related content across multiple domains and sources.
-
-- **Performance Optimization** — LanceDB IVF-PQ indexing for efficient vector search at scale and query latency improvements.
+- **Tasks Domain** (`src/context_library/domains/tasks.py`) — One-task-per-chunk with lifecycle state tracking (open → in-progress → done).
 
 ---
 
-## Out of Scope for Phase 1
+## Phase 4: Server and Retrieval (Complete)
 
-The following files exist in the codebase but represent reserved interfaces for future cross-domain abstraction and are explicitly deferred:
+Phase 4 delivered the FastAPI server, webhook ingestion, and advanced retrieval.
+
+### Delivered
+
+- **FastAPI Server** (`src/context_library/server/`) — HTTP API with webhook ingestion (`POST /webhooks/ingest`), semantic search (`POST /query`), and health check (`GET /health`). All configuration via `CTX_` environment variables.
+
+- **Reranker** (`src/context_library/retrieval/reranker.py`) — Optional cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`) to improve result quality beyond vector similarity.
+
+- **VectorStore port swap** — Replaced LanceDB with ChromaDB (`src/context_library/storage/chromadb_store.py`) as the default vector store implementation.
+
+---
+
+## Phase 5: macOS Bridge Integration (Complete)
+
+Phase 5 added native macOS data sources via a companion bridge service.
+
+### Delivered
+
+- **`context-helpers` bridge service** — A standalone Python package (runs natively on macOS as a launchd agent) that exposes Apple data sources over HTTP. Provides endpoints for Reminders, iMessage, Notes, Health, and Music with Bearer token authentication.
+
+- **Apple adapter suite** (`src/context_library/adapters/apple_*.py`) — Five adapters that pull from the context-helpers bridge:
+  - `AppleRemindersAdapter` (Domain: Tasks) — Reminders via JXA/osascript
+  - `AppleiMessageAdapter` (Domain: Messages) — iMessage chat.db
+  - `AppleNotesAdapter` (Domain: Notes) — Apple Notes via apple-notes-to-sqlite
+  - `AppleHealthAdapter` (Domain: Events) — HealthKit exports via healthkit-to-sqlite
+  - `AppleMusicAdapter` (Domain: Events) — iTunes Library XML
+
+- **`POST /ingest/apple` endpoint** — Triggers a pull from all configured Apple adapters and returns per-adapter ingestion results. Configured via `CTX_APPLE_HELPER_URL` and `CTX_APPLE_HELPER_API_KEY`.
+
+---
+
+## Planned
+
+- **Scheduler** — Automated polling for pull-based adapters (currently triggered manually via `POST /ingest/apple` or external cron).
+
+- **Provenance API** — Detailed source attribution and version history queries via REST.
+
+- **Cross-Reference Detection** — Automatic linking of related content across domains and sources.
+
+---
+
+## Deferred
+
+The following are reserved interfaces that have not yet been promoted to active implementation:
 
 - **Versioner** (`src/context_library/core/versioner.py`) — Reserved for generalized source version management and content-addressed chunk hashing across all domains.
 

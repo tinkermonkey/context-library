@@ -20,7 +20,7 @@ The adapter uses a layered architecture for security:
 Expected local service API contract
 ===================================
 
-The helper process exposes a single endpoint on 127.0.0.1 (localhost only):
+The helper process exposes the following HTTP endpoint:
 
 GET /workouts
   Query parameters:
@@ -42,9 +42,13 @@ GET /workouts
       }
     ]
 
-Example usage (local):
+Security Note: The helper process binds to 0.0.0.0 for network access from remote servers.
+A Bearer API token is REQUIRED for all requests to authenticate the caller.
+
+Example usage:
     adapter = AppleHealthAdapter(
-        api_url="http://127.0.0.1:7124",
+        api_url="http://192.168.1.50:7124",
+        api_key="your-api-token",
         activity_type="running",
         device_id="macbook-pro-m1"
     )
@@ -123,29 +127,30 @@ class AppleHealthAdapter(BaseAdapter):
 
     def __init__(
         self,
-        api_url: str = "http://127.0.0.1:7124",
-        api_key: str | None = None,
+        api_url: str,
+        api_key: str,
         activity_type: str | None = None,
         device_id: str = "default",
     ) -> None:
         """Initialize AppleHealthAdapter.
 
         Args:
-            api_url: Base URL of the helper API (default: http://127.0.0.1:7124).
-                     Can be localhost for single-machine deployments or a remote URL
-                     when accessed via serve_adapter() for cross-machine access.
-            api_key: Optional API key for authentication (Bearer token)
+            api_url: Base URL of the helper API (e.g., "http://192.168.1.50:7124")
+            api_key: Required API key for Bearer token authentication
             activity_type: Optional filter by activity type (e.g., "running", "cycling")
             device_id: Device identifier for adapter_id computation (default: "default")
 
         Raises:
             ImportError: If httpx is not installed
+            ValueError: If api_key is empty
         """
         if not HAS_HTTPX:
             raise ImportError(
                 "Apple Health adapter requires 'httpx' package. "
                 "Install with: pip install context-library[apple-health]"
             )
+        if not api_key:
+            raise ValueError("api_key is required for AppleHealthAdapter")
 
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
@@ -189,9 +194,7 @@ class AppleHealthAdapter(BaseAdapter):
             params["since"] = since
 
         # Build request headers
-        headers = {}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
 
         try:
             # Fetch workouts from local API

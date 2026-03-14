@@ -3998,3 +3998,163 @@ class TestCrossReferencesRoundTrip:
         # Attempting to retrieve should raise ValueError with informative message
         with pytest.raises(ValueError, match=r"_system_cross_refs must be iterable"):
             store.get_chunk_by_hash(_make_hash("non_iter"), source_id)
+
+
+# ── New read method tests ────────────────────────────────────────────
+
+
+def _setup_adapter_and_source(store: DocumentStore):
+    """Register adapter and source for new method tests."""
+    from context_library.storage.models import compute_chunk_hash
+    config = AdapterConfig(
+        adapter_id="read-adapter",
+        adapter_type="filesystem",
+        domain=Domain.NOTES,
+        normalizer_version="1.0.0",
+    )
+    store.register_adapter(config)
+    store.register_source(
+        source_id="read-src",
+        adapter_id="read-adapter",
+        domain=Domain.NOTES,
+        origin_ref="/docs/test.md",
+        poll_strategy=PollStrategy.PULL,
+        poll_interval_sec=3600,
+    )
+    return config
+
+
+class TestListAdapters:
+    """Tests for DocumentStore.list_adapters()."""
+
+    def test_returns_empty_list(self, store: DocumentStore) -> None:
+        assert store.list_adapters() == []
+
+    def test_returns_registered_adapter(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        adapters = store.list_adapters()
+        assert len(adapters) == 1
+        assert adapters[0].adapter_id == "read-adapter"
+        assert adapters[0].adapter_type == "filesystem"
+        assert adapters[0].domain == Domain.NOTES
+
+    def test_ordered_by_adapter_id(self, store: DocumentStore) -> None:
+        for aid in ["z-adapter", "a-adapter", "m-adapter"]:
+            store.register_adapter(AdapterConfig(
+                adapter_id=aid,
+                adapter_type="filesystem",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+            ))
+        ids = [a.adapter_id for a in store.list_adapters()]
+        assert ids == sorted(ids)
+
+
+class TestListSources:
+    """Tests for DocumentStore.list_sources()."""
+
+    def test_returns_empty_list(self, store: DocumentStore) -> None:
+        rows, total = store.list_sources()
+        assert rows == []
+        assert total == 0
+
+    def test_returns_source(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        rows, total = store.list_sources()
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "read-src"
+        assert rows[0]["domain"] == "notes"
+
+    def test_chunk_count_is_zero_for_new_source(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        rows, _ = store.list_sources()
+        assert rows[0]["chunk_count"] == 0
+
+    def test_filter_by_domain(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        rows, total = store.list_sources(domain="notes")
+        assert total == 1
+        assert len(rows) == 1
+        _, total2 = store.list_sources(domain="messages")
+        assert total2 == 0
+
+    def test_filter_by_adapter_id(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        rows, total = store.list_sources(adapter_id="read-adapter")
+        assert total == 1
+        assert len(rows) == 1
+        _, total2 = store.list_sources(adapter_id="other")
+        assert total2 == 0
+
+    def test_pagination(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        rows, total = store.list_sources(limit=1, offset=0)
+        assert total == 1
+        assert len(rows) == 1
+        rows2, total2 = store.list_sources(limit=10, offset=1)
+        assert total2 == 1   # total is full match count, not page count
+        assert len(rows2) == 0
+
+
+class TestGetSourceDetail:
+    """Tests for DocumentStore.get_source_detail()."""
+
+    def test_returns_none_for_missing_source(self, store: DocumentStore) -> None:
+        assert store.get_source_detail("no-such") is None
+
+    def test_returns_detail(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        row = store.get_source_detail("read-src")
+        assert row is not None
+        assert row["source_id"] == "read-src"
+        assert row["adapter_type"] == "filesystem"
+        assert row["normalizer_version"] == "1.0.0"
+        assert "created_at" in row
+        assert "updated_at" in row
+
+
+class TestGetSourceVersion:
+    """Tests for DocumentStore.get_source_version()."""
+
+    def test_returns_none_for_missing(self, store: DocumentStore) -> None:
+        assert store.get_source_version("no-src", 1) is None
+
+    def test_returns_version(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash
+        _setup_adapter_and_source(store)
+        ch = compute_chunk_hash("test content")
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="# Test",
+            chunk_hashes=[ch],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        sv = store.get_source_version("read-src", 1)
+        assert sv is not None
+        assert sv.version == 1
+        assert sv.markdown == "# Test"
+        assert ch in sv.chunk_hashes
+
+
+class TestGetDatasetStats:
+    """Tests for DocumentStore.get_dataset_stats()."""
+
+    def test_zeros_on_empty_db(self, store: DocumentStore) -> None:
+        stats = store.get_dataset_stats()
+        assert stats["total_sources"] == 0
+        assert stats["total_active_chunks"] == 0
+        assert stats["retired_chunk_count"] == 0
+        assert stats["sync_queue_pending_insert"] == 0
+        assert stats["sync_queue_pending_delete"] == 0
+        assert stats["by_domain"] == []
+
+    def test_counts_after_registration(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        stats = store.get_dataset_stats()
+        assert stats["total_sources"] == 1
+        assert stats["by_domain"][0]["domain"] == "notes"
+        assert stats["by_domain"][0]["source_count"] == 1

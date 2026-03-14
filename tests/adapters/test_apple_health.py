@@ -13,11 +13,16 @@ class TestAppleHealthAdapterInitialization:
 
     def test_init_default_parameters(self):
         """__init__ uses default parameters when not provided."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7124"
-        assert adapter._api_key is None
+        assert adapter._api_key == "test-token"
         assert adapter._activity_type is None
         assert adapter._device_id == "default"
+
+    def test_init_requires_api_key(self):
+        """__init__ raises ValueError when api_key is empty."""
+        with pytest.raises(ValueError, match="api_key is required"):
+            AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="")
 
     def test_init_custom_parameters(self):
         """__init__ accepts and stores custom parameters."""
@@ -34,12 +39,12 @@ class TestAppleHealthAdapterInitialization:
 
     def test_init_strips_trailing_slash_from_url(self):
         """__init__ strips trailing slash from api_url."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124/")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124/", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7124"
 
     def test_init_no_trailing_slash(self):
         """__init__ leaves api_url unchanged if no trailing slash."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter._api_url == "http://127.0.0.1:7124"
 
 
@@ -48,44 +53,44 @@ class TestAppleHealthAdapterProperties:
 
     def test_adapter_id_format_default(self):
         """adapter_id has correct format: apple_health:{device_id}."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter.adapter_id == "apple_health:default"
 
     def test_adapter_id_format_custom_device(self):
         """adapter_id uses custom device_id."""
-        adapter = AppleHealthAdapter(device_id="macbook-pro-m1")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="macbook-pro-m1")
         assert adapter.adapter_id == "apple_health:macbook-pro-m1"
 
     def test_adapter_id_includes_activity_type_filter(self):
         """adapter_id includes activity_type when set."""
-        adapter = AppleHealthAdapter(activity_type="running", device_id="watch-s7")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", activity_type="running", device_id="watch-s7")
         assert adapter.adapter_id == "apple_health:watch-s7:type=running"
 
     def test_adapter_id_deterministic(self):
         """adapter_id is deterministic for the same configuration."""
-        adapter1 = AppleHealthAdapter(device_id="watch-s7")
-        adapter2 = AppleHealthAdapter(device_id="watch-s7")
+        adapter1 = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="watch-s7")
+        adapter2 = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="watch-s7")
         assert adapter1.adapter_id == adapter2.adapter_id
 
     def test_different_devices_different_ids(self):
         """Different device IDs produce different adapter_ids."""
-        adapter1 = AppleHealthAdapter(device_id="watch-s7")
-        adapter2 = AppleHealthAdapter(device_id="iphone-15")
+        adapter1 = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="watch-s7")
+        adapter2 = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="iphone-15")
         assert adapter1.adapter_id != adapter2.adapter_id
 
     def test_domain_property(self):
         """domain property returns Domain.EVENTS."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter.domain == Domain.EVENTS
 
     def test_poll_strategy_property(self):
         """poll_strategy property returns PollStrategy.PULL."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter.poll_strategy == PollStrategy.PULL
 
     def test_normalizer_version_property(self):
         """normalizer_version property returns '1.0.0'."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         assert adapter.normalizer_version == "1.0.0"
 
 
@@ -94,7 +99,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_single_workout(self, mock_httpx_get):
         """fetch() yields NormalizedContent for a single workout."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -119,7 +124,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_multiple_workouts(self, mock_httpx_get):
         """fetch() yields NormalizedContent for multiple workouts."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -153,7 +158,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_incremental_with_since(self, mock_httpx_get):
         """fetch() passes 'since' query parameter for incremental fetch."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [])
 
@@ -167,6 +172,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() passes 'type' query parameter when activity_type is set."""
         adapter = AppleHealthAdapter(
             api_url="http://127.0.0.1:7124",
+            api_key="test-token",
             activity_type="running"
         )
 
@@ -193,21 +199,9 @@ class TestAppleHealthAdapterFetch:
         request = mock_httpx_get.requests[0]
         assert request["headers"]["Authorization"] == "Bearer test_token_123"
 
-    def test_fetch_without_api_key_no_auth_header(self, mock_httpx_get):
-        """fetch() omits Authorization header when api_key is None."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
-
-        mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [])
-
-        list(adapter.fetch(""))
-
-        # Verify the request was made without Authorization header
-        request = mock_httpx_get.requests[0]
-        assert "Authorization" not in (request["headers"] or {})
-
     def test_fetch_event_metadata_contains_required_fields(self, mock_httpx_get):
         """fetch() produces EventMetadata that passes model_validate."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -239,7 +233,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_extra_metadata_contains_health_fields(self, mock_httpx_get):
         """fetch() includes health-specific fields in extra_metadata."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -265,7 +259,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_optional_fields_can_be_null(self, mock_httpx_get):
         """fetch() handles null values for optional health fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -293,7 +287,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_http_error_propagates(self, mock_httpx_get):
         """fetch() propagates HTTP errors."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", {}, status_code=500)
 
@@ -302,7 +296,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_invalid_response_schema_raises(self, mock_httpx_get):
         """fetch() raises ValueError if response is not a list."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", {"workouts": []})  # Should be a list, not dict
 
@@ -311,7 +305,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_missing_required_field_skips_workout(self, mock_httpx_get):
         """fetch() skips and logs workouts with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -333,7 +327,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_missing_id_field_skips_workout(self, mock_httpx_get):
         """fetch() skips and logs workouts with missing 'id' field."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -355,7 +349,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_invalid_duration_type_skips_workout(self, mock_httpx_get):
         """fetch() skips and logs workouts with invalid durationSeconds type."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -377,7 +371,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_empty_id_skips_workout(self, mock_httpx_get):
         """fetch() skips and logs workouts with empty 'id'."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -399,7 +393,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_empty_activity_type_skips_workout(self, mock_httpx_get):
         """fetch() skips and logs workouts with empty activityType."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -421,7 +415,7 @@ class TestAppleHealthAdapterFetch:
 
     def test_fetch_malformed_workout_skipped_continues(self, mock_httpx_get):
         """fetch() skips malformed workouts and continues to next."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -477,7 +471,7 @@ class TestAppleHealthAdapterImportGuard:
         )
 
         with pytest.raises(ImportError, match="Apple Health adapter requires"):
-            AppleHealthAdapter()
+            AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
 
 class TestAppleHealthAdapterMarkdownGeneration:
@@ -485,7 +479,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_activity_type(self, mock_httpx_get):
         """Generated markdown includes activity type capitalized."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -506,7 +500,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_calories_when_present(self, mock_httpx_get):
         """Generated markdown includes calories when available."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -527,7 +521,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_excludes_calories_when_null(self, mock_httpx_get):
         """Generated markdown excludes calories when null."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -548,7 +542,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_distance_when_present(self, mock_httpx_get):
         """Generated markdown includes distance in kilometers."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -569,7 +563,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_heart_rate_when_present(self, mock_httpx_get):
         """Generated markdown includes average heart rate."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -590,7 +584,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_duration(self, mock_httpx_get):
         """Generated markdown includes duration in minutes."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -611,7 +605,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_includes_notes_when_present(self, mock_httpx_get):
         """Generated markdown includes notes when present."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -632,7 +626,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_markdown_excludes_notes_when_null(self, mock_httpx_get):
         """Generated markdown excludes notes when null."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -655,7 +649,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_structural_hints_has_headings_false(self, mock_httpx_get):
         """StructuralHints.has_headings is False (no heading-level markers in markdown)."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {
@@ -688,7 +682,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
 
     def test_structural_hints_extra_metadata_contains_health_fields(self, mock_httpx_get):
         """StructuralHints.extra_metadata preserves health-specific fields."""
-        adapter = AppleHealthAdapter()
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         mock_httpx_get.set_response("http://127.0.0.1:7124/workouts", [
             {

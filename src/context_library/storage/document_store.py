@@ -26,7 +26,7 @@ class DocumentStore:
     """
 
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         """Initialize the document store and set up the SQLite database.
 
         Connects to SQLite, executes the schema (which sets WAL mode, synchronous=NORMAL,
@@ -34,6 +34,9 @@ class DocumentStore:
 
         Args:
             db_path: Path to SQLite database file. Use ':memory:' for in-memory DB.
+            check_same_thread: If False, allow the connection to be used across threads.
+                Set to False when running inside an async server (e.g., FastAPI with
+                asyncio.to_thread). SQLite in WAL mode serializes writes safely.
 
         Raises:
             RuntimeError: If schema execution or verification fails.
@@ -42,7 +45,7 @@ class DocumentStore:
         db_path_str = str(db_path)
 
         # Connect to database
-        self.conn = sqlite3.connect(db_path_str)
+        self.conn = sqlite3.connect(db_path_str, check_same_thread=check_same_thread)
 
         # Set row_factory to access columns by name
         self.conn.row_factory = sqlite3.Row
@@ -1189,6 +1192,217 @@ class DocumentStore:
         if row is None:
             return None
         return SourceInfo(origin_ref=row[0], adapter_type=row[1])
+
+    def list_adapters(self) -> list[AdapterConfig]:
+        """List all registered adapters, ordered by adapter_id.
+
+        Returns:
+            List of AdapterConfig objects.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT adapter_id, adapter_type, domain, normalizer_version, config
+            FROM adapters ORDER BY adapter_id ASC
+            """
+        )
+        rows = cursor.fetchall()
+        result = []
+        for row in rows:
+            config_dict = json.loads(row["config"]) if row["config"] else None
+            result.append(
+                AdapterConfig(
+                    adapter_id=row["adapter_id"],
+                    adapter_type=row["adapter_type"],
+                    domain=Domain(row["domain"]),
+                    normalizer_version=row["normalizer_version"],
+                    config=config_dict,
+                )
+            )
+        return result
+
+    def list_sources(
+        self,
+        domain: Optional[str] = None,
+        adapter_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """List sources with optional filtering and pagination.
+
+        Args:
+            domain: Optional domain filter.
+            adapter_id: Optional adapter_id filter.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (page rows, total_matching_count). Each row dict includes
+            chunk_count for the current version.
+        """
+        cursor = self.conn.cursor()
+        filter_params: list[object] = []
+        where_clauses = ["1=1"]
+        if domain is not None:
+            where_clauses.append("s.domain = ?")
+            filter_params.append(domain)
+        if adapter_id is not None:
+            where_clauses.append("s.adapter_id = ?")
+            filter_params.append(adapter_id)
+        where_sql = " AND ".join(where_clauses)
+
+        # Total count of matching sources (without LIMIT/OFFSET)
+        cursor.execute(
+            f"SELECT COUNT(*) FROM sources s WHERE {where_sql}",
+            filter_params,
+        )
+        total: int = cursor.fetchone()[0]
+
+        # Paginated rows with chunk_count
+        page_params = list(filter_params) + [limit, offset]
+        cursor.execute(
+            f"""
+            SELECT s.source_id, s.adapter_id, s.domain, s.origin_ref, s.display_name,
+                   s.current_version, s.last_fetched_at, s.poll_strategy,
+                   s.poll_interval_sec, s.created_at, s.updated_at,
+                   COUNT(c.chunk_hash) AS chunk_count
+            FROM sources s
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
+            WHERE {where_sql}
+            GROUP BY s.source_id
+            ORDER BY s.source_id ASC
+            LIMIT ? OFFSET ?
+            """,
+            page_params,
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows], total
+
+    def get_source_detail(self, source_id: str) -> Optional[dict]:
+        """Get detailed information about a single source, including adapter metadata.
+
+        Args:
+            source_id: ID of the source.
+
+        Returns:
+            Dict with all source fields plus adapter_type and normalizer_version,
+            or None if the source does not exist.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.source_id, s.adapter_id, s.domain, s.origin_ref, s.display_name,
+                   s.current_version, s.last_fetched_at, s.poll_strategy,
+                   s.poll_interval_sec, s.created_at, s.updated_at,
+                   a.adapter_type, a.normalizer_version,
+                   COUNT(c.chunk_hash) AS chunk_count
+            FROM sources s
+            JOIN adapters a ON s.adapter_id = a.adapter_id
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
+            WHERE s.source_id = ?
+            GROUP BY s.source_id
+            """,
+            (source_id,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_source_version(self, source_id: str, version: int) -> Optional[SourceVersion]:
+        """Get a specific version of a source.
+
+        Args:
+            source_id: ID of the source.
+            version: Version number.
+
+        Returns:
+            SourceVersion if found, None otherwise.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT source_id, version, markdown, chunk_hashes, adapter_id,
+                   normalizer_version, fetch_timestamp
+            FROM source_versions
+            WHERE source_id = ? AND version = ?
+            """,
+            (source_id, version),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        chunk_hashes = json.loads(row["chunk_hashes"])
+        return SourceVersion(
+            source_id=row["source_id"],
+            version=row["version"],
+            markdown=row["markdown"],
+            chunk_hashes=chunk_hashes,
+            adapter_id=row["adapter_id"],
+            normalizer_version=row["normalizer_version"],
+            fetch_timestamp=row["fetch_timestamp"],
+        )
+
+    def get_dataset_stats(self) -> dict:
+        """Get dataset-level statistics.
+
+        Returns:
+            Dict with by_domain list, total_sources, total_active_chunks,
+            retired_chunk_count, sync_queue_pending_insert, sync_queue_pending_delete.
+        """
+        cursor = self.conn.cursor()
+
+        # Per-domain source and active chunk counts
+        cursor.execute(
+            """
+            SELECT s.domain,
+                   COUNT(DISTINCT s.source_id) AS source_count,
+                   COUNT(c.chunk_hash) AS active_chunk_count
+            FROM sources s
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
+            GROUP BY s.domain
+            ORDER BY s.domain ASC
+            """
+        )
+        by_domain = [
+            {
+                "domain": row["domain"],
+                "source_count": row["source_count"],
+                "active_chunk_count": row["active_chunk_count"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+        total_sources = sum(d["source_count"] for d in by_domain)
+        total_active_chunks = sum(d["active_chunk_count"] for d in by_domain)
+
+        # Retired chunk count
+        cursor.execute("SELECT COUNT(*) AS cnt FROM chunks WHERE retired_at IS NOT NULL")
+        retired_chunk_count = cursor.fetchone()["cnt"]
+
+        # Sync queue breakdown
+        cursor.execute(
+            "SELECT operation, COUNT(*) AS cnt FROM lancedb_sync_log GROUP BY operation"
+        )
+        sync_counts: dict[str, int] = {"insert": 0, "delete": 0}
+        for row in cursor.fetchall():
+            sync_counts[row["operation"]] = row["cnt"]
+
+        return {
+            "by_domain": by_domain,
+            "total_sources": total_sources,
+            "total_active_chunks": total_active_chunks,
+            "retired_chunk_count": retired_chunk_count,
+            "sync_queue_pending_insert": sync_counts["insert"],
+            "sync_queue_pending_delete": sync_counts["delete"],
+        }
 
     def close(self) -> None:
         """Close the database connection.

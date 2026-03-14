@@ -2,9 +2,6 @@
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-
-import lancedb
 
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
@@ -19,7 +16,7 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
-from context_library.storage.vector_store import ChunkVector, create_chunk_vector_schema
+from context_library.storage.vector_store import ChunkVectorData, VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +25,7 @@ class IngestionPipeline:
     """Orchestrates the full ingestion pipeline from adapter through storage.
 
     Coordinates fetching, normalizing, chunking, embedding, and storing of content
-    across both SQLite (DocumentStore) and LanceDB (vector storage).
+    across both SQLite (DocumentStore) and the vector store.
 
     Key responsibilities:
     - Register adapters with the document store (idempotent)
@@ -36,13 +33,13 @@ class IngestionPipeline:
     - Detect changes via the Differ
     - Chunk content via domain-specific chunkers
     - Embed new/modified chunks
-    - Write to SQLite and LanceDB sequentially with per-source error isolation
+    - Write to SQLite and vector store sequentially with per-source error isolation
     - Retire deleted chunks from both stores
 
     Error handling:
     - Per-source failures are caught and logged; pipeline continues with next source
-    - If a source's write to SQLite succeeds but LanceDB fails, SQLite and LanceDB
-      may be left inconsistent. LanceDB can be rebuilt from SQLite via full re-sync.
+    - If a source's write to SQLite succeeds but vector store fails, stores
+      may be left inconsistent. The vector store can be rebuilt from SQLite.
     """
 
     def __init__(
@@ -50,7 +47,7 @@ class IngestionPipeline:
         document_store: DocumentStore,
         embedder: Embedder,
         differ: Differ,
-        vector_store_path: str | Path,
+        vector_store: VectorStore,
     ) -> None:
         """Initialize the ingestion pipeline.
 
@@ -58,12 +55,13 @@ class IngestionPipeline:
             document_store: DocumentStore instance for SQLite operations
             embedder: Embedder instance for computing vectors
             differ: Differ instance for change detection
-            vector_store_path: Path to LanceDB directory
+            vector_store: VectorStore instance for vector operations
         """
         self.document_store = document_store
         self.embedder = embedder
         self.differ = differ
-        self.vector_store_path = Path(vector_store_path)
+        self.vector_store = vector_store
+        self.vector_store.initialize(self.embedder.dimension)
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
@@ -84,9 +82,9 @@ class IngestionPipeline:
         Consistency model:
         - Each source is processed independently with per-source error isolation
         - Writes to SQLite and LanceDB are sequential, not transactional
-        - If a source fails after SQLite writes but before LanceDB, the stores
+        - If a source fails after SQLite writes but before vector store writes, the stores
           may be inconsistent for that source. This is tracked in store_consistency.
-          LanceDB can be fully rebuilt from SQLite via external sync tooling if needed.
+          The vector store can be fully rebuilt from SQLite via external sync tooling.
         - Failed sources are logged and skipped; pipeline continues with next source
 
         Args:
@@ -113,15 +111,12 @@ class IngestionPipeline:
                 - store_type: (Optional) Type of store that failed (for StorageError)
                 - inconsistent: (Optional) Whether inconsistency was detected (for StorageError)
             - store_consistency: Dict mapping source_id to status:
-                - "inconsistent": SQLite write succeeded but LanceDB failed
+                - "inconsistent": SQLite write succeeded but vector store failed
                 - "error": Storage operation failed
                 - "success": All writes succeeded
         """
         # Register adapter (idempotent)
         adapter.register(self.document_store)
-
-        # Open LanceDB connection
-        db = lancedb.connect(str(self.vector_store_path))
 
         # Statistics
         sources_processed = 0
@@ -293,72 +288,55 @@ class IngestionPipeline:
                     # Record pending delete operations before attempting LanceDB deletes
                     self.document_store.delete_sync_log(removed_list)
 
-                # Write vectors to LanceDB (get or create table)
+                # Write vectors to vector store
                 # If this fails and SQLite write succeeded, mark as inconsistent
                 if vectors:
                     try:
-                        # Build chunk vector data as dicts for LanceDB (enum -> string)
+                        # Build chunk vector data as dicts (enum -> string)
                         chunk_vector_dicts = []
                         for added_chunk, vector in zip(added_chunks, vectors):
-                            # Validate using ChunkVector schema to ensure field validators run
-                            chunk_vector = ChunkVector(
+                            # Validate using ChunkVectorData schema to ensure field validators run
+                            chunk_vector = ChunkVectorData(
                                 chunk_hash=added_chunk.chunk_hash,
                                 content=added_chunk.content,
                                 vector=vector,
-                                domain=adapter.domain,  # Pass enum directly
+                                domain=adapter.domain,
                                 source_id=content.source_id,
                                 source_version=new_version,
                                 created_at=fetch_timestamp,
                             )
-                            # Convert to dict with enum values serialized
                             chunk_vector_dicts.append({
                                 "chunk_hash": chunk_vector.chunk_hash,
                                 "content": chunk_vector.content,
                                 "vector": chunk_vector.vector,
-                                "domain": chunk_vector.domain.value,  # Convert enum to string
+                                "domain": chunk_vector.domain.value,
                                 "source_id": chunk_vector.source_id,
                                 "source_version": chunk_vector.source_version,
                                 "created_at": chunk_vector.created_at,
                             })
 
-                        # Create or append to table
-                        # Check if table exists to avoid broad exception handling
-                        existing_tables = db.list_tables().tables
-                        if "chunk_vectors" in existing_tables:
-                            table = db.open_table("chunk_vectors")
-                            table.add(chunk_vector_dicts)
-                        else:
-                            # Build schema with embedder's actual dimension using vector_store schema
-                            schema = create_chunk_vector_schema(self.embedder.dimension)
-                            db.create_table("chunk_vectors", data=chunk_vector_dicts, schema=schema)
+                        self.vector_store.add_vectors(chunk_vector_dicts)
                     except Exception as e:
-                        # If SQLite write succeeded but LanceDB fails, mark as inconsistent
                         inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
                         if inconsistency_detected:
                             logger.warning(
-                                f"CRITICAL: SQLite write succeeded but LanceDB write failed for source "
+                                f"CRITICAL: SQLite write succeeded but vector store write failed for source "
                                 f"'{content.source_id}'. Stores may be inconsistent. "
-                                f"Recovery: Use sync logs to rebuild LanceDB. Error: {e}"
+                                f"Recovery: Use sync logs to rebuild vector store. Error: {e}"
                             )
                         raise StorageError(
-                            f"Failed to write vectors to LanceDB for source '{content.source_id}': {e}",
-                            store_type="lancedb",
+                            f"Failed to write vectors for source '{content.source_id}': {e}",
+                            store_type="vector_store",
                             inconsistent=inconsistency_detected,
                         ) from e
 
-                # Remove from LanceDB (if table exists and chunks were removed)
+                # Remove vectors for deleted chunks
                 if diff_result.removed_hashes:
                     try:
-                        existing_tables = db.list_tables().tables
-                        if "chunk_vectors" in existing_tables:
-                            table = db.open_table("chunk_vectors")
-                            # Build proper SQL IN clause with quoted hash values
-                            quoted_hashes = ", ".join(f"'{h}'" for h in diff_result.removed_hashes)
-                            table.delete(f"chunk_hash IN ({quoted_hashes})")
+                        self.vector_store.delete_vectors(set(diff_result.removed_hashes))
                     except Exception as e:
-                        # LanceDB delete is less critical than add, but still log warning
                         logger.warning(
-                            f"Failed to delete chunks from LanceDB for source '{content.source_id}': {e}"
+                            f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"
                         )
                         # Don't raise here, as the sync log already has the delete operation recorded
 

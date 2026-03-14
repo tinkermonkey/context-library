@@ -32,7 +32,7 @@ class StorageError(PipelineError):
     """Error during storage write operations.
 
     Attributes:
-        store_type: Type of store ("sqlite" or "lancedb")
+        store_type: Type of store ("sqlite" or "vector_store")
         inconsistent: Whether this error caused store inconsistency
     """
 

@@ -6,17 +6,15 @@ Integrates vector similarity with lineage lookup for full provenance tracing.
 
 import logging
 import re
-from pathlib import Path
 from typing import Optional
 
-import lancedb
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain, LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
-from context_library.storage.vector_store import VECTOR_DIR
+from context_library.storage.vector_store import VectorStore
 
 _logger = logging.getLogger(__name__)
 
@@ -85,7 +83,7 @@ def retrieve(
     query: str,
     embedder: Embedder,
     document_store: DocumentStore,
-    vector_store_path: Path = VECTOR_DIR,
+    vector_store: VectorStore,
     top_k: int = 10,
     domain_filter: Optional[Domain] = None,
     source_filter: Optional[str] = None,
@@ -94,7 +92,7 @@ def retrieve(
 
     Performs the complete retrieval flow:
     1. Embeds the query string
-    2. Searches LanceDB vector store for nearest neighbors
+    2. Searches vector store for nearest neighbors
     3. Retrieves full chunk content and lineage from SQLite
     4. Returns ranked results with relevance scores
 
@@ -102,7 +100,7 @@ def retrieve(
         query: The query string to search for.
         embedder: Embedder instance for query embedding.
         document_store: DocumentStore instance for lineage lookup.
-        vector_store_path: Path to LanceDB vector directory. Defaults to ~/.context-library/vectors.
+        vector_store: VectorStore instance for vector search.
         top_k: Number of results to return. Defaults to 10.
         domain_filter: Optional domain to filter results (NOTES, MESSAGES, EVENTS, TASKS).
         source_filter: Optional source_id to filter results to a specific source.
@@ -112,7 +110,7 @@ def retrieve(
 
     Raises:
         ValueError: If top_k <= 0, if query is empty/whitespace, or if vector store is empty/uninitialized.
-        RuntimeError: If LanceDB connection fails or vector table is missing.
+        RuntimeError: If vector store connection fails or vector table is missing.
     """
     if not query or not query.strip():
         raise ValueError("query must be a non-empty string")
@@ -122,8 +120,6 @@ def retrieve(
 
     # Validate source_filter early, before expensive operations
     if source_filter is not None:
-        # Validate source_filter using allowlist pattern to prevent SQL injection.
-        # Only allow alphanumeric, underscore, hyphen, dot, and forward slash.
         if not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
             raise ValueError(
                 f'source_filter contains invalid characters: {source_filter!r}'
@@ -132,54 +128,20 @@ def retrieve(
     # Step 1: Embed the query
     query_vector = embedder.embed_query(query)
 
-    # Validate query embedding for correct dimension and finite values
+    # Validate query embedding
     expected_dim = embedder.dimension
     try:
         validate_embedding_dimension(query_vector, expected_dim)
     except ValueError as e:
         raise ValueError(f"Query embedding validation failed: {e}") from e
 
-    # Step 2: Connect to LanceDB and search
-    db = lancedb.connect(str(vector_store_path))
-
-    try:
-        table = db.open_table("chunk_vectors")
-    except (FileNotFoundError, ValueError, RuntimeError, OSError) as e:
-        # FileNotFoundError: vector store path doesn't exist
-        # ValueError: table doesn't exist in LanceDB
-        # RuntimeError: LanceDB internal errors
-        # OSError: permission or I/O errors
-        raise RuntimeError(
-            f"Failed to open chunk_vectors table in LanceDB at {vector_store_path}: {type(e).__name__}: {e}"
-        ) from e
-
-    # Build the search query with optional filters
-    search_query = table.search(query_vector)
-
-    # Build filter conditions; multiple filters are combined with AND logic
-    # Both filters are sanitized before inclusion in the query string
-    filters = []
-    if domain_filter is not None:
-        # Domain filter is safe because domain_filter is an enum with fixed values
-        filters.append(f'domain = "{domain_filter.value}"')
-
-    if source_filter is not None:
-        # source_filter already validated above
-        filters.append(f'source_id = "{source_filter}"')
-
-    # Apply combined filter if any conditions exist
-    if filters:
-        filter_expr = " AND ".join(filters)
-        search_query = search_query.where(filter_expr)
-
-    # Execute search and get top_k results
-    try:
-        search_results = search_query.limit(top_k).to_list()
-    except (ValueError, RuntimeError, TypeError) as e:
-        # ValueError: invalid filter expression or top_k value
-        # RuntimeError: LanceDB query execution errors
-        # TypeError: type mismatch in filter conditions
-        raise RuntimeError(f"Vector search failed: {type(e).__name__}: {e}") from e
+    # Step 2: Search vector store
+    search_results = vector_store.search(
+        query_vector=query_vector,
+        top_k=top_k,
+        domain_filter=domain_filter,
+        source_filter=source_filter,
+    )
 
     if not search_results:
         return []
@@ -187,45 +149,14 @@ def retrieve(
     # Step 3: Enrich results with full chunk content and lineage
     results: list[RetrievalResult] = []
 
-    for row in search_results:
-        chunk_hash = row["chunk_hash"]
-        distance = row.get("_distance")
-
-        # LanceDB returns cosine distance (range [0, 2]); convert to similarity score [0, 1]
-        # Cosine distance = 1 - cosine_similarity, so:
-        # similarity = 1 - (distance / 2). This maps distance 0 (identical, cosine_sim=1) to similarity 1.0,
-        # and distance 2 (opposite, cosine_sim=-1) to similarity 0.0.
-        # max(0.0, ...) handles any floating-point drift that could produce negative scores.
-        if distance is None:
-            # LanceDB should always return _distance; raise error if missing to avoid false positives
-            raise RuntimeError(
-                f"Missing _distance field in search result for chunk {chunk_hash}. "
-                "This indicates an issue with the LanceDB table schema or search output."
-            )
-
-        if isinstance(distance, (int, float)):
-            # Clamp similarity score to [0, 1] range to match RetrievalResult validator.
-            # The lower bound is inherently protected by max(0.0, ...). The upper bound
-            # is explicitly clamped with min(1.0, ...) to handle edge cases where LanceDB
-            # returns negative distances (anomalous but possible with certain metrics or
-            # floating-point drift), which would otherwise produce scores > 1.0.
-            similarity_score = min(1.0, max(0.0, 1.0 - (distance / 2.0)))
-        else:
-            # Defensive fallback: non-numeric distance (shouldn't happen with standard LanceDB output)
-            raise RuntimeError(
-                f"Invalid _distance type {type(distance)} for chunk {chunk_hash}. "
-                "Expected numeric value."
-            )
+    for hit in search_results:
+        chunk_hash = hit.chunk_hash
+        similarity_score = hit.similarity_score
 
         # Retrieve full chunk from SQLite
         chunk = document_store.get_chunk_by_hash(chunk_hash)
         if chunk is None:
-            # Chunk not found in active records. Determine the reason: retired or truly missing.
             if document_store.is_chunk_retired(chunk_hash):
-                # Chunk is retired in SQLite but still searchable in LanceDB.
-                # This is normal behavior: LanceDB deletion is lazy, and post-retrieval filtering
-                # catches stale results. Log at debug level so operators can diagnose why fewer
-                # results are returned than requested. (See issue #72 for higher-level caller feedback.)
                 _logger.debug(
                     "Skipping retired chunk (chunk_hash=%s) during retrieval. "
                     "Chunk exists in vector store but is marked retired in document store. "
@@ -234,11 +165,8 @@ def retrieve(
                 )
                 continue
             else:
-                # Chunk exists in LanceDB but doesn't exist in SQLite at all.
-                # This indicates true store desynchronization (e.g., SQLite delete succeeded
-                # but LanceDB cleanup failed, or data corruption).
                 _logger.warning(
-                    "Store inconsistency: chunk_hash=%s exists in LanceDB but not in SQLite. "
+                    "Store inconsistency: chunk_hash=%s exists in vector store but not in SQLite. "
                     "This indicates desynchronization between vector store and document store.",
                     chunk_hash,
                 )
@@ -247,7 +175,6 @@ def retrieve(
         # Retrieve lineage from SQLite
         lineage = document_store.get_lineage(chunk_hash)
         if lineage is None:
-            # Lineage missing despite chunk existing - indicates store desynchronization
             _logger.warning(
                 "Store inconsistency: chunk_hash=%s has no lineage record in SQLite. "
                 "Chunk exists but provenance information is missing.",
