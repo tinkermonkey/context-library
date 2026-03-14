@@ -97,6 +97,13 @@ async def helper_ingest(
     if not helper_adapters:
         raise HTTPException(status_code=503, detail="No helper adapters configured (set CTX_HELPER_URL and CTX_HELPER_API_KEY)")
 
+    if since and not full:
+        try:
+            from datetime import datetime
+            datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid 'since' value: {since!r} — expected ISO 8601 timestamp")
+
     source_ref = "" if full else (since or "")
 
     results = []
