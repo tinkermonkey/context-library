@@ -10,7 +10,7 @@ from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.server.config import ServerConfig
-from context_library.server.routes import health, ingest, retrieve
+from context_library.server.routes import adapters, chunks, health, ingest, retrieve, sources, stats
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 
@@ -64,6 +64,10 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(ingest.router)
     app.include_router(retrieve.router)
+    app.include_router(adapters.router)
+    app.include_router(sources.router)
+    app.include_router(chunks.router)
+    app.include_router(stats.router)
     return app
 
 
