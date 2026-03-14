@@ -55,23 +55,25 @@ async def lifespan(app: FastAPI):
                 AppleNotesAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
                 AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
             ]
-            logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
         except ImportError as e:
             logger.warning("Apple helper adapters not available (missing dependency): %s", e)
 
-        try:
-            from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
-            helper_adapters.append(FilesystemHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
-            logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
-        except ImportError as e:
-            logger.warning("FilesystemHelperAdapter not available (missing dependency): %s", e)
+        if config.helper_filesystem_enabled:
+            try:
+                from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
+                helper_adapters.append(FilesystemHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            except ImportError as e:
+                logger.warning("FilesystemHelperAdapter not available (missing dependency): %s", e)
 
-        try:
-            from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
-            helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        if config.helper_obsidian_enabled:
+            try:
+                from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
+                helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            except ImportError as e:
+                logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
+
+        if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
-        except ImportError as e:
-            logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
 
     # Store on app.state for route access
     app.state.config = config

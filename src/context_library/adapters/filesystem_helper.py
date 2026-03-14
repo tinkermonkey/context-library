@@ -15,7 +15,6 @@ Expected endpoint contract:
         "source_id": "relative/path/to/file.md",
         "markdown": "<file content>",
         "modified_at": "<ISO 8601>",
-        "file_path": "<absolute path>",
         "file_size_bytes": <int>,
         "has_headings": <bool>,
         "has_lists": <bool>,
@@ -113,7 +112,6 @@ class FilesystemHelperAdapter(BaseAdapter):
                     has_lists=doc.get("has_lists", False),
                     has_tables=doc.get("has_tables", False),
                     natural_boundaries=(),
-                    file_path=doc.get("file_path"),
                     modified_at=modified_at,
                     file_size_bytes=doc.get("file_size_bytes"),
                 )
