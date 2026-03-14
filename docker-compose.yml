@@ -1,0 +1,18 @@
+services:
+  context-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - sqlite-data:/data/sqlite
+      - chromadb-data:/data/chromadb
+    environment:
+      - CTX_EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - CTX_WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - CTX_ENABLE_RERANKER=false
+
+volumes:
+  sqlite-data:
+  chromadb-data:

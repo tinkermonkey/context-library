@@ -26,7 +26,7 @@ class DocumentStore:
     """
 
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         """Initialize the document store and set up the SQLite database.
 
         Connects to SQLite, executes the schema (which sets WAL mode, synchronous=NORMAL,
@@ -34,6 +34,9 @@ class DocumentStore:
 
         Args:
             db_path: Path to SQLite database file. Use ':memory:' for in-memory DB.
+            check_same_thread: If False, allow the connection to be used across threads.
+                Set to False when running inside an async server (e.g., FastAPI with
+                asyncio.to_thread). SQLite in WAL mode serializes writes safely.
 
         Raises:
             RuntimeError: If schema execution or verification fails.
@@ -42,7 +45,7 @@ class DocumentStore:
         db_path_str = str(db_path)
 
         # Connect to database
-        self.conn = sqlite3.connect(db_path_str)
+        self.conn = sqlite3.connect(db_path_str, check_same_thread=check_same_thread)
 
         # Set row_factory to access columns by name
         self.conn.row_factory = sqlite3.Row
