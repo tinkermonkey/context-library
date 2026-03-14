@@ -33,3 +33,5 @@ class ServerConfig(BaseSettings):
     # context-helpers bridge service
     helper_url: str = ""
     helper_api_key: str = ""
+    helper_filesystem_enabled: bool = False
+    helper_obsidian_enabled: bool = False

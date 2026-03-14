@@ -4,7 +4,7 @@ import asyncio
 import logging
 import secrets
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from context_library.core.exceptions import AllSourcesFailedError
 from context_library.domains.registry import get_domain_chunker
@@ -78,7 +78,11 @@ async def webhook_ingest(
 
 
 @router.post("/ingest/helpers", response_model=AppleIngestResponse)
-async def helper_ingest(request: Request) -> AppleIngestResponse:
+async def helper_ingest(
+    request: Request,
+    since: str | None = Query(default=None, description="ISO 8601 cursor; only return items modified after this time"),
+    full: bool = Query(default=False, description="Force a full pull, ignoring the since cursor"),
+) -> AppleIngestResponse:
     """Pull and ingest content from all configured helper adapters."""
     pipeline = request.app.state.pipeline
     config = request.app.state.config
@@ -93,11 +97,20 @@ async def helper_ingest(request: Request) -> AppleIngestResponse:
     if not helper_adapters:
         raise HTTPException(status_code=503, detail="No helper adapters configured (set CTX_HELPER_URL and CTX_HELPER_API_KEY)")
 
+    if since and not full:
+        try:
+            from datetime import datetime
+            datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid 'since' value: {since!r} — expected ISO 8601 timestamp")
+
+    source_ref = "" if full else (since or "")
+
     results = []
     for adapter in helper_adapters:
         domain_chunker = get_domain_chunker(adapter.domain)
         try:
-            result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker)
+            result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
             results.append(AppleAdapterResult(
                 adapter_id=adapter.adapter_id,
                 status="ok" if result["sources_failed"] == 0 else "partial",
