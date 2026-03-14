@@ -77,12 +77,12 @@ async def webhook_ingest(
     )
 
 
-@router.post("/ingest/apple", response_model=AppleIngestResponse)
-async def apple_ingest(request: Request) -> AppleIngestResponse:
-    """Pull and ingest content from all configured Apple helper adapters."""
+@router.post("/ingest/helpers", response_model=AppleIngestResponse)
+async def helper_ingest(request: Request) -> AppleIngestResponse:
+    """Pull and ingest content from all configured helper adapters."""
     pipeline = request.app.state.pipeline
     config = request.app.state.config
-    apple_adapters = request.app.state.apple_adapters
+    helper_adapters = request.app.state.helper_adapters
 
     if config.webhook_secret:
         auth = request.headers.get("Authorization", "")
@@ -90,11 +90,11 @@ async def apple_ingest(request: Request) -> AppleIngestResponse:
         if not secrets.compare_digest(auth, expected):
             raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
-    if not apple_adapters:
-        raise HTTPException(status_code=503, detail="No Apple helper adapters configured (set CTX_APPLE_HELPER_URL and CTX_APPLE_HELPER_API_KEY)")
+    if not helper_adapters:
+        raise HTTPException(status_code=503, detail="No helper adapters configured (set CTX_HELPER_URL and CTX_HELPER_API_KEY)")
 
     results = []
-    for adapter in apple_adapters:
+    for adapter in helper_adapters:
         domain_chunker = get_domain_chunker(adapter.domain)
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker)

@@ -30,6 +30,6 @@ class ServerConfig(BaseSettings):
     # Webhook authentication
     webhook_secret: str = ""
 
-    # macOS helper service (context-helpers)
-    apple_helper_url: str = ""
-    apple_helper_api_key: str = ""
+    # context-helpers bridge service
+    helper_url: str = ""
+    helper_api_key: str = ""

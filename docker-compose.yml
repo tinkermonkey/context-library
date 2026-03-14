@@ -13,8 +13,8 @@ services:
       - CTX_EMBEDDING_MODEL=all-MiniLM-L6-v2
       - CTX_WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       - CTX_ENABLE_RERANKER=false
-      - CTX_APPLE_HELPER_URL=${APPLE_HELPER_URL:-}
-      - CTX_APPLE_HELPER_API_KEY=${APPLE_HELPER_API_KEY:-}
+      - CTX_HELPER_URL=${HELPER_URL:-}
+      - CTX_HELPER_API_KEY=${HELPER_API_KEY:-}
 
 volumes:
   sqlite-data:
