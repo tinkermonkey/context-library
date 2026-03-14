@@ -1227,7 +1227,7 @@ class DocumentStore:
         adapter_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], int]:
         """List sources with optional filtering and pagination.
 
         Args:
@@ -1237,19 +1237,29 @@ class DocumentStore:
             offset: Number of results to skip.
 
         Returns:
-            List of source dicts including chunk_count for the current version.
+            Tuple of (page rows, total_matching_count). Each row dict includes
+            chunk_count for the current version.
         """
         cursor = self.conn.cursor()
-        params: list[object] = []
+        filter_params: list[object] = []
         where_clauses = ["1=1"]
         if domain is not None:
             where_clauses.append("s.domain = ?")
-            params.append(domain)
+            filter_params.append(domain)
         if adapter_id is not None:
             where_clauses.append("s.adapter_id = ?")
-            params.append(adapter_id)
+            filter_params.append(adapter_id)
         where_sql = " AND ".join(where_clauses)
-        params.extend([limit, offset])
+
+        # Total count of matching sources (without LIMIT/OFFSET)
+        cursor.execute(
+            f"SELECT COUNT(*) FROM sources s WHERE {where_sql}",
+            filter_params,
+        )
+        total: int = cursor.fetchone()[0]
+
+        # Paginated rows with chunk_count
+        page_params = list(filter_params) + [limit, offset]
         cursor.execute(
             f"""
             SELECT s.source_id, s.adapter_id, s.domain, s.origin_ref, s.display_name,
@@ -1266,10 +1276,10 @@ class DocumentStore:
             ORDER BY s.source_id ASC
             LIMIT ? OFFSET ?
             """,
-            params,
+            page_params,
         )
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in rows], total
 
     def get_source_detail(self, source_id: str) -> Optional[dict]:
         """Get detailed information about a single source, including adapter metadata.

@@ -44,6 +44,19 @@ class TestListSources:
         assert data["limit"] == 10
         assert data["offset"] == 0
 
+    def test_total_reflects_all_matches_not_page_size(self, client: TestClient) -> None:
+        # With 1 source and limit=1, total should still be 1 (matching count, not page count)
+        data = client.get("/sources?limit=1&offset=0").json()
+        assert data["total"] == 1
+        # Offset past results: total still reflects full match count
+        data2 = client.get("/sources?limit=10&offset=100").json()
+        assert data2["total"] == 1
+        assert data2["sources"] == []
+
+    def test_invalid_domain_returns_422(self, client: TestClient) -> None:
+        resp = client.get("/sources?domain=invalid")
+        assert resp.status_code == 422
+
 
 class TestGetSource:
     def test_returns_source(self, client: TestClient) -> None:

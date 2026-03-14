@@ -5,6 +5,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from context_library.retrieval.provenance import get_version_diff
+from context_library.storage.models import Domain
 from context_library.server.schemas import (
     ChunkListResponse,
     ChunkResponse,
@@ -57,13 +58,14 @@ def _chunk_response(chunk, lineage, source_id: str) -> ChunkResponse:
 @router.get("", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
-    domain: str | None = Query(default=None),
+    domain: Domain | None = Query(default=None),
     adapter_id: str | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> SourceListResponse:
     ds = request.app.state.document_store
-    rows = await asyncio.to_thread(ds.list_sources, domain, adapter_id, limit, offset)
+    domain_value = domain.value if domain is not None else None
+    rows, total = await asyncio.to_thread(ds.list_sources, domain_value, adapter_id, limit, offset)
     sources = [
         SourceSummary(
             source_id=r["source_id"],
@@ -86,7 +88,7 @@ async def list_sources(
         )
         for r in rows
     ]
-    return SourceListResponse(sources=sources, total=len(sources), limit=limit, offset=offset)
+    return SourceListResponse(sources=sources, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{source_id}", response_model=SourceDetailResponse)
@@ -191,6 +193,12 @@ async def get_source_chunks(
     version: int | None = Query(default=None),
 ) -> ChunkListResponse:
     ds = request.app.state.document_store
+    # Resolve the actual version from source metadata before fetching chunks
+    if version is None:
+        source_row = await asyncio.to_thread(ds.get_source_detail, source_id)
+        actual_version = source_row["current_version"] if source_row else None
+    else:
+        actual_version = version
     chunks = await asyncio.to_thread(ds.get_chunks_by_source, source_id, version)
     chunk_responses = []
     for chunk in chunks:
@@ -198,10 +206,6 @@ async def get_source_chunks(
         if lineage is None:
             continue
         chunk_responses.append(_chunk_response(chunk, lineage, source_id))
-    # Resolve the actual version for the response
-    actual_version = version
-    if actual_version is None and chunks:
-        actual_version = chunk_responses[0].lineage.source_version_id if chunk_responses else None
     return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses)
 
 

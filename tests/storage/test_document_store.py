@@ -4054,34 +4054,47 @@ class TestListSources:
     """Tests for DocumentStore.list_sources()."""
 
     def test_returns_empty_list(self, store: DocumentStore) -> None:
-        assert store.list_sources() == []
+        rows, total = store.list_sources()
+        assert rows == []
+        assert total == 0
 
     def test_returns_source(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
-        sources = store.list_sources()
-        assert len(sources) == 1
-        assert sources[0]["source_id"] == "read-src"
-        assert sources[0]["domain"] == "notes"
+        rows, total = store.list_sources()
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "read-src"
+        assert rows[0]["domain"] == "notes"
 
     def test_chunk_count_is_zero_for_new_source(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
-        sources = store.list_sources()
-        assert sources[0]["chunk_count"] == 0
+        rows, _ = store.list_sources()
+        assert rows[0]["chunk_count"] == 0
 
     def test_filter_by_domain(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
-        assert len(store.list_sources(domain="notes")) == 1
-        assert len(store.list_sources(domain="messages")) == 0
+        rows, total = store.list_sources(domain="notes")
+        assert total == 1
+        assert len(rows) == 1
+        _, total2 = store.list_sources(domain="messages")
+        assert total2 == 0
 
     def test_filter_by_adapter_id(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
-        assert len(store.list_sources(adapter_id="read-adapter")) == 1
-        assert len(store.list_sources(adapter_id="other")) == 0
+        rows, total = store.list_sources(adapter_id="read-adapter")
+        assert total == 1
+        assert len(rows) == 1
+        _, total2 = store.list_sources(adapter_id="other")
+        assert total2 == 0
 
     def test_pagination(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
-        assert len(store.list_sources(limit=1, offset=0)) == 1
-        assert len(store.list_sources(limit=10, offset=1)) == 0
+        rows, total = store.list_sources(limit=1, offset=0)
+        assert total == 1
+        assert len(rows) == 1
+        rows2, total2 = store.list_sources(limit=10, offset=1)
+        assert total2 == 1   # total is full match count, not page count
+        assert len(rows2) == 0
 
 
 class TestGetSourceDetail:
