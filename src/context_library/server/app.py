@@ -78,6 +78,12 @@ async def lifespan(app: FastAPI):
                 helper_adapters.append(OuraAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
             except ImportError as e:
                 logger.warning("OuraAdapter not available (missing dependency): %s", e)
+            except ValueError as e:
+                logger.warning(
+                    "OuraAdapter not available (invalid configuration): %s. "
+                    "Ensure CTX_HELPER_API_KEY is set when CTX_HELPER_OURA_ENABLED=true",
+                    e
+                )
 
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)

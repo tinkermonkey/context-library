@@ -272,6 +272,7 @@ class AppleHealthAdapter(BaseAdapter):
             are skipped gracefully, allowing the adapter to continue processing subsequent
             records. Endpoint-level errors (HTTP, network) are also logged; one failing
             endpoint does not block subsequent endpoints from being fetched.
+            Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
         since = source_ref if source_ref else None
         params = {"since": since} if since else {}
@@ -311,10 +312,14 @@ class AppleHealthAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Processed records from the endpoint
 
+        Raises:
+            httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
+
         Note:
             Logs and skips individual malformed records without raising.
             Logs endpoint-level errors (HTTP, request, invalid response schema)
             without raising, allowing subsequent endpoints to be fetched.
+            Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
         try:
             response = httpx.get(
@@ -338,12 +343,19 @@ class AppleHealthAdapter(BaseAdapter):
                     logger.error(f"Skipping malformed {item_label} (ID: {record_id}): {e}")
                     continue
 
-        except ValueError as e:
-            logger.error(f"Invalid response schema from {endpoint}: {e}")
         except httpx.HTTPStatusError as e:
+            # Re-raise auth errors immediately
+            if e.response.status_code in (401, 403):
+                logger.error(
+                    f"Authentication error from Apple Health API {endpoint}: "
+                    f"{e.response.status_code} {e.response.text}"
+                )
+                raise
             logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}{endpoint}: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid response schema from {endpoint}: {e}")
 
     def _fetch_heart_rate(
         self,
@@ -359,11 +371,15 @@ class AppleHealthAdapter(BaseAdapter):
         Yields:
             NormalizedContent: One NormalizedContent per hourly window
 
+        Raises:
+            httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
+
         Note:
             Groups samples by date + hour. Each hourly window becomes one NormalizedContent.
             Logs and skips individual malformed samples without raising.
             Logs endpoint-level errors (HTTP, request, invalid response schema)
             without raising, allowing fetch() to continue.
+            Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
         params = {"since": since} if since else {}
 
@@ -406,12 +422,19 @@ class AppleHealthAdapter(BaseAdapter):
                     logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
                     continue
 
-        except ValueError as e:
-            logger.error(f"Invalid heart rate response schema: {e}")
         except httpx.HTTPStatusError as e:
+            # Re-raise auth errors immediately
+            if e.response.status_code in (401, 403):
+                logger.error(
+                    f"Authentication error from Apple Health API /heart_rate: "
+                    f"{e.response.status_code} {e.response.text}"
+                )
+                raise
             logger.error(f"HTTP error from Apple Health API /heart_rate: {e.response.status_code} {e.response.text}")
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}/heart_rate: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid heart rate response schema: {e}")
 
     def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single workout and yield NormalizedContent.
