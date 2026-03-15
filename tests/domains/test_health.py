@@ -898,22 +898,6 @@ class TestFormatSleepEfficiency:
 
         assert result == "100.0%"
 
-    def test_format_sleep_efficiency_percentage_range_92(self):
-        """format_sleep_efficiency(92) formats as 92.0% (percentage 0-100 range)."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        result = format_sleep_efficiency(92)
-
-        assert result == "92.0%"
-
-    def test_format_sleep_efficiency_percentage_range_100(self):
-        """format_sleep_efficiency(100) formats as 100.0% (percentage 0-100 range)."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        result = format_sleep_efficiency(100)
-
-        assert result == "100.0%"
-
     def test_format_sleep_efficiency_percentage_range_50(self):
         """format_sleep_efficiency(50) formats as 50.0% (percentage 0-100 range)."""
         from context_library.domains.health import format_sleep_efficiency
@@ -997,14 +981,6 @@ class TestFormatSleepEfficiency:
 
         assert result == "99.5%"
 
-    def test_format_sleep_efficiency_integer_input_92_formats_correctly(self):
-        """format_sleep_efficiency accepts integer input and formats correctly."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        result = format_sleep_efficiency(92)
-
-        assert result == "92.0%"
-
     def test_format_sleep_efficiency_float_input_92_5_formats_correctly(self):
         """format_sleep_efficiency accepts float input and formats correctly."""
         from context_library.domains.health import format_sleep_efficiency
@@ -1020,35 +996,3 @@ class TestFormatSleepEfficiency:
         result = format_sleep_efficiency(0.001)
 
         assert result == "0.1%"  # Rounded to 1 decimal place
-
-    def test_format_sleep_efficiency_decimal_99_percentage(self):
-        """format_sleep_efficiency(0.99) formats as 99.0% (decimal very close to 1)."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        result = format_sleep_efficiency(0.99)
-
-        assert result == "99.0%"
-
-    def test_format_sleep_efficiency_three_branches_coverage(self):
-        """Verify all three branches are exercised: None, decimal, percentage."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        # Branch 1: None case
-        assert format_sleep_efficiency(None) == ""
-
-        # Branch 2: efficiency <= 1.0 (decimal range)
-        assert format_sleep_efficiency(0.5) == "50.0%"
-        assert format_sleep_efficiency(1.0) == "100.0%"
-
-        # Branch 3: efficiency > 1.0 (percentage range)
-        assert format_sleep_efficiency(50) == "50.0%"
-        assert format_sleep_efficiency(100) == "100.0%"
-
-    def test_format_sleep_efficiency_none_guard_always_executes_first(self):
-        """None case is handled before any value conversion."""
-        from context_library.domains.health import format_sleep_efficiency
-
-        # Verify None returns empty string before any processing
-        result = format_sleep_efficiency(None)
-        assert result == ""
-        assert isinstance(result, str)

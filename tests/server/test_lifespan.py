@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
 
 import pytest
 
@@ -194,11 +194,10 @@ class TestOuraAdapterInitialization:
                     assert len(oura_adapters) == 0
 
     @pytest.mark.asyncio
-    async def test_oura_adapter_initialization_failure_handles_value_error_gracefully(self, caplog):
-        """OuraAdapter initialization handles ValueError gracefully and continues."""
+    async def test_oura_adapter_initialization_failure_gracefully_handled(self):
+        """OuraAdapter initialization failure is caught and does not crash lifespan."""
         from context_library.server.app import lifespan
         from fastapi import FastAPI
-        import logging
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Test with missing API key - this will cause ValueError in OuraAdapter.__init__
@@ -219,45 +218,15 @@ class TestOuraAdapterInitialization:
 
                 app = FastAPI()
 
-                with caplog.at_level(logging.WARNING):
-                    async with lifespan(app):
-                        # lifespan should complete successfully despite OuraAdapter failing
-                        assert app.state.document_store is not None
-
-                # Should have logged a warning about invalid configuration
-                warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-                # There may be a warning logged if api_key validation fails
-
-    @pytest.mark.asyncio
-    async def test_oura_adapter_initialization_failure_logs_warning_on_value_error(self, caplog):
-        """OuraAdapter initialization catches ValueError and logs warning with guidance."""
-        from context_library.server.app import lifespan
-        from fastapi import FastAPI
-        import logging
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(
-                os.environ,
-                {
-                    "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
-                    "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
-                    "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
-                    "CTX_HELPER_URL": "http://localhost:7123",
-                    # Deliberately omit CTX_HELPER_API_KEY to cause ValueError
-                },
-                clear=False,
-            ):
-                os.environ.pop("CTX_HELPER_API_KEY", None)
-
-                app = FastAPI()
-
-                with caplog.at_level(logging.WARNING):
-                    async with lifespan(app):
-                        pass
-
-                # Should log a warning about invalid configuration
-                warning_messages = [record.message for record in caplog.records]
-                # May be a ValueError due to missing api_key in OuraAdapter.__init__
+                # lifespan should complete successfully despite OuraAdapter failing
+                async with lifespan(app):
+                    # Verify core components are still initialized
+                    assert app.state.document_store is not None
+                    assert app.state.embedder is not None
+                    # OuraAdapter should not be in helper_adapters due to ValueError
+                    from context_library.adapters.oura import OuraAdapter
+                    oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
+                    assert len(oura_adapters) == 0
 
     @pytest.mark.asyncio
     async def test_oura_adapter_receives_correct_config_parameters(self):

@@ -944,8 +944,9 @@ class TestOuraAdapterAuthErrors:
             list(adapter.fetch(""))
 
         assert exc_info.value.response.status_code == 401
-        # Should have only called for the first failing endpoint
-        assert call_count[0] >= 1
+        # Should have called at least once (hit the failing /oura/sleep endpoint - first in order)
+        # and fewer than all 7 endpoints + heart_rate (would be 8+ if it continued)
+        assert 1 <= call_count[0] < 8, f"Expected 1-7 calls, got {call_count[0]}"
 
     def test_fetch_403_on_single_endpoint_stops_all_fetching(self, monkeypatch):
         """fetch() immediately stops when 403 occurs on any endpoint."""
@@ -978,8 +979,9 @@ class TestOuraAdapterAuthErrors:
             list(adapter.fetch(""))
 
         assert exc_info.value.response.status_code == 403
-        # Should have only called for the first failing endpoint
-        assert call_count[0] >= 1
+        # Should have called at least once (hit the failing /oura/activity endpoint)
+        # and fewer than all 7 endpoints + heart_rate (would be 8+ if it continued)
+        assert 1 <= call_count[0] < 8, f"Expected 1-7 calls, got {call_count[0]}"
 
     def test_fetch_other_http_errors_wrapped_in_endpoint_fetch_error(self, monkeypatch):
         """fetch() wraps non-auth HTTP errors (4xx/5xx) in EndpointFetchError."""
