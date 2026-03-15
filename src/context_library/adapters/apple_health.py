@@ -174,6 +174,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from context_library.adapters.base import BaseAdapter
+from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
     HealthMetadata,
@@ -1100,11 +1101,8 @@ class AppleHealthAdapter(BaseAdapter):
 
         efficiency = record.get("efficiency")
         if efficiency is not None:
-            # API contract: efficiency is 0.0–1.0. If value > 1, treat as percentage (0–100).
-            if efficiency > 1:
-                lines.append(f"- Efficiency: {efficiency:.1f}%")
-            else:
-                lines.append(f"- Efficiency: {efficiency:.1%}")
+            formatted_efficiency = format_sleep_efficiency(efficiency)
+            lines.append(f"- Efficiency: {formatted_efficiency}")
 
         score = record.get("score")
         if score is not None:

@@ -1,5 +1,6 @@
 """Health domain chunker for health-related content."""
 
+import logging
 from pydantic import ValidationError
 
 from context_library.domains.base import BaseDomain
@@ -96,3 +97,46 @@ class HealthDomain(BaseDomain):
 
         # 7. Apply cross-reference detection
         return self._apply_cross_references(chunks)
+
+
+logger = logging.getLogger(__name__)
+
+
+def format_sleep_efficiency(efficiency: float | int | None) -> str:
+    """Format sleep efficiency value for markdown output.
+
+    Args:
+        efficiency: Sleep efficiency as either 0.0–1.0 (decimal) or 0–100 (percentage).
+
+    Returns:
+        Formatted efficiency string with % suffix, e.g. "92.0%"
+
+    Note:
+        The API contract ambiguity is handled defensively:
+        - If efficiency <= 1.0, assumes 0.0–1.0 range and formats as percentage (0.92 → 92.0%)
+        - If efficiency > 1.0, assumes 0–100 range and formats as-is with % suffix (92 → 92.0%)
+        - Values between 1.0 and ~10 are ambiguous (could indicate bad data) and log a warning.
+
+    Examples:
+        format_sleep_efficiency(0.92) → "92.0%"
+        format_sleep_efficiency(92) → "92.0%"
+        format_sleep_efficiency(1.0) → "100.0%"
+    """
+    if efficiency is None:
+        return ""
+
+    efficiency_float = float(efficiency)
+
+    # Ambiguous boundary: warn if value is between 1 and 10 (likely bad data)
+    if 1.0 < efficiency_float < 10:
+        logger.warning(
+            f"Suspicious sleep efficiency value {efficiency_float}: "
+            "between 1.0 and 10 (could indicate data format error). "
+            "Treating as 0–100 range."
+        )
+
+    # API contract: efficiency is 0.0–1.0. If value > 1, treat as percentage (0–100).
+    if efficiency_float > 1.0:
+        return f"{efficiency_float:.1f}%"
+    else:
+        return f"{efficiency_float:.1%}"

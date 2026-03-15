@@ -967,6 +967,78 @@ class TestAppleHealthAdapterSleepIncremental:
         assert "92" in markdown or "92.0" in markdown  # Efficiency as percentage
         assert "85" in markdown  # Score
 
+    def test_fetch_sleep_efficiency_decimal_range(self, mock_all_health_endpoints):
+        """fetch() formats efficiency correctly when in 0.0–1.0 decimal range."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 0.95,  # Decimal range
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
+        markdown = sleep_records[0].markdown
+
+        # 0.95 should format as 95.0%
+        assert "95.0%" in markdown
+
+    def test_fetch_sleep_efficiency_percentage_range(self, mock_all_health_endpoints):
+        """fetch() formats efficiency correctly when in 0–100 percentage range."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 92,  # Percentage range (0–100)
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
+        markdown = sleep_records[0].markdown
+
+        # 92 should format as 92.0%
+        assert "92.0%" in markdown
+
+    def test_fetch_sleep_efficiency_boundary_100_percent(self, mock_all_health_endpoints):
+        """fetch() formats efficiency correctly at 100% boundary (1.0)."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 1.0,  # Boundary: 100%
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
+        markdown = sleep_records[0].markdown
+
+        # 1.0 should format as 100.0%
+        assert "100.0%" in markdown
+
 
 class TestAppleHealthAdapterActivityIncremental:
     """Tests for activity endpoint incremental fetch."""

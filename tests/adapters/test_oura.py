@@ -541,6 +541,78 @@ class TestOuraAdapterMarkdownGeneration:
         sleep_records = [r for r in results if "sleep" in r.source_id]
         assert "Total sleep: 480 minutes" in sleep_records[0].markdown
 
+    def test_sleep_efficiency_decimal_range(self, mock_all_oura_endpoints):
+        """Sleep markdown formats efficiency correctly when in 0.0–1.0 decimal range."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 0.95,  # Decimal range
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if "sleep" in r.source_id]
+        markdown = sleep_records[0].markdown
+
+        # 0.95 should format as 95.0%
+        assert "95.0%" in markdown
+
+    def test_sleep_efficiency_percentage_range(self, mock_all_oura_endpoints):
+        """Sleep markdown formats efficiency correctly when in 0–100 percentage range."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 92,  # Percentage range (0–100)
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if "sleep" in r.source_id]
+        markdown = sleep_records[0].markdown
+
+        # 92 should format as 92.0%
+        assert "92.0%" in markdown
+
+    def test_sleep_efficiency_boundary_100_percent(self, mock_all_oura_endpoints):
+        """Sleep markdown formats efficiency correctly at 100% boundary (1.0)."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 1.0,  # Boundary: 100%
+                "score": 85,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        sleep_records = [r for r in results if "sleep" in r.source_id]
+        markdown = sleep_records[0].markdown
+
+        # 1.0 should format as 100.0%
+        assert "100.0%" in markdown
+
     def test_readiness_markdown_includes_score(self, mock_all_oura_endpoints):
         """Readiness markdown includes score."""
         adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
