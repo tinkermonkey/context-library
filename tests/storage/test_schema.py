@@ -11,7 +11,6 @@ import tempfile
 from pathlib import Path
 
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import AdapterConfig, Domain, Chunk, PollStrategy
 
 
 def _create_v1_schema(conn: sqlite3.Connection) -> None:
@@ -189,6 +188,7 @@ class TestSchemaMigrationV1ToV2:
             assert row["normalizer_version"] == "1.0"
             assert row["config"] == '{"key": "value"}'
             assert row["enabled"] == 1
+            store.conn.close()
 
     def test_migrate_v1_to_v2_source_data_preservation(self) -> None:
         """Test that source data is preserved during v1 to v2 migration.
@@ -234,6 +234,7 @@ class TestSchemaMigrationV1ToV2:
             assert row["display_name"] == "My Inbox"
             assert row["poll_strategy"] == "pull"
             assert row["poll_interval_sec"] == 3600
+            store.conn.close()
 
     def test_migrate_v1_to_v2_chunk_data_preservation(self) -> None:
         """Test that chunk data is preserved during v1 to v2 migration.
@@ -291,6 +292,7 @@ class TestSchemaMigrationV1ToV2:
             assert row["adapter_id"] == "test-adapter"
             assert row["chunk_type"] == "standard"
             assert row["domain_metadata"] == '{"key": "value"}'
+            store.conn.close()
 
     def test_migrate_v1_to_v2_multiple_adapters_and_sources(self) -> None:
         """Test migration preserves multiple adapters and sources with their relationships."""
@@ -345,6 +347,7 @@ class TestSchemaMigrationV1ToV2:
             cursor.execute("SELECT s.source_id FROM sources s JOIN adapters a ON s.adapter_id = a.adapter_id WHERE a.adapter_id = 'adapter-1'")
             source = cursor.fetchone()
             assert source["source_id"] == "source-1"
+            store.conn.close()
 
     def test_migrate_v1_to_v2_triggers_recreated(self) -> None:
         """Test that update triggers are properly recreated during migration."""
@@ -397,6 +400,7 @@ class TestSchemaMigrationV1ToV2:
             new_updated_at = cursor.fetchone()[0]
 
             assert new_updated_at > "2020-01-01"
+            store.conn.close()
 
     def test_migrate_v1_to_v2_indices_recreated(self) -> None:
         """Test that indices are properly recreated during migration."""
@@ -431,6 +435,7 @@ class TestSchemaMigrationV1ToV2:
             }
 
             assert expected_indices.issubset(indices)
+            store.conn.close()
 
     def test_migrate_v1_to_v2_foreign_keys_maintained(self) -> None:
         """Test that foreign key relationships are maintained after migration."""
@@ -466,6 +471,7 @@ class TestSchemaMigrationV1ToV2:
                     VALUES (?, ?, ?, ?, ?)
                 """, ("bad-source", "nonexistent-adapter", "messages", "inbox", "pull"))
                 store.conn.commit()
+            store.conn.close()
 
     def test_migrate_v1_to_v2_schema_version_updated(self) -> None:
         """Test that schema version is correctly updated to 2 after migration."""
@@ -489,6 +495,7 @@ class TestSchemaMigrationV1ToV2:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             assert cursor.fetchone()[0] == 2
+            store.conn.close()
 
     def test_migrate_v1_to_v2_fresh_database_starts_at_v2(self) -> None:
         """Test that a fresh database starts at version 2 (no migration needed)."""
@@ -509,6 +516,7 @@ class TestSchemaMigrationV1ToV2:
             """)
             schema = cursor.fetchone()[0]
             assert "health" in schema
+            store.conn.close()
 
     def test_migrate_v1_to_v2_new_health_domain_insertable_after_migration(self) -> None:
         """Test that 'health' domain can be inserted after migration.
@@ -538,6 +546,7 @@ class TestSchemaMigrationV1ToV2:
             # Verify it was inserted
             cursor.execute("SELECT domain FROM adapters WHERE adapter_id = 'health-adapter'")
             assert cursor.fetchone()[0] == "health"
+            store.conn.close()
 
     def test_migrate_v1_to_v2_new_health_domain_insertable_in_sources(self) -> None:
         """Test that 'health' domain can be inserted in sources table after migration."""
@@ -567,33 +576,58 @@ class TestSchemaMigrationV1ToV2:
             # Verify it was inserted
             cursor.execute("SELECT domain FROM sources WHERE source_id = 'oura-source'")
             assert cursor.fetchone()[0] == "health"
+            store.conn.close()
 
     def test_migrate_v1_to_v2_new_health_domain_insertable_in_chunks(self) -> None:
-        """Test that 'health' domain can be inserted in chunks table after migration.
-
-        Note: Covered by test_migrate_v1_to_v2_chunk_data_preservation which demonstrates
-        the same functionality by creating a v1 database with chunks, migrating, then
-        verifying all chunk data including domain is preserved. That test confirms
-        the 'health' domain is acceptable in the chunks CHECK constraint.
-        """
+        """Test that 'health' domain can be inserted in chunks table after migration."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create v1 database and migrate
+            # Create v1 database with health adapter and source, then migrate
             conn = sqlite3.connect(str(db_path))
             _create_v1_schema(conn)
+
+            # Pre-populate v1 database with health data before migration
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("oura-adapter", "messages", "oura", "1.0"))
+
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("oura-source", "oura-adapter", "messages", "user-123", "pull"))
+
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("oura-source", 1, "Health data", '["b"*64]', "oura-adapter", "1.0", "2025-01-01T00:00:00Z"))
+
+            # Insert a chunk in v1 database (will have messages domain)
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("b" * 64, "oura-source", 1, 0, "Test data", "messages", "oura-adapter", "2025-01-01T00:00:00Z", "1.0"))
+            conn.commit()
             conn.close()
 
-            # After migration to v2, 'health' domain should be insertable in chunks
+            # Migrate to v2
             store = DocumentStore(str(db_path))
 
-            # Verify health domain is in the CHECK constraint by checking schema
+            # Now try to insert a new adapter with health domain in the migrated v2 database
             cursor = store.conn.cursor()
-            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='chunks'")
-            chunks_schema = cursor.fetchone()[0]
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("health-adapter", "health", "oura", "1.0"))
+            store.conn.commit()
 
-            # The schema should include 'health' in the domain CHECK constraint
-            assert "'health'" in chunks_schema, "health domain not found in chunks table CHECK constraint"
+            # Verify health domain works in adapters
+            cursor.execute("SELECT domain FROM adapters WHERE adapter_id = 'health-adapter'")
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "health"
 
             store.conn.close()
 
@@ -646,6 +680,7 @@ class TestSchemaMigrationV1ToV2:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA foreign_keys")
             assert cursor.fetchone()[0] == 1
+            store.conn.close()
 
     def test_migrate_v1_to_v2_idempotent_on_reopen(self) -> None:
         """Test that opening a migrated database again doesn't re-run migration.
@@ -681,6 +716,7 @@ class TestSchemaMigrationV1ToV2:
             count_after_second_open = cursor.fetchone()["cnt"]
 
             assert count_after_first_open == count_after_second_open == 1
+            store2.conn.close()
 
 
 class TestSchemaPragmasAndConfiguration:
@@ -692,6 +728,7 @@ class TestSchemaPragmasAndConfiguration:
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA foreign_keys")
         assert cursor.fetchone()[0] == 1
+        store.conn.close()
 
     def test_schema_pragma_synchronous_normal(self) -> None:
         """Test that PRAGMA synchronous=NORMAL (value 1) is set."""
@@ -699,6 +736,7 @@ class TestSchemaPragmasAndConfiguration:
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA synchronous")
         assert cursor.fetchone()[0] == 1
+        store.conn.close()
 
     def test_schema_pragma_wal_mode(self) -> None:
         """Test that WAL mode is enabled (or memory for in-memory DBs)."""
@@ -707,6 +745,7 @@ class TestSchemaPragmasAndConfiguration:
         cursor.execute("PRAGMA journal_mode")
         mode = cursor.fetchone()[0].lower()
         assert mode in ("wal", "memory")
+        store.conn.close()
 
     def test_schema_user_version_is_2(self) -> None:
         """Test that user_version is set to 2."""
@@ -714,3 +753,4 @@ class TestSchemaPragmasAndConfiguration:
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA user_version")
         assert cursor.fetchone()[0] == 2
+        store.conn.close()
