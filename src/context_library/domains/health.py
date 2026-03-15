@@ -24,6 +24,17 @@ class HealthDomain(BaseDomain):
     by this chunker.
     """
 
+    def __init__(self, hard_limit: int = 1024) -> None:
+        """Initialize the HealthDomain chunker.
+
+        Args:
+            hard_limit: Maximum token limit before forced splitting (default 1024)
+
+        Raises:
+            ValueError: If hard_limit is not a positive integer
+        """
+        super().__init__(hard_limit)
+
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Chunk health content into semantically coherent pieces.
 

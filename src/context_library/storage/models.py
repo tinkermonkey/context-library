@@ -8,6 +8,7 @@ This module contains:
 
 import hashlib
 import re
+from datetime import date
 from enum import Enum
 from typing import Annotated, ClassVar
 
@@ -465,10 +466,12 @@ class HealthMetadata(BaseModel):
     @classmethod
     def validate_date(cls, value: str) -> str:
         """Validate that date matches ISO 8601 date format (YYYY-MM-DD)."""
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+        try:
+            date.fromisoformat(value)
+        except ValueError as e:
             raise ValueError(
                 f"date must be a valid ISO 8601 date (YYYY-MM-DD), got: {value!r}"
-            )
+            ) from e
         return value
 
     @field_validator("source_type")
