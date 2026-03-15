@@ -38,6 +38,7 @@ class Domain(str, Enum):
     NOTES = "notes"
     EVENTS = "events"
     TASKS = "tasks"
+    HEALTH = "health"
 
 
 class ChunkType(str, Enum):
@@ -101,6 +102,7 @@ class StructuralHints(BaseModel):
     - For EmailMessages domain: extra_metadata must be deserializable to MessageMetadata
     - For Events domain: extra_metadata must be deserializable to EventMetadata
     - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
+    - For Health domain: extra_metadata must be deserializable to HealthMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -398,6 +400,102 @@ class EventMetadata(BaseModel):
                     f"start_date must be <= end_date when both are present. "
                     f"Got start_date={self.start_date!r}, end_date={self.end_date!r}"
                 )
+
+
+class HealthMetadata(BaseModel):
+    """Health record metadata for the health domain.
+
+    Captures health metrics, measurements, and session data from health sources
+    (Apple Health, Oura) for health-aware chunking and filtering.
+
+    Invariants:
+    - record_id and source_type must be non-empty strings
+    - health_type must be one of the eight vendor-neutral types
+    - date must be a valid ISO 8601 date (YYYY-MM-DD)
+    - date_first_observed must be a valid ISO 8601 timestamp
+    - duration_minutes if provided must be non-negative
+    - score if provided must be 0–100
+    """
+
+    ALLOWED_TYPES: ClassVar[frozenset[str]] = frozenset({
+        "sleep_summary",
+        "readiness_summary",
+        "activity_summary",
+        "workout_session",
+        "heart_rate_series",
+        "spo2_summary",
+        "mindfulness_session",
+        "user_health_tag",
+    })
+
+    model_config = ConfigDict(frozen=True)
+
+    record_id: str
+    health_type: str
+    date: str  # ISO 8601 date, e.g. "2026-03-07"
+    source_type: str  # "apple_health" or "oura"
+    date_first_observed: str  # ISO 8601 timestamp
+    duration_minutes: int | None = None
+    score: float | None = None
+
+    @field_validator("record_id")
+    @classmethod
+    def validate_record_id(cls, value: str) -> str:
+        """Validate that record_id is not empty."""
+        if not value:
+            raise ValueError("record_id must be a non-empty string")
+        return value
+
+    @field_validator("health_type")
+    @classmethod
+    def validate_health_type(cls, value: str) -> str:
+        """Validate that health_type is in the allowed types."""
+        if value not in cls.ALLOWED_TYPES:
+            raise ValueError(
+                f"health_type must be one of {sorted(cls.ALLOWED_TYPES)}, got: {value!r}"
+            )
+        return value
+
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, value: str) -> str:
+        """Validate that date matches ISO 8601 date format (YYYY-MM-DD)."""
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
+            raise ValueError(
+                f"date must be a valid ISO 8601 date (YYYY-MM-DD), got: {value!r}"
+            )
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
+        return value
+
+    @field_validator("score")
+    @classmethod
+    def validate_score(cls, value: float | None) -> float | None:
+        """Validate that score is in the range 0-100 if provided."""
+        if value is not None and (value < 0 or value > 100):
+            raise ValueError(f"score must be in range 0-100, got: {value}")
+        return value
 
 
 class NormalizedContent(BaseModel):
