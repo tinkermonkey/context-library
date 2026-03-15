@@ -303,7 +303,7 @@ class DocumentStore:
         Args:
             source_id: Unique identifier for the source.
             adapter_id: ID of the adapter handling this source. Updated on re-registration.
-            domain: Domain classification (messages, notes, events, tasks). Updated on re-registration.
+            domain: Domain classification (messages, notes, events, tasks, health). Updated on re-registration.
             origin_ref: URL, path, or reference to the original source.
             poll_strategy: Strategy for polling this source (push, pull, or webhook).
                           Defaults to PollStrategy.PULL. Updated on re-registration.
