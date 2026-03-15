@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
@@ -39,7 +40,7 @@ async def lifespan(app: FastAPI):
         reranker = Reranker(config.reranker_model)
 
     # Build helper adapters if the helper is configured
-    helper_adapters = []
+    helper_adapters: list[BaseAdapter] = []
     if config.helper_url and config.helper_api_key:
         # AppleRemindersAdapter
         try:
