@@ -163,6 +163,7 @@ Example usage (remote via serve_adapter):
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
@@ -257,7 +258,7 @@ class AppleHealthAdapter(BaseAdapter):
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize all health data types from Apple HealthKit via local API.
 
-        Fetches data from all six endpoints (workouts, sleep, activity, HRV, heart rate, SpO2, mindfulness)
+        Fetches data from all seven endpoints (workouts, sleep, activity, HRV, heart rate, SpO2, mindfulness)
         and yields normalized content for each record or windowed group.
 
         Args:
@@ -266,21 +267,17 @@ class AppleHealthAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized health records with HealthMetadata in extra_metadata
 
-        Raises:
-            httpx.RequestError: If HTTP request fails
-            httpx.HTTPStatusError: If API returns an error status code
-            ValueError: If API response is malformed
-
         Note:
             Errors in individual record processing are caught and logged. Malformed records
             are skipped gracefully, allowing the adapter to continue processing subsequent
-            records. This prevents a single bad record from blocking the entire batch.
+            records. Endpoint-level errors (HTTP, network) are also logged; one failing
+            endpoint does not block subsequent endpoints from being fetched.
         """
         since = source_ref if source_ref else None
         params = {"since": since} if since else {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        # Fetch from all six endpoints in order
+        # Fetch from all endpoints in order (six via generic handler, one via specialized heart_rate handler)
         for endpoint, handler, item_label in [
             ("/workouts", self._process_workout, "workout"),
             ("/sleep", self._process_sleep, "sleep record"),
@@ -297,7 +294,7 @@ class AppleHealthAdapter(BaseAdapter):
     def _fetch_endpoint(
         self,
         endpoint: str,
-        handler: Any,
+        handler: Callable[[dict[str, Any]], Iterator[NormalizedContent]],
         item_label: str,
         params: dict[str, Any],
         headers: dict[str, str],
@@ -316,6 +313,8 @@ class AppleHealthAdapter(BaseAdapter):
 
         Note:
             Logs and skips individual malformed records without raising.
+            Logs endpoint-level HTTP/request errors without raising, allowing
+            subsequent endpoints to be fetched.
         """
         try:
             response = httpx.get(
@@ -341,10 +340,8 @@ class AppleHealthAdapter(BaseAdapter):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
-            raise
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}{endpoint}: {e}")
-            raise
 
     def _fetch_heart_rate(
         self,
@@ -363,6 +360,7 @@ class AppleHealthAdapter(BaseAdapter):
         Note:
             Groups samples by date + hour. Each hourly window becomes one NormalizedContent.
             Logs and skips individual malformed samples without raising.
+            Logs HTTP/request errors without raising, allowing fetch() to continue.
         """
         params = {"since": since} if since else {}
 
@@ -407,10 +405,8 @@ class AppleHealthAdapter(BaseAdapter):
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API /heart_rate: {e.response.status_code} {e.response.text}")
-            raise
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}/heart_rate: {e}")
-            raise
 
     def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single workout and yield NormalizedContent.
