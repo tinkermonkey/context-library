@@ -771,8 +771,13 @@ class OuraAdapter(BaseAdapter):
         if not window:
             raise ValueError("Heart rate window must not be empty")
 
-        # Extract heart rates; KeyError propagates if bpm is missing
-        heart_rates = [sample["bpm"] for sample in window]
+        # Extract heart rates and validate
+        heart_rates = []
+        for sample in window:
+            bpm = sample["bpm"]
+            if not isinstance(bpm, (int, float)):
+                raise ValueError("Heart rate sample 'bpm' must be numeric")
+            heart_rates.append(bpm)
 
         if not heart_rates:
             raise ValueError("No valid heart rates in window")

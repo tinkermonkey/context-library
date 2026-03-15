@@ -890,3 +890,110 @@ class TestOuraAdapterSessionValidation:
         results = list(adapter.fetch(""))
         session_records = [r for r in results if "session" in r.source_id.lower()]
         assert len(session_records) == 0
+
+
+class TestOuraAdapterHeartRateBpmValidation:
+    """Tests for heart rate BPM type validation."""
+
+    def test_fetch_heart_rate_invalid_bpm_string_skips_window(self, mock_all_oura_endpoints):
+        """fetch() skips heart rate windows when bpm is a string instead of numeric."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": "65"},  # Invalid: string
+            {"timestamp": "2026-03-07T10:15:00+00:00", "bpm": 68},
+            {"timestamp": "2026-03-07T10:30:00+00:00", "bpm": 70},
+        ])
+
+        # Should not raise, just skip the window with invalid bpm
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 0
+
+    def test_fetch_heart_rate_invalid_bpm_null_skips_window(self, mock_all_oura_endpoints):
+        """fetch() skips heart rate windows when bpm is null/None."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": None},  # Invalid: null
+            {"timestamp": "2026-03-07T10:15:00+00:00", "bpm": 68},
+        ])
+
+        # Should not raise, just skip the window with invalid bpm
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 0
+
+    def test_fetch_heart_rate_valid_int_bpm_succeeds(self, mock_all_oura_endpoints):
+        """fetch() successfully processes heart rate windows with integer bpm values."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": 65},
+            {"timestamp": "2026-03-07T10:15:00+00:00", "bpm": 68},
+            {"timestamp": "2026-03-07T10:30:00+00:00", "bpm": 70},
+        ])
+
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 1
+        assert "Average:" in heart_rate_records[0].markdown
+
+    def test_fetch_heart_rate_valid_float_bpm_succeeds(self, mock_all_oura_endpoints):
+        """fetch() successfully processes heart rate windows with float bpm values."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": 65.5},
+            {"timestamp": "2026-03-07T10:15:00+00:00", "bpm": 68.2},
+            {"timestamp": "2026-03-07T10:30:00+00:00", "bpm": 70.1},
+        ])
+
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 1
+        assert "Average:" in heart_rate_records[0].markdown
+
+    def test_fetch_heart_rate_mixed_int_float_bpm_succeeds(self, mock_all_oura_endpoints):
+        """fetch() successfully processes heart rate windows with mixed int/float bpm values."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": 65},      # int
+            {"timestamp": "2026-03-07T10:15:00+00:00", "bpm": 68.5},    # float
+            {"timestamp": "2026-03-07T10:30:00+00:00", "bpm": 70},      # int
+        ])
+
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 1
+        metadata = heart_rate_records[0].structural_hints.extra_metadata
+        assert "avg_bpm" in metadata
+        assert "min_bpm" in metadata
+        assert "max_bpm" in metadata
+
+    def test_fetch_heart_rate_invalid_bpm_dict_skips_window(self, mock_all_oura_endpoints):
+        """fetch() skips heart rate windows when bpm is a dict (object) instead of numeric."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": {"value": 65}},  # Invalid: dict
+        ])
+
+        # Should not raise, just skip the window with invalid bpm
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 0
+
+    def test_fetch_heart_rate_invalid_bpm_list_skips_window(self, mock_all_oura_endpoints):
+        """fetch() skips heart rate windows when bpm is a list instead of numeric."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/heart_rate", [
+            {"timestamp": "2026-03-07T10:00:00+00:00", "bpm": [65]},  # Invalid: list
+        ])
+
+        # Should not raise, just skip the window with invalid bpm
+        results = list(adapter.fetch(""))
+        heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
+        assert len(heart_rate_records) == 0
