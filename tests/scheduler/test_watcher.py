@@ -658,7 +658,7 @@ class TestWatcherPollStrategyValidation:
         chunker = MockDomain()
         file_watcher = Mock(spec=FileSystemWatcher)
 
-        with pytest.raises(ValueError, match="poll_strategy is pull"):
+        with pytest.raises(ValueError, match="PollStrategy.PULL"):
             watcher.register(adapter, chunker, file_watcher)
 
     def test_register_rejects_webhook_strategy(self, pipeline):
@@ -672,7 +672,7 @@ class TestWatcherPollStrategyValidation:
         chunker = MockDomain()
         file_watcher = Mock(spec=FileSystemWatcher)
 
-        with pytest.raises(ValueError, match="poll_strategy is webhook"):
+        with pytest.raises(ValueError, match="PollStrategy.WEBHOOK"):
             watcher.register(adapter, chunker, file_watcher)
 
     def test_register_accepts_push_strategy(self, pipeline):

@@ -6,7 +6,7 @@ Derived and fully rebuildable from the document store (SQLite).
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import chromadb
 
@@ -50,16 +50,16 @@ class ChromaDBVectorStore(VectorStore):
         self._embedding_dimension = embedding_dimension
         self._get_collection()
 
-    def add_vectors(self, vectors: list[dict]) -> None:
+    def add_vectors(self, vectors: list[dict[str, Any]]) -> None:
         if not vectors:
             return
 
         collection = self._get_collection()
 
-        ids = []
-        embeddings = []
-        documents = []
-        metadatas = []
+        ids: list[str] = []
+        embeddings: list[Any] = []
+        documents: list[str] = []
+        metadatas: list[Mapping[str, str | int | float | bool | None]] = []
 
         for v in vectors:
             ids.append(v["chunk_hash"])
@@ -77,7 +77,7 @@ class ChromaDBVectorStore(VectorStore):
             ids=ids,
             embeddings=embeddings,
             documents=documents,
-            metadatas=metadatas,
+            metadatas=metadatas,  # type: ignore[arg-type]
         )
 
     def delete_vectors(self, chunk_hashes: set[str]) -> None:
