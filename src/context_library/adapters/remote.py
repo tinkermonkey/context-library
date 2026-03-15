@@ -167,7 +167,7 @@ class RemoteAdapter(BaseAdapter):
         if hasattr(self, "_client"):
             self._client.close()
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         """Fetch and normalize content from the remote adapter service.
 
         Sends a POST request to the remote service's /fetch endpoint with the
@@ -179,6 +179,7 @@ class RemoteAdapter(BaseAdapter):
 
         Args:
             source_ref: Source-specific reference to fetch from remote service
+            extra_body: Optional additional fields merged into the JSON request body
 
         Yields:
             NormalizedContent for each item in response["normalized_contents"]
@@ -204,10 +205,15 @@ class RemoteAdapter(BaseAdapter):
         # Retry loop for transient failures
         for attempt in range(max_retries + 1):
             try:
+                # Build request body, merging any extra params from subclasses
+                body: dict = {"source_ref": source_ref}
+                if extra_body:
+                    body.update(extra_body)
+
                 # Send POST request to remote service
                 response = self._client.post(
                     f"{self._service_url}/fetch",
-                    json={"source_ref": source_ref},
+                    json=body,
                     headers=headers,
                 )
 
@@ -241,6 +247,13 @@ class RemoteAdapter(BaseAdapter):
                     )
                     raise KeyError(
                         f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
+                    )
+
+                # Log optional pagination metadata (informational for pull-flow clients)
+                if data.get("has_more"):
+                    logger.debug(
+                        "RemoteAdapter: has_more=True, next_cursor=%s",
+                        data.get("next_cursor"),
                     )
 
                 normalized_contents = data["normalized_contents"]

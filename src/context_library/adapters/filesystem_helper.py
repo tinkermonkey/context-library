@@ -1,51 +1,46 @@
 """FilesystemHelperAdapter — ingests markdown files from a context-helpers service.
 
-Calls GET /documents on the context-helpers bridge and maps each document to
-NormalizedContent for the Notes domain.
+Calls POST /filesystem/fetch on the context-helpers bridge and streams each document
+as an NDJSON line, mapping results to NormalizedContent for the Notes domain.
 
 Expected endpoint contract:
-  GET /documents
-    Query params:
-      - since (optional): ISO 8601 timestamp; return only files modified after this time
-      - extensions (optional): comma-separated extensions to include, e.g. ".md,.txt"
+  POST /filesystem/fetch
+    Authorization: Bearer <api_key>
+    Content-Type: application/json
 
-    Response: JSON array of document objects:
-    [
-      {
-        "source_id": "relative/path/to/file.md",
-        "markdown": "<file content>",
-        "modified_at": "<ISO 8601>",
-        "file_size_bytes": <int>,
-        "has_headings": <bool>,
-        "has_lists": <bool>,
-        "has_tables": <bool>
-      }
-    ]
+    Request body:
+    {
+      "source_ref": "<ISO 8601 cursor | empty string>",
+      "page_size": <int | null>,
+      "extensions": ["<ext>", ...] | null,
+      "max_size_mb": <float | null>,
+      "stream": true
+    }
+
+    Response (NDJSON, Content-Type: application/x-ndjson):
+      One JSON object per line.
+      Content lines: NormalizedContent-shaped objects
+      Final line:    {"has_more": <bool>, "next_cursor": "<ISO 8601 | null>"}
 """
 
+import json as _json
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
-from context_library.storage.models import (
-    Domain,
-    NormalizedContent,
-    PollStrategy,
-    StructuralHints,
-)
+from pydantic import ValidationError
+
+from context_library.adapters.remote import RemoteAdapter
+from context_library.storage.models import Domain, NormalizedContent, PollStrategy
 
 logger = logging.getLogger(__name__)
 
-HAS_HTTPX = False
-try:
-    import httpx
-    HAS_HTTPX = True
-except ImportError:
-    pass
 
+class FilesystemHelperAdapter(RemoteAdapter):
+    """Adapter that ingests markdown files served by a context-helpers bridge service.
 
-class FilesystemHelperAdapter(BaseAdapter):
-    """Adapter that ingests markdown files served by a context-helpers bridge service."""
+    Uses NDJSON streaming so peak memory on both sides is bounded to one file
+    at a time rather than a full page.
+    """
 
     def __init__(
         self,
@@ -53,75 +48,90 @@ class FilesystemHelperAdapter(BaseAdapter):
         api_key: str,
         directory_id: str = "default",
         extensions: list[str] | None = None,
+        max_size_mb: float | None = None,
+        page_size: int = 50,
     ) -> None:
-        if not HAS_HTTPX:
-            raise ImportError(
-                "httpx is required for FilesystemHelperAdapter. "
-                "Install with: pip install context-library[filesystem-helper]"
-            )
         if not api_key:
             raise ValueError("api_key is required for FilesystemHelperAdapter")
 
-        self._api_url = api_url.rstrip("/")
-        self._api_key = api_key
+        # Pass service_url with /filesystem suffix so RemoteAdapter posts to /filesystem/fetch
+        super().__init__(
+            service_url=f"{api_url.rstrip('/')}/filesystem",
+            domain=Domain.NOTES,
+            adapter_id=f"filesystem_helper:{directory_id}",
+            api_key=api_key,
+        )
         self._directory_id = directory_id
-        self._extensions = extensions
-        self._client = httpx.Client(timeout=60.0)
-
-    @property
-    def adapter_id(self) -> str:
-        return f"filesystem_helper:{self._directory_id}"
-
-    @property
-    def domain(self) -> Domain:
-        return Domain.NOTES
+        self._fetch_params: dict = {"stream": True}
+        if extensions is not None:
+            self._fetch_params["extensions"] = extensions
+        if max_size_mb is not None:
+            self._fetch_params["max_size_mb"] = max_size_mb
+        if page_size != 50:
+            self._fetch_params["page_size"] = page_size
 
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
 
-    @property
-    def normalizer_version(self) -> str:
-        return "1.0.0"
-
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
-        since = source_ref if source_ref else None
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        params: dict = {}
-        if since:
-            params["since"] = since
-        if self._extensions:
-            params["extensions"] = ",".join(self._extensions)
+        """Fetch and normalize content via NDJSON streaming.
 
-        response = self._client.get(
-            f"{self._api_url}/documents",
+        Streams the response line-by-line so neither side needs to buffer
+        the full page. The server emits one NormalizedContent JSON object per
+        line, then a closing ``{"has_more": ..., "next_cursor": ...}`` line.
+
+        Args:
+            source_ref: ISO 8601 cursor string (empty = start from beginning)
+
+        Yields:
+            NormalizedContent for each file in the page
+
+        Raises:
+            httpx.HTTPStatusError: on non-2xx responses
+            ValueError: if a line cannot be parsed as JSON
+            pydantic.ValidationError: if a content line fails NormalizedContent validation
+
+        Note on retry:
+            Unlike RemoteAdapter.fetch(), this method does not retry on transient
+            errors (502/503/504, connection failures).  Retry is handled at a higher
+            level by the push-trigger or pipeline caller.  Adding per-call retry
+            inside a streaming context is complex and unnecessary given the outer
+            retry envelope.
+        """
+        headers: dict = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        body = {"source_ref": source_ref, **self._fetch_params}
+
+        with self._client.stream(
+            "POST",
+            f"{self._service_url}/fetch",
+            json=body,
             headers=headers,
-            params=params,
-        )
-        response.raise_for_status()
-        documents = response.json()
-
-        for doc in documents:
-            try:
-                source_id = doc["source_id"]
-                markdown = doc["markdown"]
-                modified_at = doc.get("modified_at")
-
-                structural_hints = StructuralHints(
-                    has_headings=doc.get("has_headings", False),
-                    has_lists=doc.get("has_lists", False),
-                    has_tables=doc.get("has_tables", False),
-                    natural_boundaries=(),
-                    modified_at=modified_at,
-                    file_size_bytes=doc.get("file_size_bytes"),
-                )
-
-                yield NormalizedContent(
-                    markdown=markdown,
-                    source_id=source_id,
-                    structural_hints=structural_hints,
-                    normalizer_version=self.normalizer_version,
-                )
-            except (KeyError, ValueError) as e:
-                logger.warning("Skipping malformed document from helper: %s", e)
-                continue
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    obj = _json.loads(line)
+                except ValueError as e:
+                    logger.error("FilesystemHelperAdapter: failed to parse NDJSON line: %s", e)
+                    raise
+                if "has_more" in obj:
+                    # Meta line — log pagination state and stop
+                    if obj.get("has_more"):
+                        logger.debug(
+                            "FilesystemHelperAdapter: has_more=True, next_cursor=%s",
+                            obj.get("next_cursor"),
+                        )
+                    return
+                try:
+                    yield NormalizedContent.model_validate(obj)
+                except ValidationError as e:
+                    logger.error(
+                        "FilesystemHelperAdapter: failed to validate NormalizedContent: %s", e
+                    )
+                    raise
