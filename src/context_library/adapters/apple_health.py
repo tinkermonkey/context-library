@@ -313,8 +313,8 @@ class AppleHealthAdapter(BaseAdapter):
 
         Note:
             Logs and skips individual malformed records without raising.
-            Logs endpoint-level HTTP/request errors without raising, allowing
-            subsequent endpoints to be fetched.
+            Logs endpoint-level errors (HTTP, request, invalid response schema)
+            without raising, allowing subsequent endpoints to be fetched.
         """
         try:
             response = httpx.get(
@@ -338,6 +338,8 @@ class AppleHealthAdapter(BaseAdapter):
                     logger.error(f"Skipping malformed {item_label} (ID: {record_id}): {e}")
                     continue
 
+        except ValueError as e:
+            logger.error(f"Invalid response schema from {endpoint}: {e}")
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
         except httpx.RequestError as e:
@@ -360,7 +362,8 @@ class AppleHealthAdapter(BaseAdapter):
         Note:
             Groups samples by date + hour. Each hourly window becomes one NormalizedContent.
             Logs and skips individual malformed samples without raising.
-            Logs HTTP/request errors without raising, allowing fetch() to continue.
+            Logs endpoint-level errors (HTTP, request, invalid response schema)
+            without raising, allowing fetch() to continue.
         """
         params = {"since": since} if since else {}
 
@@ -403,6 +406,8 @@ class AppleHealthAdapter(BaseAdapter):
                     logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
                     continue
 
+        except ValueError as e:
+            logger.error(f"Invalid heart rate response schema: {e}")
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error from Apple Health API /heart_rate: {e.response.status_code} {e.response.text}")
         except httpx.RequestError as e:

@@ -279,14 +279,25 @@ class TestAppleHealthAdapterFetch:
         sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
         assert len(sleep_records) == 1  # Sleep endpoint succeeded despite workouts failing
 
-    def test_fetch_invalid_response_schema_raises(self, mock_all_health_endpoints):
-        """fetch() raises ValueError if response is not a list."""
+    def test_fetch_invalid_response_schema_logged_continues(self, mock_all_health_endpoints):
+        """fetch() logs invalid response schema and continues to next endpoint."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {"workouts": []})  # Should be a list, not dict
+        # Set workouts endpoint to return dict instead of list (invalid schema)
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {"workouts": []})
+        # Set sleep endpoint to return valid data
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 450,
+            }
+        ])
 
-        with pytest.raises(ValueError, match="Expected list of records"):
-            list(adapter.fetch(""))
+        # Should not raise, just skip the invalid endpoint and continue
+        results = list(adapter.fetch(""))
+        assert len(results) == 1  # Only sleep record succeeds
+        assert results[0].structural_hints.extra_metadata["health_type"] == "sleep_summary"
 
     def test_fetch_missing_required_field_skips_workout(self, mock_all_health_endpoints):
         """fetch() skips and logs workouts with missing required fields."""
