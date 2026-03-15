@@ -986,7 +986,6 @@ class TestOuraAdapterAuthErrors:
     def test_fetch_other_http_errors_wrapped_in_endpoint_fetch_error(self, monkeypatch):
         """fetch() wraps non-auth HTTP errors (4xx/5xx) in EndpointFetchError."""
         import httpx
-        from context_library.adapters.base import EndpointFetchError
 
         adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
 
