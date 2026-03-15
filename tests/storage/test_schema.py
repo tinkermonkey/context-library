@@ -374,7 +374,7 @@ class TestSchemaMigrationV1ToV2:
 
             # Get original updated_at
             cursor.execute("SELECT updated_at FROM sources WHERE source_id = 'test-source'")
-            original_updated_at = cursor.fetchone()[0]
+            cursor.fetchone()[0]
             conn.commit()
             conn.close()
 
