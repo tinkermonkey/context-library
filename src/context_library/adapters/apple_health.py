@@ -162,6 +162,7 @@ Example usage (remote via serve_adapter):
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -185,6 +186,12 @@ try:
 
     HAS_HTTPX = True
 except ImportError:
+    pass
+
+
+class EndpointFetchError(Exception):
+    """Raised when an endpoint fails to fetch (non-auth error)."""
+
     pass
 
 
@@ -267,30 +274,56 @@ class AppleHealthAdapter(BaseAdapter):
         Yields:
             NormalizedContent: Normalized health records with HealthMetadata in extra_metadata
 
+        Raises:
+            RuntimeError: If ALL endpoints fail (indicates service/credential issue)
+            httpx.HTTPStatusError: Auth errors (401/403) propagate immediately
+
         Note:
             Errors in individual record processing are caught and logged. Malformed records
             are skipped gracefully, allowing the adapter to continue processing subsequent
-            records. Endpoint-level errors (HTTP, network) are also logged; one failing
-            endpoint does not block subsequent endpoints from being fetched.
-            Auth errors (401/403) are immediately re-raised to signal credential issues.
+            records. Auth errors (401/403) are immediately re-raised to signal credential issues.
+            If all endpoints fail, raises an aggregate RuntimeError after attempting all endpoints.
         """
         since = source_ref if source_ref else None
         params = {"since": since} if since else {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         # Fetch from all endpoints in order (six via generic handler, one via specialized heart_rate handler)
-        for endpoint, handler, item_label in [
+        endpoints_config = [
             ("/workouts", self._process_workout, "workout"),
             ("/sleep", self._process_sleep, "sleep record"),
             ("/activity", self._process_activity, "activity record"),
             ("/hrv", self._process_hrv, "HRV record"),
             ("/spo2", self._process_spo2, "SpO2 record"),
             ("/mindfulness", self._process_mindfulness, "mindfulness record"),
-        ]:
-            yield from self._fetch_endpoint(endpoint, handler, item_label, params, headers)
+        ]
+        failed_endpoints = []
+
+        for endpoint, handler, item_label in endpoints_config:
+            try:
+                yield from self._fetch_endpoint(endpoint, handler, item_label, params, headers)
+            except httpx.HTTPStatusError:
+                # Auth errors already logged and re-raised by _fetch_endpoint
+                raise
+            except EndpointFetchError:
+                failed_endpoints.append(endpoint)
 
         # Fetch heart rate separately (requires windowing by hour)
-        yield from self._fetch_heart_rate(since, headers)
+        try:
+            yield from self._fetch_heart_rate(since, headers)
+        except httpx.HTTPStatusError:
+            # Auth errors already logged and re-raised by _fetch_heart_rate
+            raise
+        except EndpointFetchError:
+            failed_endpoints.append("/heart_rate")
+
+        # Raise aggregate error if all endpoints failed
+        total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
+        if len(failed_endpoints) == total_endpoints:
+            raise RuntimeError(
+                f"All {total_endpoints} endpoints failed to fetch from Apple Health API. "
+                "Check API connectivity, credentials, and service status."
+            )
 
     def _fetch_endpoint(
         self,
@@ -314,11 +347,11 @@ class AppleHealthAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
+            EndpointFetchError: If endpoint fails (non-auth errors)
 
         Note:
             Logs and skips individual malformed records without raising.
-            Logs endpoint-level errors (HTTP, request, invalid response schema)
-            without raising, allowing subsequent endpoints to be fetched.
+            Logs and raises EndpointFetchError for endpoint-level failures (HTTP, request, invalid response schema).
             Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
         try:
@@ -352,10 +385,16 @@ class AppleHealthAdapter(BaseAdapter):
                 )
                 raise
             logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
+            raise EndpointFetchError(f"HTTP {e.response.status_code} from {endpoint}")
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}{endpoint}: {e}")
+            raise EndpointFetchError(f"Network error at {endpoint}: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from {endpoint} (possible proxy/HTML response): {e}")
+            raise EndpointFetchError(f"JSON decode error at {endpoint}: {e}")
         except ValueError as e:
             logger.error(f"Invalid response schema from {endpoint}: {e}")
+            raise EndpointFetchError(f"Invalid schema at {endpoint}: {e}")
 
     def _fetch_heart_rate(
         self,
@@ -373,12 +412,12 @@ class AppleHealthAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
+            EndpointFetchError: If endpoint fails (non-auth errors)
 
         Note:
             Groups samples by date + hour. Each hourly window becomes one NormalizedContent.
             Logs and skips individual malformed samples without raising.
-            Logs endpoint-level errors (HTTP, request, invalid response schema)
-            without raising, allowing fetch() to continue.
+            Logs and raises EndpointFetchError for endpoint-level failures.
             Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
         params = {"since": since} if since else {}
@@ -431,10 +470,16 @@ class AppleHealthAdapter(BaseAdapter):
                 )
                 raise
             logger.error(f"HTTP error from Apple Health API /heart_rate: {e.response.status_code} {e.response.text}")
+            raise EndpointFetchError(f"HTTP {e.response.status_code} from /heart_rate")
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}/heart_rate: {e}")
+            raise EndpointFetchError(f"Network error at /heart_rate: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from /heart_rate (possible proxy/HTML response): {e}")
+            raise EndpointFetchError(f"JSON decode error at /heart_rate: {e}")
         except ValueError as e:
             logger.error(f"Invalid heart rate response schema: {e}")
+            raise EndpointFetchError(f"Invalid schema at /heart_rate: {e}")
 
     def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single workout and yield NormalizedContent.

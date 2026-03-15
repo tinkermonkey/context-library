@@ -57,6 +57,12 @@ async def lifespan(app: FastAPI):
             ]
         except ImportError as e:
             logger.warning("Apple helper adapters not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "Apple helper adapters not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
 
         if config.helper_filesystem_enabled:
             try:
