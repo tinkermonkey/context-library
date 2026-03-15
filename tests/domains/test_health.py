@@ -60,18 +60,16 @@ class TestHealthDomainBasics:
     """Basic tests for HealthDomain initialization and properties."""
 
     def test_initialization_with_defaults(self):
-        """HealthDomain initializes with default hard_limit and hr_window_minutes."""
+        """HealthDomain initializes with default hard_limit."""
         domain = HealthDomain()
 
         assert domain.hard_limit == 1024
-        assert domain._hr_window_minutes == 60
 
-    def test_initialization_with_custom_limits(self):
-        """HealthDomain initializes with custom hard_limit and hr_window_minutes."""
-        domain = HealthDomain(hard_limit=512, hr_window_minutes=120)
+    def test_initialization_with_custom_hard_limit(self):
+        """HealthDomain initializes with custom hard_limit."""
+        domain = HealthDomain(hard_limit=512)
 
         assert domain.hard_limit == 512
-        assert domain._hr_window_minutes == 120
 
     def test_initialization_rejects_zero_hard_limit(self):
         """HealthDomain rejects hard_limit=0."""
