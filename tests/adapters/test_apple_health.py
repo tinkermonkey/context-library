@@ -1483,3 +1483,152 @@ class TestAppleHealthAdapterNetworkErrors:
         from context_library.adapters.base import AllEndpointsFailedError
         with pytest.raises(AllEndpointsFailedError, match="All.*endpoints failed"):
             list(adapter.fetch(""))
+
+
+class TestAppleHealthAdapterAuthErrors:
+    """Tests for AppleHealthAdapter 401/403 authentication error handling."""
+
+    def test_fetch_401_unauthorized_re_raised_immediately(self, monkeypatch):
+        """fetch() re-raises 401 Unauthorized without wrapping in EndpointFetchError."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="invalid-token")
+
+        def mock_get_401(*args, **kwargs):
+            # Simulate 401 response
+            response = httpx.Response(
+                status_code=401,
+                content=b"Unauthorized",
+                request=httpx.Request("GET", args[0] if args else "http://test"),
+            )
+            raise httpx.HTTPStatusError("401 Client Error", request=response.request, response=response)
+
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_401
+        )
+
+        # Should raise HTTPStatusError, not EndpointFetchError
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 401
+
+    def test_fetch_403_forbidden_re_raised_immediately(self, monkeypatch):
+        """fetch() re-raises 403 Forbidden without wrapping in EndpointFetchError."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        def mock_get_403(*args, **kwargs):
+            # Simulate 403 response
+            response = httpx.Response(
+                status_code=403,
+                content=b"Forbidden",
+                request=httpx.Request("GET", args[0] if args else "http://test"),
+            )
+            raise httpx.HTTPStatusError("403 Client Error", request=response.request, response=response)
+
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_403
+        )
+
+        # Should raise HTTPStatusError, not EndpointFetchError
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 403
+
+    def test_fetch_401_on_single_endpoint_stops_all_fetching(self, monkeypatch):
+        """fetch() immediately stops when 401 occurs on any endpoint."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="invalid-token")
+        call_count = [0]
+
+        def mock_get_401_sleep_only(url, **kwargs):
+            call_count[0] += 1
+            if "sleep" in url:
+                request = httpx.Request("GET", url)
+                response = httpx.Response(
+                    status_code=401,
+                    content=b"Unauthorized",
+                    request=request,
+                )
+                raise httpx.HTTPStatusError("401 Client Error", request=request, response=response)
+            # Other endpoints would succeed, but we shouldn't get there
+            request = httpx.Request("GET", url)
+            return httpx.Response(status_code=200, content=b"[]", request=request)
+
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_401_sleep_only
+        )
+
+        # fetch() should raise immediately on 401
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 401
+        # Should have only called for the first failing endpoint
+        assert call_count[0] >= 1
+
+    def test_fetch_403_on_single_endpoint_stops_all_fetching(self, monkeypatch):
+        """fetch() immediately stops when 403 occurs on any endpoint."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+        call_count = [0]
+
+        def mock_get_403_workouts_only(url, **kwargs):
+            call_count[0] += 1
+            if "workouts" in url:
+                request = httpx.Request("GET", url)
+                response = httpx.Response(
+                    status_code=403,
+                    content=b"Forbidden",
+                    request=request,
+                )
+                raise httpx.HTTPStatusError("403 Client Error", request=request, response=response)
+            # Other endpoints would succeed, but we shouldn't get there
+            request = httpx.Request("GET", url)
+            return httpx.Response(status_code=200, content=b"[]", request=request)
+
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_403_workouts_only
+        )
+
+        # fetch() should raise immediately on 403
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 403
+        # Should have only called for the first failing endpoint
+        assert call_count[0] >= 1
+
+    def test_fetch_other_http_errors_wrapped_in_endpoint_fetch_error(self, monkeypatch):
+        """fetch() wraps non-auth HTTP errors (4xx/5xx) in EndpointFetchError."""
+        import httpx
+        from context_library.adapters.base import EndpointFetchError
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        def mock_get_500(*args, **kwargs):
+            response = httpx.Response(
+                status_code=500,
+                content=b"Internal Server Error",
+                request=httpx.Request("GET", args[0] if args else "http://test"),
+            )
+            raise httpx.HTTPStatusError("500 Server Error", request=response.request, response=response)
+
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_500
+        )
+
+        # Should raise AllEndpointsFailedError (which wraps EndpointFetchError)
+        from context_library.adapters.base import AllEndpointsFailedError
+        with pytest.raises(AllEndpointsFailedError):
+            list(adapter.fetch(""))

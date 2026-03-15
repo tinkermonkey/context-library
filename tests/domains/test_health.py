@@ -852,3 +852,203 @@ class TestHealthMetadataDomainSpecificFields:
                 date_first_observed="2026-03-07T08:00:00Z",
                 score=-5.0,  # Invalid: < 0
             )
+
+
+class TestFormatSleepEfficiency:
+    """Tests for the format_sleep_efficiency function with comprehensive branch coverage."""
+
+    def test_format_sleep_efficiency_none_returns_empty_string(self):
+        """format_sleep_efficiency(None) returns empty string."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(None)
+
+        assert result == ""
+        assert isinstance(result, str)
+
+    def test_format_sleep_efficiency_decimal_range_0_92(self):
+        """format_sleep_efficiency(0.92) formats as 92.0% (decimal 0-1 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(0.92)
+
+        assert result == "92.0%"
+
+    def test_format_sleep_efficiency_decimal_range_0_5(self):
+        """format_sleep_efficiency(0.5) formats as 50.0% (decimal 0-1 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(0.5)
+
+        assert result == "50.0%"
+
+    def test_format_sleep_efficiency_decimal_range_0_0(self):
+        """format_sleep_efficiency(0.0) formats as 0.0% (decimal 0-1 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(0.0)
+
+        assert result == "0.0%"
+
+    def test_format_sleep_efficiency_decimal_range_1_0(self):
+        """format_sleep_efficiency(1.0) formats as 100.0% (boundary case, treated as decimal)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(1.0)
+
+        assert result == "100.0%"
+
+    def test_format_sleep_efficiency_percentage_range_92(self):
+        """format_sleep_efficiency(92) formats as 92.0% (percentage 0-100 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(92)
+
+        assert result == "92.0%"
+
+    def test_format_sleep_efficiency_percentage_range_100(self):
+        """format_sleep_efficiency(100) formats as 100.0% (percentage 0-100 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(100)
+
+        assert result == "100.0%"
+
+    def test_format_sleep_efficiency_percentage_range_50(self):
+        """format_sleep_efficiency(50) formats as 50.0% (percentage 0-100 range)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(50)
+
+        assert result == "50.0%"
+
+    def test_format_sleep_efficiency_ambiguous_value_2_5_logs_warning(self, caplog):
+        """format_sleep_efficiency(2.5) logs a warning for ambiguous value and formats as 2.5%."""
+        from context_library.domains.health import format_sleep_efficiency
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = format_sleep_efficiency(2.5)
+
+        # Should log a warning
+        assert any("Suspicious sleep efficiency value" in record.message for record in caplog.records)
+        assert any("between 1.0 and 10" in record.message for record in caplog.records)
+        # Should format as percentage (> 1.0)
+        assert result == "2.5%"
+
+    def test_format_sleep_efficiency_ambiguous_value_5_0_logs_warning(self, caplog):
+        """format_sleep_efficiency(5.0) logs a warning for ambiguous value and formats as 5.0%."""
+        from context_library.domains.health import format_sleep_efficiency
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = format_sleep_efficiency(5.0)
+
+        # Should log a warning
+        assert any("Suspicious sleep efficiency value" in record.message for record in caplog.records)
+        assert any("between 1.0 and 10" in record.message for record in caplog.records)
+        # Should format as percentage (> 1.0)
+        assert result == "5.0%"
+
+    def test_format_sleep_efficiency_ambiguous_boundary_1_1_logs_warning(self, caplog):
+        """format_sleep_efficiency(1.1) logs a warning for ambiguous value."""
+        from context_library.domains.health import format_sleep_efficiency
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = format_sleep_efficiency(1.1)
+
+        # Should log a warning
+        assert any("Suspicious sleep efficiency value" in record.message for record in caplog.records)
+        # Should format as percentage (> 1.0)
+        assert result == "1.1%"
+
+    def test_format_sleep_efficiency_ambiguous_boundary_9_9_logs_warning(self, caplog):
+        """format_sleep_efficiency(9.9) logs a warning for ambiguous value."""
+        from context_library.domains.health import format_sleep_efficiency
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = format_sleep_efficiency(9.9)
+
+        # Should log a warning
+        assert any("Suspicious sleep efficiency value" in record.message for record in caplog.records)
+        # Should format as percentage (> 1.0)
+        assert result == "9.9%"
+
+    def test_format_sleep_efficiency_above_ambiguous_range_10_1_no_warning(self, caplog):
+        """format_sleep_efficiency(10.1) does NOT log a warning (outside ambiguous range)."""
+        from context_library.domains.health import format_sleep_efficiency
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = format_sleep_efficiency(10.1)
+
+        # Should NOT log a warning
+        assert not any("Suspicious sleep efficiency value" in record.message for record in caplog.records)
+        # Should format as percentage (> 1.0)
+        assert result == "10.1%"
+
+    def test_format_sleep_efficiency_very_high_percentage_99_5(self):
+        """format_sleep_efficiency(99.5) formats as 99.5% (high percentage)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(99.5)
+
+        assert result == "99.5%"
+
+    def test_format_sleep_efficiency_integer_input_92_formats_correctly(self):
+        """format_sleep_efficiency accepts integer input and formats correctly."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(92)
+
+        assert result == "92.0%"
+
+    def test_format_sleep_efficiency_float_input_92_5_formats_correctly(self):
+        """format_sleep_efficiency accepts float input and formats correctly."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(92.5)
+
+        assert result == "92.5%"
+
+    def test_format_sleep_efficiency_decimal_very_small_0_001(self):
+        """format_sleep_efficiency(0.001) formats correctly for very small decimal."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(0.001)
+
+        assert result == "0.1%"  # Rounded to 1 decimal place
+
+    def test_format_sleep_efficiency_decimal_99_percentage(self):
+        """format_sleep_efficiency(0.99) formats as 99.0% (decimal very close to 1)."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        result = format_sleep_efficiency(0.99)
+
+        assert result == "99.0%"
+
+    def test_format_sleep_efficiency_three_branches_coverage(self):
+        """Verify all three branches are exercised: None, decimal, percentage."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        # Branch 1: None case
+        assert format_sleep_efficiency(None) == ""
+
+        # Branch 2: efficiency <= 1.0 (decimal range)
+        assert format_sleep_efficiency(0.5) == "50.0%"
+        assert format_sleep_efficiency(1.0) == "100.0%"
+
+        # Branch 3: efficiency > 1.0 (percentage range)
+        assert format_sleep_efficiency(50) == "50.0%"
+        assert format_sleep_efficiency(100) == "100.0%"
+
+    def test_format_sleep_efficiency_none_guard_always_executes_first(self):
+        """None case is handled before any value conversion."""
+        from context_library.domains.health import format_sleep_efficiency
+
+        # Verify None returns empty string before any processing
+        result = format_sleep_efficiency(None)
+        assert result == ""
+        assert isinstance(result, str)
