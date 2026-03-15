@@ -409,18 +409,22 @@ class HealthMetadata(BaseModel):
     Captures health metrics, measurements, and session data from health sources
     (Apple Health, Oura) for health-aware chunking and filtering.
 
-    Invariants:
+    Unlike EventMetadata (which uses extra="ignore" and discards domain-specific fields),
+    HealthMetadata explicitly declares and validates all expected health metric fields.
+    This ensures that calories_kcal, deep_sleep_minutes, avg_heart_rate_bpm, and similar
+    fields are validated and preserved through the pipeline.
+
+    Core Invariants:
     - record_id and source_type must be non-empty strings
     - health_type must be one of the eight vendor-neutral types
     - date must be a valid ISO 8601 date (YYYY-MM-DD)
     - date_first_observed must be a valid ISO 8601 timestamp
-    - duration_minutes if provided must be non-negative
-    - score if provided must be 0–100
 
-    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
-    Extra fields are not "allowed" or "accepted"—they are silently deleted during validation.
-    Domain-specific metadata like health metrics MUST be stored in the chunk's domain_metadata dict
-    as those preserve all fields. Passing extra fields to HealthMetadata will result in data loss.
+    Metrics Invariants (if provided):
+    - duration_minutes, steps, sample_count must be non-negative integers
+    - All *_minutes and *_calories fields must be non-negative
+    - All *_bpm and similar metric fields must be valid numbers
+    - score must be in range 0-100 if provided
     """
 
     ALLOWED_TYPES: ClassVar[frozenset[str]] = frozenset({
@@ -434,15 +438,69 @@ class HealthMetadata(BaseModel):
         "user_health_tag",
     })
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True)
 
+    # Core fields (required)
     record_id: str
     health_type: str
     date: str  # ISO 8601 date, e.g. "2026-03-07"
     source_type: str  # "apple_health" or "oura"
     date_first_observed: str  # ISO 8601 timestamp
+
+    # Domain-specific health metrics (all optional, explicitly defined for validation)
+    # Sleep metrics
     duration_minutes: int | None = None
+    deep_sleep_minutes: int | None = None
+    rem_sleep_minutes: int | None = None
+    light_sleep_minutes: int | None = None
+    efficiency: float | None = None  # 0.0-1.0 or 0-100
+    breathing_disturbance_index: float | None = None
+
+    # Activity metrics
+    steps: int | None = None
+    active_calories: float | None = None
+    total_calories: float | None = None
+    calories_kcal: float | None = None  # Alias for total_calories in some contexts
+    sedentary_minutes: int | None = None
+    distance_meters: float | None = None
+
+    # Heart rate / Cardiovascular metrics
+    avg_heart_rate_bpm: float | None = None
+    max_heart_rate_bpm: float | None = None
+    min_bpm: float | None = None
+    resting_heart_rate: float | None = None
+    avg_hrv: float | None = None
+    avg_bpm: float | None = None
+    max_bpm: float | None = None
+    bpm: float | None = None  # For individual HR samples
+
+    # Workout/Activity details
+    activity_type: str | None = None
+    intensity: float | None = None
+    session_type: str | None = None
+
+    # Time-series/Windowing details
+    hour: int | None = None
+    sample_count: int | None = None
+
+    # Physiological metrics
+    body_temperature_deviation: float | None = None
+    avg_spo2: float | None = None
+
+    # Scoring/Wellness metrics
     score: float | None = None
+
+    # Mindfulness / Journal entries
+    mood: str | None = None
+    notes: str | None = None
+    tags: tuple[str, ...] = ()
+    context: str | None = None
+
+    # User health tags
+    tag_text: str | None = None
+    text: str | None = None
+    timestamp: str | None = None
+    source: str | None = None
 
     @field_validator("record_id")
     @classmethod
@@ -489,12 +547,21 @@ class HealthMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
-    @field_validator("duration_minutes")
+    @field_validator("duration_minutes", "deep_sleep_minutes", "rem_sleep_minutes",
+                     "light_sleep_minutes", "sedentary_minutes")
     @classmethod
-    def validate_duration_minutes(cls, value: int | None) -> int | None:
-        """Validate that duration_minutes is non-negative if provided."""
+    def validate_non_negative_minutes(cls, value: int | None) -> int | None:
+        """Validate that minute values are non-negative if provided."""
         if value is not None and value < 0:
-            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
+            raise ValueError(f"Minute values must be non-negative, got: {value}")
+        return value
+
+    @field_validator("steps", "sample_count", "hour")
+    @classmethod
+    def validate_non_negative_integers(cls, value: int | None) -> int | None:
+        """Validate that count/integer values are non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"Count/integer values must be non-negative, got: {value}")
         return value
 
     @field_validator("score")

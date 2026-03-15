@@ -578,7 +578,7 @@ class TestHealthMetadataValidation:
 
     def test_chunk_raises_on_invalid_duration_minutes(self, health_domain):
         """chunk() raises ValueError when duration_minutes is negative."""
-        with pytest.raises(ValueError, match="duration_minutes must be non-negative"):
+        with pytest.raises(ValueError, match="Minute values must be non-negative"):
             HealthMetadata(
                 record_id="health-001",
                 health_type="sleep_summary",
@@ -664,3 +664,191 @@ class TestHealthSourceTypeVariations:
 
         assert len(chunks) == 1
         assert chunks[0].domain_metadata["source_type"] == source_type
+
+
+class TestHealthMetadataDomainSpecificFields:
+    """Tests for domain-specific health field validation and preservation.
+
+    Ensures that HealthMetadata validates all domain-specific health metrics
+    (calories_kcal, deep_sleep_minutes, avg_heart_rate_bpm, etc.) rather than
+    silently discarding them with extra="ignore".
+    """
+
+    def test_health_metadata_validates_sleep_metrics(self):
+        """HealthMetadata validates sleep-related metrics."""
+        meta = HealthMetadata(
+            record_id="sleep-001",
+            health_type="sleep_summary",
+            date="2026-03-07",
+            source_type="apple_health",
+            date_first_observed="2026-03-07T08:00:00Z",
+            duration_minutes=480,
+            deep_sleep_minutes=120,
+            rem_sleep_minutes=90,
+            light_sleep_minutes=270,
+            efficiency=0.92,
+        )
+
+        assert meta.duration_minutes == 480
+        assert meta.deep_sleep_minutes == 120
+        assert meta.rem_sleep_minutes == 90
+        assert meta.light_sleep_minutes == 270
+        assert meta.efficiency == 0.92
+
+    def test_health_metadata_validates_activity_metrics(self):
+        """HealthMetadata validates activity-related metrics."""
+        meta = HealthMetadata(
+            record_id="activity-001",
+            health_type="activity_summary",
+            date="2026-03-07",
+            source_type="apple_health",
+            date_first_observed="2026-03-07T08:00:00Z",
+            steps=10250,
+            active_calories=450.5,
+            total_calories=2100.0,
+            sedentary_minutes=480,
+            distance_meters=7500.0,
+        )
+
+        assert meta.steps == 10250
+        assert meta.active_calories == 450.5
+        assert meta.total_calories == 2100.0
+        assert meta.sedentary_minutes == 480
+        assert meta.distance_meters == 7500.0
+
+    def test_health_metadata_validates_workout_metrics(self):
+        """HealthMetadata validates workout-related metrics."""
+        meta = HealthMetadata(
+            record_id="workout-001",
+            health_type="workout_session",
+            date="2026-03-07",
+            source_type="apple_health",
+            date_first_observed="2026-03-07T08:00:00Z",
+            duration_minutes=45,
+            calories_kcal=350.0,
+            distance_meters=5000.0,
+            avg_heart_rate_bpm=145.5,
+            activity_type="running",
+        )
+
+        assert meta.duration_minutes == 45
+        assert meta.calories_kcal == 350.0
+        assert meta.distance_meters == 5000.0
+        assert meta.avg_heart_rate_bpm == 145.5
+        assert meta.activity_type == "running"
+
+    def test_health_metadata_validates_all_optional_fields(self, health_domain):
+        """HealthMetadata model_dump includes all optional fields with values."""
+        meta = HealthMetadata(
+            record_id="comprehensive-001",
+            health_type="sleep_summary",
+            date="2026-03-07",
+            source_type="oura",
+            date_first_observed="2026-03-07T08:00:00Z",
+            duration_minutes=420,
+            deep_sleep_minutes=100,
+            rem_sleep_minutes=80,
+            light_sleep_minutes=240,
+            efficiency=0.89,
+            breathing_disturbance_index=1.5,
+            score=82.0,
+        )
+
+        dumped = meta.model_dump()
+        assert dumped["duration_minutes"] == 420
+        assert dumped["deep_sleep_minutes"] == 100
+        assert dumped["rem_sleep_minutes"] == 80
+        assert dumped["light_sleep_minutes"] == 240
+        assert dumped["efficiency"] == 0.89
+        assert dumped["breathing_disturbance_index"] == 1.5
+        assert dumped["score"] == 82.0
+
+    def test_health_domain_preserves_all_validated_fields_in_domain_metadata(
+        self, health_domain
+    ):
+        """HealthDomain chunk preserves all validated health fields in domain_metadata.
+
+        This test verifies that the merge order {**meta_dict, **meta.model_dump()}
+        ensures validated fields take precedence over raw input.
+        """
+        meta = HealthMetadata(
+            record_id="sleep-002",
+            health_type="sleep_summary",
+            date="2026-03-07",
+            source_type="apple_health",
+            date_first_observed="2026-03-07T08:00:00Z",
+            duration_minutes=480,
+            deep_sleep_minutes=120,
+            rem_sleep_minutes=90,
+            light_sleep_minutes=270,
+            efficiency=0.92,
+            score=85.5,
+        )
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Excellent sleep quality.",
+            source_id="sleep_001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = health_domain.chunk(content)
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # All validated fields should be in domain_metadata
+        assert chunk.domain_metadata["record_id"] == "sleep-002"
+        assert chunk.domain_metadata["health_type"] == "sleep_summary"
+        assert chunk.domain_metadata["date"] == "2026-03-07"
+        assert chunk.domain_metadata["source_type"] == "apple_health"
+        assert chunk.domain_metadata["duration_minutes"] == 480
+        assert chunk.domain_metadata["deep_sleep_minutes"] == 120
+        assert chunk.domain_metadata["rem_sleep_minutes"] == 90
+        assert chunk.domain_metadata["light_sleep_minutes"] == 270
+        assert chunk.domain_metadata["efficiency"] == 0.92
+        assert chunk.domain_metadata["score"] == 85.5
+
+    def test_health_metadata_rejects_negative_steps(self):
+        """HealthMetadata rejects negative step counts."""
+        with pytest.raises(ValueError, match="Count/integer values must be non-negative"):
+            HealthMetadata(
+                record_id="activity-001",
+                health_type="activity_summary",
+                date="2026-03-07",
+                source_type="apple_health",
+                date_first_observed="2026-03-07T08:00:00Z",
+                steps=-100,  # Invalid: negative
+            )
+
+    def test_health_metadata_rejects_negative_sample_count(self):
+        """HealthMetadata rejects negative sample counts."""
+        with pytest.raises(ValueError, match="Count/integer values must be non-negative"):
+            HealthMetadata(
+                record_id="hr-series-001",
+                health_type="heart_rate_series",
+                date="2026-03-07",
+                source_type="apple_health",
+                date_first_observed="2026-03-07T08:00:00Z",
+                sample_count=-50,  # Invalid: negative
+            )
+
+    def test_health_metadata_rejects_invalid_score_below_zero(self):
+        """HealthMetadata rejects score values below 0."""
+        with pytest.raises(ValueError, match="score must be in range 0-100"):
+            HealthMetadata(
+                record_id="readiness-001",
+                health_type="readiness_summary",
+                date="2026-03-07",
+                source_type="oura",
+                date_first_observed="2026-03-07T08:00:00Z",
+                score=-5.0,  # Invalid: < 0
+            )

@@ -94,8 +94,9 @@ class HealthDomain(BaseDomain):
         chunks = []
         for idx, segment in enumerate(segments):
             chunk_hash = compute_chunk_hash(segment)
-            # Merge model_dump with original dict to preserve any extra fields
-            domain_metadata = {**meta.model_dump(), **meta_dict}
+            # Merge: validated fields take precedence over raw dict
+            # This ensures Pydantic normalization (e.g., date format normalization) is preserved
+            domain_metadata = {**meta_dict, **meta.model_dump()}
             chunk = Chunk(
                 chunk_hash=chunk_hash,
                 content=segment,
