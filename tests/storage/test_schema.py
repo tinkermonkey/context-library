@@ -583,53 +583,48 @@ class TestSchemaMigrationV1ToV2:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create v1 database with health adapter and source, then migrate
+            # Create v1 database and migrate
             conn = sqlite3.connect(str(db_path))
             _create_v1_schema(conn)
-
-            # Pre-populate v1 database with health data before migration
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
-                VALUES (?, ?, ?, ?)
-            """, ("oura-adapter", "messages", "oura", "1.0"))
-
-            cursor.execute("""
-                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
-                VALUES (?, ?, ?, ?, ?)
-            """, ("oura-source", "oura-adapter", "messages", "user-123", "pull"))
-
-            cursor.execute("""
-                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, ("oura-source", 1, "Health data", '["b"*64]', "oura-adapter", "1.0", "2025-01-01T00:00:00Z"))
-
-            # Insert a chunk in v1 database (will have messages domain)
-            cursor.execute("""
-                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, ("b" * 64, "oura-source", 1, 0, "Test data", "messages", "oura-adapter", "2025-01-01T00:00:00Z", "1.0"))
-            conn.commit()
             conn.close()
 
-            # Migrate to v2
             store = DocumentStore(str(db_path))
+            store.conn.close()
 
-            # Now try to insert a new adapter with health domain in the migrated v2 database
-            cursor = store.conn.cursor()
+            # Reopen the database in a fresh connection to test chunks insertability
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            # Insert health adapter and source for chunks
             cursor.execute("""
                 INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
                 VALUES (?, ?, ?, ?)
             """, ("health-adapter", "health", "oura", "1.0"))
-            store.conn.commit()
 
-            # Verify health domain works in adapters
-            cursor.execute("SELECT domain FROM adapters WHERE adapter_id = 'health-adapter'")
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("health-source", "health-adapter", "health", "user-123", "pull"))
+
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("health-source", 1, "Health data", '["c"*64]', "health-adapter", "1.0", "2025-01-02T00:00:00Z"))
+
+            # Insert a chunk with health domain
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("c" * 64, "health-source", 1, 0, "Health data", "health", "health-adapter", "2025-01-02T00:00:00Z", "1.0"))
+            conn.commit()
+
+            # Verify health domain works in chunks table after migration
+            cursor.execute("SELECT domain FROM chunks WHERE chunk_hash = ?", ("c" * 64,))
             result = cursor.fetchone()
             assert result is not None
             assert result[0] == "health"
 
-            store.conn.close()
+            conn.close()
 
     def test_migrate_v1_to_v2_migration_failure_raises_runtime_error(self) -> None:
         """Test that migration failure raises RuntimeError with descriptive message.
