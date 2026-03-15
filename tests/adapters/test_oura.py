@@ -3,6 +3,7 @@
 import pytest
 
 from context_library.adapters.oura import OuraAdapter
+from context_library.adapters.base import PartialFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata
 
 
@@ -367,7 +368,7 @@ class TestOuraAdapterFetch:
         assert heart_rate_records[1].source_id == "oura/heart_rate/2026-03-07T11"
 
     def test_fetch_http_error_logged_continues(self, mock_all_oura_endpoints):
-        """fetch() logs HTTP errors without raising, allowing other endpoints to proceed."""
+        """fetch() logs HTTP errors and surfaces partial failures via PartialFetchError."""
         adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
 
         # Set sleep to error, but activity to succeed
@@ -380,13 +381,16 @@ class TestOuraAdapterFetch:
             }
         ])
 
-        # Should not raise, just log the error and continue to next endpoints
-        results = list(adapter.fetch(""))
-        activity_records = [r for r in results if "activity" in r.source_id]
-        assert len(activity_records) == 1  # Activity endpoint succeeded despite sleep failing
+        # Should yield activity data but raise PartialFetchError for the failed sleep endpoint
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        # Verify the error indicates which endpoint failed
+        assert "/oura/sleep" in exc_info.value.failed_endpoints
+        assert len(exc_info.value.failed_endpoints) == 1
 
     def test_fetch_invalid_response_schema_logged_continues(self, mock_all_oura_endpoints):
-        """fetch() logs invalid response schema and continues to next endpoint."""
+        """fetch() logs invalid response schema and surfaces partial failure via PartialFetchError."""
         adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
 
         # Set sleep endpoint to return dict instead of list (invalid schema)
@@ -400,10 +404,13 @@ class TestOuraAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the invalid endpoint and continue
-        results = list(adapter.fetch(""))
-        assert len(results) == 1  # Only activity record succeeds
-        assert results[0].structural_hints.extra_metadata["health_type"] == "activity_summary"
+        # Should yield activity data but raise PartialFetchError for the invalid sleep endpoint
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        # Verify the error indicates which endpoint failed
+        assert "/oura/sleep" in exc_info.value.failed_endpoints
+        assert len(exc_info.value.failed_endpoints) == 1
 
     def test_fetch_missing_required_field_skips_record(self, mock_all_oura_endpoints):
         """fetch() skips and logs records with missing required fields."""

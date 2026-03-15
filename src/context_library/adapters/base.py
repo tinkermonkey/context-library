@@ -7,6 +7,49 @@ from context_library.storage.models import AdapterConfig, Domain, NormalizedCont
 from context_library.storage.document_store import DocumentStore
 
 
+class EndpointFetchError(Exception):
+    """Raised when an endpoint fails to fetch (non-auth error).
+
+    This exception is shared across adapters that fetch from multiple endpoints
+    (e.g., AppleHealthAdapter, OuraAdapter). It is used to signal that a specific
+    endpoint failed, allowing callers to distinguish between partial failures
+    (some endpoints succeeded, others failed) and total failures (all endpoints failed).
+
+    Auth errors (HTTPStatusError with 401/403) should be raised directly without
+    being caught and converted to this exception, as they indicate configuration
+    problems that should terminate the entire fetch operation.
+    """
+
+    pass
+
+
+class PartialFetchError(Exception):
+    """Raised when some (but not all) endpoints fail to fetch.
+
+    This exception signals that partial data was successfully retrieved from some
+    endpoints, but other endpoints failed. Callers can inspect the failed_endpoints
+    list to understand which data sources failed and implement recovery or logging
+    strategies.
+
+    Attributes:
+        failed_endpoints: List of endpoint paths that failed (e.g., ['/sleep', '/activity'])
+        message: Descriptive message about which endpoints failed
+    """
+
+    def __init__(self, failed_endpoints: list[str], message: str = ""):
+        """Initialize PartialFetchError.
+
+        Args:
+            failed_endpoints: List of endpoint identifiers that failed
+            message: Optional custom message; if empty, a default is generated
+        """
+        self.failed_endpoints = failed_endpoints
+        if not message:
+            endpoints_str = ", ".join(failed_endpoints)
+            message = f"Partial fetch failure: {len(failed_endpoints)} endpoint(s) failed: {endpoints_str}"
+        super().__init__(message)
+
+
 class BaseAdapter(ABC):
     """Abstract base class for content adapters.
 

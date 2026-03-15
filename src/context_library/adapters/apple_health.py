@@ -173,7 +173,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
@@ -192,12 +192,6 @@ try:
 
     HAS_HTTPX = True
 except ImportError:
-    pass
-
-
-class EndpointFetchError(Exception):
-    """Raised when an endpoint fails to fetch (non-auth error)."""
-
     pass
 
 
@@ -323,13 +317,21 @@ class AppleHealthAdapter(BaseAdapter):
         except EndpointFetchError:
             failed_endpoints.append("/heart_rate")
 
-        # Raise aggregate error if all endpoints failed
+        # Surface endpoint failures to the caller
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
-        if len(failed_endpoints) == total_endpoints:
-            raise RuntimeError(
-                f"All {total_endpoints} endpoints failed to fetch from Apple Health API. "
-                "Check API connectivity, credentials, and service status."
-            )
+        if failed_endpoints:
+            if len(failed_endpoints) == total_endpoints:
+                raise RuntimeError(
+                    f"All {total_endpoints} endpoints failed to fetch from Apple Health API. "
+                    "Check API connectivity, credentials, and service status."
+                )
+            else:
+                # Partial failure: some endpoints succeeded, others failed
+                raise PartialFetchError(
+                    failed_endpoints,
+                    f"Partial fetch from Apple Health API: {len(failed_endpoints)}/{total_endpoints} "
+                    f"endpoint(s) failed. Successful endpoints provided partial data.",
+                )
 
     def _fetch_endpoint(
         self,

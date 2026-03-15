@@ -4,6 +4,7 @@ import pytest
 
 
 from context_library.adapters.apple_health import AppleHealthAdapter
+from context_library.adapters.base import PartialFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata
 
 
@@ -255,7 +256,7 @@ class TestAppleHealthAdapterFetch:
         assert metadata_dict["avg_heart_rate_bpm"] is None
 
     def test_fetch_http_error_logged_continues(self, mock_all_health_endpoints):
-        """fetch() logs HTTP errors without raising, allowing other endpoints to proceed."""
+        """fetch() logs HTTP errors and surfaces partial failures via PartialFetchError."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Set workouts to error, but sleep to succeed
@@ -273,13 +274,16 @@ class TestAppleHealthAdapterFetch:
             }
         ])
 
-        # Should not raise, just log the error and continue to next endpoints
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        assert len(sleep_records) == 1  # Sleep endpoint succeeded despite workouts failing
+        # Should yield sleep data but raise PartialFetchError for the failed workouts endpoint
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        # Verify the error indicates which endpoint failed
+        assert "/workouts" in exc_info.value.failed_endpoints
+        assert len(exc_info.value.failed_endpoints) == 1
 
     def test_fetch_invalid_response_schema_logged_continues(self, mock_all_health_endpoints):
-        """fetch() logs invalid response schema and continues to next endpoint."""
+        """fetch() logs invalid response schema and surfaces partial failure via PartialFetchError."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Set workouts endpoint to return dict instead of list (invalid schema)
@@ -293,10 +297,13 @@ class TestAppleHealthAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the invalid endpoint and continue
-        results = list(adapter.fetch(""))
-        assert len(results) == 1  # Only sleep record succeeds
-        assert results[0].structural_hints.extra_metadata["health_type"] == "sleep_summary"
+        # Should yield sleep data but raise PartialFetchError for the invalid workouts endpoint
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        # Verify the error indicates which endpoint failed
+        assert "/workouts" in exc_info.value.failed_endpoints
+        assert len(exc_info.value.failed_endpoints) == 1
 
     def test_fetch_missing_required_field_skips_workout(self, mock_all_health_endpoints):
         """fetch() skips and logs workouts with missing required fields."""

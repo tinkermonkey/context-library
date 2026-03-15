@@ -176,7 +176,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
@@ -195,12 +195,6 @@ try:
 
     HAS_HTTPX = True
 except ImportError:
-    pass
-
-
-class EndpointFetchError(Exception):
-    """Raised when an endpoint fails to fetch (non-auth error)."""
-
     pass
 
 
@@ -327,13 +321,21 @@ class OuraAdapter(BaseAdapter):
         except EndpointFetchError:
             failed_endpoints.append("/oura/heart_rate")
 
-        # Raise aggregate error if all endpoints failed
+        # Surface endpoint failures to the caller
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
-        if len(failed_endpoints) == total_endpoints:
-            raise RuntimeError(
-                f"All {total_endpoints} endpoints failed to fetch from Oura API. "
-                "Check API connectivity, credentials, and service status."
-            )
+        if failed_endpoints:
+            if len(failed_endpoints) == total_endpoints:
+                raise RuntimeError(
+                    f"All {total_endpoints} endpoints failed to fetch from Oura API. "
+                    "Check API connectivity, credentials, and service status."
+                )
+            else:
+                # Partial failure: some endpoints succeeded, others failed
+                raise PartialFetchError(
+                    failed_endpoints,
+                    f"Partial fetch from Oura API: {len(failed_endpoints)}/{total_endpoints} "
+                    f"endpoint(s) failed. Successful endpoints provided partial data.",
+                )
 
     def _fetch_endpoint(
         self,
@@ -501,13 +503,28 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized sleep summary
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, date, totalSleepMinutes) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        date = record["date"]
-        total_sleep_minutes = record["totalSleepMinutes"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Sleep record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("Sleep record 'date' must not be empty")
+
+            total_sleep_minutes = record["totalSleepMinutes"]
+            if not isinstance(total_sleep_minutes, (int, float)):
+                raise ValueError(
+                    f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}"
+                )
+        except KeyError as e:
+            raise ValueError(f"Sleep record missing required field: {e}")
+        except ValueError:
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -563,14 +580,30 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized readiness summary
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, date, score, avgHrv) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        date = record["date"]
-        score = record["score"]
-        avg_hrv = record["avgHrv"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Readiness record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("Readiness record 'date' must not be empty")
+
+            score = record["score"]
+            if not isinstance(score, (int, float)):
+                raise ValueError(f"Readiness record 'score' must be numeric, got {type(score)}")
+
+            avg_hrv = record["avgHrv"]
+            if not isinstance(avg_hrv, (int, float)):
+                raise ValueError(f"Readiness record 'avgHrv' must be numeric, got {type(avg_hrv)}")
+        except KeyError as e:
+            raise ValueError(f"Readiness record missing required field: {e}")
+        except ValueError:
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -624,13 +657,26 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized activity summary
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, date, steps) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        date = record["date"]
-        steps = record["steps"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Activity record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("Activity record 'date' must not be empty")
+
+            steps = record["steps"]
+            if not isinstance(steps, (int, float)):
+                raise ValueError(f"Activity record 'steps' must be numeric, got {type(steps)}")
+        except KeyError as e:
+            raise ValueError(f"Activity record missing required field: {e}")
+        except ValueError:
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -686,15 +732,36 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized workout with HealthMetadata
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, activityType, startDate, endDate, durationSeconds) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        workout_id = record["id"]
-        activity_type = record["activityType"]
-        start_date = record["startDate"]
-        _ = record["endDate"]  # Validate presence of endDate field
-        duration_seconds = record["durationSeconds"]
+        # Extract and validate required fields
+        try:
+            workout_id = record["id"]
+            if not workout_id:
+                raise ValueError("Workout 'id' must not be empty")
+
+            activity_type = record["activityType"]
+            if not activity_type:
+                raise ValueError("Workout 'activityType' must not be empty")
+
+            start_date = record["startDate"]
+            if not start_date:
+                raise ValueError("Workout 'startDate' must not be empty")
+
+            _ = record["endDate"]  # Validate presence of endDate field
+            if not _:
+                raise ValueError("Workout 'endDate' must not be empty")
+
+            duration_seconds = record["durationSeconds"]
+            if not isinstance(duration_seconds, (int, float)):
+                raise ValueError(
+                    f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}"
+                )
+        except KeyError as e:
+            raise ValueError(f"Workout record missing required field: {e}")
+        except ValueError:
+            raise
 
         # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)
@@ -842,13 +909,26 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized SpO2 summary
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, date, avgSpo2) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        date = record["date"]
-        avg_spo2 = record["avgSpo2"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("SpO2 record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("SpO2 record 'date' must not be empty")
+
+            avg_spo2 = record["avgSpo2"]
+            if not isinstance(avg_spo2, (int, float)):
+                raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
+        except KeyError as e:
+            raise ValueError(f"SpO2 record missing required field: {e}")
+        except ValueError:
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -900,13 +980,26 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized user health tag
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, date, text) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        date = record["date"]
-        text = record["text"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Tag record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("Tag record 'date' must not be empty")
+
+            text = record["text"]
+            if not text:
+                raise ValueError("Tag record 'text' must not be empty")
+        except KeyError as e:
+            raise ValueError(f"Tag record missing required field: {e}")
+        except ValueError:
+            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -959,15 +1052,36 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized mindfulness session
 
         Raises:
-            ValueError: If HealthMetadata validation fails
-            KeyError: If required fields (id, startDate, endDate, durationSeconds, sessionType) are missing
+            ValueError: If required fields are missing, empty, or invalid
+            KeyError: If required fields are missing
         """
-        # Extract fields; KeyError propagates if required fields are missing
-        record_id = record["id"]
-        start_date = record["startDate"]
-        _ = record["endDate"]  # Validate presence of endDate field
-        duration_seconds = record["durationSeconds"]
-        session_type = record["sessionType"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Session record 'id' must not be empty")
+
+            start_date = record["startDate"]
+            if not start_date:
+                raise ValueError("Session record 'startDate' must not be empty")
+
+            end_date = record["endDate"]  # Validate presence of endDate field
+            if not end_date:
+                raise ValueError("Session record 'endDate' must not be empty")
+
+            duration_seconds = record["durationSeconds"]
+            if not isinstance(duration_seconds, (int, float)):
+                raise ValueError(
+                    f"Session record 'durationSeconds' must be numeric, got {type(duration_seconds)}"
+                )
+
+            session_type = record["sessionType"]
+            if not session_type:
+                raise ValueError("Session record 'sessionType' must not be empty")
+        except KeyError as e:
+            raise ValueError(f"Session record missing required field: {e}")
+        except ValueError:
+            raise
 
         # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)
