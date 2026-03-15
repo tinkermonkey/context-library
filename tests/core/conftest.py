@@ -66,28 +66,28 @@ class MockResponse:
             )
 
 
+class MockHTTPXGet:
+    """Mock httpx.get that tracks requests and returns configured responses."""
+    def __init__(self):
+        self.requests = []
+        self.responses = {}
+
+    def __call__(self, url, params=None, headers=None, timeout=None):
+        self.requests.append({"url": url, "params": params, "headers": headers})
+        if url not in self.responses:
+            raise AssertionError(
+                f"MockHTTPXGet: Unconfigured URL '{url}'\n"
+                f"Configured URLs: {list(self.responses.keys())}"
+            )
+        return self.responses[url]
+
+    def set_response(self, url, data, status_code=200):
+        self.responses[url] = MockResponse(data, status_code, url=url)
+
+
 @pytest.fixture
 def mock_health_httpx_get(monkeypatch):
     """Fixture for mocking httpx.get() for Apple Health endpoints with request tracking."""
-
-    class MockHTTPXGet:
-        """Mock httpx.get that tracks requests and returns configured responses."""
-        def __init__(self):
-            self.requests = []
-            self.responses = {}
-
-        def __call__(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockHTTPXGet: Unconfigured URL '{url}'\n"
-                    f"Configured URLs: {list(self.responses.keys())}"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
     mock_get = MockHTTPXGet()
 
     monkeypatch.setattr(
@@ -101,25 +101,6 @@ def mock_health_httpx_get(monkeypatch):
 @pytest.fixture
 def mock_oura_httpx_get(monkeypatch):
     """Fixture for mocking httpx.get() for Oura endpoints with request tracking."""
-
-    class MockHTTPXGet:
-        """Mock httpx.get that tracks requests and returns configured responses."""
-        def __init__(self):
-            self.requests = []
-            self.responses = {}
-
-        def __call__(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockHTTPXGet: Unconfigured URL '{url}'\n"
-                    f"Configured URLs: {list(self.responses.keys())}"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
     mock_get = MockHTTPXGet()
 
     monkeypatch.setattr(

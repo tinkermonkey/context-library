@@ -8,6 +8,10 @@ import tempfile
 
 import pytest
 
+# Guard against missing sentence_transformers at collection time.
+# This must come before any imports that transitively depend on it (e.g., IngestionPipeline).
+pytest.importorskip("sentence_transformers")
+
 from context_library.adapters.apple_health import AppleHealthAdapter
 from context_library.adapters.oura import OuraAdapter
 from context_library.core.differ import Differ
@@ -27,13 +31,7 @@ def document_store():
 
 @pytest.fixture
 def embedder():
-    """Create an embedder instance.
-
-    Lazily imports Embedder to allow tests to be collected even if sentence_transformers
-    is not installed. Uses pytest.importorskip to gracefully skip the test if the
-    dependency is missing.
-    """
-    pytest.importorskip("sentence_transformers")
+    """Create an embedder instance."""
     from context_library.core.embedder import Embedder
     return Embedder(model_name="all-MiniLM-L6-v2")
 
