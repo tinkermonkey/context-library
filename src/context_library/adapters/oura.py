@@ -612,7 +612,7 @@ class OuraAdapter(BaseAdapter):
         workout_id = record["id"]
         activity_type = record["activityType"]
         start_date = record["startDate"]
-        end_date = record["endDate"]
+        record["endDate"]
         duration_seconds = record["durationSeconds"]
 
         # Compute duration in minutes and extract date from start_date
@@ -863,7 +863,7 @@ class OuraAdapter(BaseAdapter):
         # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
         start_date = record["startDate"]
-        end_date = record["endDate"]
+        record["endDate"]
         duration_seconds = record["durationSeconds"]
         session_type = record["sessionType"]
 
