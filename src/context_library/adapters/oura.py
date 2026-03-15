@@ -255,7 +255,7 @@ class OuraAdapter(BaseAdapter):
         if not HAS_HTTPX:
             raise ImportError(
                 "Oura adapter requires 'httpx' package. "
-                "Install with: pip install context-library[oura]"
+                "Install with: pip install httpx"
             )
         if not api_key:
             raise ValueError("api_key is required for OuraAdapter")
@@ -526,7 +526,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for sleep record {record_id}: {e}")
+            raise
 
         source_id = f"oura/sleep/{record_id}"
         markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
@@ -583,7 +587,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for readiness record {record_id}: {e}")
+            raise
 
         source_id = f"oura/readiness/{record_id}"
         markdown = self._build_readiness_summary(record, score, avg_hrv)
@@ -641,7 +649,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for activity record {record_id}: {e}")
+            raise
 
         source_id = f"oura/activity/{record_id}"
         markdown = self._build_activity_summary(record, int(steps))
@@ -680,7 +692,7 @@ class OuraAdapter(BaseAdapter):
         workout_id = record["id"]
         activity_type = record["activityType"]
         start_date = record["startDate"]
-        record["endDate"]
+        _ = record["endDate"]  # Validate presence of endDate field
         duration_seconds = record["durationSeconds"]
 
         # Compute duration in minutes and extract date from start_date
@@ -705,7 +717,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for workout {workout_id}: {e}")
+            raise
 
         # Create source_id
         source_id = f"oura/workout/{workout_id}"
@@ -784,7 +800,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for heart rate window {record_id}: {e}")
+            raise
 
         source_id = f"oura/heart_rate/{window_date}T{window_hour:02d}"
         markdown = self._build_heart_rate_summary(window, avg_bpm, min_bpm, max_bpm)
@@ -838,7 +858,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for SpO2 record {record_id}: {e}")
+            raise
 
         source_id = f"oura/spo2/{record_id}"
         markdown = self._build_spo2_summary(record, avg_spo2)
@@ -892,7 +916,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for user health tag {record_id}: {e}")
+            raise
 
         source_id = f"oura/tag/{record_id}"
         tags = record.get("tags", [])
@@ -931,7 +959,7 @@ class OuraAdapter(BaseAdapter):
         # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
         start_date = record["startDate"]
-        record["endDate"]
+        _ = record["endDate"]  # Validate presence of endDate field
         duration_seconds = record["durationSeconds"]
         session_type = record["sessionType"]
 
@@ -955,7 +983,11 @@ class OuraAdapter(BaseAdapter):
         }
 
         # HealthMetadata.model_validate() will validate types and constraints
-        HealthMetadata.model_validate(health_metadata_dict)
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for mindfulness session {record_id}: {e}")
+            raise
 
         source_id = f"oura/session/{record_id}"
         markdown = self._build_session_summary(record, session_type, duration_minutes)
