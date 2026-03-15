@@ -717,3 +717,180 @@ class TestOuraAdapterMarkdownGeneration:
         assert metadata["date"] == "2026-03-07"
         assert metadata["duration_minutes"] == 480
         assert metadata["deep_sleep_minutes"] == 120
+
+
+class TestOuraAdapterNetworkErrors:
+    """Tests for OuraAdapter network error handling."""
+
+    def test_fetch_network_error_request_error_resilience(self, mock_all_oura_endpoints):
+        """fetch() handles RequestError (network errors) gracefully and continues."""
+        import httpx
+
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        # Mock the mock_get to raise for sleep but return data for activity
+        original_call = mock_all_oura_endpoints.__call__
+
+        def patched_call(url, params=None, headers=None, timeout=None):
+            if "sleep" in url:
+                raise httpx.RequestError("Connection refused")
+            return original_call(url, params=params, headers=headers, timeout=timeout)
+
+        mock_all_oura_endpoints.__call__ = patched_call
+
+        # Setup a successful activity response
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/activity", [
+            {
+                "id": "activity-1",
+                "date": "2026-03-07",
+                "score": 75,
+                "activeCalories": 350,
+                "totalCalories": 2500,
+                "steps": 8000,
+                "totalDistance": 5000,
+            }
+        ])
+
+        # Should not raise; continues after sleep failure
+        results = list(adapter.fetch(""))
+
+        # Should have activity results despite sleep endpoint failing
+        activity_results = [r for r in results if "activity" in r.source_id.lower()]
+        assert len(activity_results) > 0
+
+    def test_fetch_dns_resolution_error_all_endpoints_fail(self):
+        """fetch() raises RuntimeError when ALL endpoints fail with network errors."""
+        import httpx
+
+        adapter = OuraAdapter(api_url="http://invalid-oura-host.local", api_key="test-token")
+
+        # Create a mock that always raises RequestError
+        def mock_get_with_dns_error(*args, **kwargs):
+            raise httpx.RequestError("Name resolution failed")
+
+        # Patch httpx.get at module level
+        import context_library.adapters.oura
+        original_get = context_library.adapters.oura.httpx.get
+        context_library.adapters.oura.httpx.get = mock_get_with_dns_error
+
+        try:
+            # Should raise RuntimeError when all endpoints fail
+            with pytest.raises(RuntimeError, match="All.*endpoints failed"):
+                list(adapter.fetch(""))
+        finally:
+            # Restore original
+            context_library.adapters.oura.httpx.get = original_get
+
+
+class TestOuraAdapterWorkoutValidation:
+    """Tests for Oura workout validation, including endDate."""
+
+    def test_fetch_workout_missing_enddate_skips_record(self, mock_all_oura_endpoints):
+        """fetch() skips workout records missing endDate field."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/workouts", [
+            {
+                "id": "workout-1",
+                "activityType": "running",
+                "startDate": "2026-03-07T08:00:00Z",
+                # Missing 'endDate'
+                "durationSeconds": 1800,
+            }
+        ])
+
+        # Should not raise, just skip the malformed record
+        results = list(adapter.fetch(""))
+        workout_records = [r for r in results if "workout" in r.source_id.lower()]
+        assert len(workout_records) == 0
+
+    def test_fetch_workout_missing_required_fields_skips_record(self, mock_all_oura_endpoints):
+        """fetch() skips workout records with missing required fields."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        # Test missing id
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/workouts", [
+            {
+                # Missing 'id'
+                "activityType": "running",
+                "startDate": "2026-03-07T08:00:00Z",
+                "endDate": "2026-03-07T08:30:00Z",
+                "durationSeconds": 1800,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        workout_records = [r for r in results if "workout" in r.source_id.lower()]
+        assert len(workout_records) == 0
+
+        # Test missing startDate
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/workouts", [
+            {
+                "id": "workout-2",
+                "activityType": "cycling",
+                # Missing 'startDate'
+                "endDate": "2026-03-07T09:00:00Z",
+                "durationSeconds": 2400,
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        workout_records = [r for r in results if "workout" in r.source_id.lower()]
+        assert len(workout_records) == 0
+
+
+class TestOuraAdapterSessionValidation:
+    """Tests for Oura session validation, including endDate."""
+
+    def test_fetch_session_missing_enddate_skips_record(self, mock_all_oura_endpoints):
+        """fetch() skips session records missing endDate field."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sessions", [
+            {
+                "id": "session-1",
+                "startDate": "2026-03-07T10:00:00Z",
+                # Missing 'endDate'
+                "durationSeconds": 600,
+                "sessionType": "meditation",
+            }
+        ])
+
+        # Should not raise, just skip the malformed record
+        results = list(adapter.fetch(""))
+        session_records = [r for r in results if "session" in r.source_id.lower()]
+        assert len(session_records) == 0
+
+    def test_fetch_session_missing_required_fields_skips_record(self, mock_all_oura_endpoints):
+        """fetch() skips session records with missing required fields."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        # Test missing id
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sessions", [
+            {
+                # Missing 'id'
+                "startDate": "2026-03-07T10:00:00Z",
+                "endDate": "2026-03-07T10:10:00Z",
+                "durationSeconds": 600,
+                "sessionType": "meditation",
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        session_records = [r for r in results if "session" in r.source_id.lower()]
+        assert len(session_records) == 0
+
+        # Test missing sessionType
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sessions", [
+            {
+                "id": "session-2",
+                "startDate": "2026-03-07T11:00:00Z",
+                "endDate": "2026-03-07T11:10:00Z",
+                "durationSeconds": 600,
+                # Missing 'sessionType'
+            }
+        ])
+
+        results = list(adapter.fetch(""))
+        session_records = [r for r in results if "session" in r.source_id.lower()]
+        assert len(session_records) == 0

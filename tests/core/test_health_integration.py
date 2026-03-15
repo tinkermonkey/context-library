@@ -1,0 +1,303 @@
+"""End-to-end integration tests for health domain ingestion pipeline.
+
+Tests the full pipeline from adapter fetch → normalization → chunking → embedding → storage.
+Verifies that health data flows through the entire ingestion system correctly.
+"""
+
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from context_library.adapters.apple_health import AppleHealthAdapter
+from context_library.adapters.oura import OuraAdapter
+from context_library.core.differ import Differ
+from context_library.core.embedder import Embedder
+from context_library.core.pipeline import IngestionPipeline
+from context_library.domains.health import HealthDomain
+from context_library.storage.chromadb_store import ChromaDBVectorStore
+from context_library.storage.document_store import DocumentStore
+
+
+
+@pytest.fixture
+def document_store():
+    """Create an in-memory document store for testing."""
+    store = DocumentStore(":memory:")
+    yield store
+    store.close()
+
+
+@pytest.fixture
+def embedder():
+    """Create an embedder instance."""
+    return Embedder(model_name="all-MiniLM-L6-v2")
+
+
+@pytest.fixture
+def differ():
+    """Create a differ instance."""
+    return Differ()
+
+
+@pytest.fixture
+def health_domain():
+    """Create a HealthDomain chunker instance."""
+    return HealthDomain(hard_limit=1024)
+
+
+@pytest.fixture
+def pipeline(document_store, embedder, differ):
+    """Create a pipeline instance with temporary vector store."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        vector_store = ChromaDBVectorStore(tmpdir)
+        pipeline_obj = IngestionPipeline(
+            document_store=document_store,
+            embedder=embedder,
+            differ=differ,
+            vector_store=vector_store,
+        )
+        yield pipeline_obj
+
+
+@pytest.fixture
+def mock_all_health_endpoints(monkeypatch):
+    """Fixture that mocks all Apple Health endpoints."""
+
+    class MockResponse:
+        def __init__(self, json_data, status_code=200):
+            self._json_data = json_data
+            self.status_code = status_code
+
+        def json(self):
+            return self._json_data
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                import httpx
+                raise httpx.HTTPStatusError(
+                    f"HTTP {self.status_code}",
+                    request=None,
+                    response=self,
+                )
+
+    class MockHTTPXGet:
+        def __init__(self):
+            self.responses = {}
+
+        def __call__(self, url, params=None, headers=None, timeout=None):
+            if url not in self.responses:
+                raise AssertionError(f"MockHTTPXGet: Unconfigured URL '{url}'")
+            return self.responses[url]
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code)
+
+    mock_get = MockHTTPXGet()
+
+    base_url = "http://127.0.0.1:7124"
+    endpoints = ["/workouts", "/sleep", "/activity", "/hrv", "/spo2", "/mindfulness", "/heart_rate"]
+
+    for endpoint in endpoints:
+        mock_get.set_response(f"{base_url}{endpoint}", [])
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_health.httpx.get",
+        mock_get
+    )
+
+    return mock_get
+
+
+@pytest.fixture
+def mock_all_oura_endpoints(monkeypatch):
+    """Fixture that mocks all Oura endpoints."""
+
+    class MockResponse:
+        def __init__(self, json_data, status_code=200):
+            self._json_data = json_data
+            self.status_code = status_code
+
+        def json(self):
+            return self._json_data
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                import httpx
+                raise httpx.HTTPStatusError(
+                    f"HTTP {self.status_code}",
+                    request=None,
+                    response=self,
+                )
+
+    class MockHTTPXGet:
+        def __init__(self):
+            self.responses = {}
+
+        def __call__(self, url, params=None, headers=None, timeout=None):
+            if url not in self.responses:
+                raise AssertionError(f"MockHTTPXGet: Unconfigured URL '{url}'")
+            return self.responses[url]
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code)
+
+    mock_get = MockHTTPXGet()
+
+    base_url = "http://localhost:8000"
+    endpoints = ["/oura/sleep", "/oura/readiness", "/oura/activity", "/oura/workouts",
+                 "/oura/spo2", "/oura/tags", "/oura/sessions", "/oura/heart_rate"]
+
+    for endpoint in endpoints:
+        mock_get.set_response(f"{base_url}{endpoint}", [])
+
+    monkeypatch.setattr(
+        "context_library.adapters.oura.httpx.get",
+        mock_get
+    )
+
+    return mock_get
+
+
+class TestHealthDomainIntegration:
+    """End-to-end integration tests for health domain pipeline."""
+
+    def test_apple_health_full_pipeline_single_record(
+        self, pipeline, health_domain, mock_all_health_endpoints
+    ):
+        """Test full pipeline: Apple Health adapter → chunking → embedding → storage."""
+        # Setup adapter with test data
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        # Configure a single workout record
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+            {
+                "id": "workout-001",
+                "activityType": "running",
+                "startDate": "2026-03-07T08:00:00+00:00",
+                "endDate": "2026-03-07T08:30:00+00:00",
+                "durationSeconds": 1800,
+                "totalEnergyBurned": 450.0,
+                "totalDistance": 3000.0,
+                "averageHeartRate": 150.0,
+                "notes": "Morning run",
+            }
+        ])
+
+        # Run ingestion pipeline
+        result = pipeline.ingest(adapter, health_domain)
+
+        # Verify ingestion succeeded
+        assert result["sources_processed"] == 1
+        assert result["chunks_added"] > 0
+        assert result["chunks_removed"] == 0
+
+        # Verify data in document store (source_id format is {activity_type}/workout-{id})
+        versions = pipeline.document_store.get_version_history("running/workout-001")
+        assert len(versions) >= 1
+        version = versions[0]
+        assert len(version.chunk_hashes) > 0
+
+        # Verify chunks contain health metadata
+        chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        assert len(chunks) > 0
+        chunk = chunks[0]
+        assert chunk.domain_metadata is not None
+        assert chunk.domain_metadata["health_type"] == "workout_session"
+        assert chunk.domain_metadata["source_type"] == "apple_health"
+        assert chunk.domain_metadata["date"] == "2026-03-07"
+
+        # Verify chunks have proper context headers
+        assert "workout_session" in chunk.context_header
+        assert "2026-03-07" in chunk.context_header
+
+
+    def test_apple_health_multiple_endpoint_types(
+        self, pipeline, health_domain, mock_all_health_endpoints
+    ):
+        """Test pipeline handles multiple health endpoint types (workouts + sleep)."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        # Configure workout record
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+            {
+                "id": "workout-001",
+                "activityType": "running",
+                "startDate": "2026-03-07T08:00:00+00:00",
+                "endDate": "2026-03-07T08:30:00+00:00",
+                "durationSeconds": 1800,
+            }
+        ])
+
+        # Configure sleep record
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-001",
+                "date": "2026-03-06",
+                "totalSleepMinutes": 540,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 150,
+                "lightSleepMinutes": 270,
+                "sleepScore": 92,
+            }
+        ])
+
+        # Run pipeline
+        result = pipeline.ingest(adapter, health_domain)
+
+        # Should process both endpoint types
+        assert result["sources_processed"] >= 2  # workout + sleep
+        assert result["chunks_added"] >= 2
+
+        # Verify both types in document store (source_id formats)
+        sleep_chunks = pipeline.document_store.get_chunks_by_source("sleep/sleep-001")
+        workout_chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
+
+        assert len(sleep_chunks) > 0
+        assert len(workout_chunks) > 0
+
+        # Verify health types are correct
+        assert sleep_chunks[0].domain_metadata["health_type"] == "sleep_summary"
+        assert workout_chunks[0].domain_metadata["health_type"] == "workout_session"
+
+    def test_oura_full_pipeline_single_record(
+        self, pipeline, health_domain, mock_all_oura_endpoints
+    ):
+        """Test full pipeline with Oura adapter: fetch → chunk → embed → store."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+
+        # Configure a single sleep record
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-oura-001",
+                "date": "2026-03-07",
+                "score": 88,
+                "totalSleepMinutes": 470,
+                "deepSleepMinutes": 110,
+                "remSleepMinutes": 150,
+                "lightSleepMinutes": 210,
+                "awakeMinutes": 10,
+            }
+        ])
+
+        # Run ingestion pipeline
+        result = pipeline.ingest(adapter, health_domain)
+
+        # Verify ingestion succeeded
+        assert result["sources_processed"] >= 1
+        assert result["chunks_added"] > 0
+
+        # Verify data in document store (source_id format is {adapter_source}/{health_type}/{id})
+        versions = pipeline.document_store.get_version_history("oura/sleep/sleep-oura-001")
+        assert len(versions) >= 1
+
+        # Verify chunks contain correct metadata
+        chunks = pipeline.document_store.get_chunks_by_source("oura/sleep/sleep-oura-001")
+        assert len(chunks) > 0
+        chunk = chunks[0]
+        assert chunk.domain_metadata["health_type"] == "sleep_summary"
+        assert chunk.domain_metadata["source_type"] == "oura"
+        assert chunk.domain_metadata["date"] == "2026-03-07"
+
+

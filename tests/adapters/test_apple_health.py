@@ -1342,3 +1342,74 @@ class TestAppleHealthAdapterMindfulnessIncremental:
         assert "calm" in markdown  # Mood
         assert "evening" in markdown  # Tags
         assert "relaxation" in markdown  # Tags
+
+
+class TestAppleHealthAdapterNetworkErrors:
+    """Tests for AppleHealthAdapter network error handling."""
+
+    def test_fetch_network_error_request_error_resilience(self, mock_all_health_endpoints):
+        """fetch() handles RequestError (network errors) gracefully and continues."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        # Configure workouts endpoint to raise RequestError (network failure)
+        def raise_request_error(*args, **kwargs):
+            raise httpx.RequestError("Connection refused")
+
+        # Mock the mock_get to raise for workouts but return data for sleep
+        original_call = mock_all_health_endpoints.__call__
+
+        def patched_call(url, params=None, headers=None, timeout=None):
+            if "workouts" in url:
+                raise httpx.RequestError("Connection refused")
+            return original_call(url, params=params, headers=headers, timeout=timeout)
+
+        # Set up proper responses for other endpoints
+        mock_all_health_endpoints.__call__ = patched_call
+
+        # Setup a successful sleep response
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+            {
+                "id": "sleep-1",
+                "date": "2026-03-07",
+                "totalSleepMinutes": 480,
+                "deepSleepMinutes": 120,
+                "remSleepMinutes": 100,
+                "lightSleepMinutes": 260,
+                "efficiency": 0.92,
+                "score": 90,
+            }
+        ])
+
+        # Should not raise; continues after workouts failure
+        results = list(adapter.fetch(""))
+
+        # Should have sleep results despite workouts endpoint failing
+        sleep_results = [r for r in results if "sleep" in r.source_id.lower()]
+        assert len(sleep_results) > 0
+
+    def test_fetch_dns_resolution_error_all_endpoints_fail(self):
+        """fetch() raises RuntimeError when ALL endpoints fail with network errors."""
+        import httpx
+
+        adapter = AppleHealthAdapter(api_url="http://invalid-host-xyz.local", api_key="test-token")
+
+        # Create a mock that always raises RequestError
+        from unittest.mock import MagicMock
+
+        def mock_get_with_dns_error(*args, **kwargs):
+            raise httpx.RequestError("Name resolution failed")
+
+        # Patch httpx.get at module level
+        import context_library.adapters.apple_health
+        original_get = context_library.adapters.apple_health.httpx.get
+        context_library.adapters.apple_health.httpx.get = mock_get_with_dns_error
+
+        try:
+            # Should raise RuntimeError when all endpoints fail
+            with pytest.raises(RuntimeError, match="All.*endpoints failed"):
+                list(adapter.fetch(""))
+        finally:
+            # Restore original
+            context_library.adapters.apple_health.httpx.get = original_get
