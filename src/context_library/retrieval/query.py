@@ -102,7 +102,7 @@ def retrieve(
         document_store: DocumentStore instance for lineage lookup.
         vector_store: VectorStore instance for vector search.
         top_k: Number of results to return. Defaults to 10.
-        domain_filter: Optional domain to filter results (NOTES, MESSAGES, EVENTS, TASKS).
+        domain_filter: Optional domain to filter results (NOTES, MESSAGES, EVENTS, TASKS, HEALTH).
         source_filter: Optional source_id to filter results to a specific source.
 
     Returns:
