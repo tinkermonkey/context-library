@@ -55,7 +55,7 @@ GET /sleep
         "deepSleepMinutes": <int>,
         "remSleepMinutes": <int>,
         "lightSleepMinutes": <int>,
-        "efficiency": <float>,
+        "efficiency": <float>,  // 0.0–1.0 (e.g., 0.92 means 92%)
         "score": <int | null>
       }
     ]
@@ -1100,7 +1100,11 @@ class AppleHealthAdapter(BaseAdapter):
 
         efficiency = record.get("efficiency")
         if efficiency is not None:
-            lines.append(f"- Efficiency: {efficiency:.1%}")
+            # API contract: efficiency is 0.0–1.0. If value > 1, treat as percentage (0–100).
+            if efficiency > 1:
+                lines.append(f"- Efficiency: {efficiency:.1f}%")
+            else:
+                lines.append(f"- Efficiency: {efficiency:.1%}")
 
         score = record.get("score")
         if score is not None:
