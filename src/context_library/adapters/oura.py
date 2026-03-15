@@ -504,7 +504,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -523,8 +522,6 @@ class OuraAdapter(BaseAdapter):
                 )
         except KeyError as e:
             raise ValueError(f"Sleep record missing required field: {e}")
-        except ValueError:
-            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -581,7 +578,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -602,8 +598,6 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError(f"Readiness record 'avgHrv' must be numeric, got {type(avg_hrv)}")
         except KeyError as e:
             raise ValueError(f"Readiness record missing required field: {e}")
-        except ValueError:
-            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -658,7 +652,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -675,8 +668,6 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError(f"Activity record 'steps' must be numeric, got {type(steps)}")
         except KeyError as e:
             raise ValueError(f"Activity record missing required field: {e}")
-        except ValueError:
-            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -733,7 +724,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -760,8 +750,6 @@ class OuraAdapter(BaseAdapter):
                 )
         except KeyError as e:
             raise ValueError(f"Workout record missing required field: {e}")
-        except ValueError:
-            raise
 
         # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)
@@ -834,7 +822,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
         """
         if not window:
             raise ValueError("Heart rate window must not be empty")
@@ -910,7 +897,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -927,8 +913,6 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
         except KeyError as e:
             raise ValueError(f"SpO2 record missing required field: {e}")
-        except ValueError:
-            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -981,7 +965,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -998,8 +981,6 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError("Tag record 'text' must not be empty")
         except KeyError as e:
             raise ValueError(f"Tag record missing required field: {e}")
-        except ValueError:
-            raise
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -1053,7 +1034,6 @@ class OuraAdapter(BaseAdapter):
 
         Raises:
             ValueError: If required fields are missing, empty, or invalid
-            KeyError: If required fields are missing
         """
         # Extract and validate required fields
         try:
@@ -1080,8 +1060,6 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError("Session record 'sessionType' must not be empty")
         except KeyError as e:
             raise ValueError(f"Session record missing required field: {e}")
-        except ValueError:
-            raise
 
         # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)

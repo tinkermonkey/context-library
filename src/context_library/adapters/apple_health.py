@@ -499,8 +499,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized workout with HealthMetadata
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         workout_id = workout["id"]
@@ -591,8 +591,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized sleep summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         record_id = record["id"]
@@ -667,8 +667,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized activity summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         record_id = record["id"]
@@ -743,8 +743,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized readiness summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         record_id = record["id"]
@@ -820,8 +820,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized heart rate series for the hour
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         if not window:
             raise ValueError("Heart rate window must not be empty")
@@ -895,8 +895,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized SpO2 summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         record_id = record["id"]
@@ -963,8 +963,8 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized mindfulness session
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If required field values are empty or invalid
+            KeyError: If required fields are missing from the record
         """
         # Extract required fields
         record_id = record["id"]
