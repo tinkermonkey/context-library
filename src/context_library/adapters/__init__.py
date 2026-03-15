@@ -70,3 +70,11 @@ if importlib.util.find_spec("httpx") is not None:
     )
 
     __all__.append("RemoteAdapter")
+
+# Check if oura adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.oura import (  # noqa: F401
+        OuraAdapter as OuraAdapter,
+    )
+
+    __all__.append("OuraAdapter")
