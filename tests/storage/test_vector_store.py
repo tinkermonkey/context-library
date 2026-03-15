@@ -165,6 +165,30 @@ class TestVectorStoreIntegration:
         vector_store.add_vectors([])
         assert vector_store.count() == 0
 
+    def test_count_logs_and_raises_on_error(self, vector_store, caplog):
+        """Test that count() logs and raises RuntimeError on ChromaDB failures."""
+        import logging
+        caplog.set_level(logging.ERROR)
+
+        # Mock the collection to raise an error
+        vector_store._collection = None
+        original_get_client = vector_store._get_client
+
+        def mock_get_client_error():
+            raise RuntimeError("ChromaDB connection failed")
+
+        vector_store._get_client = mock_get_client_error
+
+        # count() should raise RuntimeError and log the error
+        with pytest.raises(RuntimeError, match="Vector store count failed"):
+            vector_store.count()
+
+        assert "Failed to count vectors in store" in caplog.text
+        assert "RuntimeError" in caplog.text
+
+        # Restore original method
+        vector_store._get_client = original_get_client
+
 
 class TestVectorStoreABC:
     """Tests for the VectorStore abstract interface."""

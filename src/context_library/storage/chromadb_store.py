@@ -144,5 +144,6 @@ class ChromaDBVectorStore(VectorStore):
         try:
             collection = self._get_collection()
             return int(collection.count())
-        except Exception:
-            return 0
+        except Exception as e:
+            logger.error(f"Failed to count vectors in store: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Vector store count failed: {type(e).__name__}: {e}") from e
