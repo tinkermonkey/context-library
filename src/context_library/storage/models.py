@@ -12,7 +12,7 @@ from datetime import date
 from enum import Enum
 from typing import Annotated, ClassVar
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
 from context_library.storage.validators import validate_iso8601_timestamp
 
@@ -409,10 +409,11 @@ class HealthMetadata(BaseModel):
     Captures health metrics, measurements, and session data from health sources
     (Apple Health, Oura) for health-aware chunking and filtering.
 
-    Unlike EventMetadata (which uses extra="ignore" and discards domain-specific fields),
-    HealthMetadata explicitly declares and validates all expected health metric fields.
-    This ensures that calories_kcal, deep_sleep_minutes, avg_heart_rate_bpm, and similar
-    fields are validated and preserved through the pipeline.
+    Both HealthMetadata and EventMetadata use Pydantic's default extra="ignore" behavior,
+    but HealthMetadata explicitly declares all expected health metric fields as model
+    properties (calories_kcal, deep_sleep_minutes, avg_heart_rate_bpm, etc.). This ensures
+    these fields are validated and included in model_dump() output, rather than being
+    silently discarded during domain processing.
 
     Core Invariants:
     - record_id and source_type must be non-empty strings
@@ -480,7 +481,7 @@ class HealthMetadata(BaseModel):
     session_type: str | None = None
 
     # Time-series/Windowing details
-    hour: int | None = None
+    hour: int | None = Field(default=None, ge=0, le=23, description="Hour of day (0-23) for time-windowing")
     sample_count: int | None = None
 
     # Physiological metrics

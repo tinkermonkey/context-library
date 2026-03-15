@@ -96,7 +96,7 @@ class HealthDomain(BaseDomain):
             chunk_hash = compute_chunk_hash(segment)
             # Merge: validated fields take precedence over raw dict
             # This ensures Pydantic normalization (e.g., date format normalization) is preserved
-            domain_metadata = {**meta_dict, **meta.model_dump()}
+            domain_metadata = {**meta_dict, **meta.model_dump(exclude_none=True)}
             chunk = Chunk(
                 chunk_hash=chunk_hash,
                 content=segment,
