@@ -18,17 +18,10 @@ class HealthDomain(BaseDomain):
     Extracts HealthMetadata from extra_metadata, builds date-stamped context
     headers, and delegates oversized content to _split_if_needed().
 
-    Note: Time-series windowing is performed by adapters (e.g., heart_rate_series
-    grouping) before normalization, not by this chunker.
+    Note: Time-series windowing is performed by adapters (e.g., hourly heart rate
+    grouping in AppleHealthAdapter._fetch_heart_rate) before normalization, not
+    by this chunker.
     """
-
-    def __init__(self, hard_limit: int = 1024) -> None:
-        """Initialize HealthDomain with token limit.
-
-        Args:
-            hard_limit: Maximum tokens before forced splitting (default: 1024)
-        """
-        super().__init__(hard_limit)
 
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Chunk health content into semantically coherent pieces.
@@ -36,8 +29,11 @@ class HealthDomain(BaseDomain):
         Algorithm:
         1. Extract and validate HealthMetadata from extra_metadata
         2. Build context_header in "{health_type} — {date}" format using the single date
-           from metadata (date-range windowing occurs at the adapter level via the
-           normalized markdown content, not in this chunker)
+           from metadata. (Note: Date-range windowing occurs at the adapter level.
+           For example, AppleHealthAdapter._fetch_heart_rate groups individual samples
+           into hourly windows, with each window becoming a separate NormalizedContent.
+           This chunker sees the already-windowed markdown body and extracts its single
+           date from metadata.)
         3. Guard against empty markdown body
         4. Split content if needed using hard_limit
         5. Create chunks with sequential indices and domain metadata
