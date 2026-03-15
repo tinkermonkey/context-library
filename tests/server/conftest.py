@@ -13,7 +13,6 @@ from context_library.storage.models import (
     Domain,
     LineageRecord,
     PollStrategy,
-    SourceVersion,
     compute_chunk_hash,
 )
 

@@ -4005,7 +4005,6 @@ class TestCrossReferencesRoundTrip:
 
 def _setup_adapter_and_source(store: DocumentStore):
     """Register adapter and source for new method tests."""
-    from context_library.storage.models import compute_chunk_hash
     config = AdapterConfig(
         adapter_id="read-adapter",
         adapter_type="filesystem",
