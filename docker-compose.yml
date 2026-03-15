@@ -6,19 +6,23 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./src:/app/src
       - sqlite-data:/data/sqlite
       - chromadb-data:/data/chromadb
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     environment:
       - CTX_SQLITE_DB_PATH=/data/sqlite/documents.db
       - CTX_CHROMADB_PATH=/data/chromadb
-      - CTX_EMBEDDING_MODEL=all-MiniLM-L6-v2
-      - CTX_WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
-      - CTX_ENABLE_RERANKER=false
-      - CTX_HELPER_URL=${HELPER_URL:-}
-      - CTX_HELPER_API_KEY=${HELPER_API_KEY:-}
-      - CTX_HELPER_FILESYSTEM_ENABLED=${HELPER_FILESYSTEM_ENABLED:-false}
-      - CTX_HELPER_OBSIDIAN_ENABLED=${HELPER_OBSIDIAN_ENABLED:-false}
+      - CTX_EMBEDDING_MODEL=${CTX_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - CTX_WEBHOOK_SECRET=${CTX_WEBHOOK_SECRET:-}
+      - CTX_ENABLE_RERANKER=${CTX_ENABLE_RERANKER:-false}
+      - CTX_HELPER_URL=${CTX_HELPER_URL:-}
+      - CTX_HELPER_API_KEY=${CTX_HELPER_API_KEY:-}
+      - CTX_HELPER_FILESYSTEM_ENABLED=${CTX_HELPER_FILESYSTEM_ENABLED:-false}
+      - CTX_HELPER_OBSIDIAN_ENABLED=${CTX_HELPER_OBSIDIAN_ENABLED:-false}
 
 volumes:
   sqlite-data:

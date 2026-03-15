@@ -10,7 +10,7 @@ class ServerConfig(BaseSettings):
     For example, CTX_SQLITE_DB_PATH=/data/documents.db.
     """
 
-    model_config = SettingsConfigDict(env_prefix="CTX_")
+    model_config = SettingsConfigDict(env_prefix="CTX_", env_file=".env", env_file_encoding="utf-8")
 
     # Storage paths
     sqlite_db_path: str = "/data/sqlite/documents.db"

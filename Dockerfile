@@ -7,9 +7,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends build-essential && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install project with server extras
+# Install dependencies (cached layer — only rebuilds when pyproject.toml changes)
 COPY pyproject.toml ./
-COPY src/ ./src/
+RUN mkdir -p src/context_library && touch src/context_library/__init__.py
 RUN pip install --no-cache-dir ".[server]"
 
 # Pre-download the default embedding model into the image
@@ -26,4 +26,4 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
-CMD ["uvicorn", "context_library.server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "context_library.server.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
