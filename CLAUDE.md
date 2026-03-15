@@ -144,3 +144,4 @@ All variables use the `CTX_` prefix (set in env or `.env` file):
 | `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest` |
 | `CTX_HOST` | `0.0.0.0` | Bind address |
 | `CTX_PORT` | `8000` | Bind port |
+| `CTX_HELPER_OURA_ENABLED` | `false` | Enable OuraAdapter for Oura Ring health data |

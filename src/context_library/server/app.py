@@ -72,6 +72,13 @@ async def lifespan(app: FastAPI):
             except ImportError as e:
                 logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
 
+        if config.helper_oura_enabled:
+            try:
+                from context_library.adapters.oura import OuraAdapter
+                helper_adapters.append(OuraAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            except ImportError as e:
+                logger.warning("OuraAdapter not available (missing dependency): %s", e)
+
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
 
