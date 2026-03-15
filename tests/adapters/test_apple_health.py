@@ -1353,10 +1353,6 @@ class TestAppleHealthAdapterNetworkErrors:
 
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        # Configure workouts endpoint to raise RequestError (network failure)
-        def raise_request_error(*args, **kwargs):
-            raise httpx.RequestError("Connection refused")
-
         # Mock the mock_get to raise for workouts but return data for sleep
         original_call = mock_all_health_endpoints.__call__
 
@@ -1389,27 +1385,21 @@ class TestAppleHealthAdapterNetworkErrors:
         sleep_results = [r for r in results if "sleep" in r.source_id.lower()]
         assert len(sleep_results) > 0
 
-    def test_fetch_dns_resolution_error_all_endpoints_fail(self):
+    def test_fetch_dns_resolution_error_all_endpoints_fail(self, monkeypatch):
         """fetch() raises RuntimeError when ALL endpoints fail with network errors."""
         import httpx
 
         adapter = AppleHealthAdapter(api_url="http://invalid-host-xyz.local", api_key="test-token")
 
-        # Create a mock that always raises RequestError
-        from unittest.mock import MagicMock
-
         def mock_get_with_dns_error(*args, **kwargs):
             raise httpx.RequestError("Name resolution failed")
 
-        # Patch httpx.get at module level
-        import context_library.adapters.apple_health
-        original_get = context_library.adapters.apple_health.httpx.get
-        context_library.adapters.apple_health.httpx.get = mock_get_with_dns_error
+        # Use monkeypatch for consistent error handling
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_with_dns_error
+        )
 
-        try:
-            # Should raise RuntimeError when all endpoints fail
-            with pytest.raises(RuntimeError, match="All.*endpoints failed"):
-                list(adapter.fetch(""))
-        finally:
-            # Restore original
-            context_library.adapters.apple_health.httpx.get = original_get
+        # Should raise RuntimeError when all endpoints fail
+        with pytest.raises(RuntimeError, match="All.*endpoints failed"):
+            list(adapter.fetch(""))

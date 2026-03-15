@@ -5,20 +5,16 @@ Verifies that health data flows through the entire ingestion system correctly.
 """
 
 import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from context_library.adapters.apple_health import AppleHealthAdapter
 from context_library.adapters.oura import OuraAdapter
 from context_library.core.differ import Differ
-from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.domains.health import HealthDomain
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
-
 
 
 @pytest.fixture
@@ -31,7 +27,14 @@ def document_store():
 
 @pytest.fixture
 def embedder():
-    """Create an embedder instance."""
+    """Create an embedder instance.
+
+    Lazily imports Embedder to allow tests to be collected even if sentence_transformers
+    is not installed. Uses pytest.importorskip to gracefully skip the test if the
+    dependency is missing.
+    """
+    pytest.importorskip("sentence_transformers")
+    from context_library.core.embedder import Embedder
     return Embedder(model_name="all-MiniLM-L6-v2")
 
 
@@ -61,117 +64,18 @@ def pipeline(document_store, embedder, differ):
         yield pipeline_obj
 
 
-@pytest.fixture
-def mock_all_health_endpoints(monkeypatch):
-    """Fixture that mocks all Apple Health endpoints."""
-
-    class MockResponse:
-        def __init__(self, json_data, status_code=200):
-            self._json_data = json_data
-            self.status_code = status_code
-
-        def json(self):
-            return self._json_data
-
-        def raise_for_status(self):
-            if self.status_code >= 400:
-                import httpx
-                raise httpx.HTTPStatusError(
-                    f"HTTP {self.status_code}",
-                    request=None,
-                    response=self,
-                )
-
-    class MockHTTPXGet:
-        def __init__(self):
-            self.responses = {}
-
-        def __call__(self, url, params=None, headers=None, timeout=None):
-            if url not in self.responses:
-                raise AssertionError(f"MockHTTPXGet: Unconfigured URL '{url}'")
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code)
-
-    mock_get = MockHTTPXGet()
-
-    base_url = "http://127.0.0.1:7124"
-    endpoints = ["/workouts", "/sleep", "/activity", "/hrv", "/spo2", "/mindfulness", "/heart_rate"]
-
-    for endpoint in endpoints:
-        mock_get.set_response(f"{base_url}{endpoint}", [])
-
-    monkeypatch.setattr(
-        "context_library.adapters.apple_health.httpx.get",
-        mock_get
-    )
-
-    return mock_get
-
-
-@pytest.fixture
-def mock_all_oura_endpoints(monkeypatch):
-    """Fixture that mocks all Oura endpoints."""
-
-    class MockResponse:
-        def __init__(self, json_data, status_code=200):
-            self._json_data = json_data
-            self.status_code = status_code
-
-        def json(self):
-            return self._json_data
-
-        def raise_for_status(self):
-            if self.status_code >= 400:
-                import httpx
-                raise httpx.HTTPStatusError(
-                    f"HTTP {self.status_code}",
-                    request=None,
-                    response=self,
-                )
-
-    class MockHTTPXGet:
-        def __init__(self):
-            self.responses = {}
-
-        def __call__(self, url, params=None, headers=None, timeout=None):
-            if url not in self.responses:
-                raise AssertionError(f"MockHTTPXGet: Unconfigured URL '{url}'")
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code)
-
-    mock_get = MockHTTPXGet()
-
-    base_url = "http://localhost:8000"
-    endpoints = ["/oura/sleep", "/oura/readiness", "/oura/activity", "/oura/workouts",
-                 "/oura/spo2", "/oura/tags", "/oura/sessions", "/oura/heart_rate"]
-
-    for endpoint in endpoints:
-        mock_get.set_response(f"{base_url}{endpoint}", [])
-
-    monkeypatch.setattr(
-        "context_library.adapters.oura.httpx.get",
-        mock_get
-    )
-
-    return mock_get
-
-
 class TestHealthDomainIntegration:
     """End-to-end integration tests for health domain pipeline."""
 
     def test_apple_health_full_pipeline_single_record(
-        self, pipeline, health_domain, mock_all_health_endpoints
+        self, pipeline, health_domain, mock_all_health_endpoints_integration
     ):
         """Test full pipeline: Apple Health adapter → chunking → embedding → storage."""
         # Setup adapter with test data
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Configure a single workout record
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
             {
                 "id": "workout-001",
                 "activityType": "running",
@@ -214,13 +118,13 @@ class TestHealthDomainIntegration:
 
 
     def test_apple_health_multiple_endpoint_types(
-        self, pipeline, health_domain, mock_all_health_endpoints
+        self, pipeline, health_domain, mock_all_health_endpoints_integration
     ):
         """Test pipeline handles multiple health endpoint types (workouts + sleep)."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Configure workout record
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
             {
                 "id": "workout-001",
                 "activityType": "running",
@@ -231,7 +135,7 @@ class TestHealthDomainIntegration:
         ])
 
         # Configure sleep record
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
+        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/sleep", [
             {
                 "id": "sleep-001",
                 "date": "2026-03-06",
@@ -262,13 +166,13 @@ class TestHealthDomainIntegration:
         assert workout_chunks[0].domain_metadata["health_type"] == "workout_session"
 
     def test_oura_full_pipeline_single_record(
-        self, pipeline, health_domain, mock_all_oura_endpoints
+        self, pipeline, health_domain, mock_all_oura_endpoints_integration
     ):
         """Test full pipeline with Oura adapter: fetch → chunk → embed → store."""
         adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
 
         # Configure a single sleep record
-        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+        mock_all_oura_endpoints_integration.set_response("http://localhost:8000/oura/sleep", [
             {
                 "id": "sleep-oura-001",
                 "date": "2026-03-07",
@@ -299,5 +203,3 @@ class TestHealthDomainIntegration:
         assert chunk.domain_metadata["health_type"] == "sleep_summary"
         assert chunk.domain_metadata["source_type"] == "oura"
         assert chunk.domain_metadata["date"] == "2026-03-07"
-
-

@@ -758,28 +758,24 @@ class TestOuraAdapterNetworkErrors:
         activity_results = [r for r in results if "activity" in r.source_id.lower()]
         assert len(activity_results) > 0
 
-    def test_fetch_dns_resolution_error_all_endpoints_fail(self):
+    def test_fetch_dns_resolution_error_all_endpoints_fail(self, monkeypatch):
         """fetch() raises RuntimeError when ALL endpoints fail with network errors."""
         import httpx
 
         adapter = OuraAdapter(api_url="http://invalid-oura-host.local", api_key="test-token")
 
-        # Create a mock that always raises RequestError
         def mock_get_with_dns_error(*args, **kwargs):
             raise httpx.RequestError("Name resolution failed")
 
-        # Patch httpx.get at module level
-        import context_library.adapters.oura
-        original_get = context_library.adapters.oura.httpx.get
-        context_library.adapters.oura.httpx.get = mock_get_with_dns_error
+        # Use monkeypatch for consistent error handling
+        monkeypatch.setattr(
+            "context_library.adapters.oura.httpx.get",
+            mock_get_with_dns_error
+        )
 
-        try:
-            # Should raise RuntimeError when all endpoints fail
-            with pytest.raises(RuntimeError, match="All.*endpoints failed"):
-                list(adapter.fetch(""))
-        finally:
-            # Restore original
-            context_library.adapters.oura.httpx.get = original_get
+        # Should raise RuntimeError when all endpoints fail
+        with pytest.raises(RuntimeError, match="All.*endpoints failed"):
+            list(adapter.fetch(""))
 
 
 class TestOuraAdapterWorkoutValidation:
