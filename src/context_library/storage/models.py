@@ -415,6 +415,11 @@ class HealthMetadata(BaseModel):
     - date_first_observed must be a valid ISO 8601 timestamp
     - duration_minutes if provided must be non-negative
     - score if provided must be 0–100
+
+    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
+    Extra fields are not "allowed" or "accepted"—they are silently deleted during validation.
+    Domain-specific metadata like health metrics MUST be stored in the chunk's domain_metadata dict
+    as those preserve all fields. Passing extra fields to HealthMetadata will result in data loss.
     """
 
     ALLOWED_TYPES: ClassVar[frozenset[str]] = frozenset({
@@ -428,7 +433,7 @@ class HealthMetadata(BaseModel):
         "user_health_tag",
     })
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     record_id: str
     health_type: str
