@@ -852,8 +852,9 @@ class TestOuraAdapterNetworkErrors:
             mock_get_with_dns_error
         )
 
-        # Should raise RuntimeError when all endpoints fail
-        with pytest.raises(RuntimeError, match="All.*endpoints failed"):
+        # Should raise AllEndpointsFailedError when all endpoints fail
+        from context_library.adapters.base import AllEndpointsFailedError
+        with pytest.raises(AllEndpointsFailedError, match="All.*endpoints failed"):
             list(adapter.fetch(""))
 
 

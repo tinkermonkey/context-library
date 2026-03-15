@@ -33,20 +33,48 @@ class PartialFetchError(Exception):
 
     Attributes:
         failed_endpoints: List of endpoint paths that failed (e.g., ['/sleep', '/activity'])
+        total_endpoints: Total number of endpoints configured
         message: Descriptive message about which endpoints failed
     """
 
-    def __init__(self, failed_endpoints: list[str], message: str = ""):
+    def __init__(self, failed_endpoints: list[str], total_endpoints: int, message: str = ""):
         """Initialize PartialFetchError.
 
         Args:
             failed_endpoints: List of endpoint identifiers that failed
+            total_endpoints: Total number of endpoints being fetched
             message: Optional custom message; if empty, a default is generated
         """
         self.failed_endpoints = failed_endpoints
+        self.total_endpoints = total_endpoints
         if not message:
             endpoints_str = ", ".join(failed_endpoints)
-            message = f"Partial fetch failure: {len(failed_endpoints)} endpoint(s) failed: {endpoints_str}"
+            message = f"Partial fetch failure: {len(failed_endpoints)}/{total_endpoints} endpoint(s) failed: {endpoints_str}"
+        super().__init__(message)
+
+
+class AllEndpointsFailedError(Exception):
+    """Raised when all endpoints fail to fetch.
+
+    This exception signals a critical failure where every configured endpoint
+    was unable to retrieve data. This typically indicates configuration errors,
+    authentication issues, or service outages.
+
+    Attributes:
+        total_endpoints: Total number of endpoints that failed
+        message: Descriptive message about the failure
+    """
+
+    def __init__(self, total_endpoints: int, message: str = ""):
+        """Initialize AllEndpointsFailedError.
+
+        Args:
+            total_endpoints: Number of endpoints that failed
+            message: Optional custom message; if empty, a default is generated
+        """
+        self.total_endpoints = total_endpoints
+        if not message:
+            message = f"All {total_endpoints} endpoints failed to fetch. Check API connectivity, credentials, and service status."
         super().__init__(message)
 
 

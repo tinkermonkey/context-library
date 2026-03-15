@@ -176,7 +176,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
@@ -325,7 +325,8 @@ class OuraAdapter(BaseAdapter):
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
         if failed_endpoints:
             if len(failed_endpoints) == total_endpoints:
-                raise RuntimeError(
+                raise AllEndpointsFailedError(
+                    total_endpoints,
                     f"All {total_endpoints} endpoints failed to fetch from Oura API. "
                     "Check API connectivity, credentials, and service status."
                 )
@@ -333,6 +334,7 @@ class OuraAdapter(BaseAdapter):
                 # Partial failure: some endpoints succeeded, others failed
                 raise PartialFetchError(
                     failed_endpoints,
+                    total_endpoints,
                     f"Partial fetch from Oura API: {len(failed_endpoints)}/{total_endpoints} "
                     f"endpoint(s) failed. Successful endpoints provided partial data.",
                 )

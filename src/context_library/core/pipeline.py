@@ -11,7 +11,7 @@ from context_library.core.exceptions import (
     StorageError,
     AllSourcesFailedError,
 )
-from context_library.adapters.base import BaseAdapter, PartialFetchError, EndpointFetchError
+from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
 from context_library.domains.base import BaseDomain
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord, PollStrategy
@@ -409,7 +409,7 @@ class IngestionPipeline:
             # callers that the data is incomplete.
             logger.warning(
                 f"Partial fetch failure from adapter {adapter.adapter_id}: "
-                f"{len(e.failed_endpoints)}/{len(e.failed_endpoints)} endpoint(s) failed. "
+                f"{len(e.failed_endpoints)}/{e.total_endpoints} endpoint(s) failed. "
                 f"Affected endpoints: {', '.join(e.failed_endpoints)}. "
                 f"Continuing with data from successful endpoints."
             )
@@ -420,23 +420,18 @@ class IngestionPipeline:
                 "failed_endpoints": e.failed_endpoints,
             })
             # Don't raise; successfully-yielded data has been processed
-        except RuntimeError as e:
-            # All endpoints failed (all-endpoints-fail condition)
-            if "All" in str(e) and "endpoints failed" in str(e):
-                # This is the all-endpoints-fail error from the adapter
-                logger.error(
-                    f"All endpoints failed for adapter {adapter.adapter_id}: {e}"
-                )
-                errors.append({
-                    "source_id": None,  # Adapter-level failure, not source-level
-                    "error_type": "RuntimeError",
-                    "message": str(e),
-                })
-                sources_failed += 1
-                # Continue to next adapter; this adapter yielded no data
-            else:
-                # Some other RuntimeError; re-raise it
-                raise
+        except AllEndpointsFailedError as e:
+            # All endpoints failed; adapter yielded no data
+            logger.error(
+                f"All endpoints failed for adapter {adapter.adapter_id}: {e}"
+            )
+            errors.append({
+                "source_id": None,  # Adapter-level failure, not source-level
+                "error_type": "AllEndpointsFailedError",
+                "message": str(e),
+            })
+            sources_failed += 1
+            # Continue to next adapter; this adapter yielded no data
 
 
         # Raise if all sources failed

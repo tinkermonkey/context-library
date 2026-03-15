@@ -2,7 +2,7 @@
 
 import importlib.util
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.adapters.serve import serve_adapter as serve_adapter  # noqa: F401
 
@@ -10,6 +10,7 @@ __all__ = [
     "BaseAdapter",
     "EndpointFetchError",
     "PartialFetchError",
+    "AllEndpointsFailedError",
     "FilesystemAdapter",
     "serve_adapter",
 ]
