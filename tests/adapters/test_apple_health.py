@@ -2,7 +2,6 @@
 
 import pytest
 
-import httpx
 
 from context_library.adapters.apple_health import AppleHealthAdapter
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata

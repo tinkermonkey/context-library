@@ -529,7 +529,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         total_sleep_minutes = record["totalSleepMinutes"]
         if not isinstance(total_sleep_minutes, (int, float)):
-            raise ValueError(f"Sleep record 'totalSleepMinutes' must be numeric")
+            raise ValueError("Sleep record 'totalSleepMinutes' must be numeric")
 
         # Extract optional fields
         deep_sleep_minutes = record.get("deepSleepMinutes")
@@ -605,7 +605,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         steps = record["steps"]
         if not isinstance(steps, (int, float)):
-            raise ValueError(f"Activity record 'steps' must be numeric")
+            raise ValueError("Activity record 'steps' must be numeric")
 
         # Extract optional fields
         active_calories = record.get("activeCalories")
@@ -681,7 +681,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         avg_hrv = record["avgHrv"]
         if not isinstance(avg_hrv, (int, float)):
-            raise ValueError(f"HRV record 'avgHrv' must be numeric")
+            raise ValueError("HRV record 'avgHrv' must be numeric")
 
         # Extract optional fields
         resting_heart_rate = record.get("restingHeartRate")
@@ -755,7 +755,7 @@ class AppleHealthAdapter(BaseAdapter):
         for sample in window:
             bpm = sample["bpm"]
             if not isinstance(bpm, (int, float)):
-                raise ValueError(f"Heart rate sample 'bpm' must be numeric")
+                raise ValueError("Heart rate sample 'bpm' must be numeric")
             heart_rates.append(bpm)
 
         if not heart_rates:
@@ -833,7 +833,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         avg_spo2 = record["avgSpo2"]
         if not isinstance(avg_spo2, (int, float)):
-            raise ValueError(f"SpO2 record 'avgSpo2' must be numeric")
+            raise ValueError("SpO2 record 'avgSpo2' must be numeric")
 
         # Extract optional fields
         breathing_disturbance_index = record.get("breathingDisturbanceIndex")
@@ -905,7 +905,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         duration_seconds = record["durationSeconds"]
         if not isinstance(duration_seconds, (int, float)):
-            raise ValueError(f"Mindfulness record 'durationSeconds' must be numeric")
+            raise ValueError("Mindfulness record 'durationSeconds' must be numeric")
 
         session_type = record["sessionType"]
         if not session_type:
