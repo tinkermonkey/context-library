@@ -155,7 +155,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    document_store.conn.close()
+    document_store.close()
     logger.info("Server stopped")
 
 
