@@ -137,8 +137,9 @@ GET /mindfulness
       }
     ]
 
-Security Note: The helper process binds to 0.0.0.0 for network access from remote servers.
-A Bearer API token is REQUIRED for all requests to authenticate the caller.
+Security Note: The helper process runs on 127.0.0.1 (localhost) only, ensuring HealthKit
+data never leaves the local machine. A Bearer API token is REQUIRED for all requests to
+authenticate the caller. For remote access, wrap this adapter with serve_adapter().
 
 Example usage:
     adapter = AppleHealthAdapter(
@@ -155,8 +156,12 @@ Example usage:
         print(normalized_content.markdown)
 
 Example usage (remote via serve_adapter):
-    adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124")
-    serve_adapter(adapter, host="0.0.0.0", port=8000, api_key="secret")
+    adapter = AppleHealthAdapter(
+        api_url="http://127.0.0.1:7124",
+        api_key="your-api-token",
+        device_id="macbook-pro"
+    )
+    serve_adapter(adapter, host="0.0.0.0", port=8000)
     # Now remote clients can access via http://<mac-ip>:8000/fetch
 """
 
