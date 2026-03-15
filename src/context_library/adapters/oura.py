@@ -170,6 +170,7 @@ Example usage:
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -323,6 +324,8 @@ class OuraAdapter(BaseAdapter):
             Logs and skips individual malformed records without raising.
             Logs endpoint-level errors (HTTP, request, invalid response schema)
             without raising, allowing subsequent endpoints to be fetched.
+            This follows the architecture's per-source error isolation principle:
+            failure of one endpoint does not block fetching from other endpoints.
         """
         try:
             response = httpx.get(
@@ -389,7 +392,7 @@ class OuraAdapter(BaseAdapter):
                 raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
 
             # Group samples by date + hour
-            windows: dict[tuple[str, int], list[dict[str, Any]]] = {}
+            windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
             for sample in samples:
                 try:
                     timestamp = sample["timestamp"]
@@ -399,8 +402,6 @@ class OuraAdapter(BaseAdapter):
                     hour = dt.hour
                     key = (date, hour)
 
-                    if key not in windows:
-                        windows[key] = []
                     windows[key].append(sample)
                 except (ValueError, KeyError) as e:
                     logger.error(f"Skipping malformed heart rate sample: {e}")
@@ -431,32 +432,17 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized sleep summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, date, totalSleepMinutes) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("Sleep record 'id' must not be empty")
-
         date = record["date"]
-        if not date:
-            raise ValueError("Sleep record 'date' must not be empty")
-
         total_sleep_minutes = record["totalSleepMinutes"]
-        if not isinstance(total_sleep_minutes, (int, float)):
-            raise ValueError("Sleep record 'totalSleepMinutes' must be numeric")
-
-        # Extract optional fields
-        deep_sleep_minutes = record.get("deepSleepMinutes")
-        rem_sleep_minutes = record.get("remSleepMinutes")
-        light_sleep_minutes = record.get("lightSleepMinutes")
-        efficiency = record.get("efficiency")
-        score = record.get("score")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "sleep_summary",
@@ -464,18 +450,15 @@ class OuraAdapter(BaseAdapter):
             "source_type": "oura",
             "date_first_observed": now,
             "duration_minutes": int(total_sleep_minutes),
-            "score": score,
-            "deep_sleep_minutes": deep_sleep_minutes,
-            "rem_sleep_minutes": rem_sleep_minutes,
-            "light_sleep_minutes": light_sleep_minutes,
-            "efficiency": efficiency,
+            "score": record.get("score"),
+            "deep_sleep_minutes": record.get("deepSleepMinutes"),
+            "rem_sleep_minutes": record.get("remSleepMinutes"),
+            "light_sleep_minutes": record.get("lightSleepMinutes"),
+            "efficiency": record.get("efficiency"),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for sleep record {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/sleep/{record_id}"
         markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
@@ -507,33 +490,18 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized readiness summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, date, score, avgHrv) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("Readiness record 'id' must not be empty")
-
         date = record["date"]
-        if not date:
-            raise ValueError("Readiness record 'date' must not be empty")
-
         score = record["score"]
-        if not isinstance(score, (int, float)):
-            raise ValueError("Readiness record 'score' must be numeric")
-
         avg_hrv = record["avgHrv"]
-        if not isinstance(avg_hrv, (int, float)):
-            raise ValueError("Readiness record 'avgHrv' must be numeric")
-
-        # Extract optional fields
-        resting_heart_rate = record.get("restingHeartRate")
-        body_temperature_deviation = record.get("bodyTemperatureDeviation")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "readiness_summary",
@@ -542,15 +510,12 @@ class OuraAdapter(BaseAdapter):
             "date_first_observed": now,
             "score": score,
             "avg_hrv": avg_hrv,
-            "resting_heart_rate": resting_heart_rate,
-            "body_temperature_deviation": body_temperature_deviation,
+            "resting_heart_rate": record.get("restingHeartRate"),
+            "body_temperature_deviation": record.get("bodyTemperatureDeviation"),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for readiness record {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/readiness/{record_id}"
         markdown = self._build_readiness_summary(record, score, avg_hrv)
@@ -582,51 +547,33 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized activity summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, date, steps) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("Activity record 'id' must not be empty")
-
         date = record["date"]
-        if not date:
-            raise ValueError("Activity record 'date' must not be empty")
-
         steps = record["steps"]
-        if not isinstance(steps, (int, float)):
-            raise ValueError("Activity record 'steps' must be numeric")
-
-        # Extract optional fields
-        active_calories = record.get("activeCalories")
-        total_calories = record.get("totalCalories")
-        active_minutes = record.get("activeMinutes")
-        sedentary_minutes = record.get("sedentaryMinutes")
-        distance_meters = record.get("distanceMeters")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "activity_summary",
             "date": date,
             "source_type": "oura",
             "date_first_observed": now,
-            "duration_minutes": active_minutes,
+            "duration_minutes": record.get("activeMinutes"),
             "steps": int(steps),
-            "active_calories": active_calories,
-            "total_calories": total_calories,
-            "sedentary_minutes": sedentary_minutes,
-            "distance_meters": distance_meters,
+            "active_calories": record.get("activeCalories"),
+            "total_calories": record.get("totalCalories"),
+            "sedentary_minutes": record.get("sedentaryMinutes"),
+            "distance_meters": record.get("distanceMeters"),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for activity record {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/activity/{record_id}"
         markdown = self._build_activity_summary(record, int(steps))
@@ -658,44 +605,23 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized workout with HealthMetadata
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, activityType, startDate, endDate, durationSeconds) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         workout_id = record["id"]
-        if not workout_id:
-            raise ValueError("Workout 'id' must not be empty")
-
         activity_type = record["activityType"]
-        if not activity_type:
-            raise ValueError("Workout 'activityType' must not be empty")
-
         start_date = record["startDate"]
-        if not start_date:
-            raise ValueError("Workout 'startDate' must not be empty")
-
         end_date = record["endDate"]
-        if not end_date:
-            raise ValueError("Workout 'endDate' must not be empty")
-
         duration_seconds = record["durationSeconds"]
-        if not isinstance(duration_seconds, (int, float)):
-            raise ValueError(f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}")
 
-        # Extract optional fields
-        calories = record.get("calories")
-        distance_meters = record.get("distanceMeters")
-        avg_heart_rate = record.get("avgHeartRate")
-        max_heart_rate = record.get("maxHeartRate")
-
-        # Compute duration in minutes
+        # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)
-
-        # Get current timestamp and extract date from start_date
-        now = datetime.now(timezone.utc).isoformat()
         date = start_date[:10]  # Extract YYYY-MM-DD
 
-        # Create HealthMetadata
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": workout_id,
             "health_type": "workout_session",
@@ -703,19 +629,15 @@ class OuraAdapter(BaseAdapter):
             "source_type": "oura",
             "date_first_observed": now,
             "duration_minutes": duration_minutes,
-            "calories_kcal": calories,
-            "distance_meters": distance_meters,
-            "avg_heart_rate_bpm": avg_heart_rate,
-            "max_heart_rate_bpm": max_heart_rate,
+            "calories_kcal": record.get("calories"),
+            "distance_meters": record.get("distanceMeters"),
+            "avg_heart_rate_bpm": record.get("avgHeartRate"),
+            "max_heart_rate_bpm": record.get("maxHeartRate"),
             "activity_type": activity_type,
         }
 
-        # Validate using HealthMetadata model (validates required fields only)
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for workout {workout_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         # Create source_id
         source_id = f"oura/workout/{workout_id}"
@@ -765,13 +687,8 @@ class OuraAdapter(BaseAdapter):
         if not window:
             raise ValueError("Heart rate window must not be empty")
 
-        # Extract heart rates and validate
-        heart_rates = []
-        for sample in window:
-            bpm = sample["bpm"]
-            if not isinstance(bpm, (int, float)):
-                raise ValueError("Heart rate sample 'bpm' must be numeric")
-            heart_rates.append(bpm)
+        # Extract heart rates; KeyError propagates if bpm is missing
+        heart_rates = [sample["bpm"] for sample in window]
 
         if not heart_rates:
             raise ValueError("No valid heart rates in window")
@@ -784,7 +701,7 @@ class OuraAdapter(BaseAdapter):
         now = datetime.now(timezone.utc).isoformat()
         record_id = f"hr:oura:{self._device_id}:{window_date}T{window_hour:02d}"
 
-        # Create HealthMetadata
+        # Create HealthMetadata with computed statistics
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "heart_rate_series",
@@ -798,11 +715,8 @@ class OuraAdapter(BaseAdapter):
             "hour": window_hour,
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for heart rate window {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/heart_rate/{window_date}T{window_hour:02d}"
         markdown = self._build_heart_rate_summary(window, avg_bpm, min_bpm, max_bpm)
@@ -834,28 +748,17 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized SpO2 summary
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, date, avgSpo2) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("SpO2 record 'id' must not be empty")
-
         date = record["date"]
-        if not date:
-            raise ValueError("SpO2 record 'date' must not be empty")
-
         avg_spo2 = record["avgSpo2"]
-        if not isinstance(avg_spo2, (int, float)):
-            raise ValueError("SpO2 record 'avgSpo2' must be numeric")
-
-        # Extract optional fields
-        breathing_disturbance_index = record.get("breathingDisturbanceIndex")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "spo2_summary",
@@ -863,14 +766,11 @@ class OuraAdapter(BaseAdapter):
             "source_type": "oura",
             "date_first_observed": now,
             "avg_spo2": avg_spo2,
-            "breathing_disturbance_index": breathing_disturbance_index,
+            "breathing_disturbance_index": record.get("breathingDisturbanceIndex"),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for SpO2 record {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/spo2/{record_id}"
         markdown = self._build_spo2_summary(record, avg_spo2)
@@ -902,28 +802,17 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized user health tag
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, date, text) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("User health tag 'id' must not be empty")
-
         date = record["date"]
-        if not date:
-            raise ValueError("User health tag 'date' must not be empty")
-
         text = record["text"]
-        if not text:
-            raise ValueError("User health tag 'text' must not be empty")
-
-        # Extract optional fields
-        tags = record.get("tags", [])
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "user_health_tag",
@@ -931,16 +820,14 @@ class OuraAdapter(BaseAdapter):
             "source_type": "oura",
             "date_first_observed": now,
             "tag_text": text,
-            "tags": tags,
+            "tags": record.get("tags", []),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for user health tag {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/tag/{record_id}"
+        tags = record.get("tags", [])
         markdown = self._build_tag_summary(text, tags)
 
         structural_hints = StructuralHints(
@@ -970,41 +857,23 @@ class OuraAdapter(BaseAdapter):
             NormalizedContent: Normalized mindfulness session
 
         Raises:
-            ValueError: If required fields are missing or invalid
-            KeyError: If required fields are missing
+            ValueError: If HealthMetadata validation fails
+            KeyError: If required fields (id, startDate, endDate, durationSeconds, sessionType) are missing
         """
-        # Extract required fields
+        # Extract fields; KeyError propagates if required fields are missing
         record_id = record["id"]
-        if not record_id:
-            raise ValueError("Mindfulness session 'id' must not be empty")
-
         start_date = record["startDate"]
-        if not start_date:
-            raise ValueError("Mindfulness session 'startDate' must not be empty")
-
         end_date = record["endDate"]
-        if not end_date:
-            raise ValueError("Mindfulness session 'endDate' must not be empty")
-
         duration_seconds = record["durationSeconds"]
-        if not isinstance(duration_seconds, (int, float)):
-            raise ValueError("Mindfulness session 'durationSeconds' must be numeric")
-
         session_type = record["sessionType"]
-        if not session_type:
-            raise ValueError("Mindfulness session 'sessionType' must not be empty")
 
-        # Extract optional fields
-        mood = record.get("mood")
-        tags = record.get("tags", [])
-
-        # Compute duration in minutes
+        # Compute duration in minutes and extract date from start_date
         duration_minutes = int(duration_seconds // 60)
-
-        now = datetime.now(timezone.utc).isoformat()
         date = start_date[:10]  # Extract YYYY-MM-DD
 
-        # Create HealthMetadata
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "mindfulness_session",
@@ -1013,15 +882,12 @@ class OuraAdapter(BaseAdapter):
             "date_first_observed": now,
             "duration_minutes": duration_minutes,
             "session_type": session_type,
-            "mood": mood,
-            "tags": tags,
+            "mood": record.get("mood"),
+            "tags": record.get("tags", []),
         }
 
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for mindfulness session {record_id}: {e}")
-            raise
+        # HealthMetadata.model_validate() will validate types and constraints
+        HealthMetadata.model_validate(health_metadata_dict)
 
         source_id = f"oura/session/{record_id}"
         markdown = self._build_session_summary(record, session_type, duration_minutes)
