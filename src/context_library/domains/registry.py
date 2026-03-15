@@ -15,6 +15,7 @@ _DOMAIN_REGISTRY = {
     Domain.NOTES: ("context_library.domains.notes", "NotesDomain"),
     Domain.EVENTS: ("context_library.domains.events", "EventsDomain"),
     Domain.TASKS: ("context_library.domains.tasks", "TasksDomain"),
+    Domain.HEALTH: ("context_library.domains.health", "HealthDomain"),
 }
 
 
