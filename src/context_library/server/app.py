@@ -41,25 +41,67 @@ async def lifespan(app: FastAPI):
     # Build helper adapters if the helper is configured
     helper_adapters = []
     if config.helper_url and config.helper_api_key:
+        # AppleRemindersAdapter
         try:
             from context_library.adapters.apple_reminders import AppleRemindersAdapter
-            from context_library.adapters.apple_health import AppleHealthAdapter
-            from context_library.adapters.apple_imessage import AppleiMessageAdapter
-            from context_library.adapters.apple_notes import AppleNotesAdapter
-            from context_library.adapters.apple_music import AppleMusicAdapter
-
-            helper_adapters = [
-                AppleRemindersAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleHealthAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleiMessageAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleNotesAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-            ]
+            helper_adapters.append(AppleRemindersAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
         except ImportError as e:
-            logger.warning("Apple helper adapters not available (missing dependency): %s", e)
+            logger.warning("AppleRemindersAdapter not available (missing dependency): %s", e)
         except ValueError as e:
             logger.warning(
-                "Apple helper adapters not available (invalid configuration): %s. "
+                "AppleRemindersAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleHealthAdapter
+        try:
+            from context_library.adapters.apple_health import AppleHealthAdapter
+            helper_adapters.append(AppleHealthAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleHealthAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleHealthAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleiMessageAdapter
+        try:
+            from context_library.adapters.apple_imessage import AppleiMessageAdapter
+            helper_adapters.append(AppleiMessageAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleiMessageAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleiMessageAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleNotesAdapter
+        try:
+            from context_library.adapters.apple_notes import AppleNotesAdapter
+            helper_adapters.append(AppleNotesAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleNotesAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleNotesAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleMusicAdapter
+        try:
+            from context_library.adapters.apple_music import AppleMusicAdapter
+            helper_adapters.append(AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleMusicAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleMusicAdapter not available (invalid configuration): %s. "
                 "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
                 e
             )
