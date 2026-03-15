@@ -562,7 +562,7 @@ class AppleHealthAdapter(BaseAdapter):
             raise
 
         source_id = f"sleep/{record_id}"
-        markdown = self._build_sleep_summary(record, total_sleep_minutes)
+        markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -638,7 +638,7 @@ class AppleHealthAdapter(BaseAdapter):
             raise
 
         source_id = f"activity/{record_id}"
-        markdown = self._build_activity_summary(record, steps)
+        markdown = self._build_activity_summary(record, int(steps))
 
         structural_hints = StructuralHints(
             has_headings=False,
