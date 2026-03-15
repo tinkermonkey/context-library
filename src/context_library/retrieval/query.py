@@ -58,7 +58,7 @@ class RetrievalResult(BaseModel):
                 "Chunk and lineage must refer to the same content."
             )
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, str | int | float | None]:
         """Convert result to dictionary format.
 
         Returns:

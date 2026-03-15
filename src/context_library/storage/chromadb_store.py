@@ -66,10 +66,10 @@ class ChromaDBVectorStore(VectorStore):
             embeddings.append(v["vector"])
             documents.append(v["content"])
             metadatas.append({
-                "domain": v["domain"],
-                "source_id": v["source_id"],
-                "source_version": v["source_version"],
-                "created_at": v["created_at"],
+                "domain": str(v["domain"]),
+                "source_id": str(v["source_id"]),
+                "source_version": int(v["source_version"]),
+                "created_at": str(v["created_at"]),
             })
 
         # upsert avoids duplicates if the same chunk_hash is added twice
@@ -143,6 +143,6 @@ class ChromaDBVectorStore(VectorStore):
     def count(self) -> int:
         try:
             collection = self._get_collection()
-            return collection.count()
+            return int(collection.count())
         except Exception:
             return 0

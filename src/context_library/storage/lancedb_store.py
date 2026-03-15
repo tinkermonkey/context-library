@@ -138,7 +138,7 @@ class LanceDBVectorStore(VectorStore):
             return 0
         db = self._connect()
         table = db.open_table(TABLE_NAME)
-        return table.count_rows()
+        return int(table.count_rows())
 
     def should_create_index(self, threshold: int = 10_000) -> bool:
         """Return True if chunk count exceeds threshold for IVF-PQ indexing."""
