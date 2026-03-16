@@ -136,33 +136,29 @@ async def get_version_history(source_id: str, request: Request) -> VersionHistor
             detail=f"Source '{source_id}' not found or has no versions",
         )
     version_summaries = []
-    for v in versions:
+    for idx, v in enumerate(versions):
         links: dict[str, str] = {
             "self": f"/sources/{source_id}/versions/{v.version}",
             "chunks": f"/sources/{source_id}/chunks?version={v.version}",
             "source": f"/sources/{source_id}",
         }
 
-        # Calculate diff counts
-        added_count = 0
-        removed_count = 0
-        unchanged_count = len(v.chunk_hashes)
-
-        if v.version > 1:
+        # Calculate diff counts from in-memory hash sets
+        # (no additional DB queries — using chunk_hashes already fetched)
+        if v.version == 1:
+            added_count = len(v.chunk_hashes)
+            removed_count = 0
+            unchanged_count = 0
+        else:
             links["diff_from_prev"] = (
                 f"/sources/{source_id}/diff?from_version={v.version - 1}&to_version={v.version}"
             )
-            # Calculate diff from previous version
-            try:
-                diff = await asyncio.to_thread(get_version_diff, ds, source_id, v.version - 1, v.version)
-                added_count = len(diff.added_hashes)
-                removed_count = len(diff.removed_hashes)
-                unchanged_count = len(diff.unchanged_hashes)
-            except ValueError:
-                # If diff calculation fails, use defaults
-                added_count = 0
-                removed_count = 0
-                unchanged_count = len(v.chunk_hashes)
+            # Compute set differences from previous version's hashes
+            current_hashes = set(v.chunk_hashes)
+            prev_hashes = set(versions[idx - 1].chunk_hashes)
+            added_count = len(current_hashes - prev_hashes)
+            removed_count = len(prev_hashes - current_hashes)
+            unchanged_count = len(current_hashes & prev_hashes)
 
         version_summaries.append(
             VersionSummary(
