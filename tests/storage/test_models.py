@@ -17,6 +17,7 @@ from context_library.storage.models import (
     ChunkType,
     Domain,
     DiffResult,
+    DocumentMetadata,
     EventMetadata,
     LineageRecord,
     MessageMetadata,
@@ -2012,3 +2013,310 @@ class TestChunkProvenance:
 
         with pytest.raises(Exception):  # Pydantic frozen model
             provenance.source_origin_ref = "other-source"  # type: ignore
+
+
+class TestDocumentMetadata:
+    """Tests for DocumentMetadata model."""
+
+    def test_create_document_metadata_all_fields(self) -> None:
+        """Test creating DocumentMetadata with all fields populated."""
+        metadata = DocumentMetadata(
+            document_id="doc-123",
+            title="Project Proposal",
+            document_type="text/markdown",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            created_at="2024-03-01T09:00:00Z",
+            modified_at="2024-03-02T14:30:00Z",
+            file_size_bytes=5120,
+            author="alice@example.com",
+            tags=("important", "review"),
+        )
+        assert metadata.document_id == "doc-123"
+        assert metadata.title == "Project Proposal"
+        assert metadata.document_type == "text/markdown"
+        assert metadata.source_type == "filesystem"
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.created_at == "2024-03-01T09:00:00Z"
+        assert metadata.modified_at == "2024-03-02T14:30:00Z"
+        assert metadata.file_size_bytes == 5120
+        assert metadata.author == "alice@example.com"
+        assert metadata.tags == ("important", "review")
+
+    def test_create_document_metadata_minimal_required(self) -> None:
+        """Test creating DocumentMetadata with only required fields."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.document_id == "doc-1"
+        assert metadata.title == "Document"
+        assert metadata.document_type == "text/plain"
+        assert metadata.source_type == "filesystem"
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.created_at is None
+        assert metadata.modified_at is None
+        assert metadata.file_size_bytes is None
+        assert metadata.author is None
+        assert metadata.tags == ()
+
+    def test_document_metadata_empty_document_id_rejected(self) -> None:
+        """Test that empty document_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentMetadata(
+                document_id="",
+                title="Document",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "document_id must be a non-empty string" in str(exc_info.value)
+
+    def test_document_metadata_empty_title_rejected(self) -> None:
+        """Test that empty title is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentMetadata(
+                document_id="doc-1",
+                title="",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "title must be a non-empty string" in str(exc_info.value)
+
+    def test_document_metadata_empty_document_type_rejected(self) -> None:
+        """Test that empty document_type is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "document_type must be a non-empty string" in str(exc_info.value)
+
+    def test_document_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type="",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "source_type must be a non-empty string" in str(exc_info.value)
+
+    def test_document_metadata_invalid_date_first_observed(self) -> None:
+        """Test that invalid date_first_observed ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="not-a-date",
+            )
+
+    def test_document_metadata_invalid_created_at(self) -> None:
+        """Test that invalid created_at ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+                created_at="invalid-date",
+            )
+
+    def test_document_metadata_invalid_modified_at(self) -> None:
+        """Test that invalid modified_at ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+                modified_at="invalid-date",
+            )
+
+    def test_document_metadata_negative_file_size_bytes_rejected(self) -> None:
+        """Test that negative file_size_bytes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+                file_size_bytes=-1,
+            )
+        assert "file_size_bytes must be non-negative" in str(exc_info.value)
+
+    def test_document_metadata_zero_file_size_bytes_valid(self) -> None:
+        """Test that file_size_bytes=0 is valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            file_size_bytes=0,
+        )
+        assert metadata.file_size_bytes == 0
+
+    def test_document_metadata_large_file_size_bytes_valid(self) -> None:
+        """Test that large file_size_bytes values are valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            file_size_bytes=1_000_000_000,
+        )
+        assert metadata.file_size_bytes == 1_000_000_000
+
+    def test_document_metadata_created_at_none_valid(self) -> None:
+        """Test that created_at=None is valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            created_at=None,
+        )
+        assert metadata.created_at is None
+
+    def test_document_metadata_modified_at_none_valid(self) -> None:
+        """Test that modified_at=None is valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            modified_at=None,
+        )
+        assert metadata.modified_at is None
+
+    def test_document_metadata_author_none_valid(self) -> None:
+        """Test that author=None is valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            author=None,
+        )
+        assert metadata.author is None
+
+    def test_document_metadata_empty_tags_valid(self) -> None:
+        """Test that empty tags tuple is valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            tags=(),
+        )
+        assert metadata.tags == ()
+
+    def test_document_metadata_multiple_tags_valid(self) -> None:
+        """Test that multiple tags are valid."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            tags=("tag1", "tag2", "tag3"),
+        )
+        assert metadata.tags == ("tag1", "tag2", "tag3")
+
+    def test_document_metadata_frozen_immutability(self) -> None:
+        """Test that DocumentMetadata is frozen and raises ValidationError on mutation."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        with pytest.raises(ValidationError):
+            metadata.title = "Modified"  # type: ignore[assignment]
+
+    def test_document_metadata_model_dump_serializable(self) -> None:
+        """Test that DocumentMetadata.model_dump() returns JSON-serializable dict."""
+        metadata = DocumentMetadata(
+            document_id="doc-1",
+            title="Document",
+            document_type="text/plain",
+            source_type="filesystem",
+            date_first_observed="2024-03-01T10:00:00Z",
+            created_at="2024-03-01T09:00:00Z",
+            modified_at="2024-03-02T14:30:00Z",
+            file_size_bytes=2048,
+            author="alice@example.com",
+            tags=("important",),
+        )
+        dumped = metadata.model_dump()
+        assert isinstance(dumped, dict)
+        assert dumped["document_id"] == "doc-1"
+        assert dumped["title"] == "Document"
+        assert dumped["document_type"] == "text/plain"
+        assert dumped["source_type"] == "filesystem"
+        assert dumped["date_first_observed"] == "2024-03-01T10:00:00Z"
+        assert dumped["created_at"] == "2024-03-01T09:00:00Z"
+        assert dumped["modified_at"] == "2024-03-02T14:30:00Z"
+        assert dumped["file_size_bytes"] == 2048
+        assert dumped["author"] == "alice@example.com"
+        assert dumped["tags"] == ("important",)
+
+    def test_document_metadata_mime_type_examples(self) -> None:
+        """Test various MIME type examples."""
+        mime_types = [
+            "text/plain",
+            "text/markdown",
+            "audio/mpeg",
+            "application/pdf",
+            "image/jpeg",
+            "video/mp4",
+        ]
+        for mime_type in mime_types:
+            metadata = DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type=mime_type,
+                source_type="filesystem",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+            assert metadata.document_type == mime_type
+
+    def test_document_metadata_source_type_examples(self) -> None:
+        """Test various source_type examples."""
+        source_types = [
+            "filesystem",
+            "apple_music",
+            "apple_health",
+            "email",
+            "obsidian",
+        ]
+        for source_type in source_types:
+            metadata = DocumentMetadata(
+                document_id="doc-1",
+                title="Document",
+                document_type="text/plain",
+                source_type=source_type,
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+            assert metadata.source_type == source_type

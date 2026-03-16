@@ -40,6 +40,7 @@ class Domain(str, Enum):
     EVENTS = "events"
     TASKS = "tasks"
     HEALTH = "health"
+    DOCUMENTS = "documents"
 
 
 class ChunkType(str, Enum):
@@ -104,6 +105,7 @@ class StructuralHints(BaseModel):
     - For Events domain: extra_metadata must be deserializable to EventMetadata
     - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Health domain: extra_metadata must be deserializable to HealthMetadata
+    - For Documents domain: extra_metadata must be deserializable to DocumentMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -571,6 +573,96 @@ class HealthMetadata(BaseModel):
         """Validate that score is in the range 0-100 if provided."""
         if value is not None and (value < 0 or value > 100):
             raise ValueError(f"score must be in range 0-100, got: {value}")
+        return value
+
+
+class DocumentMetadata(BaseModel):
+    """Document metadata for the documents domain.
+
+    Captures identification, format, and provenance metadata for file/object
+    content where the primary value is the object itself and its metadata,
+    rather than structured textual content (notes) or time-stamped occurrences (events).
+
+    Invariants:
+    - document_id, title, document_type, source_type, and date_first_observed must be non-empty
+    - date_first_observed, created_at, and modified_at must be valid ISO 8601 timestamps if provided
+    - file_size_bytes if provided must be non-negative
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str
+    title: str
+    document_type: str        # MIME type or category, e.g. "audio/mpeg", "text/markdown"
+    source_type: str          # Origin system, e.g. "apple_music", "filesystem"
+    date_first_observed: str  # ISO 8601 timestamp
+    created_at: str | None = None    # ISO 8601 timestamp
+    modified_at: str | None = None   # ISO 8601 timestamp
+    file_size_bytes: int | None = None
+    author: str | None = None
+    tags: tuple[str, ...] = ()
+
+    @field_validator("document_id")
+    @classmethod
+    def validate_document_id(cls, value: str) -> str:
+        """Validate that document_id is not empty."""
+        if not value:
+            raise ValueError("document_id must be a non-empty string")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("document_type")
+    @classmethod
+    def validate_document_type(cls, value: str) -> str:
+        """Validate that document_type is not empty."""
+        if not value:
+            raise ValueError("document_type must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: str | None) -> str | None:
+        """Validate that created_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("modified_at")
+    @classmethod
+    def validate_modified_at(cls, value: str | None) -> str | None:
+        """Validate that modified_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("file_size_bytes")
+    @classmethod
+    def validate_file_size_bytes(cls, value: int | None) -> int | None:
+        """Validate that file_size_bytes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"file_size_bytes must be non-negative, got: {value}")
         return value
 
 

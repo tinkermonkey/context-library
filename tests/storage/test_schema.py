@@ -491,31 +491,32 @@ class TestSchemaMigrationV1ToV2:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 2
+            # Verify it's now version 3 (v1→v2 then v2→v3)
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 2
+            assert cursor.fetchone()[0] == 3
             store.conn.close()
 
-    def test_migrate_v1_to_v2_fresh_database_starts_at_v2(self) -> None:
-        """Test that a fresh database starts at version 2 (no migration needed)."""
+    def test_migrate_v1_to_v2_fresh_database_starts_at_v3(self) -> None:
+        """Test that a fresh database starts at version 3 (no migration needed)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create fresh database (DocumentStore should create v2 schema directly)
+            # Create fresh database (DocumentStore should create v3 schema directly)
             store = DocumentStore(str(db_path))
 
-            # Verify it's version 2
+            # Verify it's version 3
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 2
+            assert cursor.fetchone()[0] == 3
 
-            # Verify 'health' domain is in CHECK constraints
+            # Verify 'health' and 'documents' domains are in CHECK constraints
             cursor.execute("""
                 SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'
             """)
             schema = cursor.fetchone()[0]
             assert "health" in schema
+            assert "documents" in schema
             store.conn.close()
 
     def test_migrate_v1_to_v2_new_health_domain_insertable_after_migration(self) -> None:
@@ -742,10 +743,10 @@ class TestSchemaPragmasAndConfiguration:
         assert mode in ("wal", "memory")
         store.conn.close()
 
-    def test_schema_user_version_is_2(self) -> None:
-        """Test that user_version is set to 2."""
+    def test_schema_user_version_is_3(self) -> None:
+        """Test that user_version is set to 3."""
         store = DocumentStore(":memory:")
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA user_version")
-        assert cursor.fetchone()[0] == 2
+        assert cursor.fetchone()[0] == 3
         store.conn.close()
