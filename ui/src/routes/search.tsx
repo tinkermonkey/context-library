@@ -17,6 +17,7 @@ function SearchResultCard({ result }: { result: QueryResultItem }) {
         domain: result.domain,
         table: 'chunks',
         source_id: result.source_id,
+        q: result.chunk_hash,
       },
     });
   };
@@ -175,18 +176,18 @@ export default function SearchPage() {
                 disabled={isLoading}
               />
             </div>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <ToggleSwitch
-              id="rerank"
-              checked={formState.rerank}
-              onChange={(checked) => setFormState({ ...formState, rerank: checked })}
-              disabled={isLoading}
-            />
-            <label htmlFor="rerank" className="text-sm font-medium text-gray-700 cursor-pointer">
-              Enable Reranking
-            </label>
+            <div className="flex items-center gap-3 pt-6">
+              <ToggleSwitch
+                id="rerank"
+                checked={formState.rerank}
+                onChange={(checked) => setFormState({ ...formState, rerank: checked })}
+                disabled={isLoading}
+              />
+              <label htmlFor="rerank" className="text-sm font-medium text-gray-700 cursor-pointer">
+                Enable Reranking
+              </label>
+            </div>
           </div>
 
           <div className="flex gap-3 pt-2">
