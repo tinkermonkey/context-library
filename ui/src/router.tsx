@@ -9,10 +9,21 @@ const rootRoute = createRootRoute({
   component: RootLayout,
 })
 
+const indexSearchSchema = z
+  .object({
+    sort: z.string().optional(),
+    dir: z.enum(['asc', 'desc']).optional(),
+    q: z.string().optional(),
+    page: z.number().optional(),
+    pageSize: z.number().optional(),
+  })
+  .passthrough() // Preserve filter_* keys for dynamic facet filtering
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   component: DashboardPage,
+  validateSearch: (search: unknown) => indexSearchSchema.parse(search),
 })
 
 const browserSearchSchema = z

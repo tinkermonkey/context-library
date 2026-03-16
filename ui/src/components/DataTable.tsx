@@ -20,6 +20,7 @@ import {
 import { TextInput, Button, Spinner } from 'flowbite-react';
 import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
+
 /**
  * Fetch parameters passed to the data-fetching function.
  */
@@ -153,7 +154,7 @@ export function DataTable<TData>({
         delete newParams.dir;
       }
 
-      navigate({ search: newParams as any });
+      navigate({ search: newParams as never });
     },
     [sortColumn, sortDir, navigate, routerState.location.search]
   );
@@ -169,7 +170,7 @@ export function DataTable<TData>({
       } else {
         delete newParams.q;
       }
-      navigate({ search: newParams as any });
+      navigate({ search: newParams as never });
     },
     [navigate, routerState.location.search]
   );
@@ -188,7 +189,7 @@ export function DataTable<TData>({
         delete newParams[filterKey];
       }
 
-      navigate({ search: newParams as any });
+      navigate({ search: newParams as never });
     },
     [navigate, routerState.location.search]
   );
@@ -197,7 +198,7 @@ export function DataTable<TData>({
   const handlePrevPage = useCallback(() => {
     if (currentPage > 0) {
       const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      navigate({ search: { ...currentParams, page: currentPage - 1 } as any });
+      navigate({ search: { ...currentParams, page: currentPage - 1 } as never });
     }
   }, [currentPage, navigate, routerState.location.search]);
 
@@ -206,7 +207,7 @@ export function DataTable<TData>({
     const maxPage = Math.ceil(total / pageSize) - 1;
     if (currentPage < maxPage) {
       const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      navigate({ search: { ...currentParams, page: currentPage + 1 } as any });
+      navigate({ search: { ...currentParams, page: currentPage + 1 } as never });
     }
   }, [currentPage, pageSize, queryData?.total, navigate, routerState.location.search]);
 
@@ -215,7 +216,7 @@ export function DataTable<TData>({
       const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
       const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
       newParams.pageSize = parseInt(size, 10);
-      navigate({ search: newParams as any });
+      navigate({ search: newParams as never });
     },
     [navigate, routerState.location.search]
   );

@@ -11,6 +11,35 @@ import type { AdapterStats } from '../types/api';
 const capitalizeFirstLetter = (str: string) =>
   str.charAt(0).toUpperCase() + str.slice(1);
 
+// Skeleton placeholder for domain cards
+const DomainCardSkeleton = () => (
+  <Card className="animate-pulse">
+    <div className="h-6 bg-gray-300 rounded w-24 mb-4"></div>
+    <div className="space-y-2">
+      <div className="h-8 bg-gray-300 rounded w-32"></div>
+      <div className="h-8 bg-gray-300 rounded w-32"></div>
+    </div>
+  </Card>
+);
+
+// Skeleton placeholder for table rows
+const TableSkeletonRows = () => (
+  <div className="space-y-2">
+    {[...Array(5)].map((_, i) => (
+      <div
+        key={i}
+        className="flex gap-4 p-4 border rounded-lg animate-pulse"
+      >
+        <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+        <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+        <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+        <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+        <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+      </div>
+    ))}
+  </div>
+);
+
 /**
  * Dashboard landing page at /
  * Displays domain-level summary cards and adapter-level summary table
@@ -83,35 +112,6 @@ export default function DashboardPage() {
       search: { filter_domain: domain },
     });
   };
-
-  // Skeleton placeholder for domain cards
-  const DomainCardSkeleton = () => (
-    <Card className="animate-pulse">
-      <div className="h-6 bg-gray-300 rounded w-24 mb-4"></div>
-      <div className="space-y-2">
-        <div className="h-8 bg-gray-300 rounded w-32"></div>
-        <div className="h-8 bg-gray-300 rounded w-32"></div>
-      </div>
-    </Card>
-  );
-
-  // Skeleton placeholder for table rows
-  const TableSkeletonRows = () => (
-    <div className="space-y-2">
-      {[...Array(5)].map((_, i) => (
-        <div
-          key={i}
-          className="flex gap-4 p-4 border rounded-lg animate-pulse"
-        >
-          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
-          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
-          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
-          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
-          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
-        </div>
-      ))}
-    </div>
-  );
 
   // Loading state for stats with skeleton placeholders
   if (stats.isLoading) {
