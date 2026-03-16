@@ -60,9 +60,16 @@ class DocumentStore:
         if version == 1:
             # Migrate from v1 to v2 BEFORE executing new schema
             self._migrate_v1_to_v2()
-        elif version == 2:
+            # Re-read version after migration to allow chaining to v2→v3
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        if version == 2:
             # Migrate from v2 to v3 BEFORE executing new schema
             self._migrate_v2_to_v3()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
 
         # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=3)
         schema_path = Path(__file__).parent / "schema.sql"
@@ -259,9 +266,6 @@ class DocumentStore:
             # Disable foreign key enforcement temporarily
             cursor.execute("PRAGMA foreign_keys=OFF")
 
-            # Start transaction
-            cursor.execute("BEGIN")
-
             # Migrate adapters table: rename old, create new with documents domain, copy data
             cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
             cursor.execute("""
@@ -316,6 +320,30 @@ class DocumentStore:
                 END
             """)
 
+            # Migrate source_versions table: rename old, create new with correct foreign keys, copy data
+            # This is necessary because the old source_versions has foreign keys pointing to _sources_old and _adapters_old
+            cursor.execute("ALTER TABLE source_versions RENAME TO _source_versions_old")
+            cursor.execute("""
+                CREATE TABLE source_versions (
+                    source_id           TEXT NOT NULL,
+                    version             INTEGER NOT NULL,
+                    markdown            TEXT NOT NULL,
+                    chunk_hashes        TEXT NOT NULL,
+                    adapter_id          TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (source_id, version),
+                    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO source_versions SELECT * FROM _source_versions_old")
+            cursor.execute("DROP TABLE _source_versions_old")
+
+            # Create index for source_versions
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
             # Migrate chunks table: rename old, create new with documents domain, copy data
             cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
             cursor.execute("""
@@ -367,8 +395,8 @@ class DocumentStore:
             # Update schema version to 3
             cursor.execute("PRAGMA user_version=3")
 
-            # Commit transaction
-            cursor.execute("COMMIT")
+            # Commit transaction using connection object
+            self.conn.commit()
 
             # Re-enable foreign key enforcement
             cursor.execute("PRAGMA foreign_keys=ON")
@@ -376,7 +404,8 @@ class DocumentStore:
             logger.info("Successfully migrated schema from v2 to v3")
 
         except Exception as e:
-            cursor.execute("ROLLBACK")
+            # Rollback transaction using connection object
+            self.conn.rollback()
             cursor.execute("PRAGMA foreign_keys=ON")
             raise RuntimeError(
                 f"Failed to migrate schema from v2 to v3: {e}"

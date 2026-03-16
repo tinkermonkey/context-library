@@ -3,6 +3,8 @@
 Tests for:
 - Schema initialization
 - v1 to v2 migration: data preservation, rollback, idempotency, fresh database
+- v2 to v3 migration: data preservation, constraint validation, idempotency
+- v1 to v3 chained migration: ensures v1→v2→v3 path works correctly
 """
 
 import pytest
@@ -132,6 +134,140 @@ def _create_v1_schema(conn: sqlite3.Connection) -> None:
     """)
 
     # Create lancedb_sync_log table (unchanged)
+    cursor.execute("""
+        CREATE TABLE lancedb_sync_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            chunk_hash      TEXT NOT NULL,
+            operation       TEXT NOT NULL CHECK (operation IN ('insert', 'delete')),
+            synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (chunk_hash, operation)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at)")
+
+    conn.commit()
+
+
+def _create_v2_schema(conn: sqlite3.Connection) -> None:
+    """Create a v2 schema database (includes 'health' but not 'documents' in CHECK constraints).
+
+    Args:
+        conn: SQLite connection to populate with v2 schema.
+    """
+    cursor = conn.cursor()
+
+    # Set version to 2
+    cursor.execute("PRAGMA user_version=2")
+
+    # Create adapters table with 'health' but WITHOUT 'documents' domain
+    cursor.execute("""
+        CREATE TABLE adapters (
+            adapter_id          TEXT PRIMARY KEY,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+            adapter_type        TEXT NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            config              TEXT,
+            enabled             BOOLEAN NOT NULL DEFAULT 1,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Create sources table with 'health' but WITHOUT 'documents' domain
+    cursor.execute("""
+        CREATE TABLE sources (
+            source_id           TEXT PRIMARY KEY,
+            adapter_id          TEXT NOT NULL,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+            origin_ref          TEXT NOT NULL,
+            display_name        TEXT,
+            current_version     INTEGER NOT NULL DEFAULT 0,
+            last_fetched_at     DATETIME,
+            poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+            poll_interval_sec   INTEGER,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+    # Create source_versions table
+    cursor.execute("""
+        CREATE TABLE source_versions (
+            source_id           TEXT NOT NULL,
+            version             INTEGER NOT NULL,
+            markdown            TEXT NOT NULL,
+            chunk_hashes        TEXT NOT NULL,
+            adapter_id          TEXT NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            fetch_timestamp     DATETIME NOT NULL,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (source_id, version),
+            FOREIGN KEY (source_id) REFERENCES sources(source_id),
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+    # Create chunks table with 'health' but WITHOUT 'documents' domain
+    cursor.execute("""
+        CREATE TABLE chunks (
+            chunk_hash          TEXT NOT NULL,
+            source_id           TEXT NOT NULL,
+            source_version      INTEGER NOT NULL,
+            chunk_index         INTEGER NOT NULL,
+            content             TEXT NOT NULL,
+            context_header      TEXT,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+            adapter_id          TEXT NOT NULL,
+            fetch_timestamp     DATETIME NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+            parent_chunk_hash   TEXT,
+            domain_metadata     TEXT,
+            chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+            retired_at          DATETIME,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (chunk_hash, source_id, source_version),
+            FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+            UNIQUE (source_id, source_version, chunk_index)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+    # Create triggers
+    cursor.execute("""
+        CREATE TRIGGER sources_update_timestamp
+        AFTER UPDATE ON sources
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+        END
+    """)
+
+    cursor.execute("""
+        CREATE TRIGGER adapters_update_timestamp
+        AFTER UPDATE ON adapters
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+        END
+    """)
+
+    # Create lancedb_sync_log table
     cursor.execute("""
         CREATE TABLE lancedb_sync_log (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -474,7 +610,7 @@ class TestSchemaMigrationV1ToV2:
             store.conn.close()
 
     def test_migrate_v1_to_v2_schema_version_updated(self) -> None:
-        """Test that schema version is correctly updated to 2 after migration."""
+        """Test that schema version is correctly updated and CHECK constraints include 'documents'."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
@@ -495,6 +631,13 @@ class TestSchemaMigrationV1ToV2:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             assert cursor.fetchone()[0] == 3
+
+            # Verify the actual CHECK constraint includes 'documents' (not just version number)
+            # This ensures the migration actually updated the table constraints
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl = cursor.fetchone()[0]
+            assert "'documents'" in ddl, "adapters table CHECK constraint missing 'documents' domain"
+
             store.conn.close()
 
     def test_migrate_v1_to_v2_fresh_database_starts_at_v3(self) -> None:
@@ -750,3 +893,219 @@ class TestSchemaPragmasAndConfiguration:
         cursor.execute("PRAGMA user_version")
         assert cursor.fetchone()[0] == 3
         store.conn.close()
+
+
+class TestSchemaMigrationV2ToV3:
+    """Test suite for v2→v3 schema migration.
+
+    Tests migration from schema version 2 (includes 'health' domain) to version 3
+    (adds 'documents' domain). Covers data preservation, constraint validation,
+    and idempotency.
+    """
+
+    def test_migrate_v2_to_v3_version_updated_and_constraint_includes_documents(self) -> None:
+        """Test that v2 database migrates to v3 and CHECK constraints include 'documents'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v2 database
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+
+            # Verify it's version 2
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            assert cursor.fetchone()[0] == 2
+
+            # Verify constraint does NOT include 'documents' yet
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl = cursor.fetchone()[0]
+            assert "'documents'" not in ddl
+
+            conn.close()
+
+            # Migrate
+            store = DocumentStore(str(db_path))
+
+            # Verify it's now version 3
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            assert cursor.fetchone()[0] == 3
+
+            # Verify the actual CHECK constraint includes 'documents'
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl = cursor.fetchone()[0]
+            assert "'documents'" in ddl, "adapters table CHECK constraint missing 'documents' domain"
+
+            store.conn.close()
+
+    def test_migrate_v2_to_v3_all_tables_have_documents_constraint(self) -> None:
+        """Test that all three tables (adapters, sources, chunks) have 'documents' in CHECK."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v2 database
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+            conn.close()
+
+            # Migrate
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            # Verify 'documents' in all three table CHECK constraints
+            for table_name in ("adapters", "sources", "chunks"):
+                cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                ddl = cursor.fetchone()[0]
+                assert "'documents'" in ddl, f"{table_name} table missing 'documents' in CHECK constraint"
+
+            store.conn.close()
+
+    def test_migrate_v2_to_v3_data_preservation(self) -> None:
+        """Test that existing data in adapters, sources, and chunks is preserved after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v2 database with test data
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+            cursor = conn.cursor()
+
+            # Insert test data in adapters table
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("test-adapter", "health", "health_adapter", "1.0"))
+
+            # Insert test data in sources table
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("test-source", "test-adapter", "health", "test-origin", "push"))
+
+            # Insert test data in source_versions table
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("test-source", 1, "# Test", "hash1,hash2", "test-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+            # Insert test data in chunks table
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("chunk-hash-1", "test-source", 1, 0, "Test content", "health", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+            conn.commit()
+            conn.close()
+
+            # Migrate
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            # Verify adapter data preserved
+            cursor.execute("SELECT adapter_id, domain FROM adapters WHERE adapter_id = ?", ("test-adapter",))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == "test-adapter"
+            assert row[1] == "health"
+
+            # Verify source data preserved
+            cursor.execute("SELECT source_id, domain FROM sources WHERE source_id = ?", ("test-source",))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == "test-source"
+            assert row[1] == "health"
+
+            # Verify chunk data preserved
+            cursor.execute("SELECT chunk_hash, domain FROM chunks WHERE chunk_hash = ?", ("chunk-hash-1",))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == "chunk-hash-1"
+            assert row[1] == "health"
+
+            store.conn.close()
+
+    def test_migrate_v2_to_v3_can_insert_documents_domain(self) -> None:
+        """Test that after migration, 'documents' domain rows can be inserted."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v2 database
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+            conn.close()
+
+            # Migrate
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            # Insert adapter with 'documents' domain (should not raise)
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("doc-adapter", "documents", "document_adapter", "1.0"))
+
+            # Insert source with 'documents' domain (should not raise)
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("doc-source", "doc-adapter", "documents", "doc-origin", "push"))
+
+            # Insert source version
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("doc-source", 1, "# Doc", "hash1", "doc-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+            # Insert chunk with 'documents' domain (should not raise)
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("doc-chunk-1", "doc-source", 1, 0, "Document content", "documents", "doc-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+            store.conn.commit()
+
+            # Verify data was inserted
+            cursor.execute("SELECT COUNT(*) FROM adapters WHERE domain = 'documents'")
+            assert cursor.fetchone()[0] == 1
+
+            cursor.execute("SELECT COUNT(*) FROM sources WHERE domain = 'documents'")
+            assert cursor.fetchone()[0] == 1
+
+            cursor.execute("SELECT COUNT(*) FROM chunks WHERE domain = 'documents'")
+            assert cursor.fetchone()[0] == 1
+
+            store.conn.close()
+
+    def test_migrate_v2_to_v3_idempotent(self) -> None:
+        """Test that opening a v3 database again is idempotent."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v2 database
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+            conn.close()
+
+            # First migration
+            store1 = DocumentStore(str(db_path))
+            cursor = store1.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version1 = cursor.fetchone()[0]
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl1 = cursor.fetchone()[0]
+            store1.conn.close()
+
+            # Second opening (should be no-op)
+            store2 = DocumentStore(str(db_path))
+            cursor = store2.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version2 = cursor.fetchone()[0]
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl2 = cursor.fetchone()[0]
+            store2.conn.close()
+
+            # Verify both are v3 and DDL is identical
+            assert version1 == 3
+            assert version2 == 3
+            assert ddl1 == ddl2
