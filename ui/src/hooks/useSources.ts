@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchSources, fetchSource, fetchVersionHistory } from '../api/client';
+import { fetchSources, fetchSource, fetchVersionHistory, fetchVersionDiff } from '../api/client';
 import type { SourceQueryParams } from '../types/api';
 
 export const useSources = (params: SourceQueryParams) =>
@@ -20,5 +20,12 @@ export const useVersionHistory = (sourceId: string) =>
   useQuery({
     queryKey: ['version-history', sourceId],
     queryFn: () => fetchVersionHistory(sourceId),
+    staleTime: 10_000,
+  });
+
+export const useVersionDiff = (sourceId: string, fromVersion: number, toVersion: number) =>
+  useQuery({
+    queryKey: ['version-diff', sourceId, fromVersion, toVersion],
+    queryFn: () => fetchVersionDiff(sourceId, fromVersion, toVersion),
     staleTime: 10_000,
   });

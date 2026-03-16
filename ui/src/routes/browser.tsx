@@ -1,14 +1,15 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, ButtonGroup } from 'flowbite-react';
+import { Button, ButtonGroup, Modal } from 'flowbite-react';
 import { DataTable, type FetchParams } from '../components/DataTable';
-import type { SourceSummary, ChunkResponse } from '../types/api';
+import type { SourceSummary, ChunkResponse, VersionSummary } from '../types/api';
 import { useAdapters } from '../hooks/useAdapters';
 import { useSource } from '../hooks/useSources';
 import { useChunkProvenance } from '../hooks/useChunks';
-import { fetchSources, fetchChunks } from '../api/client';
+import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
+import { fetchSources, fetchChunks, fetchVersionHistory } from '../api/client';
 import type { BrowserPageSearch } from '../router';
 
 const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health'] as const;
@@ -134,10 +135,81 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
         <Button
           size="sm"
           color="gray"
-          disabled
-          title="Version History route not yet implemented"
+          onClick={() => {
+            navigate({
+              to: '/browser',
+              search: { ...currentSearch, table: 'versions', source_id: source.source_id, page: 0 },
+            });
+          }}
         >
           Version History
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Versions Table ────────────────────────────────────────────
+const versionColumnHelper = createColumnHelper<VersionSummary>();
+
+function buildVersionColumns(): ColumnDef<VersionSummary, unknown>[] {
+  return [
+    versionColumnHelper.accessor('version', {
+      header: 'Version',
+      cell: (info) => `v${info.getValue<number>()}`,
+    }) as ColumnDef<VersionSummary, unknown>,
+    versionColumnHelper.accessor('chunk_hash_count', {
+      header: 'Chunks',
+    }) as ColumnDef<VersionSummary, unknown>,
+    versionColumnHelper.accessor('fetch_timestamp', {
+      header: 'Fetch Timestamp',
+      cell: (info) => {
+        const timestamp = info.getValue<string>();
+        return new Date(timestamp).toLocaleString();
+      },
+    }) as ColumnDef<VersionSummary, unknown>,
+  ];
+}
+
+function VersionDetailPanel({
+  version,
+  onCompareClick
+}: {
+  version: VersionSummary;
+  onCompareClick: (v: VersionSummary) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-semibold">Version:</span>
+          <span className="block text-sm text-gray-600">v{version.version}</span>
+        </div>
+        <div>
+          <span className="text-sm font-semibold">Chunk Count:</span>
+          <span className="block text-sm text-gray-600">{version.chunk_hash_count}</span>
+        </div>
+        <div>
+          <span className="text-sm font-semibold">Adapter:</span>
+          <span className="block text-sm text-gray-600">{version.adapter_id}</span>
+        </div>
+        <div>
+          <span className="text-sm font-semibold">Normalizer Version:</span>
+          <span className="block text-sm text-gray-600">{version.normalizer_version}</span>
+        </div>
+        <div className="col-span-2">
+          <span className="text-sm font-semibold">Fetch Timestamp:</span>
+          <span className="block text-sm text-gray-600">
+            {new Date(version.fetch_timestamp).toLocaleString()}
+          </span>
+        </div>
+      </div>
+      <div className="flex gap-2 pt-2 border-t">
+        <Button
+          size="sm"
+          onClick={() => onCompareClick(version)}
+        >
+          Compare with Another Version
         </Button>
       </div>
     </div>
@@ -416,14 +488,25 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
 export default function BrowserPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const params = (routerState.location.search ?? {}) as BrowserPageSearch;
 
-  const activeDomain = (params.domain as string) ?? 'messages';
-  const tableType = (params.table as string) ?? 'sources';
-  const adapterFilter = (params.adapter_id as string) ?? undefined;
-  const sourceIdFilter = (params.source_id as string) ?? undefined;
+  const search = (routerState.location.search ?? {}) as BrowserPageSearch;
+  const activeDomain = (search.domain as string) ?? 'messages';
+  const tableType = (search.table as string) ?? 'sources';
+  const adapterFilter = (search.adapter_id as string) ?? undefined;
+  const sourceIdFilter = (search.source_id as string) ?? undefined;
 
   const { data: adapters } = useAdapters();
+
+  // Diff modal state
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
+  const [selectedVersionForDiff, setSelectedVersionForDiff] = useState<VersionSummary | null>(null);
+  const [compareWithVersion, setCompareWithVersion] = useState<VersionSummary | null>(null);
+
+  // Handle version comparison
+  const handleVersionDiffClick = (selectedVersion: VersionSummary) => {
+    setSelectedVersionForDiff(selectedVersion);
+    setDiffModalOpen(true);
+  };
 
   // Handle domain tab change
   const handleDomainChange = useCallback(
@@ -516,6 +599,24 @@ export default function BrowserPage() {
     [activeDomain, adapterFilter, sourceIdFilter]
   );
 
+  // ── Versions Table ────────────────────────────────────────────────
+  const versionColumns = useMemo(() => buildVersionColumns(), []);
+
+  const versionFetchFn = useCallback(
+    async () => {
+      if (!sourceIdFilter) {
+        return { rows: [], total: 0 };
+      }
+      const response = await fetchVersionHistory(sourceIdFilter);
+      const versions = response.versions || [];
+      return {
+        rows: versions,
+        total: versions.length,
+      };
+    },
+    [sourceIdFilter]
+  );
+
   return (
     <div className="p-8">
       <h1 className="text-4xl font-bold mb-2">Data Browser</h1>
@@ -554,6 +655,15 @@ export default function BrowserPage() {
           >
             Chunks
           </Button>
+          <Button
+            onClick={() => handleTableTypeChange('versions')}
+            color={tableType === 'versions' ? 'blue' : 'gray'}
+            className={tableType === 'versions' ? '' : 'border border-gray-300'}
+            disabled={!sourceIdFilter}
+            title={!sourceIdFilter ? 'Select a source first to view versions' : ''}
+          >
+            Versions
+          </Button>
         </ButtonGroup>
       </div>
 
@@ -583,6 +693,213 @@ export default function BrowserPage() {
           defaultPageSize={25}
           renderDetail={(chunk) => <ChunkDetailPanel chunk={chunk} />}
         />
+      )}
+
+      {/* Versions Table */}
+      {tableType === 'versions' && sourceIdFilter && (
+        <DataTable<VersionSummary>
+          columns={versionColumns}
+          fetchFn={versionFetchFn}
+          facets={[]}
+          searchable={false}
+          queryKey={`versions-${sourceIdFilter}`}
+          rowKey={(row) => String(row.version)}
+          defaultPageSize={25}
+          renderDetail={(version) => (
+            <VersionDetailPanel
+              version={version}
+              onCompareClick={handleVersionDiffClick}
+            />
+          )}
+        />
+      )}
+
+      {/* Version Diff Modal */}
+      <Modal
+        show={diffModalOpen}
+        onClose={() => {
+          setDiffModalOpen(false);
+          setSelectedVersionForDiff(null);
+          setCompareWithVersion(null);
+        }}
+        size="2xl"
+      >
+        <div className="relative bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Compare Versions</h3>
+            <button
+              onClick={() => {
+                setDiffModalOpen(false);
+                setSelectedVersionForDiff(null);
+                setCompareWithVersion(null);
+              }}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-4">
+            {!compareWithVersion ? (
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Selected version: <strong>v{selectedVersionForDiff?.version}</strong> ({selectedVersionForDiff?.chunk_hash_count} chunks)
+                </p>
+                <p className="text-sm text-gray-700 font-semibold">Select another version to compare with:</p>
+                {sourceIdFilter && (
+                  <VersionComparisonSelector
+                    sourceId={sourceIdFilter}
+                    currentVersion={selectedVersionForDiff?.version}
+                    onSelect={(v) => {
+                      setCompareWithVersion(v);
+                    }}
+                  />
+                )}
+              </div>
+            ) : (
+              <VersionDiffView
+                selectedVersion={selectedVersionForDiff}
+                compareVersion={compareWithVersion}
+                sourceId={sourceIdFilter}
+                onBack={() => {
+                  setCompareWithVersion(null);
+                }}
+              />
+            )}
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ── Version Comparison Component ────────────────────────────────
+function VersionComparisonSelector({
+  sourceId,
+  currentVersion,
+  onSelect,
+}: {
+  sourceId: string;
+  currentVersion?: number;
+  onSelect: (v: VersionSummary) => void;
+}) {
+  const { data: history, isLoading } = useVersionHistory(sourceId);
+
+  if (isLoading) {
+    return <div className="text-gray-500">Loading versions...</div>;
+  }
+
+  const otherVersions = (history?.versions ?? []).filter(
+    (v) => v.version !== currentVersion
+  );
+
+  if (otherVersions.length === 0) {
+    return <div className="text-gray-500 text-sm">No other versions to compare.</div>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-64 overflow-y-auto">
+      {otherVersions.map((version) => (
+        <button
+          key={version.version}
+          onClick={() => onSelect(version)}
+          className="w-full text-left p-2 border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-300"
+        >
+          <div className="flex justify-between items-center">
+            <span className="font-semibold">v{version.version}</span>
+            <span className="text-xs text-gray-500">{version.chunk_hash_count} chunks</span>
+          </div>
+          <div className="text-xs text-gray-600">
+            {new Date(version.fetch_timestamp).toLocaleString()}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Version Diff View Component ────────────────────────────────
+function VersionDiffView({
+  selectedVersion,
+  compareVersion,
+  sourceId,
+  onBack,
+}: {
+  selectedVersion: VersionSummary | null;
+  compareVersion: VersionSummary | null;
+  sourceId: string;
+  onBack: () => void;
+}) {
+  const { data: diffData, isLoading } = useVersionDiff(
+    sourceId,
+    selectedVersion?.version ?? 0,
+    compareVersion?.version ?? 0
+  );
+
+  if (isLoading) {
+    return <div className="text-gray-500">Computing diff...</div>;
+  }
+
+  const diff_result = diffData;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 items-center mb-4">
+        <button
+          onClick={onBack}
+          className="text-blue-600 hover:text-blue-800 text-sm"
+        >
+          ← Back
+        </button>
+        <span className="text-sm text-gray-600">
+          Comparing v{selectedVersion?.version} → v{compareVersion?.version}
+        </span>
+      </div>
+
+      {diff_result && (
+        <>
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div className="bg-green-50 p-3 rounded border border-green-200">
+              <span className="font-semibold text-green-900">Added</span>
+              <div className="text-green-700">{diff_result.added_hashes.length} chunks</div>
+            </div>
+            <div className="bg-red-50 p-3 rounded border border-red-200">
+              <span className="font-semibold text-red-900">Removed</span>
+              <div className="text-red-700">{diff_result.removed_hashes.length} chunks</div>
+            </div>
+            <div className="bg-gray-50 p-3 rounded border border-gray-200">
+              <span className="font-semibold text-gray-900">Unchanged</span>
+              <div className="text-gray-700">{diff_result.unchanged_hashes.length} chunks</div>
+            </div>
+          </div>
+
+          {diff_result.added_chunks.length > 0 && (
+            <div>
+              <h5 className="font-semibold text-sm mb-2 text-green-900">Added Chunks</h5>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {diff_result.added_chunks.map((chunk) => (
+                  <div key={chunk.chunk_hash} className="bg-green-50 p-2 rounded border border-green-200 text-xs">
+                    <code className="block text-green-900">{chunk.chunk_hash.substring(0, 12)}…</code>
+                    <div className="text-green-800 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {diff_result.removed_chunks.length > 0 && (
+            <div>
+              <h5 className="font-semibold text-sm mb-2 text-red-900">Removed Chunks</h5>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {diff_result.removed_chunks.map((chunk) => (
+                  <div key={chunk.chunk_hash} className="bg-red-50 p-2 rounded border border-red-200 text-xs">
+                    <code className="block text-red-900">{chunk.chunk_hash.substring(0, 12)}…</code>
+                    <div className="text-red-800 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
