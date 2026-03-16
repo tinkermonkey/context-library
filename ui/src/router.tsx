@@ -15,12 +15,20 @@ const indexRoute = createRoute({
   component: DashboardPage,
 })
 
-const browserSearchSchema = z.object({
-  selectedSourceId: z.string().optional(),
-  selectedVersion: z.number().optional(),
-  limit: z.number().optional(),
-  offset: z.number().optional(),
-})
+const browserSearchSchema = z
+  .object({
+    selectedSourceId: z.string().optional(),
+    selectedVersion: z.number().optional(),
+    limit: z.number().optional(),
+    offset: z.number().optional(),
+    // DataTable parameters
+    sort: z.string().optional(),
+    dir: z.enum(['asc', 'desc']).optional(),
+    q: z.string().optional(),
+    page: z.number().optional(),
+    pageSize: z.number().optional(),
+  })
+  .passthrough() // Preserve filter_* keys for dynamic facet filtering
 
 const browserRoute = createRoute({
   getParentRoute: () => rootRoute,

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
 import { fetchSources } from '../api/client';
@@ -63,17 +63,20 @@ export default function BrowserPage() {
   }, [stats]);
 
   // Data fetching function that wraps the API client
-  const fetchFn = async (params: FetchParams) => {
-    const response = await fetchSources({
-      domain: params.filters?.domain?.[0],
-      limit: params.pageSize,
-      offset: params.page * params.pageSize,
-    });
-    return {
-      rows: response.sources,
-      total: response.total,
-    };
-  };
+  const fetchFn = useCallback(
+    async (params: FetchParams) => {
+      const response = await fetchSources({
+        domain: params.filters?.domain?.[0],
+        limit: params.pageSize,
+        offset: params.page * params.pageSize,
+      });
+      return {
+        rows: response.sources,
+        total: response.total,
+      };
+    },
+    []
+  );
 
   return (
     <div className="p-8">

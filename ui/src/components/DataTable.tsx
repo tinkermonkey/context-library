@@ -6,12 +6,13 @@
  * Generic over row data type TData.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect, Fragment } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   useReactTable,
   getCoreRowModel,
+  flexRender,
   type ColumnDef,
   type SortingState,
   type PaginationState,
@@ -77,8 +78,9 @@ export function DataTable<TData>({
   const sortColumn = (typeof params.sort === 'string' ? params.sort : undefined) ?? undefined;
   const sortDir = (typeof params.dir === 'string' && (params.dir === 'asc' || params.dir === 'desc') ? params.dir : undefined) ?? undefined;
   const searchQuery = (typeof params.q === 'string' ? params.q : '') ?? '';
-  const currentPage = Math.max(0, parseInt((typeof params.page === 'string' ? params.page : '0'), 10) || 0);
-  const pageSize = Math.max(10, parseInt((typeof params.pageSize === 'string' ? params.pageSize : String(defaultPageSize)), 10) || defaultPageSize);
+  // Handle both string and number types for page and pageSize (TanStack Router may coerce to number)
+  const currentPage = Math.max(0, Number(params.page ?? 0) || 0);
+  const pageSize = Math.max(10, Number(params.pageSize ?? defaultPageSize) || defaultPageSize);
 
   // Parse facet filters from URL (filter_<column>=value1,value2,...)
   const filters: Record<string, string[]> = useMemo(() => {
@@ -95,8 +97,9 @@ export function DataTable<TData>({
     return filterObj;
   }, [params, facets]);
 
-  // Local state for expanded row
+  // Local state for expanded row and debounced search
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
+  const [localSearchValue, setLocalSearchValue] = useState(searchQuery);
 
   // Fetch data based on current table state
   const { data: queryData, isLoading, isError, error } = useQuery({
@@ -138,7 +141,9 @@ export function DataTable<TData>({
         newSort = undefined;
       }
 
-      const newParams: Record<string, unknown> = { ...params, page: 0 };
+      // Read current params at call time to avoid dependency issues
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
 
       if (newSort !== undefined) {
         newParams.sort = columnId;
@@ -150,13 +155,15 @@ export function DataTable<TData>({
 
       navigate({ search: newParams as any });
     },
-    [sortColumn, sortDir, params, navigate]
+    [sortColumn, sortDir, navigate, routerState.location.search]
   );
 
   // Search handler
   const handleSearch = useCallback(
     (query: string) => {
-      const newParams: Record<string, unknown> = { ...params, page: 0 };
+      // Read current params at call time to avoid dependency issues
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
       if (query && query.trim()) {
         newParams.q = query;
       } else {
@@ -164,13 +171,15 @@ export function DataTable<TData>({
       }
       navigate({ search: newParams as any });
     },
-    [params, navigate]
+    [navigate, routerState.location.search]
   );
 
   // Facet filter handler
   const handleFacetChange = useCallback(
     (column: string, values: string[]) => {
-      const newParams: Record<string, unknown> = { ...params, page: 0 };
+      // Read current params at call time to avoid dependency issues
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
       const filterKey = `filter_${column}`;
 
       if (values.length > 0) {
@@ -181,31 +190,34 @@ export function DataTable<TData>({
 
       navigate({ search: newParams as any });
     },
-    [params, navigate]
+    [navigate, routerState.location.search]
   );
 
   // Pagination handlers
   const handlePrevPage = useCallback(() => {
     if (currentPage > 0) {
-      navigate({ search: { ...params, page: currentPage - 1 } as any });
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      navigate({ search: { ...currentParams, page: currentPage - 1 } as any });
     }
-  }, [currentPage, params, navigate]);
+  }, [currentPage, navigate, routerState.location.search]);
 
   const handleNextPage = useCallback(() => {
     const total = queryData?.total ?? 0;
     const maxPage = Math.ceil(total / pageSize) - 1;
     if (currentPage < maxPage) {
-      navigate({ search: { ...params, page: currentPage + 1 } as any });
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      navigate({ search: { ...currentParams, page: currentPage + 1 } as any });
     }
-  }, [currentPage, pageSize, queryData?.total, params, navigate]);
+  }, [currentPage, pageSize, queryData?.total, navigate, routerState.location.search]);
 
   const handlePageSizeChange = useCallback(
     (size: string) => {
-      const newParams: Record<string, unknown> = { ...params, page: 0 };
+      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
       newParams.pageSize = parseInt(size, 10);
       navigate({ search: newParams as any });
     },
-    [params, navigate]
+    [navigate, routerState.location.search]
   );
 
   // Row click handler
@@ -219,6 +231,16 @@ export function DataTable<TData>({
     },
     [expandedRowKey, rowKey, renderDetail, onRowClick]
   );
+
+  // Debounce search input (300ms) to avoid excessive API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localSearchValue !== searchQuery) {
+        handleSearch(localSearchValue);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localSearchValue, handleSearch]);
 
   // Initialize TanStack Table
   const table = useReactTable({
@@ -266,8 +288,8 @@ export function DataTable<TData>({
           <TextInput
             type="search"
             placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
+            value={localSearchValue}
+            onChange={(e) => setLocalSearchValue(e.target.value)}
             className="w-full"
           />
         )}
@@ -278,14 +300,14 @@ export function DataTable<TData>({
               <div key={facet.column} className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-gray-700">{facet.label}</label>
                 <select
-                  multiple
-                  value={filters[facet.column] ?? []}
+                  value={filters[facet.column]?.[0] ?? ''}
                   onChange={(e) => {
-                    const selectedOptions = Array.from(e.target.selectedOptions, (o) => o.value);
-                    handleFacetChange(facet.column, selectedOptions);
+                    const value = e.target.value;
+                    handleFacetChange(facet.column, value ? [value] : []);
                   }}
                   className="w-full rounded border border-gray-300 p-2 text-sm"
                 >
+                  <option value="">All</option>
                   {facet.values.map((value) => (
                     <option key={value} value={value}>
                       {value}
@@ -320,10 +342,7 @@ export function DataTable<TData>({
                     <div className="flex items-center gap-2">
                       {header.isPlaceholder ? null : (
                         <>
-                          {header.column.columnDef.header &&
-                            (typeof header.column.columnDef.header === 'function'
-                              ? header.column.columnDef.header(header.getContext())
-                              : header.column.columnDef.header)}
+                          {flexRender(header.column.columnDef.header, header.getContext())}
                           {header.column.getCanSort() && (
                             <span className="text-gray-400">
                               {sortColumn === header.column.id ? (
@@ -356,18 +375,16 @@ export function DataTable<TData>({
             ) : (
               rows.map((row) => {
                 const isExpanded = expandedRowKey === rowKey(row.original);
+                const rowKeyValue = rowKey(row.original);
                 return (
-                  <tbody key={rowKey(row.original)}>
+                  <Fragment key={rowKeyValue}>
                     <tr
                       onClick={() => (renderDetail || onRowClick) && handleRowClick(row.original)}
                       className={`hover:bg-gray-50 ${(renderDetail || onRowClick) ? 'cursor-pointer' : ''}`}
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td key={cell.id} className="border border-gray-300 px-4 py-2 text-gray-900">
-                          {cell.column.columnDef.cell &&
-                            (typeof cell.column.columnDef.cell === 'function'
-                              ? cell.column.columnDef.cell(cell.getContext())
-                              : cell.column.columnDef.cell)}
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
                     </tr>
@@ -379,7 +396,7 @@ export function DataTable<TData>({
                         </td>
                       </tr>
                     )}
-                  </tbody>
+                  </Fragment>
                 );
               })
             )}
