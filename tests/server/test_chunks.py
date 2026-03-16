@@ -196,7 +196,7 @@ class TestListChunks:
     def test_list_chunks_skips_corrupt_chunks(self, client: TestClient, ds) -> None:
         """Verify that corrupt chunks (malformed JSON) are skipped without crashing the endpoint.
 
-        This tests the fix for issue #282: when one chunk has corrupt domain_metadata JSON,
+        This tests the fix for issue #272: when one chunk has corrupt domain_metadata JSON,
         the list endpoint should skip it with a warning instead of returning a 500 error.
         """
         from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType, LineageRecord, Domain
@@ -254,8 +254,9 @@ class TestListChunks:
         data = resp.json()
 
         # The valid chunk should be returned, corrupt chunk should be skipped
-        assert data["total"] >= 1  # Total includes corrupt chunk in DB count
-        assert len(data["chunks"]) >= 1  # But only valid chunks in response
+        # Total reflects the full count of returnable (non-corrupt) chunks
+        assert data["total"] >= 1
+        assert len(data["chunks"]) <= data["total"]
 
         # Verify the valid chunk is in the response
         found_valid = False

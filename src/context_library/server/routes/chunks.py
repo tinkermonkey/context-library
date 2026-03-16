@@ -93,17 +93,17 @@ async def list_chunks(
     )
 
     chunk_responses = []
-    for chunk, src_id, source_version_id, adapter_id_val, domain_val, normalizer_version, embedding_model_id in chunk_tuples:
+    for chunk_ctx in chunk_tuples:
         lineage = LineageRecord(
-            chunk_hash=chunk.chunk_hash,
-            source_id=src_id,
-            source_version_id=source_version_id,
-            adapter_id=adapter_id_val,
-            domain=Domain(domain_val),
-            normalizer_version=normalizer_version,
-            embedding_model_id=embedding_model_id,
+            chunk_hash=chunk_ctx.chunk.chunk_hash,
+            source_id=chunk_ctx.source_id,
+            source_version_id=chunk_ctx.source_version_id,
+            adapter_id=chunk_ctx.adapter_id,
+            domain=Domain(chunk_ctx.domain),
+            normalizer_version=chunk_ctx.normalizer_version,
+            embedding_model_id=chunk_ctx.embedding_model_id,
         )
-        chunk_responses.append(_chunk_response(chunk, lineage, src_id))
+        chunk_responses.append(_chunk_response(chunk_ctx.chunk, lineage, chunk_ctx.source_id))
 
     return TopLevelChunkListResponse(
         chunks=chunk_responses,

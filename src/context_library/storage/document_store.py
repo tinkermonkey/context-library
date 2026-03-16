@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
 logger = logging.getLogger(__name__)
 
@@ -1783,7 +1783,7 @@ class DocumentStore:
         source_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[tuple[Chunk, str, int, str, str, str, str]], int]:
+    ) -> tuple[list[ChunkWithLineageContext], int]:
         """List active chunks with optional filtering and pagination.
 
         Returns paginated chunks from the current (latest) version of each source,
@@ -1802,9 +1802,9 @@ class DocumentStore:
             offset: Number of results to skip.
 
         Returns:
-            Tuple of (page chunks, total_matching_count). Each chunk tuple includes
-            (Chunk object, source_id, source_version_id, adapter_id, domain, normalizer_version, embedding_model_id).
-            Total count includes all matching rows before filtering, for accurate pagination.
+            Tuple of (page chunks, total_count). Each chunk is a ChunkWithLineageContext
+            with the chunk object and associated metadata. Total count is the full count
+            of matching, returnable (non-corrupt) chunks across all pages.
         """
         cursor = self.conn.cursor()
         filter_params: list[object] = []
@@ -1822,28 +1822,9 @@ class DocumentStore:
 
         where_sql = " AND ".join(where_clauses)
 
-        # Total count must match the paginated query below. Since chunks table has composite
-        # PK (chunk_hash, source_id, source_version) and we filter by current_version,
-        # rows are already unique per (chunk_hash, source_id). Count using same subquery
-        # pattern as pagination to ensure consistency.
-        cursor.execute(
-            f"""
-            SELECT COUNT(*) FROM (
-                SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
-                       c.content, c.context_header, c.chunk_type, c.domain_metadata,
-                       c.normalizer_version, c.embedding_model_id, c.created_at,
-                       s.adapter_id, s.domain, s.current_version as source_version_id
-                FROM chunks c
-                JOIN sources s ON c.source_id = s.source_id
-                WHERE {where_sql}
-            )
-            """,
-            filter_params,
-        )
-        total: int = cursor.fetchone()[0]
-
-        # Paginated rows ordered by created_at DESC, with all data needed for responses
-        page_params = list(filter_params) + [limit, offset]
+        # Fetch all matching rows (without limit/offset) to count returnable items
+        # and build the full result set, then slice for pagination
+        all_params = filter_params
         cursor.execute(
             f"""
             SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
@@ -1854,31 +1835,35 @@ class DocumentStore:
             JOIN sources s ON c.source_id = s.source_id
             WHERE {where_sql}
             ORDER BY c.created_at DESC
-            LIMIT ? OFFSET ?
             """,
-            page_params,
+            all_params,
         )
-        rows = cursor.fetchall()
+        all_rows = cursor.fetchall()
 
         # Build chunks, skipping corrupt ones with logged warnings
-        chunk_results = []
-        for row in rows:
+        # Process all rows to get accurate total count of returnable items
+        all_results = []
+        for row in all_rows:
             try:
                 chunk = self._build_chunk_from_row(row)
-                chunk_results.append((
-                    chunk,
-                    row["source_id"],
-                    row["source_version_id"],
-                    row["adapter_id"],
-                    row["domain"],
-                    row["normalizer_version"],
-                    row["embedding_model_id"],
+                all_results.append(ChunkWithLineageContext(
+                    chunk=chunk,
+                    source_id=row["source_id"],
+                    source_version_id=row["source_version_id"],
+                    adapter_id=row["adapter_id"],
+                    domain=row["domain"],
+                    normalizer_version=row["normalizer_version"],
+                    embedding_model_id=row["embedding_model_id"],
                 ))
             except ValueError as e:
-                logger.warning(f"Skipping corrupt chunk during list: {e}")
+                logger.warning("Skipping corrupt chunk during list: %s", e)
                 continue
 
-        return chunk_results, total
+        # Apply pagination to the filtered results
+        total = len(all_results)
+        paginated_results = all_results[offset : offset + limit]
+
+        return paginated_results, total
 
     def get_adapter_stats(self) -> list[dict]:
         """Get per-adapter source and active chunk counts.
