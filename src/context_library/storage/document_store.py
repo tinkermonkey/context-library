@@ -266,6 +266,9 @@ class DocumentStore:
             # Disable foreign key enforcement temporarily
             cursor.execute("PRAGMA foreign_keys=OFF")
 
+            # Start transaction
+            cursor.execute("BEGIN")
+
             # Migrate adapters table: rename old, create new with documents domain, copy data
             cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
             cursor.execute("""

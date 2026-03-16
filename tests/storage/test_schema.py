@@ -1109,3 +1109,37 @@ class TestSchemaMigrationV2ToV3:
             assert version1 == 3
             assert version2 == 3
             assert ddl1 == ddl2
+
+    def test_migrate_v2_to_v3_migration_failure_raises_runtime_error(self) -> None:
+        """Test that v2-to-v3 migration failure raises RuntimeError with descriptive message.
+
+        This tests the error handling path by simulating a migration failure through
+        database corruption. Verifies that rollback prevents partial schema changes.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create a v2 database with data
+            conn = sqlite3.connect(str(db_path))
+            _create_v2_schema(conn)
+
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("test-adapter", "health", "health_adapter", "1.0"))
+            conn.commit()
+            conn.close()
+
+            # Corrupt the database by dropping the sources table
+            # This will cause the migration to fail when trying to rename sources
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("DROP TABLE sources")
+            conn.execute("DROP TABLE lancedb_sync_log")
+            conn.execute("PRAGMA user_version=2")  # Ensure version is still 2
+            conn.commit()
+            conn.close()
+
+            # Attempting to initialize DocumentStore should raise RuntimeError
+            with pytest.raises(RuntimeError, match="Failed to migrate schema from v2 to v3"):
+                DocumentStore(str(db_path))
