@@ -4316,11 +4316,12 @@ class TestListChunks:
         )
         store.write_chunks([chunk1], [lineage1])
 
-        rows, total = store.list_chunks()
+        chunk_tuples, total = store.list_chunks()
         assert total == 1
-        assert len(rows) == 1
-        assert rows[0]["chunk_hash"] == ch1
-        assert rows[0]["content"] == "content1"
+        assert len(chunk_tuples) == 1
+        chunk, src_id, src_version_id, adapter_id_val, domain_val, normalizer_version, embedding_model_id = chunk_tuples[0]
+        assert chunk.chunk_hash == ch1
+        assert chunk.content == "content1"
 
     def test_filters_by_domain(self, store: DocumentStore) -> None:
         from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType

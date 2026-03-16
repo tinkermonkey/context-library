@@ -192,3 +192,77 @@ class TestListChunks:
         assert (
             len(metadata_chunk["cross_refs"]) > 0
         ), "cross_refs should be populated from _system_cross_refs"
+
+    def test_list_chunks_skips_corrupt_chunks(self, client: TestClient, ds) -> None:
+        """Verify that corrupt chunks (malformed JSON) are skipped without crashing the endpoint.
+
+        This tests the fix for issue #282: when one chunk has corrupt domain_metadata JSON,
+        the list endpoint should skip it with a warning instead of returning a 500 error.
+        """
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType, LineageRecord, Domain
+
+        # Create a valid chunk
+        valid_content = "Valid chunk content"
+        valid_hash = compute_chunk_hash(valid_content)
+        valid_chunk = Chunk(
+            chunk_hash=valid_hash,
+            content=valid_content,
+            context_header="## Valid",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+
+        # Create a new version with the valid chunk
+        ds.create_source_version(
+            source_id="src-1",
+            version=3,
+            markdown=valid_content,
+            chunk_hashes=[valid_hash],
+            adapter_id="test-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-03T00:00:00+00:00",
+        )
+        valid_lineage = LineageRecord(
+            chunk_hash=valid_hash,
+            source_id="src-1",
+            source_version_id=3,
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        ds.write_chunks(chunks=[valid_chunk], lineage_records=[valid_lineage])
+
+        # Now insert a corrupt chunk directly into the database with malformed JSON
+        cursor = ds.conn.cursor()
+        corrupt_hash = "c" * 64
+        cursor.execute(
+            """
+            INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content,
+                              context_header, domain, adapter_id, chunk_type, domain_metadata,
+                              normalizer_version, embedding_model_id, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (corrupt_hash, "src-1", 3, 1, "Corrupt content", "## Corrupt", "notes",
+             "test-adapter", "standard", "{ invalid json }", "1.0.0", "test-model"),
+        )
+        ds.conn.commit()
+
+        # Query the list endpoint - it should NOT crash even though one chunk is corrupt
+        resp = client.get("/chunks")
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+
+        # The valid chunk should be returned, corrupt chunk should be skipped
+        assert data["total"] >= 1  # Total includes corrupt chunk in DB count
+        assert len(data["chunks"]) >= 1  # But only valid chunks in response
+
+        # Verify the valid chunk is in the response
+        found_valid = False
+        for chunk_item in data["chunks"]:
+            if chunk_item["chunk_hash"] == valid_hash:
+                found_valid = True
+                assert chunk_item["content"] == valid_content
+                break
+
+        assert found_valid, "Valid chunk should be returned"

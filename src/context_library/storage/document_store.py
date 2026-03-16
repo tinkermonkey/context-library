@@ -1783,12 +1783,16 @@ class DocumentStore:
         source_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[tuple[Chunk, str, int, str, str, str, str]], int]:
         """List active chunks with optional filtering and pagination.
 
         Returns paginated chunks from the current (latest) version of each source,
         filtered by domain, adapter_id, and/or source_id if specified. Only returns
         non-retired chunks. Deduplicates by constraining to current_version.
+
+        Corrupt chunks (with malformed domain_metadata JSON) are skipped with warnings
+        logged, but do not cause the entire list operation to fail. This ensures one
+        corrupt chunk does not make all valid chunks invisible.
 
         Args:
             domain: Optional domain filter (e.g., "notes", "messages").
@@ -1798,8 +1802,9 @@ class DocumentStore:
             offset: Number of results to skip.
 
         Returns:
-            Tuple of (page rows, total_matching_count). Each row dict includes
-            all chunk fields plus lineage metadata (adapter_id, domain, source_version_id).
+            Tuple of (page chunks, total_matching_count). Each chunk tuple includes
+            (Chunk object, source_id, source_version_id, adapter_id, domain, normalizer_version, embedding_model_id).
+            Total count includes all matching rows before filtering, for accurate pagination.
         """
         cursor = self.conn.cursor()
         filter_params: list[object] = []
@@ -1854,7 +1859,26 @@ class DocumentStore:
             page_params,
         )
         rows = cursor.fetchall()
-        return [dict(row) for row in rows], total
+
+        # Build chunks, skipping corrupt ones with logged warnings
+        chunk_results = []
+        for row in rows:
+            try:
+                chunk = self._build_chunk_from_row(row)
+                chunk_results.append((
+                    chunk,
+                    row["source_id"],
+                    row["source_version_id"],
+                    row["adapter_id"],
+                    row["domain"],
+                    row["normalizer_version"],
+                    row["embedding_model_id"],
+                ))
+            except ValueError as e:
+                logger.warning(f"Skipping corrupt chunk during list: {e}")
+                continue
+
+        return chunk_results, total
 
     def get_adapter_stats(self) -> list[dict]:
         """Get per-adapter source and active chunk counts.

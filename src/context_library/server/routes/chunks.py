@@ -79,10 +79,11 @@ async def list_chunks(
 
     Returns paginated chunks across all sources (or filtered by source_id),
     ordered by created_at DESC. Only returns non-retired chunks from current
-    source versions.
+    source versions. Corrupt chunks are skipped with warnings, ensuring partial
+    data availability.
     """
     ds = request.app.state.document_store
-    rows, total = await asyncio.to_thread(
+    chunk_tuples, total = await asyncio.to_thread(
         ds.list_chunks,
         domain.value if domain else None,
         adapter_id,
@@ -92,20 +93,15 @@ async def list_chunks(
     )
 
     chunk_responses = []
-    for row in rows:
-        chunk_hash = row["chunk_hash"]
-        src_id = row["source_id"]
-        # Construct chunk using DocumentStore helper which properly deserializes
-        # domain_metadata JSON and extracts _system_cross_refs
-        chunk = ds._build_chunk_from_row(row)
+    for chunk, src_id, source_version_id, adapter_id_val, domain_val, normalizer_version, embedding_model_id in chunk_tuples:
         lineage = LineageRecord(
-            chunk_hash=chunk_hash,
+            chunk_hash=chunk.chunk_hash,
             source_id=src_id,
-            source_version_id=row["source_version_id"],
-            adapter_id=row["adapter_id"],
-            domain=Domain(row["domain"]),
-            normalizer_version=row["normalizer_version"],
-            embedding_model_id=row["embedding_model_id"],
+            source_version_id=source_version_id,
+            adapter_id=adapter_id_val,
+            domain=Domain(domain_val),
+            normalizer_version=normalizer_version,
+            embedding_model_id=embedding_model_id,
         )
         chunk_responses.append(_chunk_response(chunk, lineage, src_id))
 
