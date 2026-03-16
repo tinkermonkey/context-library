@@ -255,7 +255,11 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         }
 
         # Validate metadata at adapter layer (catches type/constraint violations early)
-        validated_metadata = DocumentMetadata.model_validate(metadata_dict)
+        try:
+            DocumentMetadata.model_validate(metadata_dict)
+        except ValueError as e:
+            logger.error(f"DocumentMetadata validation failed for track {track_id}: {e}")
+            raise
 
         markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
 
