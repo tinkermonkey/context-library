@@ -1143,6 +1143,6 @@ class TestAppleMusicLibraryAdapterIntegration:
         assert len(chunks) == 1
 
         # Storage layer would set date_first_observed later
-        # For now, verify it's None in the chunk
+        # For now, verify it's excluded from the chunk
         chunk = chunks[0]
-        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
+        assert "date_first_observed" not in chunk.domain_metadata
