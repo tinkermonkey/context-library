@@ -15,9 +15,7 @@ function NavbarLinkRouter({ to, active, children }: NavbarLinkRouterProps) {
       as={Link}
       href={to}
       active={active}
-      // @ts-expect-error: NavbarLink extends HTMLAnchorElement props (href), but when as={Link},
-      // the component renders as TanStack Router's Link which requires 'to' prop instead of 'href'.
-      // This is safe because Flowbite forwards component props through the 'as' polymorphism.
+      // @ts-expect-error: 'to' prop required for TanStack Router Link via Flowbite's 'as' polymorphism
       to={to}
     >
       {children}
