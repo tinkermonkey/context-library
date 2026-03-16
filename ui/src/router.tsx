@@ -57,6 +57,7 @@ const browserRoute = createRoute({
 const searchSearchSchema = z.object({
   q: z.string().optional(),
   domain: z.string().optional(),
+  source_id: z.string().optional(),
   rerank: z.boolean().optional(),
   top_k: z.number().optional(),
 })

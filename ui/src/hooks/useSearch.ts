@@ -10,6 +10,7 @@ export function useSearch(params: SearchPageSearch) {
         query: params.q!,
         top_k: params.top_k ?? 10,
         domain_filter: params.domain ?? null,
+        source_filter: params.source_id ?? null,
         rerank: params.rerank ?? false,
       }),
     enabled: !!params.q,

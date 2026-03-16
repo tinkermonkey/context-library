@@ -13,7 +13,11 @@ function SearchResultCard({ result }: { result: QueryResultItem }) {
   const handleViewInBrowser = () => {
     navigate({
       to: '/browser',
-      search: { domain: result.domain },
+      search: {
+        domain: result.domain,
+        table: 'chunks',
+        source_id: result.source_id,
+      },
     });
   };
 
@@ -60,6 +64,7 @@ export default function SearchPage() {
   const [formState, setFormState] = useState({
     q: search.q ?? '',
     domain: search.domain ?? '',
+    source_id: search.source_id ?? '',
     rerank: search.rerank ?? false,
     top_k: search.top_k ?? 10,
   });
@@ -75,6 +80,7 @@ export default function SearchPage() {
       search: {
         q: formState.q,
         domain: formState.domain || undefined,
+        source_id: formState.source_id || undefined,
         rerank: formState.rerank,
         top_k: formState.top_k,
       },
@@ -85,6 +91,7 @@ export default function SearchPage() {
     setFormState({
       q: '',
       domain: '',
+      source_id: '',
       rerank: false,
       top_k: 10,
     });
@@ -138,6 +145,22 @@ export default function SearchPage() {
               </Select>
             </div>
 
+            <div>
+              <label htmlFor="source_id" className="block text-sm font-medium text-gray-700 mb-2">
+                Source ID Filter
+              </label>
+              <TextInput
+                id="source_id"
+                type="text"
+                placeholder="Optional source ID"
+                value={formState.source_id}
+                onChange={(e) => setFormState({ ...formState, source_id: e.target.value })}
+                disabled={isLoading}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="top_k" className="block text-sm font-medium text-gray-700 mb-2">
                 Results Limit
