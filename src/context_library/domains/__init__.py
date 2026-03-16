@@ -5,6 +5,7 @@ Exports:
 - Domain registry for looking up chunkers by Domain enum
 """
 
+from context_library.domains.documents import DocumentsDomain
 from context_library.domains.events import EventsDomain
 from context_library.domains.health import HealthDomain
 from context_library.domains.messages import MessagesDomain
@@ -18,6 +19,7 @@ __all__ = [
     "EventsDomain",
     "TasksDomain",
     "HealthDomain",
+    "DocumentsDomain",
     "get_domain_chunker",
     "list_registered_domains",
 ]
