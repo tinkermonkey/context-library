@@ -1874,7 +1874,10 @@ class DocumentStore:
                    COUNT(DISTINCT c.chunk_hash) AS active_chunk_count
             FROM sources s
             LEFT JOIN adapters a ON s.adapter_id = a.adapter_id
-            LEFT JOIN chunks c ON c.source_id = s.source_id AND c.retired_at IS NULL
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
             GROUP BY s.adapter_id, a.adapter_type, s.domain
             ORDER BY s.adapter_id ASC
             """
