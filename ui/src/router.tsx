@@ -17,6 +17,8 @@ const indexRoute = createRoute({
 
 const browserSearchSchema = z
   .object({
+    domain: z.string().optional(),
+    adapter_id: z.string().optional(),
     selectedSourceId: z.string().optional(),
     selectedVersion: z.number().optional(),
     limit: z.number().optional(),
