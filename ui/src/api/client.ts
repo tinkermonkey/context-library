@@ -7,11 +7,13 @@ import type {
   HealthResponse,
   DatasetStatsResponse,
   AdapterStatsResponse,
+  AdapterResponse,
   AdapterListResponse,
   SourceListResponse,
   SourceDetailResponse,
   ChunkListResponse,
   VersionHistoryResponse,
+  VersionDetailResponse,
   VersionDiffResponse,
   TopLevelChunkListResponse,
   ChunkResponse,
@@ -58,7 +60,7 @@ export const fetchAdapterStats = () => apiFetch<AdapterStatsResponse>('/stats/ad
 export const fetchAdapters = () => apiFetch<AdapterListResponse>('/adapters');
 
 export const fetchAdapter = (adapterId: string) =>
-  apiFetch<AdapterListResponse>(`/adapters/${adapterId}`);
+  apiFetch<AdapterResponse>(`/adapters/${adapterId}`);
 
 // ── Sources ──────────────────────────────────────────────────────
 
@@ -79,7 +81,7 @@ export const fetchVersionHistory = (sourceId: string) =>
   apiFetch<VersionHistoryResponse>(`/sources/${sourceId}/versions`);
 
 export const fetchVersionDetail = (sourceId: string, version: number) =>
-  apiFetch<VersionHistoryResponse>(`/sources/${sourceId}/versions/${version}`);
+  apiFetch<VersionDetailResponse>(`/sources/${sourceId}/versions/${version}`);
 
 export const fetchVersionDiff = (sourceId: string, fromVersion: number, toVersion: number) =>
   apiFetch<VersionDiffResponse>(
