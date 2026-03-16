@@ -19,11 +19,11 @@ npm run build
 
 ### `VITE_API_BASE_URL` (Production)
 
-The API base URL for production builds. Defaults to `/api` if not set.
+The API base URL for production builds. If not set:
+- **Development**: `/api` (proxied by Vite dev server to `http://localhost:8000`)
+- **Production**: `''` (routes at root, for co-located frontend/API deployments)
 
-Use this when the frontend and API are not co-located:
+Use `VITE_API_BASE_URL` when the frontend and API are not co-located:
 ```bash
 VITE_API_BASE_URL=https://api.example.com npm run build
 ```
-
-During development, the Vite dev server proxies `/api` to `http://localhost:8000`.
