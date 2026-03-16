@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
@@ -168,6 +170,18 @@ def create_app() -> FastAPI:
     app.include_router(sources.router)
     app.include_router(chunks.router)
     app.include_router(stats.router)
+
+    # Mount static SPA if built assets exist
+    ui_dist = Path(__file__).parent.parent.parent.parent / "ui" / "dist"
+    if ui_dist.exists():
+        # Serve assets (JS, CSS, images) from /assets/
+        app.mount("/assets", StaticFiles(directory=ui_dist / "assets"), name="assets")
+
+        # SPA fallback: any unmatched GET returns index.html
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str):
+            return FileResponse(ui_dist / "index.html")
+
     return app
 
 
