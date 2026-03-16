@@ -91,8 +91,13 @@ export function DataTable<TData>({
   const paramsRef = useRef<Record<string, unknown>>({});
 
   // Safely parse URL search params into table state
-  const params = (routerState.location.search ?? {}) as Record<string, unknown>;
-  paramsRef.current = params;
+  const params = useMemo(
+    () => (routerState.location.search ?? {}) as Record<string, unknown>,
+    [routerState.location.search]
+  );
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
 
   const sortColumn = (typeof params.sort === 'string' ? params.sort : undefined) ?? undefined;
   const sortDir = (typeof params.dir === 'string' && (params.dir === 'asc' || params.dir === 'desc') ? params.dir : undefined) ?? undefined;

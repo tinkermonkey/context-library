@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useRef } from 'react';
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -489,7 +489,10 @@ export default function BrowserPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
 
-  const search = (routerState.location.search ?? {}) as BrowserPageSearch;
+  const search = useMemo(
+    () => (routerState.location.search ?? {}) as BrowserPageSearch,
+    [routerState.location.search]
+  );
   const activeDomain = (search.domain as string) ?? 'messages';
   const tableType = (search.table as string) ?? 'sources';
   const adapterFilter = (search.adapter_id as string) ?? undefined;
@@ -497,7 +500,9 @@ export default function BrowserPage() {
 
   // Use a ref to hold current search params without triggering callback updates on every URL change
   const searchRef = useRef<BrowserPageSearch>(search);
-  searchRef.current = search;
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   const { data: adapters } = useAdapters();
 
