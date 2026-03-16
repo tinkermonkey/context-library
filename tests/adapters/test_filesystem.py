@@ -51,16 +51,16 @@ class TestFilesystemAdapterProperties:
         assert adapter1.adapter_id != adapter2.adapter_id
 
     def test_domain_property(self, tmp_path):
-        """domain property returns Domain.NOTES."""
+        """domain property returns Domain.DOCUMENTS."""
         adapter = FilesystemAdapter(tmp_path)
 
-        assert adapter.domain == Domain.NOTES
+        assert adapter.domain == Domain.DOCUMENTS
 
     def test_normalizer_version_property(self, tmp_path):
-        """normalizer_version property returns '1.0.0'."""
+        """normalizer_version property returns '2.0.0'."""
         adapter = FilesystemAdapter(tmp_path)
 
-        assert adapter.normalizer_version == "1.0.0"
+        assert adapter.normalizer_version == "2.0.0"
 
 
 class TestFilesystemAdapterFetch:
@@ -151,7 +151,7 @@ class TestFilesystemAdapterFetch:
         result = results[0]
         assert result.markdown == content
         assert result.source_id == "test.md"
-        assert result.normalizer_version == "1.0.0"
+        assert result.normalizer_version == "2.0.0"
         assert isinstance(result.structural_hints, StructuralHints)
 
     def test_fetch_nonexistent_directory(self, tmp_path):
@@ -532,3 +532,175 @@ class TestFilesystemAdapterIntegration:
 
         second = next(iterator)
         assert isinstance(second, NormalizedContent)
+
+
+class TestFilesystemAdapterDocumentMetadata:
+    """Tests for DocumentMetadata population in extra_metadata."""
+
+    def test_extra_metadata_populated(self, tmp_path):
+        """extra_metadata is populated for each yielded NormalizedContent."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert len(results) == 1
+        assert results[0].structural_hints.extra_metadata is not None
+
+    def test_extra_metadata_source_type(self, tmp_path):
+        """extra_metadata['source_type'] is 'filesystem'."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        assert meta["source_type"] == "filesystem"
+
+    def test_extra_metadata_document_id(self, tmp_path):
+        """extra_metadata['document_id'] equals the relative file path."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        assert meta["document_id"] == "test.md"
+
+    def test_extra_metadata_document_id_with_nested_path(self, tmp_path):
+        """extra_metadata['document_id'] is relative path for nested files."""
+        subdir = tmp_path / "notes" / "work"
+        subdir.mkdir(parents=True)
+        md_file = subdir / "meeting.md"
+        md_file.write_text("Meeting notes", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        # Relative path should contain the directory structure
+        assert "notes" in str(meta["document_id"])
+        assert "meeting.md" in str(meta["document_id"])
+
+    def test_extra_metadata_title(self, tmp_path):
+        """extra_metadata['title'] equals the filename."""
+        md_file = tmp_path / "README.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        assert meta["title"] == "README.md"
+
+    def test_extra_metadata_file_size_bytes(self, tmp_path):
+        """extra_metadata['file_size_bytes'] is a non-negative integer."""
+        md_file = tmp_path / "test.md"
+        content = "Hello World!"
+        md_file.write_text(content, encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        assert isinstance(meta["file_size_bytes"], int)
+        assert meta["file_size_bytes"] >= 0
+        assert meta["file_size_bytes"] == len(content.encode("utf-8"))
+
+    def test_extra_metadata_document_type(self, tmp_path):
+        """extra_metadata['document_type'] is a non-empty string."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        assert isinstance(meta["document_type"], str)
+        assert len(meta["document_type"]) > 0
+
+    def test_extra_metadata_created_at_iso8601(self, tmp_path):
+        """extra_metadata['created_at'] is a valid ISO 8601 timestamp."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        # Should be parseable as ISO 8601
+        dt = datetime.fromisoformat(meta["created_at"])
+        assert dt.tzinfo is not None
+
+    def test_extra_metadata_modified_at_iso8601(self, tmp_path):
+        """extra_metadata['modified_at'] is a valid ISO 8601 timestamp."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        # Should be parseable as ISO 8601
+        dt = datetime.fromisoformat(meta["modified_at"])
+        assert dt.tzinfo is not None
+
+    def test_extra_metadata_date_first_observed_iso8601(self, tmp_path):
+        """extra_metadata['date_first_observed'] is a valid ISO 8601 timestamp."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta = results[0].structural_hints.extra_metadata
+        assert meta is not None
+        # Should be parseable as ISO 8601
+        dt = datetime.fromisoformat(meta["date_first_observed"])
+        assert dt.tzinfo is not None
+
+    def test_extra_metadata_deserializable_to_document_metadata(self, tmp_path):
+        """extra_metadata can be deserialized to DocumentMetadata without errors."""
+        md_file = tmp_path / "test.md"
+        md_file.write_text("Content", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        meta_dict = results[0].structural_hints.extra_metadata
+        assert meta_dict is not None
+
+        # Should be deserializable to DocumentMetadata without validation errors
+        try:
+            # Import here to avoid circular imports
+            from context_library.storage.models import DocumentMetadata as DMeta
+            doc_meta = DMeta(**meta_dict)
+            assert doc_meta.source_type == "filesystem"
+            assert doc_meta.document_id == "test.md"
+        except Exception as e:
+            pytest.fail(f"Failed to deserialize extra_metadata to DocumentMetadata: {e}")
+
+    def test_extra_metadata_all_files_have_metadata(self, tmp_path):
+        """All yielded NormalizedContent have non-None extra_metadata."""
+        (tmp_path / "file1.md").write_text("Content 1", encoding="utf-8")
+        (tmp_path / "file2.md").write_text("Content 2", encoding="utf-8")
+        (tmp_path / "file3.md").write_text("Content 3", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path)
+        results = list(adapter.fetch("unused"))
+
+        assert len(results) == 3
+        for result in results:
+            assert result.structural_hints.extra_metadata is not None
+            assert result.structural_hints.extra_metadata["source_type"] == "filesystem"

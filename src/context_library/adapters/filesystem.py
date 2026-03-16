@@ -1,5 +1,6 @@
 """FilesystemAdapter for discovering and normalizing markdown files."""
 
+import mimetypes
 import re
 import logging
 from datetime import datetime, timezone
@@ -42,12 +43,12 @@ class FilesystemAdapter(BaseAdapter):
     @property
     def domain(self) -> Domain:
         """Return the domain this adapter serves."""
-        return Domain.NOTES
+        return Domain.DOCUMENTS
 
     @property
     def normalizer_version(self) -> str:
         """Return the normalizer version."""
-        return "1.0.0"
+        return "2.0.0"
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize markdown files from the directory.
@@ -101,6 +102,30 @@ class FilesystemAdapter(BaseAdapter):
                 # Compute relative path from base directory
                 source_id = str(md_file.relative_to(self._directory))
 
+                # Compute created_at in ISO 8601 format
+                created_at = datetime.fromtimestamp(
+                    stat.st_ctime, tz=timezone.utc
+                ).isoformat()
+
+                # Determine MIME type
+                mime_type, _ = mimetypes.guess_type(str(md_file))
+                document_type = mime_type or "text/markdown"
+
+                # Current timestamp for date_first_observed
+                now = datetime.now(timezone.utc).isoformat()
+
+                # Build DocumentMetadata dict
+                document_metadata: dict[str, object] = {
+                    "document_id": source_id,
+                    "title": md_file.name,
+                    "document_type": document_type,
+                    "source_type": "filesystem",
+                    "date_first_observed": now,
+                    "created_at": created_at,
+                    "modified_at": modified_at,
+                    "file_size_bytes": stat.st_size,
+                }
+
                 # Build structural hints
                 structural_hints = StructuralHints(
                     has_headings=has_headings,
@@ -110,6 +135,7 @@ class FilesystemAdapter(BaseAdapter):
                     file_path=str(md_file.resolve()),
                     modified_at=modified_at,
                     file_size_bytes=stat.st_size,
+                    extra_metadata=document_metadata,
                 )
 
                 # Yield normalized content
