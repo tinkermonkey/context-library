@@ -28,4 +28,5 @@ export const useVersionDiff = (sourceId: string, fromVersion: number, toVersion:
     queryKey: ['version-diff', sourceId, fromVersion, toVersion],
     queryFn: () => fetchVersionDiff(sourceId, fromVersion, toVersion),
     staleTime: 10_000,
+    enabled: !!sourceId && fromVersion > 0 && toVersion > 0,
   });

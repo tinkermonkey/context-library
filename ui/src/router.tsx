@@ -29,7 +29,7 @@ const indexRoute = createRoute({
 export const browserSearchSchema = z
   .object({
     domain: z.string().optional(),
-    table: z.string().optional(), // 'sources' | 'chunks'
+    table: z.string().optional(), // 'sources' | 'chunks' | 'versions'
     adapter_id: z.string().optional(),
     source_id: z.string().optional(),
     selectedSourceId: z.string().optional(),
