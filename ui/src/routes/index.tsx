@@ -1,10 +1,15 @@
 import { useNavigate } from '@tanstack/react-router';
-import { Card, Badge, Spinner } from 'flowbite-react';
+import { Card, Badge } from 'flowbite-react';
+import { useMemo, useCallback } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { DataTable } from '../components/DataTable';
 import type { AdapterStats } from '../types/api';
+
+// Capitalize domain name for display
+const capitalizeFirstLetter = (str: string) =>
+  str.charAt(0).toUpperCase() + str.slice(1);
 
 /**
  * Dashboard landing page at /
@@ -17,43 +22,40 @@ export default function DashboardPage() {
   const stats = useStats();
   const adapterStats = useAdapterStats();
 
-  // Capitalize domain name for display
-  const capitalizeFirstLetter = (str: string) =>
-    str.charAt(0).toUpperCase() + str.slice(1);
+  // Column definitions for adapter table (memoized to prevent re-creation on each render)
+  const adapterColumns = useMemo<ColumnDef<AdapterStats>[]>(
+    () => [
+      {
+        accessorKey: 'adapter_id',
+        header: 'Adapter ID',
+        size: 200,
+      },
+      {
+        accessorKey: 'adapter_type',
+        header: 'Type',
+        size: 150,
+      },
+      {
+        accessorKey: 'domain',
+        header: 'Domain',
+        size: 150,
+      },
+      {
+        accessorKey: 'source_count',
+        header: 'Sources',
+        size: 100,
+      },
+      {
+        accessorKey: 'active_chunk_count',
+        header: 'Active Chunks',
+        size: 150,
+      },
+    ],
+    []
+  );
 
-  // Column definitions for adapter table
-  const adapterColumns: ColumnDef<AdapterStats>[] = [
-    {
-      accessorKey: 'adapter_id',
-      header: 'Adapter ID',
-      size: 200,
-    },
-    {
-      accessorKey: 'adapter_type',
-      header: 'Type',
-      size: 150,
-    },
-    {
-      accessorKey: 'domain',
-      header: 'Domain',
-      size: 150,
-    },
-    {
-      accessorKey: 'source_count',
-      header: 'Sources',
-      size: 100,
-      cell: ({ row }) => <span>{row.original.source_count}</span>,
-    },
-    {
-      accessorKey: 'active_chunk_count',
-      header: 'Active Chunks',
-      size: 150,
-      cell: ({ row }) => <span>{row.original.active_chunk_count}</span>,
-    },
-  ];
-
-  // Fetch function for adapter table (client-side data, no pagination needed)
-  const fetchAdapters = async () => {
+  // Fetch function for adapter table (memoized with useCallback to stabilize reference)
+  const fetchAdapters = useCallback(async () => {
     if (!adapterStats.data) {
       return { rows: [], total: 0 };
     }
@@ -61,35 +63,123 @@ export default function DashboardPage() {
       rows: adapterStats.data.adapters,
       total: adapterStats.data.adapters.length,
     };
-  };
+  }, [adapterStats.data]);
 
-  // Handle adapter row click
+  // Handle adapter row click (navigate with filter_domain so DataTable recognizes the filter)
   const handleAdapterRowClick = (adapter: AdapterStats) => {
     navigate({
       to: '/browser',
       search: {
-        domain: adapter.domain,
+        filter_domain: adapter.domain,
         adapter_id: adapter.adapter_id,
       },
     });
   };
 
-  // Handle domain card click
+  // Handle domain card click (navigate with filter_domain so DataTable recognizes the filter)
   const handleDomainCardClick = (domain: string) => {
     navigate({
       to: '/browser',
-      search: { domain },
+      search: { filter_domain: domain },
     });
   };
 
-  // Loading state for both stats and adapter stats
-  if (stats.isLoading || adapterStats.isLoading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <Spinner color="info" size="lg" />
-          <p className="mt-4 text-gray-600">Loading dashboard data...</p>
+  // Skeleton placeholder for domain cards
+  const DomainCardSkeleton = () => (
+    <Card className="animate-pulse">
+      <div className="h-6 bg-gray-300 rounded w-24 mb-4"></div>
+      <div className="space-y-2">
+        <div className="h-8 bg-gray-300 rounded w-32"></div>
+        <div className="h-8 bg-gray-300 rounded w-32"></div>
+      </div>
+    </Card>
+  );
+
+  // Skeleton placeholder for table rows
+  const TableSkeletonRows = () => (
+    <div className="space-y-2">
+      {[...Array(5)].map((_, i) => (
+        <div
+          key={i}
+          className="flex gap-4 p-4 border rounded-lg animate-pulse"
+        >
+          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
+          <div className="flex-1 h-6 bg-gray-300 rounded"></div>
         </div>
+      ))}
+    </div>
+  );
+
+  // Loading state for stats with skeleton placeholders
+  if (stats.isLoading) {
+    return (
+      <div className="space-y-8 p-8">
+        <div>
+          <h1 className="text-4xl font-bold">Dashboard</h1>
+          <p className="mt-2 text-gray-600">Overview of data sources and content</p>
+        </div>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-6">Domain Summary</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[...Array(5)].map((_, i) => (
+              <DomainCardSkeleton key={i} />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-6">Adapter Summary</h2>
+          <TableSkeletonRows />
+        </section>
+      </div>
+    );
+  }
+
+  // Loading state for adapter stats with skeleton table
+  if (adapterStats.isLoading) {
+    return (
+      <div className="space-y-8 p-8">
+        <div>
+          <h1 className="text-4xl font-bold">Dashboard</h1>
+          <p className="mt-2 text-gray-600">Overview of data sources and content</p>
+        </div>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-6">Domain Summary</h2>
+          {stats.data?.by_domain ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {stats.data.by_domain.map((domain) => (
+                <Card
+                  key={domain.domain}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                  onClick={() => handleDomainCardClick(domain.domain)}
+                >
+                  <h3 className="text-xl font-semibold">
+                    {capitalizeFirstLetter(domain.domain)}
+                  </h3>
+                  <div className="mt-4 space-y-2">
+                    <Badge color="blue" size="lg">
+                      {domain.source_count} source{domain.source_count !== 1 ? 's' : ''}
+                    </Badge>
+                    <Badge color="green" size="lg">
+                      {domain.active_chunk_count} chunk
+                      {domain.active_chunk_count !== 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section>
+          <h2 className="text-2xl font-semibold mb-6">Adapter Summary</h2>
+          <TableSkeletonRows />
+        </section>
       </div>
     );
   }
