@@ -26,7 +26,7 @@ const indexRoute = createRoute({
   validateSearch: (search: unknown) => indexSearchSchema.parse(search),
 })
 
-const browserSearchSchema = z
+export const browserSearchSchema = z
   .object({
     domain: z.string().optional(),
     table: z.string().optional(), // 'sources' | 'chunks'
@@ -44,6 +44,8 @@ const browserSearchSchema = z
     pageSize: z.number().optional(),
   })
   .passthrough() // Preserve filter_* keys for dynamic facet filtering
+
+export type BrowserPageSearch = z.infer<typeof browserSearchSchema>
 
 const browserRoute = createRoute({
   getParentRoute: () => rootRoute,

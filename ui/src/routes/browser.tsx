@@ -2,7 +2,7 @@ import { useMemo, useCallback } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button } from 'flowbite-react';
+import { Button, ButtonGroup } from 'flowbite-react';
 import { DataTable, type FetchParams } from '../components/DataTable';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 import { useAdapters } from '../hooks/useAdapters';
@@ -53,11 +53,14 @@ function buildSourceColumns(): ColumnDef<SourceSummary, unknown>[] {
 
 function SourceDetailPanel({ source }: { source: SourceSummary }) {
   const navigate = useNavigate();
+  const routerState = useRouterState();
   const { data: detail, isLoading } = useSource(source.source_id);
 
   if (isLoading) {
     return <div className="text-gray-500">Loading...</div>;
   }
+
+  const currentSearch = (routerState.location.search ?? {}) as Record<string, any>;
 
   return (
     <div className="space-y-4">
@@ -119,14 +122,20 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
         <Button
           size="sm"
           onClick={() => {
-            const routerState = (window as any).__routerState;
-            const currentSearch = routerState?.location.search || {};
             navigate({
-              search: { ...currentSearch, table: 'chunks', source_id: source.source_id },
-            } as any);
+              search: { ...currentSearch, table: 'chunks', source_id: source.source_id, page: 0 } as any,
+            });
           }}
         >
           View Chunks
+        </Button>
+        <Button
+          size="sm"
+          color="gray"
+          disabled
+          title="Version History route not yet implemented"
+        >
+          Version History
         </Button>
       </div>
     </div>
@@ -150,11 +159,11 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
       header: 'Content',
       cell: (info) => {
         const content = info.getValue<string>();
-        const preview = content.substring(0, 100);
+        const preview = content.substring(0, 200);
         return (
           <div className="text-sm text-gray-700 line-clamp-2">
             {preview}
-            {content.length > 100 ? '…' : ''}
+            {content.length > 200 ? '…' : ''}
           </div>
         );
       },
@@ -163,12 +172,12 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
       header: 'Type',
     }) as ColumnDef<ChunkResponse, unknown>),
     (chunkColumnHelper.accessor('lineage', {
-      header: 'Created',
+      header: 'Version',
       cell: (info) => {
         const lineage = info.getValue();
         return (
           <span className="text-sm text-gray-600">
-            {lineage.source_version_id || '—'}
+            v{lineage.source_version_id || '—'}
           </span>
         );
       },
@@ -417,9 +426,9 @@ export default function BrowserPage() {
   // Handle domain tab change
   const handleDomainChange = useCallback(
     (domain: string) => {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const currentParams = (routerState.location.search ?? {}) as Record<string, any>;
       navigate({
-        search: { ...currentParams, domain, page: 0 } as never,
+        search: { ...currentParams, domain, page: 0 } as any,
       });
     },
     [navigate, routerState.location.search]
@@ -428,9 +437,9 @@ export default function BrowserPage() {
   // Handle table type change
   const handleTableTypeChange = useCallback(
     (table: string) => {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
+      const currentParams = (routerState.location.search ?? {}) as Record<string, any>;
       navigate({
-        search: { ...currentParams, table, page: 0 } as never,
+        search: { ...currentParams, table, page: 0 } as any,
       });
     },
     [navigate, routerState.location.search]
@@ -472,11 +481,17 @@ export default function BrowserPage() {
   // ── Chunks Table ───────────────────────────────────────────────
   const chunkColumns = useMemo(() => buildChunkColumns(activeDomain), [activeDomain]);
 
+  const chunkAdapterList = useMemo(() => {
+    if (!adapters) return [];
+    return adapters.adapters.map((a) => a.adapter_id);
+  }, [adapters]);
+
   const chunkFacets = useMemo(
     () => [
+      { column: 'adapter_id', label: 'Adapter', values: chunkAdapterList },
       { column: 'chunk_type', label: 'Chunk Type', values: ['message', 'note', 'event', 'task', 'record'] },
     ],
-    []
+    [chunkAdapterList]
   );
 
   const chunkFetchFn = useCallback(
@@ -504,37 +519,38 @@ export default function BrowserPage() {
 
       {/* Domain Tabs */}
       <div className="mb-8 border-b border-gray-200">
-        <div className="flex gap-8">
+        <ButtonGroup>
           {DOMAINS.map((domain) => (
-            <button
+            <Button
               key={domain}
               onClick={() => handleDomainChange(domain)}
-              className={`py-2 px-1 font-medium text-sm transition-colors ${
-                activeDomain === domain
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              color={activeDomain === domain ? 'blue' : 'gray'}
+              className={activeDomain === domain ? '' : 'border border-gray-300'}
             >
               {domain.charAt(0).toUpperCase() + domain.slice(1)}
-            </button>
+            </Button>
           ))}
-        </div>
+        </ButtonGroup>
       </div>
 
       {/* Table Type Selector */}
-      <div className="mb-6 flex gap-2">
-        <Button
-          onClick={() => handleTableTypeChange('sources')}
-          color={tableType === 'sources' ? 'blue' : 'light'}
-        >
-          Sources
-        </Button>
-        <Button
-          onClick={() => handleTableTypeChange('chunks')}
-          color={tableType === 'chunks' ? 'blue' : 'light'}
-        >
-          Chunks
-        </Button>
+      <div className="mb-6">
+        <ButtonGroup>
+          <Button
+            onClick={() => handleTableTypeChange('sources')}
+            color={tableType === 'sources' ? 'blue' : 'gray'}
+            className={tableType === 'sources' ? '' : 'border border-gray-300'}
+          >
+            Sources
+          </Button>
+          <Button
+            onClick={() => handleTableTypeChange('chunks')}
+            color={tableType === 'chunks' ? 'blue' : 'gray'}
+            className={tableType === 'chunks' ? '' : 'border border-gray-300'}
+          >
+            Chunks
+          </Button>
+        </ButtonGroup>
       </div>
 
       {/* Sources Table */}

@@ -94,22 +94,22 @@ export default function DashboardPage() {
     };
   }, [adapterStats.data]);
 
-  // Handle adapter row click (navigate with filter_domain so DataTable recognizes the filter)
+  // Handle adapter row click (navigate with domain to pre-select the domain tab)
   const handleAdapterRowClick = (adapter: AdapterStats) => {
     navigate({
       to: '/browser',
       search: {
-        filter_domain: adapter.domain,
+        domain: adapter.domain,
         adapter_id: adapter.adapter_id,
       },
     });
   };
 
-  // Handle domain card click (navigate with filter_domain so DataTable recognizes the filter)
+  // Handle domain card click (navigate with domain to pre-select the domain tab)
   const handleDomainCardClick = (domain: string) => {
     navigate({
       to: '/browser',
-      search: { filter_domain: domain },
+      search: { domain },
     });
   };
 
