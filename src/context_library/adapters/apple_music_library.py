@@ -190,6 +190,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
 
         artist = track.get("artist")
         album = track.get("album")
+        genre = track.get("genre")
         duration_seconds = track.get("duration_seconds")
         play_count = track.get("play_count", 0)
 
@@ -205,7 +206,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             "album": album,
             "play_count": play_count,
             "duration_minutes": duration_minutes,
-            "genre": track.get("genre"),
+            "genre": genre,
         }
 
         # Validate via DocumentMetadata (will raise ValueError on bad data)
@@ -215,7 +216,6 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             logger.error(f"DocumentMetadata validation failed for track {track_id}: {e}")
             raise
 
-        genre = track.get("genre")
         markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
 
         structural_hints = StructuralHints(

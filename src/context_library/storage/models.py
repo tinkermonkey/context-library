@@ -637,9 +637,13 @@ class DocumentMetadata(BaseModel):
 
     @field_validator("date_first_observed")
     @classmethod
-    def validate_date_first_observed(cls, value: str) -> str:
-        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
-        validate_iso8601_timestamp(value)
+    def validate_date_first_observed(cls, value: str | None) -> str | None:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp if provided.
+
+        This field is managed by the storage layer and should not be set by adapters.
+        """
+        if value is not None:
+            validate_iso8601_timestamp(value)
         return value
 
     @field_validator("created_at")
