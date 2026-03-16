@@ -160,3 +160,60 @@ class TestListChunks:
     def test_invalid_offset_negative(self, client: TestClient) -> None:
         resp = client.get("/chunks?offset=-1")
         assert resp.status_code == 422
+
+    def test_list_chunks_with_domain_metadata(
+        self, ds_with_metadata: "DocumentStore", client: TestClient
+    ) -> None:
+        """Verify chunks with domain_metadata are properly deserialized in list response."""
+        # Create a new client with the ds_with_metadata fixture
+        from unittest.mock import MagicMock
+        from contextlib import asynccontextmanager
+        from context_library.server.app import create_app
+        from fastapi.testclient import TestClient
+
+        mock_embedder = MagicMock()
+        mock_embedder.model_id = "all-MiniLM-L6-v2"
+        mock_embedder.dimension = 384
+        mock_vector_store = MagicMock()
+        mock_vector_store.count.return_value = 0
+
+        @asynccontextmanager
+        async def noop_lifespan(app):
+            app.state.document_store = ds_with_metadata
+            app.state.embedder = mock_embedder
+            app.state.vector_store = mock_vector_store
+            app.state.pipeline = MagicMock()
+            app.state.reranker = None
+            yield
+
+        app = create_app()
+        app.router.lifespan_context = noop_lifespan
+
+        with TestClient(app, raise_server_exceptions=True) as test_client:
+            resp = test_client.get("/chunks")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] >= 1
+            chunks = data["chunks"]
+            # Find the chunk with metadata
+            metadata_chunk = None
+            for chunk_item in chunks:
+                if chunk_item["domain_metadata"] is not None:
+                    metadata_chunk = chunk_item
+                    break
+            # Verify metadata was properly deserialized from JSON string
+            assert metadata_chunk is not None, "Should have chunk with domain_metadata"
+            assert isinstance(
+                metadata_chunk["domain_metadata"], dict
+            ), "domain_metadata should be deserialized as dict"
+            assert (
+                metadata_chunk["domain_metadata"]["title"] == "Test Section"
+            ), "metadata should be accessible"
+            # Verify _system_cross_refs was removed from domain_metadata
+            assert (
+                "_system_cross_refs" not in metadata_chunk["domain_metadata"]
+            ), "_system_cross_refs should not leak into response"
+            # Verify cross_refs were extracted
+            assert (
+                len(metadata_chunk["cross_refs"]) > 0
+            ), "cross_refs should be populated from _system_cross_refs"

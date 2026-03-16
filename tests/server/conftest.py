@@ -115,3 +115,48 @@ def client(ds: DocumentStore) -> TestClient:
 def chunk_hash(ds: DocumentStore) -> str:
     """Return the hash of the test chunk."""
     return compute_chunk_hash("Hello world")
+
+
+@pytest.fixture()
+def ds_with_metadata(ds: DocumentStore) -> DocumentStore:
+    """DocumentStore with a chunk containing domain_metadata and cross_refs."""
+    # Create a chunk with domain_metadata and cross_refs
+    content_with_meta = "Content with metadata"
+    chunk_hash = compute_chunk_hash(content_with_meta)
+    ref_hash = "b" * 64
+
+    chunk = Chunk(
+        chunk_hash=chunk_hash,
+        content=content_with_meta,
+        context_header="## Section",
+        chunk_index=1,
+        chunk_type=ChunkType.STANDARD,
+        domain_metadata={"title": "Test Section", "_system_cross_refs": [ref_hash]},
+        cross_refs=(ref_hash,),
+    )
+
+    # Create version 2 with the metadata chunk
+    ds.create_source_version(
+        source_id="src-1",
+        version=2,
+        markdown="## Section\nContent with metadata",
+        chunk_hashes=[chunk_hash],
+        adapter_id="test-adapter",
+        normalizer_version="1.0.0",
+        fetch_timestamp="2024-01-02T00:00:00+00:00",
+    )
+    lineage = LineageRecord(
+        chunk_hash=chunk_hash,
+        source_id="src-1",
+        source_version_id=2,
+        adapter_id="test-adapter",
+        domain=Domain.NOTES,
+        normalizer_version="1.0.0",
+        embedding_model_id="all-MiniLM-L6-v2",
+    )
+    ds.write_chunks(
+        chunks=[chunk],
+        lineage_records=[lineage],
+    )
+
+    return ds

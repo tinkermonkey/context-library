@@ -14,7 +14,7 @@ from context_library.server.schemas import (
     LineageResponse,
     TopLevelChunkListResponse,
 )
-from context_library.storage.models import Chunk, ChunkType, Domain, LineageRecord
+from context_library.storage.models import Domain, LineageRecord
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -95,19 +95,9 @@ async def list_chunks(
     for row in rows:
         chunk_hash = row["chunk_hash"]
         src_id = row["source_id"]
-        # Construct chunk and lineage objects directly from the query result
-        # without additional DB calls (query already returns all needed fields)
-        chunk = Chunk(
-            chunk_hash=chunk_hash,
-            content=row["content"],
-            context_header=row["context_header"],
-            chunk_index=row["chunk_index"],
-            chunk_type=ChunkType(row["chunk_type"]),
-            domain_metadata=row["domain_metadata"],
-            cross_refs=[],  # cross_refs not included in list_chunks query
-            created_at=row["created_at"],
-            retired_at=None,
-        )
+        # Construct chunk using DocumentStore helper which properly deserializes
+        # domain_metadata JSON and extracts _system_cross_refs
+        chunk = ds._build_chunk_from_row(row)
         lineage = LineageRecord(
             chunk_hash=chunk_hash,
             source_id=src_id,

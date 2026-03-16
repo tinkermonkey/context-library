@@ -1817,24 +1817,31 @@ class DocumentStore:
 
         where_sql = " AND ".join(where_clauses)
 
-        # Total count of matching chunks (without LIMIT/OFFSET), with deduplication
+        # Total count must match the paginated query below. Since chunks table has composite
+        # PK (chunk_hash, source_id, source_version) and we filter by current_version,
+        # rows are already unique per (chunk_hash, source_id). Count using same subquery
+        # pattern as pagination to ensure consistency.
         cursor.execute(
             f"""
-            SELECT COUNT(DISTINCT c.chunk_hash)
-            FROM chunks c
-            JOIN sources s ON c.source_id = s.source_id
-            WHERE {where_sql}
+            SELECT COUNT(*) FROM (
+                SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+                       c.content, c.context_header, c.chunk_type, c.domain_metadata,
+                       c.normalizer_version, c.embedding_model_id, c.created_at,
+                       s.adapter_id, s.domain, s.current_version as source_version_id
+                FROM chunks c
+                JOIN sources s ON c.source_id = s.source_id
+                WHERE {where_sql}
+            )
             """,
             filter_params,
         )
         total: int = cursor.fetchone()[0]
 
         # Paginated rows ordered by created_at DESC, with all data needed for responses
-        # Use DISTINCT to match the count query and ensure pagination consistency
         page_params = list(filter_params) + [limit, offset]
         cursor.execute(
             f"""
-            SELECT DISTINCT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+            SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
                    c.content, c.context_header, c.chunk_type, c.domain_metadata,
                    c.normalizer_version, c.embedding_model_id, c.created_at,
                    s.adapter_id, s.domain, s.current_version as source_version_id
