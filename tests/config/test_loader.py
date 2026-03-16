@@ -63,7 +63,7 @@ remote_adapters:
         yaml_content = """
 local_adapters:
   - adapter_type: filesystem
-    domain: notes
+    domain: documents
     adapter_id: local:files
     config:
       directory: /home/user/files
@@ -77,8 +77,8 @@ local_adapters:
             assert len(adapters) == 1
             adapter = adapters[0]
             assert isinstance(adapter, FilesystemAdapter)
-            # FilesystemAdapter derives adapter_id from directory path
-            assert adapter.domain == Domain.NOTES
+            # FilesystemAdapter hardcodes domain to DOCUMENTS
+            assert adapter.domain == Domain.DOCUMENTS
 
     def test_load_yaml_mixed_adapters(self) -> None:
         """Test loading both remote and local adapters from YAML."""
