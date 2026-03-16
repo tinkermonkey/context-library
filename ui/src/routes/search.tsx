@@ -62,6 +62,7 @@ export default function SearchPage() {
   const routerState = useRouterState();
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
 
+  // Local form state - derive from URL and update on user input
   const [formState, setFormState] = useState({
     q: search.q ?? '',
     domain: search.domain ?? '',
@@ -70,8 +71,9 @@ export default function SearchPage() {
     top_k: search.top_k ?? 10,
   });
 
-  // Sync form state with URL params when they change (e.g., browser back/forward)
+  // Sync local form state when URL changes (e.g., browser back/forward)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormState({
       q: search.q ?? '',
       domain: search.domain ?? '',
