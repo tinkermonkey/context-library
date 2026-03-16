@@ -74,7 +74,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         """Fetch and normalize content via NDJSON streaming.
 
         Streams the response line-by-line so neither side needs to buffer
@@ -83,6 +83,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
 
         Args:
             source_ref: ISO 8601 cursor string (empty = start from beginning)
+            extra_body: Optional additional fields merged into the JSON request body
 
         Yields:
             NormalizedContent for each file in the page
@@ -104,6 +105,8 @@ class FilesystemHelperAdapter(RemoteAdapter):
             headers["Authorization"] = f"Bearer {self._api_key}"
 
         body = {"source_ref": source_ref, **self._fetch_params}
+        if extra_body:
+            body.update(extra_body)
 
         with self._client.stream(
             "POST",
