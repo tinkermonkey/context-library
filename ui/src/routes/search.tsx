@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { Button, Card, TextInput, Select, ToggleSwitch, Spinner, Badge, Progress } from 'flowbite-react';
 import { useSearch } from '../hooks/useSearch';
@@ -69,6 +69,17 @@ export default function SearchPage() {
     rerank: search.rerank ?? false,
     top_k: search.top_k ?? 10,
   });
+
+  // Sync form state with URL params when they change (e.g., browser back/forward)
+  useEffect(() => {
+    setFormState({
+      q: search.q ?? '',
+      domain: search.domain ?? '',
+      source_id: search.source_id ?? '',
+      rerank: search.rerank ?? false,
+      top_k: search.top_k ?? 10,
+    });
+  }, [search.q, search.domain, search.source_id, search.rerank, search.top_k]);
 
   const { data, isLoading, error } = useSearch(search);
 
