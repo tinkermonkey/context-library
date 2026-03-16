@@ -2,13 +2,12 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from contextlib import asynccontextmanager
 
 from context_library.server.app import create_app
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import AdapterConfig, Domain, PollStrategy
+from context_library.storage.models import AdapterConfig, Domain
 
 
 @pytest.fixture()
