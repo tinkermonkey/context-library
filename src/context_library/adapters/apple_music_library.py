@@ -46,7 +46,6 @@ from typing import Any, Iterator
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
-    DocumentMetadata,
     NormalizedContent,
     PollStrategy,
     StructuralHints,
@@ -250,13 +249,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             "genre": genre,
         }
 
-        # Validate via DocumentMetadata (will raise ValueError on bad data)
-        try:
-            DocumentMetadata.model_validate(document_metadata)
-        except ValueError as e:
-            logger.error(f"DocumentMetadata validation failed for track {track_id}: {e}")
-            raise
-
+        # Metadata will be validated by DocumentsDomain.chunk() during processing
         markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
 
         structural_hints = StructuralHints(
