@@ -261,6 +261,9 @@ export default function DashboardPage() {
             queryKey="dashboard-adapters"
             defaultPageSize={25}
             searchable={false}
+            onSearchParamsChange={() => {
+              // No-op: this table doesn't use URL search parameters
+            }}
           />
         ) : (
           <div className="text-gray-600">No adapter data available</div>

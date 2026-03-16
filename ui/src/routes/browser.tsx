@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback, useState, useRef } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -495,6 +495,10 @@ export default function BrowserPage() {
   const adapterFilter = (search.adapter_id as string) ?? undefined;
   const sourceIdFilter = (search.source_id as string) ?? undefined;
 
+  // Use a ref to hold current search params without triggering callback updates on every URL change
+  const searchRef = useRef<BrowserPageSearch>(search);
+  searchRef.current = search;
+
   const { data: adapters } = useAdapters();
 
   // Diff modal state
@@ -509,6 +513,7 @@ export default function BrowserPage() {
   };
 
   // Type-safe callback for DataTable to update search params
+  // Note: params from DataTable may contain filter_* keys that pass through validation
   const handleDataTableSearchParamsChange = useCallback(
     (params: Record<string, unknown>) => {
       navigate({
@@ -522,25 +527,23 @@ export default function BrowserPage() {
   // Handle domain tab change
   const handleDomainChange = useCallback(
     (domain: string) => {
-      const currentParams = (routerState.location.search ?? {}) as BrowserPageSearch;
       navigate({
         to: '/browser',
-        search: { ...currentParams, domain, page: 0 },
+        search: { ...searchRef.current, domain, page: 0 },
       });
     },
-    [navigate, routerState.location.search]
+    [navigate]
   );
 
   // Handle table type change
   const handleTableTypeChange = useCallback(
     (table: string) => {
-      const currentParams = (routerState.location.search ?? {}) as BrowserPageSearch;
       navigate({
         to: '/browser',
-        search: { ...currentParams, table, page: 0 },
+        search: { ...searchRef.current, table, page: 0 },
       });
     },
-    [navigate, routerState.location.search]
+    [navigate]
   );
 
   // ── Sources Table ──────────────────────────────────────────────

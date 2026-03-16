@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useMemo, useState, useEffect, Fragment, useRef } from 'react';
-import { useNavigate, useRouterState } from '@tanstack/react-router';
+import { useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   useReactTable,
@@ -57,9 +57,9 @@ export interface DataTableProps<TData> {
   queryKey: string; // For cache namespacing
   /**
    * Callback to update URL search parameters. Parent component is responsible for
-   * proper typing based on the route's search schema.
+   * proper typing based on the route's search schema. REQUIRED to restore type safety.
    */
-  onSearchParamsChange?: (params: Record<string, unknown>) => void;
+  onSearchParamsChange: (params: Record<string, unknown>) => void;
 }
 
 /**
@@ -77,20 +77,14 @@ export function DataTable<TData>({
   queryKey,
   onSearchParamsChange,
 }: DataTableProps<TData>) {
-  const navigate = useNavigate();
   const routerState = useRouterState();
 
-  // Navigation handler that uses callback if provided (for proper typing), otherwise falls back to navigate
+  // Navigation handler that delegates to parent component for type-safe navigation
   const updateSearchParams = useCallback(
     (newParams: Record<string, unknown>) => {
-      if (onSearchParamsChange) {
-        onSearchParamsChange(newParams);
-      } else {
-        // Fallback to direct navigation (loses type safety but still works)
-        navigate({ search: (newParams) as any });
-      }
+      onSearchParamsChange(newParams);
     },
-    [navigate, onSearchParamsChange]
+    [onSearchParamsChange]
   );
 
   // Use a ref to hold current params without triggering callback updates on every URL change
@@ -108,6 +102,7 @@ export function DataTable<TData>({
   const pageSize = Math.max(10, Number(params.pageSize ?? defaultPageSize) || defaultPageSize);
 
   // Parse facet filters from URL (filter_<column>=value1,value2,...)
+  // Memoize based on serialized search string rather than params object reference
   const filters: Record<string, string[]> = useMemo(() => {
     const filterObj: Record<string, string[]> = {};
     if (facets) {
@@ -120,7 +115,7 @@ export function DataTable<TData>({
       }
     }
     return filterObj;
-  }, [params, facets]);
+  }, [routerState.location.search, facets]);
 
   // Local state for expanded row and debounced search
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
