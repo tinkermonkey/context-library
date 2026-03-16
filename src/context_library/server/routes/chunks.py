@@ -14,7 +14,7 @@ from context_library.server.schemas import (
     LineageResponse,
     TopLevelChunkListResponse,
 )
-from context_library.storage.models import Domain
+from context_library.storage.models import Domain, LineageRecord
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -96,13 +96,12 @@ async def list_chunks(
         chunk = await asyncio.to_thread(ds.get_chunk_by_hash, chunk_hash, source_id)
         if chunk:
             # Construct lineage from row data
-            from context_library.storage.models import LineageRecord, Domain as DomainEnum
             lineage = LineageRecord(
                 chunk_hash=chunk_hash,
                 source_id=source_id,
                 source_version_id=row["source_version_id"],
                 adapter_id=row["adapter_id"],
-                domain=DomainEnum(row["domain"]),
+                domain=Domain(row["domain"]),
                 normalizer_version=row["normalizer_version"],
                 embedding_model_id=row["embedding_model_id"],
             )
