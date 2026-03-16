@@ -39,6 +39,7 @@ This adapter:
 - Each track is treated as a persistent document rather than a time-stamped event
 """
 
+import json
 import logging
 from typing import Any, Iterator
 
@@ -136,7 +137,9 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             NormalizedContent for each track in the library
 
         Raises:
-            httpx.HTTPError: If the API request fails
+            httpx.HTTPStatusError: If the API request fails (auth errors 401/403 propagate immediately)
+            httpx.RequestError: If a network error occurs
+            json.JSONDecodeError: If the API returns invalid JSON
             ValueError: If the helper API returns unexpected response schema
         """
         since = source_ref if source_ref else None
@@ -145,32 +148,71 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         for idx, track in enumerate(tracks):
             try:
                 yield from self._process_track(track)
-            except (ValueError, KeyError) as e:
-                track_id = track.get("id", f"<index {idx}>")
+            except (ValueError, KeyError, TypeError) as e:
+                track_id = track.get("id", f"<index {idx}>") if isinstance(track, dict) else f"<index {idx}>"
                 logger.error(f"Skipping malformed track (ID: {track_id}): {e}")
                 continue
 
     def _fetch_tracks(self, since: str | None) -> list[dict]:
+        """Fetch track list from the macOS helper API.
+
+        Args:
+            since: Optional ISO 8601 timestamp for incremental fetch
+
+        Returns:
+            List of track dictionaries
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails (auth errors 401/403 propagate immediately)
+            httpx.RequestError: If a network error occurs
+            json.JSONDecodeError: If the API returns invalid JSON
+            ValueError: If the API returns unexpected response schema
+        """
         params = {}
         if since:
             params["since"] = since
 
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        response = self._client.get(
-            f"{self._api_url}/tracks",
-            params=params,
-            headers=headers,
-        )
-        response.raise_for_status()
-
-        tracks = response.json()
-        if not isinstance(tracks, list):
-            raise ValueError(
-                f"macOS helper API 'tracks' response must be a list, got {type(tracks).__name__}"
+        try:
+            response = self._client.get(
+                f"{self._api_url}/tracks",
+                params=params,
+                headers=headers,
             )
+            response.raise_for_status()
 
-        return tracks
+            tracks = response.json()
+            if not isinstance(tracks, list):
+                raise ValueError(
+                    f"macOS helper API '/tracks' response must be a list, got {type(tracks).__name__}"
+                )
+
+            return tracks
+
+        except httpx.HTTPStatusError as e:
+            # Re-raise auth errors immediately for visibility
+            if e.response.status_code in (401, 403):
+                logger.error(
+                    f"Authentication error from Apple Music API: "
+                    f"{e.response.status_code} {e.response.text}"
+                )
+                raise
+            logger.error(
+                f"HTTP error from Apple Music API /tracks: "
+                f"{e.response.status_code} {e.response.text}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(
+                f"Network error connecting to Apple Music API at {self._api_url}/tracks: {e}"
+            )
+            raise
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Invalid JSON response from Apple Music API /tracks (possible proxy/HTML response): {e}"
+            )
+            raise
 
     def _process_track(self, track: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single track from the library and yield NormalizedContent.

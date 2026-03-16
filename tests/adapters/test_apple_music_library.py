@@ -749,6 +749,134 @@ class TestAppleMusicLibraryAdapterFetch:
         # Should be None (not set by adapter)
         assert metadata_dict.get("date_first_observed") is None
 
+    def test_fetch_string_duration_seconds_skips_track(self, mock_apple_music_library_endpoints):
+        """fetch() skips track if duration_seconds is a string (TypeError) and continues."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+            {
+                "id": "track-1",
+                "title": "Good Song",
+                "artist": "Artist 1",
+                "album": "Album 1",
+                "duration_seconds": 180,
+                "play_count": 1,
+            },
+            {
+                "id": "track-2",
+                "title": "Bad Song",
+                "artist": "Artist 2",
+                "album": "Album 2",
+                "duration_seconds": "180",  # String instead of int - TypeError
+                "play_count": 2,
+            },
+            {
+                "id": "track-3",
+                "title": "Good Song 2",
+                "artist": "Artist 3",
+                "album": "Album 3",
+                "duration_seconds": 250,
+                "play_count": 3,
+            },
+        ])
+
+        results = list(adapter.fetch(""))
+        # Should have 2 results, skipping the one with string duration_seconds
+        assert len(results) == 2
+        assert results[0].source_id == "music/library/track-1"
+        assert results[1].source_id == "music/library/track-3"
+
+    def test_fetch_track_element_not_dict_skips_track(self, mock_apple_music_library_endpoints):
+        """fetch() skips track if track element is not a dict (TypeError) and continues."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+            {
+                "id": "track-1",
+                "title": "Good Song",
+                "artist": "Artist 1",
+                "album": "Album 1",
+                "duration_seconds": 180,
+                "play_count": 1,
+            },
+            "not-a-dict",  # This will cause TypeError when accessing track["id"]
+            {
+                "id": "track-3",
+                "title": "Good Song 2",
+                "artist": "Artist 3",
+                "album": "Album 3",
+                "duration_seconds": 250,
+                "play_count": 3,
+            },
+        ])
+
+        results = list(adapter.fetch(""))
+        # Should have 2 results, skipping the string element
+        assert len(results) == 2
+        assert results[0].source_id == "music/library/track-1"
+        assert results[1].source_id == "music/library/track-3"
+
+    def test_fetch_http_401_error_propagates(self, mock_apple_music_library_endpoints):
+        """fetch() immediately re-raises HTTP 401 (auth) errors without skipping."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="invalid-token")
+
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            {"error": "Unauthorized"},
+            status_code=401,
+        )
+
+        import httpx
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 401
+
+    def test_fetch_http_403_error_propagates(self, mock_apple_music_library_endpoints):
+        """fetch() immediately re-raises HTTP 403 (forbidden) errors without skipping."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            {"error": "Forbidden"},
+            status_code=403,
+        )
+
+        import httpx
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 403
+
+    def test_fetch_http_500_error_propagates(self, mock_apple_music_library_endpoints):
+        """fetch() re-raises HTTP 500 errors."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            {"error": "Internal Server Error"},
+            status_code=500,
+        )
+
+        import httpx
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 500
+
+
+    def test_fetch_non_list_response_raises_value_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises ValueError if API response is not a list."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            {"error": "unexpected response format"}  # dict instead of list
+        )
+
+        with pytest.raises(ValueError, match="must be a list"):
+            list(adapter.fetch(""))
+
 
 class TestAppleMusicLibraryAdapterImportGuard:
     """Tests for import guard and error handling."""
