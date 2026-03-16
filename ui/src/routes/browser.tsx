@@ -56,10 +56,21 @@ function buildSourceColumns(): ColumnDef<SourceSummary, unknown>[] {
 function SourceDetailPanel({ source }: { source: SourceSummary }) {
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const { data: detail, isLoading } = useSource(source.source_id);
+  const { data: detail, isLoading, isError, error } = useSource(source.source_id);
 
   if (isLoading) {
     return <div className="text-gray-500">Loading...</div>;
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-red-50 p-3 rounded border border-red-200">
+        <p className="text-red-900 font-semibold text-sm">Failed to load source details</p>
+        <p className="text-red-800 text-xs mt-1">
+          {error instanceof Error ? error.message : 'An unexpected error occurred'}
+        </p>
+      </div>
+    );
   }
 
   const currentSearch = (routerState.location.search ?? {}) as BrowserPageSearch;
@@ -396,7 +407,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
 }
 
 function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
-  const { data: prov, isLoading: provLoading } = useChunkProvenance(
+  const { data: prov, isLoading: provLoading, isError: provError, error: provErrorObj } = useChunkProvenance(
     chunk.chunk_hash,
     chunk.lineage.source_id
   );
@@ -450,6 +461,13 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
         <h4 className="font-semibold text-sm mb-2">Provenance</h4>
         {provLoading ? (
           <div className="text-gray-500 text-sm">Loading provenance...</div>
+        ) : provError ? (
+          <div className="bg-red-50 p-3 rounded border border-red-200">
+            <p className="text-red-900 font-semibold text-sm">Failed to load provenance</p>
+            <p className="text-red-800 text-xs mt-1">
+              {provErrorObj instanceof Error ? provErrorObj.message : 'An unexpected error occurred'}
+            </p>
+          </div>
         ) : prov ? (
           <div className="space-y-2 bg-gray-50 p-3 rounded text-sm">
             <div>
@@ -808,10 +826,21 @@ function VersionComparisonSelector({
   currentVersion?: number;
   onSelect: (v: VersionSummary) => void;
 }) {
-  const { data: history, isLoading } = useVersionHistory(sourceId);
+  const { data: history, isLoading, isError, error } = useVersionHistory(sourceId);
 
   if (isLoading) {
     return <div className="text-gray-500">Loading versions...</div>;
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-red-50 p-3 rounded border border-red-200">
+        <p className="text-red-900 font-semibold text-sm">Failed to load versions</p>
+        <p className="text-red-800 text-xs mt-1">
+          {error instanceof Error ? error.message : 'An unexpected error occurred'}
+        </p>
+      </div>
+    );
   }
 
   const otherVersions = (history?.versions ?? []).filter(
