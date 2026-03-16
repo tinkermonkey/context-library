@@ -232,6 +232,11 @@ export function DataTable<TData>({
     [expandedRowKey, rowKey, renderDetail, onRowClick]
   );
 
+  // Sync local search value when external URL changes (e.g., browser back/forward)
+  useEffect(() => {
+    setLocalSearchValue(searchQuery);
+  }, [searchQuery]);
+
   // Debounce search input (300ms) to avoid excessive API calls
   useEffect(() => {
     const timer = setTimeout(() => {
