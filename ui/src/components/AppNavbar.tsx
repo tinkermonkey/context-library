@@ -1,5 +1,5 @@
 import { useRouterState, Link } from '@tanstack/react-router';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { Navbar, NavbarBrand, NavbarCollapse, NavbarLink, NavbarToggle } from 'flowbite-react';
 import { HealthIndicator } from './HealthIndicator';
 
@@ -15,7 +15,10 @@ function NavbarLinkRouter({ to, active, children }: NavbarLinkRouterProps) {
       as={Link}
       href={to}
       active={active}
-      {...(Object.assign({}, { to }) as ComponentProps<typeof NavbarLink>)}
+      // @ts-expect-error: NavbarLink extends HTMLAnchorElement props (href), but when as={Link},
+      // the component renders as TanStack Router's Link which requires 'to' prop instead of 'href'.
+      // This is safe because Flowbite forwards component props through the 'as' polymorphism.
+      to={to}
     >
       {children}
     </NavbarLink>
