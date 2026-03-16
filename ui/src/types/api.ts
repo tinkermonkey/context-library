@@ -175,6 +175,12 @@ export interface VersionDiffResponse {
 
 // ── Provenance ───────────────────────────────────────────────────
 
+export interface ChunkVersionChainResponse {
+  chunk_hash: string;
+  source_id: string;
+  chain: ChunkVersionChainItem[];
+}
+
 export interface ChunkProvenanceResponse {
   chunk: ChunkResponse;
   lineage: LineageResponse;

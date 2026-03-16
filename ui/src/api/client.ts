@@ -18,6 +18,7 @@ import type {
   TopLevelChunkListResponse,
   ChunkResponse,
   ChunkProvenanceResponse,
+  ChunkVersionChainResponse,
   QueryRequest,
   QueryResponse,
   SourceQueryParams,
@@ -105,9 +106,8 @@ export const fetchChunkProvenance = (hash: string, sourceId?: string) => {
   return apiFetch<ChunkProvenanceResponse>(`/chunks/${hash}/provenance${sourceQs}`);
 };
 
-export const fetchChunkVersionChain = (hash: string, sourceId?: string) => {
-  const sourceQs = sourceId ? `?source_id=${sourceId}` : '';
-  return apiFetch<ChunkProvenanceResponse>(`/chunks/${hash}/version-chain${sourceQs}`);
+export const fetchChunkVersionChain = (hash: string, sourceId: string) => {
+  return apiFetch<ChunkVersionChainResponse>(`/chunks/${hash}/version-chain?source_id=${sourceId}`);
 };
 
 // ── Query ────────────────────────────────────────────────────────
