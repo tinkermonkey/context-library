@@ -1,7 +1,6 @@
 """Tests for POST /query endpoint (semantic search)."""
 
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
 
 
 class TestSemanticSearch:
