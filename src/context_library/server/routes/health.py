@@ -18,18 +18,22 @@ async def health(request: Request) -> HealthResponse:
     document_store = request.app.state.document_store
 
     status = "healthy"
+    sqlite_ok = True
+    chromadb_ok = True
 
     try:
         vector_count = vector_store.count()
     except Exception as e:
         logger.warning("Health check: vector store unreachable: %s", e)
         vector_count = 0
+        chromadb_ok = False
         status = "degraded"
 
     try:
         document_store.conn.execute("SELECT 1")
     except Exception as e:
         logger.warning("Health check: document store unreachable: %s", e)
+        sqlite_ok = False
         status = "degraded"
 
     return HealthResponse(
@@ -37,4 +41,6 @@ async def health(request: Request) -> HealthResponse:
         vector_count=vector_count,
         embedding_model=embedder.model_id,
         embedding_dimension=embedder.dimension,
+        sqlite_ok=sqlite_ok,
+        chromadb_ok=chromadb_ok,
     )

@@ -12,7 +12,9 @@ from context_library.server.schemas import (
     ChunkVersionChainItem,
     ChunkVersionChainResponse,
     LineageResponse,
+    TopLevelChunkListResponse,
 )
+from context_library.storage.models import Domain
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -61,6 +63,47 @@ def _to_chain_item(chunk) -> ChunkVersionChainItem:
         context_header=chunk.context_header,
         chunk_index=chunk.chunk_index,
         chunk_type=chunk.chunk_type.value,
+    )
+
+
+@router.get("", response_model=TopLevelChunkListResponse)
+async def list_chunks(
+    request: Request,
+    domain: Domain | None = Query(default=None),
+    adapter_id: str | None = Query(default=None),
+    limit: int = Query(default=50, gt=0, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> TopLevelChunkListResponse:
+    """List active chunks with optional domain and adapter filtering.
+
+    Returns paginated chunks across all sources, ordered by created_at DESC.
+    Only returns non-retired chunks.
+    """
+    ds = request.app.state.document_store
+    rows, total = await asyncio.to_thread(
+        ds.list_chunks,
+        domain.value if domain else None,
+        adapter_id,
+        limit,
+        offset,
+    )
+
+    chunk_responses = []
+    for row in rows:
+        chunk_hash = row["chunk_hash"]
+        source_id = row["source_id"]
+        # Get the chunk object and lineage for this row
+        chunk = await asyncio.to_thread(ds.get_chunk_by_hash, chunk_hash, source_id)
+        lineage = await asyncio.to_thread(ds.get_lineage, chunk_hash, source_id)
+
+        if chunk and lineage:
+            chunk_responses.append(_chunk_response(chunk, lineage, source_id))
+
+    return TopLevelChunkListResponse(
+        chunks=chunk_responses,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

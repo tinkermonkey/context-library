@@ -117,6 +117,8 @@ class HealthResponse(BaseModel):
     vector_count: int
     embedding_model: str
     embedding_dimension: int
+    sqlite_ok: bool = True
+    chromadb_ok: bool = True
 
 
 # ── Adapters ────────────────────────────────────────────────────────
@@ -298,3 +300,30 @@ class DatasetStatsResponse(BaseModel):
     sync_queue_pending_insert: int
     sync_queue_pending_delete: int
     by_domain: list[DomainStats]
+
+
+# ── Top-level chunks listing ────────────────────────────────────────
+
+
+class TopLevelChunkListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chunks: list[ChunkResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+# ── Adapter stats ────────────────────────────────────────────────────
+
+
+class AdapterStats(BaseModel):
+    adapter_id: str
+    adapter_type: str
+    domain: str
+    source_count: int
+    active_chunk_count: int
+
+
+class AdapterStatsResponse(BaseModel):
+    adapters: list[AdapterStats]

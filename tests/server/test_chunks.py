@@ -67,3 +67,82 @@ class TestGetChunkVersionChain:
     def test_422_requires_source_id(self, client: TestClient, chunk_hash: str) -> None:
         resp = client.get(f"/chunks/{chunk_hash}/version-chain")
         assert resp.status_code == 422
+
+
+class TestListChunks:
+    def test_returns_200(self, client: TestClient) -> None:
+        resp = client.get("/chunks")
+        assert resp.status_code == 200
+
+    def test_response_structure(self, client: TestClient) -> None:
+        data = client.get("/chunks").json()
+        assert "chunks" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert isinstance(data["chunks"], list)
+        assert isinstance(data["total"], int)
+
+    def test_returns_chunk_in_list(self, client: TestClient, chunk_hash: str) -> None:
+        data = client.get("/chunks").json()
+        assert data["total"] == 1
+        assert len(data["chunks"]) == 1
+        chunk = data["chunks"][0]
+        assert chunk["chunk_hash"] == chunk_hash
+        assert chunk["content"] == "Hello world"
+        assert "_links" in chunk
+
+    def test_pagination_limit(self, client: TestClient, ds, chunk_hash: str) -> None:
+        resp = client.get("/chunks?limit=1")
+        data = resp.json()
+        assert data["limit"] == 1
+        assert len(data["chunks"]) <= 1
+
+    def test_pagination_offset(self, client: TestClient) -> None:
+        resp = client.get("/chunks?limit=10&offset=5")
+        data = resp.json()
+        assert data["offset"] == 5
+
+    def test_filters_by_domain(self, client: TestClient, chunk_hash: str) -> None:
+        # Test with matching domain
+        resp = client.get("/chunks?domain=notes")
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["chunks"]) == 1
+
+        # Test with non-matching domain
+        resp = client.get("/chunks?domain=messages")
+        data = resp.json()
+        assert data["total"] == 0
+        assert len(data["chunks"]) == 0
+
+    def test_filters_by_adapter_id(self, client: TestClient, chunk_hash: str) -> None:
+        # Test with matching adapter_id
+        resp = client.get("/chunks?adapter_id=test-adapter")
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["chunks"]) == 1
+
+        # Test with non-matching adapter_id
+        resp = client.get("/chunks?adapter_id=nonexistent")
+        data = resp.json()
+        assert data["total"] == 0
+        assert len(data["chunks"]) == 0
+
+    def test_filters_by_domain_and_adapter(self, client: TestClient, chunk_hash: str) -> None:
+        resp = client.get("/chunks?domain=notes&adapter_id=test-adapter")
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["chunks"]) == 1
+
+    def test_invalid_limit_too_large(self, client: TestClient) -> None:
+        resp = client.get("/chunks?limit=2000")
+        assert resp.status_code == 422
+
+    def test_invalid_limit_zero(self, client: TestClient) -> None:
+        resp = client.get("/chunks?limit=0")
+        assert resp.status_code == 422
+
+    def test_invalid_offset_negative(self, client: TestClient) -> None:
+        resp = client.get("/chunks?offset=-1")
+        assert resp.status_code == 422

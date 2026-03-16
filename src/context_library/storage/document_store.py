@@ -1776,6 +1776,108 @@ class DocumentStore:
             "sync_queue_pending_delete": sync_counts["delete"],
         }
 
+    def list_chunks(
+        self,
+        domain: Optional[str] = None,
+        adapter_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """List active chunks with optional filtering and pagination.
+
+        Returns paginated chunks from the latest version of each source,
+        filtered by domain and/or adapter_id if specified. Only returns
+        non-retired chunks.
+
+        Args:
+            domain: Optional domain filter (e.g., "notes", "messages").
+            adapter_id: Optional adapter_id filter.
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (page rows, total_matching_count). Each row dict includes
+            all chunk fields plus source-level metadata.
+        """
+        cursor = self.conn.cursor()
+        filter_params: list[object] = []
+        where_clauses = ["c.retired_at IS NULL"]
+
+        if domain is not None:
+            where_clauses.append("s.domain = ?")
+            filter_params.append(domain)
+        if adapter_id is not None:
+            where_clauses.append("s.adapter_id = ?")
+            filter_params.append(adapter_id)
+
+        where_sql = " AND ".join(where_clauses)
+
+        # Total count of matching chunks (without LIMIT/OFFSET)
+        cursor.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            """,
+            filter_params,
+        )
+        total: int = cursor.fetchone()[0]
+
+        # Paginated rows ordered by created_at DESC
+        page_params = list(filter_params) + [limit, offset]
+        cursor.execute(
+            f"""
+            SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+                   c.content, c.context_header, c.domain, c.adapter_id,
+                   c.chunk_type, c.domain_metadata, c.normalizer_version,
+                   c.embedding_model_id, c.created_at
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            ORDER BY c.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            page_params,
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows], total
+
+    def get_adapter_stats(self) -> list[dict]:
+        """Get per-adapter source and active chunk counts.
+
+        Returns a list of one dict per adapter, with source and chunk counts.
+        Adapters with no sources are not included.
+
+        Returns:
+            List of dicts with keys: adapter_id, adapter_type, domain,
+            source_count, active_chunk_count. Ordered by adapter_id.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.adapter_id, a.adapter_type, s.domain,
+                   COUNT(DISTINCT s.source_id) AS source_count,
+                   COUNT(DISTINCT c.chunk_hash) AS active_chunk_count
+            FROM sources s
+            LEFT JOIN adapters a ON s.adapter_id = a.adapter_id
+            LEFT JOIN chunks c ON c.source_id = s.source_id AND c.retired_at IS NULL
+            GROUP BY s.adapter_id, a.adapter_type, s.domain
+            ORDER BY s.adapter_id ASC
+            """
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "adapter_id": row["adapter_id"],
+                "adapter_type": row["adapter_type"],
+                "domain": row["domain"],
+                "source_count": row["source_count"],
+                "active_chunk_count": row["active_chunk_count"],
+            }
+            for row in rows
+        ]
+
     def close(self) -> None:
         """Close the database connection.
 
