@@ -731,7 +731,7 @@ export default function BrowserPage() {
           facets={chunkFacets}
           searchable={false}
           queryKey={`chunks-${activeDomain}`}
-          rowKey={(row) => row.chunk_hash}
+          rowKey={(row) => `${row.chunk_hash}-${row.lineage.source_id}`}
           defaultPageSize={25}
           renderDetail={(chunk) => <ChunkDetailPanel chunk={chunk} />}
           onSearchParamsChange={handleDataTableSearchParamsChange}
