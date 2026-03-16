@@ -6,7 +6,7 @@ Derived and fully rebuildable from the document store (SQLite).
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import chromadb
 
@@ -50,26 +50,26 @@ class ChromaDBVectorStore(VectorStore):
         self._embedding_dimension = embedding_dimension
         self._get_collection()
 
-    def add_vectors(self, vectors: list[dict]) -> None:
+    def add_vectors(self, vectors: list[dict[str, Any]]) -> None:
         if not vectors:
             return
 
         collection = self._get_collection()
 
-        ids = []
-        embeddings = []
-        documents = []
-        metadatas = []
+        ids: list[str] = []
+        embeddings: list[Any] = []
+        documents: list[str] = []
+        metadatas: list[Mapping[str, str | int | float | bool | None]] = []
 
         for v in vectors:
             ids.append(v["chunk_hash"])
             embeddings.append(v["vector"])
             documents.append(v["content"])
             metadatas.append({
-                "domain": v["domain"],
-                "source_id": v["source_id"],
-                "source_version": v["source_version"],
-                "created_at": v["created_at"],
+                "domain": str(v["domain"]),
+                "source_id": str(v["source_id"]),
+                "source_version": int(v["source_version"]),
+                "created_at": str(v["created_at"]),
             })
 
         # upsert avoids duplicates if the same chunk_hash is added twice
@@ -77,7 +77,7 @@ class ChromaDBVectorStore(VectorStore):
             ids=ids,
             embeddings=embeddings,
             documents=documents,
-            metadatas=metadatas,
+            metadatas=metadatas,  # type: ignore[arg-type]
         )
 
     def delete_vectors(self, chunk_hashes: set[str]) -> None:
@@ -143,6 +143,7 @@ class ChromaDBVectorStore(VectorStore):
     def count(self) -> int:
         try:
             collection = self._get_collection()
-            return collection.count()
-        except Exception:
-            return 0
+            return int(collection.count())
+        except Exception as e:
+            logger.error(f"Failed to count vectors in store: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Vector store count failed: {type(e).__name__}: {e}") from e

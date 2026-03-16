@@ -2,12 +2,15 @@
 
 import importlib.util
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.adapters.serve import serve_adapter as serve_adapter  # noqa: F401
 
 __all__ = [
     "BaseAdapter",
+    "EndpointFetchError",
+    "PartialFetchError",
+    "AllEndpointsFailedError",
     "FilesystemAdapter",
     "serve_adapter",
 ]
@@ -67,3 +70,11 @@ if importlib.util.find_spec("httpx") is not None:
     )
 
     __all__.append("RemoteAdapter")
+
+# Check if oura adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.oura import (  # noqa: F401
+        OuraAdapter as OuraAdapter,
+    )
+
+    __all__.append("OuraAdapter")

@@ -29,8 +29,9 @@ class DocumentStore:
     def __init__(self, db_path: str | Path, check_same_thread: bool = True) -> None:
         """Initialize the document store and set up the SQLite database.
 
-        Connects to SQLite, executes the schema (which sets WAL mode, synchronous=NORMAL,
-        and foreign_keys), and verifies the user_version.
+        Connects to SQLite, checks for schema version (running migration if needed),
+        executes the schema (which sets WAL mode, synchronous=NORMAL, and foreign_keys),
+        and verifies the result.
 
         Args:
             db_path: Path to SQLite database file. Use ':memory:' for in-memory DB.
@@ -50,7 +51,17 @@ class DocumentStore:
         # Set row_factory to access columns by name
         self.conn.row_factory = sqlite3.Row
 
-        # Load and execute schema (contains all required PRAGMAs)
+        # Check if this is an existing v1 database that needs migration
+        # This must be done BEFORE executing schema.sql which sets version to 2
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA user_version")
+        version = cursor.fetchone()[0]
+
+        if version == 1:
+            # Migrate from v1 to v2 BEFORE executing new schema
+            self._migrate_v1_to_v2()
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=2)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -61,7 +72,6 @@ class DocumentStore:
         self.conn.execute("PRAGMA foreign_keys=ON")
 
         # Verify foreign keys are enforced
-        cursor = self.conn.cursor()
         cursor.execute("PRAGMA foreign_keys")
         foreign_keys_enabled = cursor.fetchone()[0]
         if foreign_keys_enabled != 1:
@@ -77,13 +87,155 @@ class DocumentStore:
                 f"Failed to set synchronous=NORMAL (expected 1, got {synchronous_mode})"
             )
 
-        # Verify schema version
+        # Verify final schema version
         cursor.execute("PRAGMA user_version")
-        version = cursor.fetchone()[0]
-        if version != 1:
+        final_version = cursor.fetchone()[0]
+        if final_version != 2:
             raise RuntimeError(
-                f"Schema version mismatch: expected 1, got {version}"
+                f"Schema version mismatch: expected 2, got {final_version}"
             )
+
+    def _migrate_v1_to_v2(self) -> None:
+        """Migrate schema from v1 to v2: add 'health' to domain CHECK constraints.
+
+        SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so we must
+        use the rename-recreate-copy pattern for each affected table (adapters,
+        sources, chunks). All operations are wrapped in a transaction and foreign
+        key enforcement is temporarily disabled.
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v1 to v2 (adding health domain support)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            # Disable foreign key enforcement temporarily
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Start transaction
+            cursor.execute("BEGIN")
+
+            # Migrate adapters table: rename old, create new with health domain, copy data
+            cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
+            cursor.execute("""
+                CREATE TABLE adapters (
+                    adapter_id          TEXT PRIMARY KEY,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+                    adapter_type        TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    config              TEXT,
+                    enabled             BOOLEAN NOT NULL DEFAULT 1,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("INSERT INTO adapters SELECT * FROM _adapters_old")
+            cursor.execute("DROP TABLE _adapters_old")
+
+            # Migrate sources table: rename old, create new with health domain, copy data
+            cursor.execute("ALTER TABLE sources RENAME TO _sources_old")
+            cursor.execute("""
+                CREATE TABLE sources (
+                    source_id           TEXT PRIMARY KEY,
+                    adapter_id          TEXT NOT NULL,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+                    origin_ref          TEXT NOT NULL,
+                    display_name        TEXT,
+                    current_version     INTEGER NOT NULL DEFAULT 0,
+                    last_fetched_at     DATETIME,
+                    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                    poll_interval_sec   INTEGER,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO sources SELECT * FROM _sources_old")
+            cursor.execute("DROP TABLE _sources_old")
+
+            # Recreate indices for sources
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+            # Recreate sources_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS sources_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER sources_update_timestamp
+                AFTER UPDATE ON sources
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+                END
+            """)
+
+            # Migrate chunks table: rename old, create new with health domain, copy data
+            cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    chunk_hash          TEXT NOT NULL,
+                    source_id           TEXT NOT NULL,
+                    source_version      INTEGER NOT NULL,
+                    chunk_index         INTEGER NOT NULL,
+                    content             TEXT NOT NULL,
+                    context_header      TEXT,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
+                    adapter_id          TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                    parent_chunk_hash   TEXT,
+                    domain_metadata     TEXT,
+                    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                    retired_at          DATETIME,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (chunk_hash, source_id, source_version),
+                    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                    UNIQUE (source_id, source_version, chunk_index)
+                )
+            """)
+            cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
+            cursor.execute("DROP TABLE _chunks_old")
+
+            # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+            # Recreate adapters_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS adapters_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER adapters_update_timestamp
+                AFTER UPDATE ON adapters
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+                END
+            """)
+
+            # Update schema version to 2
+            cursor.execute("PRAGMA user_version=2")
+
+            # Commit transaction
+            cursor.execute("COMMIT")
+
+            # Re-enable foreign key enforcement
+            cursor.execute("PRAGMA foreign_keys=ON")
+
+            logger.info("Successfully migrated schema from v1 to v2")
+
+        except Exception as e:
+            cursor.execute("ROLLBACK")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            raise RuntimeError(
+                f"Failed to migrate schema from v1 to v2: {e}"
+            ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
         """Register an adapter configuration.
@@ -151,7 +303,7 @@ class DocumentStore:
         Args:
             source_id: Unique identifier for the source.
             adapter_id: ID of the adapter handling this source. Updated on re-registration.
-            domain: Domain classification (messages, notes, events, tasks). Updated on re-registration.
+            domain: Domain classification (messages, notes, events, tasks, health). Updated on re-registration.
             origin_ref: URL, path, or reference to the original source.
             poll_strategy: Strategy for polling this source (push, pull, or webhook).
                           Defaults to PollStrategy.PULL. Updated on re-registration.

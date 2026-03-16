@@ -166,6 +166,22 @@ def mock_httpx_get(monkeypatch):
 
 
 @pytest.fixture
+def mock_all_health_endpoints(mock_httpx_get):
+    """Fixture that configures all Apple Health endpoints with empty responses.
+
+    Convenience fixture for tests that want to mock all health endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7124"
+    endpoints = ["/workouts", "/sleep", "/activity", "/hrv", "/spo2", "/mindfulness", "/heart_rate"]
+
+    for endpoint in endpoints:
+        mock_httpx_get.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_get
+
+
+@pytest.fixture
 def mock_caldav_client():
     """Mock CalDAV client and related objects.
 
@@ -184,3 +200,59 @@ def mock_caldav_client():
     mock_client.principal.return_value = mock_principal
 
     return mock_client, mock_calendar
+
+
+@pytest.fixture
+def mock_oura_httpx_get(monkeypatch):
+    """Fixture for mocking httpx.get() function for Oura endpoints with request tracking.
+
+    Provides a MockHTTPXGet instance that can be configured with responses
+    and tracks all requests made. Used for adapters that call httpx.get()
+    directly instead of using httpx.Client().
+    """
+
+    class MockHTTPXGet:
+        """Mock httpx.get that tracks requests and returns configured responses."""
+        def __init__(self):
+            self.requests = []
+            self.responses = {}
+
+        def __call__(self, url, params=None, headers=None, timeout=None):
+            self.requests.append({"url": url, "params": params, "headers": headers})
+            if url not in self.responses:
+                configured_urls = list(self.responses.keys())
+                raise AssertionError(
+                    f"MockHTTPXGet: Unconfigured URL '{url}'\n"
+                    f"Configured URLs: {configured_urls}\n"
+                    f"Call set_response('{url}', data) to configure this URL."
+                )
+            return self.responses[url]
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code, url=url)
+
+    mock_get = MockHTTPXGet()
+
+    monkeypatch.setattr(
+        "context_library.adapters.oura.httpx.get",
+        mock_get
+    )
+
+    return mock_get
+
+
+@pytest.fixture
+def mock_all_oura_endpoints(mock_oura_httpx_get):
+    """Fixture that configures all Oura endpoints with empty responses.
+
+    Convenience fixture for tests that want to mock all Oura endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://localhost:8000"
+    endpoints = ["/oura/sleep", "/oura/readiness", "/oura/activity", "/oura/workouts",
+                 "/oura/spo2", "/oura/tags", "/oura/sessions", "/oura/heart_rate"]
+
+    for endpoint in endpoints:
+        mock_oura_httpx_get.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_oura_httpx_get

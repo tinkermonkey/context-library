@@ -27,6 +27,7 @@ apple-health = ["httpx"]
 apple-imessage = ["httpx"]
 apple-notes = ["httpx"]
 apple-music = ["httpx"]
+oura = ["httpx"]
 filesystem-helper = ["httpx"]
 obsidian-helper   = ["httpx"]
 server = ["fastapi>=0.100", "uvicorn[standard]", "pydantic-settings>=2.0"]
@@ -63,6 +64,30 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "icalendar.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "fastapi"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "fastapi.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "uvicorn"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "uvicorn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pydantic_settings"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pydantic_settings.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -82,7 +82,7 @@ The `IngestionPipeline` in `core/pipeline.py` orchestrates this flow. Per-source
 
 Chunks are identified by SHA-256 hash of normalized content (`compute_chunk_hash` in `storage/models.py`). Diffing uses set operations on hash sets — no positional alignment needed. The normalization rules (whitespace collapsing, line-ending normalization) are critical for deterministic hashing.
 
-### Four Domains
+### Five Domains
 
 Each adapter declares one domain, which determines its chunking strategy:
 
@@ -90,6 +90,7 @@ Each adapter declares one domain, which determines its chunking strategy:
 - **Notes** (`domains/notes.py`): Heading-based hierarchical chunking via mistune AST, keeps code blocks/tables atomic
 - **Events** (`domains/events.py`): One-event-per-chunk with time-window batching
 - **Tasks** (`domains/tasks.py`): One-task-per-chunk with lifecycle state tracking
+- **Health** (`domains/health.py`): Time-series health metrics with date-stamped context headers, groups records within configurable windows
 
 ### Data Models
 
@@ -144,3 +145,4 @@ All variables use the `CTX_` prefix (set in env or `.env` file):
 | `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest` |
 | `CTX_HOST` | `0.0.0.0` | Bind address |
 | `CTX_PORT` | `8000` | Bind port |
+| `CTX_HELPER_OURA_ENABLED` | `false` | Enable OuraAdapter for Oura Ring health data |

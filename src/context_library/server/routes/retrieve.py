@@ -36,5 +36,5 @@ async def query(payload: QueryRequest, request: Request) -> QueryResponse:
             top_k=payload.rerank_top_k,
         )
 
-    items = [QueryResultItem(**r.to_dict()) for r in results]
+    items = [QueryResultItem.model_validate(r.to_dict()) for r in results]
     return QueryResponse(results=items, total=len(items))

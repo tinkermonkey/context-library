@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
@@ -39,24 +40,72 @@ async def lifespan(app: FastAPI):
         reranker = Reranker(config.reranker_model)
 
     # Build helper adapters if the helper is configured
-    helper_adapters = []
+    helper_adapters: list[BaseAdapter] = []
     if config.helper_url and config.helper_api_key:
+        # AppleRemindersAdapter
         try:
             from context_library.adapters.apple_reminders import AppleRemindersAdapter
-            from context_library.adapters.apple_health import AppleHealthAdapter
-            from context_library.adapters.apple_imessage import AppleiMessageAdapter
-            from context_library.adapters.apple_notes import AppleNotesAdapter
-            from context_library.adapters.apple_music import AppleMusicAdapter
-
-            helper_adapters = [
-                AppleRemindersAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleHealthAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleiMessageAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleNotesAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-                AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key),
-            ]
+            helper_adapters.append(AppleRemindersAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
         except ImportError as e:
-            logger.warning("Apple helper adapters not available (missing dependency): %s", e)
+            logger.warning("AppleRemindersAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleRemindersAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleHealthAdapter
+        try:
+            from context_library.adapters.apple_health import AppleHealthAdapter
+            helper_adapters.append(AppleHealthAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleHealthAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleHealthAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleiMessageAdapter
+        try:
+            from context_library.adapters.apple_imessage import AppleiMessageAdapter
+            helper_adapters.append(AppleiMessageAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleiMessageAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleiMessageAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleNotesAdapter
+        try:
+            from context_library.adapters.apple_notes import AppleNotesAdapter
+            helper_adapters.append(AppleNotesAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleNotesAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleNotesAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleMusicAdapter
+        try:
+            from context_library.adapters.apple_music import AppleMusicAdapter
+            helper_adapters.append(AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleMusicAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleMusicAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
 
         if config.helper_filesystem_enabled:
             try:
@@ -71,6 +120,19 @@ async def lifespan(app: FastAPI):
                 helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
             except ImportError as e:
                 logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
+
+        if config.helper_oura_enabled:
+            try:
+                from context_library.adapters.oura import OuraAdapter
+                helper_adapters.append(OuraAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            except ImportError as e:
+                logger.warning("OuraAdapter not available (missing dependency): %s", e)
+            except ValueError as e:
+                logger.warning(
+                    "OuraAdapter not available (invalid configuration): %s. "
+                    "Ensure CTX_HELPER_API_KEY is set when CTX_HELPER_OURA_ENABLED=true",
+                    e
+                )
 
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
@@ -93,7 +155,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    document_store.conn.close()
+    document_store.close()
     logger.info("Server stopped")
 
 

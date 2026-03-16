@@ -93,11 +93,17 @@ class TestListRegisteredDomains:
 
         assert Domain.TASKS in domains
 
-    def test_expected_count(self):
-        """list_registered_domains returns exactly four registered domains."""
+    def test_contains_health_domain(self):
+        """list_registered_domains includes Domain.HEALTH."""
         domains = list_registered_domains()
 
-        assert len(domains) == 4
+        assert Domain.HEALTH in domains
+
+    def test_expected_count(self):
+        """list_registered_domains returns exactly five registered domains."""
+        domains = list_registered_domains()
+
+        assert len(domains) == 5
 
     def test_all_returned_domains_are_enum_values(self):
         """All values returned are valid Domain enum members."""

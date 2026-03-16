@@ -56,12 +56,12 @@ class TestDocumentStoreInit:
         assert store.conn is not None
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 1."""
+        """Test that user_version is verified to be 2 (health domain support)."""
         store = DocumentStore(":memory:")
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
-        assert version == 1
+        assert version == 2
 
     def test_wal_mode_enabled(self) -> None:
         """Test that WAL mode is enabled (or memory for in-memory DBs)."""
@@ -4005,7 +4005,6 @@ class TestCrossReferencesRoundTrip:
 
 def _setup_adapter_and_source(store: DocumentStore):
     """Register adapter and source for new method tests."""
-    from context_library.storage.models import compute_chunk_hash
     config = AdapterConfig(
         adapter_id="read-adapter",
         adapter_type="filesystem",

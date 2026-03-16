@@ -41,7 +41,7 @@ Registry of configured adapters and their current normalizer versions.
 ```sql
 CREATE TABLE IF NOT EXISTS adapters (
     adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
     adapter_type        TEXT NOT NULL,       -- gmail, obsidian, spotify, todoist, etc.
     normalizer_version  TEXT NOT NULL,
     config              TEXT,                -- JSON, adapter-specific configuration
@@ -61,7 +61,7 @@ END;
 
 **Note on `updated_at`:** A trigger automatically updates this column on every UPDATE statement. Unlike `created_at`, which is set only on INSERT, `updated_at` reflects the most recent modification time. The trigger includes a `WHEN` guard to prevent infinite recursion: if `updated_at` has already changed, the trigger doesn't fire again.
 
-**Note on `domain`:** The CHECK constraint enforces that domain values are one of the four supported domains: `messages`, `notes`, `events`, or `tasks`.
+**Note on `domain`:** The CHECK constraint enforces that domain values are one of the five supported domains: `messages`, `notes`, `events`, `tasks`, or `health`.
 
 ### `sources`
 
@@ -71,7 +71,7 @@ Registry of known sources and their current state.
 CREATE TABLE IF NOT EXISTS sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
     origin_ref          TEXT NOT NULL,       -- URL, file path, message ID, etc.
     display_name        TEXT,
     current_version     INTEGER NOT NULL DEFAULT 0,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index         INTEGER NOT NULL,
     content             TEXT NOT NULL,       -- normalized markdown text
     context_header      TEXT,                -- heading breadcrumb trail (not included in hash)
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health')),
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,

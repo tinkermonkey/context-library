@@ -35,3 +35,4 @@ class ServerConfig(BaseSettings):
     helper_api_key: str = ""
     helper_filesystem_enabled: bool = False
     helper_obsidian_enabled: bool = False
+    helper_oura_enabled: bool = False

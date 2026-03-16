@@ -1,73 +1,67 @@
-"""Apple HealthKit adapter for a macOS-native helper process.
+"""Oura Ring adapter for vendor-neutral health data collection.
 
-This adapter consumes a local HTTP REST API served by a macOS helper process that exposes
-Apple HealthKit data (workouts, activity summaries, sleep, heart rate, SpO2, mindfulness,
-HRV/readiness) via a local HTTP API.
+This adapter consumes health data from the Oura Ring API via a context-helpers bridge,
+mapping all 8 Oura endpoints to vendor-neutral health types (HealthMetadata).
 
 Architecture
 ============
 
-The adapter uses a layered architecture for security:
+The adapter uses the same security layer as AppleHealthAdapter:
 
-- **Helper process**: Runs on 127.0.0.1 only (localhost), exposing the Apple HealthKit API
-  to local consumers only. This design is intentional: direct HealthKit access is
-  restricted to the local machine.
+- **Helper bridge**: Runs as a microservice (context-helpers), collecting Oura API data
+  and exposing it via a local HTTP REST API.
 
 - **Remote access**: To expose health data to remote clients, use serve_adapter() which
-  wraps this adapter in an HTTP server. The serve_adapter can be configured to bind to
-  0.0.0.0 or a specific network interface, providing the remote exposure layer while
+  wraps this adapter in an HTTP server, providing the remote exposure layer while
   keeping the underlying helper process local and secure.
 
-Expected local service API contract
-===================================
+Expected Oura API JSON shapes
+=============================
 
-The helper process exposes the following HTTP endpoints:
+The helper bridge exposes the following HTTP endpoints (from Oura API):
 
-GET /workouts
-  Query parameters:
-    - since (optional): ISO 8601 timestamp; return only workouts starting after this time
-
-  Response: JSON array of workout objects with the following schema:
-    [
-      {
-        "id": "<uuid>",
-        "activityType": "<string>",           // e.g., "running", "cycling", "yoga"
-        "startDate": "<ISO 8601>",            // e.g., "2025-03-07T10:00:00+00:00"
-        "endDate": "<ISO 8601>",              // e.g., "2025-03-07T10:30:00+00:00"
-        "durationSeconds": <int>,             // seconds
-        "totalEnergyBurned": <float | null>,  // kilocalories
-        "totalDistance": <float | null>,      // meters
-        "averageHeartRate": <float | null>,   // beats per minute (bpm)
-        "notes": "<string | null>"            // optional notes
-      }
-    ]
-
-GET /sleep
+GET /oura/sleep
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only sleep records starting after this time
 
   Response: JSON array of sleep records
     [
       {
-        "id": "<uuid>",
+        "id": "<string>",
         "date": "<YYYY-MM-DD>",
+        "score": <int | null>,
         "totalSleepMinutes": <int>,
         "deepSleepMinutes": <int>,
         "remSleepMinutes": <int>,
         "lightSleepMinutes": <int>,
-        "efficiency": <float>,  // 0.0–1.0 (e.g., 0.92 means 92%)
-        "score": <int | null>
+        "efficiency": <float>  // 0.0–1.0 (e.g., 0.92 means 92%)
       }
     ]
 
-GET /activity
+GET /oura/readiness
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only readiness records starting after this time
+
+  Response: JSON array of readiness records
+    [
+      {
+        "id": "<string>",
+        "date": "<YYYY-MM-DD>",
+        "score": <int>,
+        "avgHrv": <float>,
+        "restingHeartRate": <float | null>,
+        "bodyTemperatureDeviation": <float | null>
+      }
+    ]
+
+GET /oura/activity
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only activity records starting after this time
 
   Response: JSON array of activity records
     [
       {
-        "id": "<uuid>",
+        "id": "<string>",
         "date": "<YYYY-MM-DD>",
         "steps": <int>,
         "activeCalories": <float>,
@@ -78,74 +72,91 @@ GET /activity
       }
     ]
 
-GET /hrv
+GET /oura/workouts
   Query parameters:
-    - since (optional): ISO 8601 timestamp; return only records starting after this time
+    - since (optional): ISO 8601 timestamp; return only workouts starting after this time
 
-  Response: JSON array of HRV records (heart rate variability / readiness)
+  Response: JSON array of workout records
     [
       {
-        "id": "<uuid>",
-        "date": "<YYYY-MM-DD>",
-        "avgHrv": <float>,
-        "restingHeartRate": <float | null>,
-        "bodyTemperatureDeviation": <float | null>
+        "id": "<string>",
+        "startDate": "<ISO 8601>",
+        "endDate": "<ISO 8601>",
+        "durationSeconds": <int>,
+        "activityType": "<string>",
+        "calories": <float>,
+        "distanceMeters": <float>,
+        "avgHeartRate": <float | null>,
+        "maxHeartRate": <float | null>,
+        "intensity": <string>
       }
     ]
 
-GET /heart_rate
+GET /oura/heart_rate
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only samples starting after this time
 
-  Response: JSON array of individual heart rate samples (grouped by hour in adapter)
+  Response: JSON array of heart rate samples (grouped by hour in adapter)
     [
       {
         "timestamp": "<ISO 8601>",
         "bpm": <int>,
-        "context": "<string | null>"        // e.g., "resting", "active"
+        "source": "<string | null>"
       }
     ]
 
-GET /spo2
+GET /oura/spo2
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only records starting after this time
 
   Response: JSON array of SpO2 records
     [
       {
-        "id": "<uuid>",
+        "id": "<string>",
         "date": "<YYYY-MM-DD>",
         "avgSpo2": <float>,
         "breathingDisturbanceIndex": <float | null>
       }
     ]
 
-GET /mindfulness
+GET /oura/tags
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only tags starting after this time
+
+  Response: JSON array of user health tags
+    [
+      {
+        "id": "<string>",
+        "date": "<YYYY-MM-DD>",
+        "text": "<string>",
+        "tags": [<string>, ...]
+      }
+    ]
+
+GET /oura/sessions
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only sessions starting after this time
 
-  Response: JSON array of mindfulness session records
+  Response: JSON array of mindfulness/meditation session records
     [
       {
-        "id": "<uuid>",
+        "id": "<string>",
         "startDate": "<ISO 8601>",
         "endDate": "<ISO 8601>",
         "durationSeconds": <int>,
-        "sessionType": "<string>",          // e.g., "meditation", "breathing"
+        "sessionType": "<string>",
         "mood": "<string | null>",
         "tags": [<string>, ...]
       }
     ]
 
-Security Note: The helper process runs on 127.0.0.1 (localhost) only, ensuring HealthKit
-data never leaves the local machine. A Bearer API token is REQUIRED for all requests to
-authenticate the caller. For remote access, wrap this adapter with serve_adapter().
+Security Note: The helper bridge requires a Bearer API token for all requests to authenticate the caller.
 
 Example usage:
-    adapter = AppleHealthAdapter(
-        api_url="http://192.168.1.50:7124",
+    adapter = OuraAdapter(
+        api_url="http://localhost:8000",
         api_key="your-api-token",
-        device_id="macbook-pro-m1"
+        device_id="oura-ring-gen3"
     )
 
     for normalized_content in adapter.fetch(""):  # Full fetch
@@ -154,21 +165,13 @@ Example usage:
     # Incremental fetch (only records starting after given timestamp)
     for normalized_content in adapter.fetch("2025-03-07T10:00:00+00:00"):
         print(normalized_content.markdown)
-
-Example usage (remote via serve_adapter):
-    adapter = AppleHealthAdapter(
-        api_url="http://127.0.0.1:7124",
-        api_key="your-api-token",
-        device_id="macbook-pro"
-    )
-    serve_adapter(adapter, host="0.0.0.0", port=8000)
-    # Now remote clients can access via http://<mac-ip>:8000/fetch
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -195,22 +198,21 @@ except ImportError:
     pass
 
 
-class AppleHealthAdapter(BaseAdapter):
-    """Adapter for consuming Apple HealthKit data via local or remote HTTP REST API.
+class OuraAdapter(BaseAdapter):
+    """Adapter for consuming Oura Ring health data via HTTP REST API.
 
-    The adapter fetches health and fitness data (workouts, sleep, activity summaries,
-    heart rate series, SpO2, mindfulness sessions, and HRV/readiness) from a macOS helper
-    process that wraps Apple HealthKit APIs. The helper service can run on the local machine
-    (127.0.0.1:7124) or be accessible from a remote machine via serve_adapter for
-    cross-machine deployments.
+    The adapter fetches health and fitness data (sleep, readiness, activity, workouts,
+    heart rate series, SpO2, user health tags, and mindfulness sessions) from an Oura
+    Ring API bridge service. The bridge service can run on the local machine or be
+    accessible from a remote machine via serve_adapter for cross-machine deployments.
 
     Each health record is mapped to a HealthMetadata with:
     - record_id: Unique identifier for the record
     - health_type: One of the eight vendor-neutral types (workout_session, sleep_summary, etc.)
     - date: ISO 8601 date (YYYY-MM-DD) for the record
-    - source_type: "apple_health"
+    - source_type: "oura"
     - date_first_observed: ISO 8601 timestamp when record was processed
-    - Additional health-specific fields in extra_metadata: calories_kcal, distance_meters, etc.
+    - Additional health-specific fields in extra_metadata
     """
 
     @property
@@ -226,7 +228,7 @@ class AppleHealthAdapter(BaseAdapter):
     @property
     def normalizer_version(self) -> str:
         """Return the normalizer version."""
-        return "2.0.0"
+        return "1.0.0"
 
     def __init__(
         self,
@@ -234,10 +236,10 @@ class AppleHealthAdapter(BaseAdapter):
         api_key: str,
         device_id: str = "default",
     ) -> None:
-        """Initialize AppleHealthAdapter.
+        """Initialize OuraAdapter.
 
         Args:
-            api_url: Base URL of the helper API (e.g., "http://192.168.1.50:7124")
+            api_url: Base URL of the Oura API bridge (e.g., "http://localhost:8000")
             api_key: Required API key for Bearer token authentication
             device_id: Device identifier for adapter_id computation (default: "default")
 
@@ -247,11 +249,11 @@ class AppleHealthAdapter(BaseAdapter):
         """
         if not HAS_HTTPX:
             raise ImportError(
-                "Apple Health adapter requires 'httpx' package. "
-                "Install with: pip install context-library[apple-health]"
+                "Oura adapter requires 'httpx' package. "
+                "Install with: pip install httpx"
             )
         if not api_key:
-            raise ValueError("api_key is required for AppleHealthAdapter")
+            raise ValueError("api_key is required for OuraAdapter")
 
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
@@ -260,13 +262,14 @@ class AppleHealthAdapter(BaseAdapter):
     @property
     def adapter_id(self) -> str:
         """Return a deterministic, unique identifier for this adapter instance."""
-        return f"apple_health:{self._device_id}"
+        return f"oura:{self._device_id}"
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
-        """Fetch and normalize all health data types from Apple HealthKit via local API.
+        """Fetch and normalize all health data types from Oura Ring API.
 
-        Fetches data from all seven endpoints (workouts, sleep, activity, HRV, heart rate, SpO2, mindfulness)
-        and yields normalized content for each record or windowed group.
+        Fetches data from all eight endpoints (sleep, readiness, activity, workouts,
+        heart rate, SpO2, tags, sessions) and yields normalized content for each record
+        or windowed group.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental fetch, or empty string for full fetch
@@ -288,14 +291,15 @@ class AppleHealthAdapter(BaseAdapter):
         params = {"since": since} if since else {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        # Fetch from all endpoints in order (six via generic handler, one via specialized heart_rate handler)
+        # Fetch from all endpoints in order (seven via generic handler, one via specialized heart_rate handler)
         endpoints_config = [
-            ("/workouts", self._process_workout, "workout"),
-            ("/sleep", self._process_sleep, "sleep record"),
-            ("/activity", self._process_activity, "activity record"),
-            ("/hrv", self._process_hrv, "HRV record"),
-            ("/spo2", self._process_spo2, "SpO2 record"),
-            ("/mindfulness", self._process_mindfulness, "mindfulness record"),
+            ("/oura/sleep", self._process_sleep, "sleep record"),
+            ("/oura/readiness", self._process_readiness, "readiness record"),
+            ("/oura/activity", self._process_activity, "activity record"),
+            ("/oura/workouts", self._process_workout, "workout"),
+            ("/oura/spo2", self._process_spo2, "SpO2 record"),
+            ("/oura/tags", self._process_tag, "user health tag"),
+            ("/oura/sessions", self._process_session, "mindfulness session"),
         ]
         failed_endpoints = []
 
@@ -315,7 +319,7 @@ class AppleHealthAdapter(BaseAdapter):
             # Auth errors already logged and re-raised by _fetch_heart_rate
             raise
         except EndpointFetchError:
-            failed_endpoints.append("/heart_rate")
+            failed_endpoints.append("/oura/heart_rate")
 
         # Surface endpoint failures to the caller
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
@@ -323,7 +327,7 @@ class AppleHealthAdapter(BaseAdapter):
             if len(failed_endpoints) == total_endpoints:
                 raise AllEndpointsFailedError(
                     total_endpoints,
-                    f"All {total_endpoints} endpoints failed to fetch from Apple Health API. "
+                    f"All {total_endpoints} endpoints failed to fetch from Oura API. "
                     "Check API connectivity, credentials, and service status."
                 )
             else:
@@ -331,7 +335,7 @@ class AppleHealthAdapter(BaseAdapter):
                 raise PartialFetchError(
                     failed_endpoints,
                     total_endpoints,
-                    f"Partial fetch from Apple Health API: {len(failed_endpoints)}/{total_endpoints} "
+                    f"Partial fetch from Oura API: {len(failed_endpoints)}/{total_endpoints} "
                     f"endpoint(s) failed. Successful endpoints provided partial data.",
                 )
 
@@ -346,7 +350,7 @@ class AppleHealthAdapter(BaseAdapter):
         """Fetch and process records from a single endpoint.
 
         Args:
-            endpoint: API endpoint path (e.g., "/sleep", "/activity")
+            endpoint: API endpoint path (e.g., "/oura/sleep", "/oura/activity")
             handler: Handler method to process each record
             item_label: Label for logging (e.g., "sleep record")
             params: Query parameters (including "since" if incremental)
@@ -361,8 +365,10 @@ class AppleHealthAdapter(BaseAdapter):
 
         Note:
             Logs and skips individual malformed records without raising.
-            Logs and raises EndpointFetchError for endpoint-level failures (HTTP, request, invalid response schema).
+            Logs and raises EndpointFetchError for endpoint-level failures.
             Auth errors (401/403) are immediately re-raised to signal credential issues.
+            This follows the architecture's per-source error isolation principle:
+            failure of one endpoint does not block fetching from other endpoints.
         """
         try:
             response = httpx.get(
@@ -390,14 +396,14 @@ class AppleHealthAdapter(BaseAdapter):
             # Re-raise auth errors immediately
             if e.response.status_code in (401, 403):
                 logger.error(
-                    f"Authentication error from Apple Health API {endpoint}: "
+                    f"Authentication error from Oura API {endpoint}: "
                     f"{e.response.status_code} {e.response.text}"
                 )
                 raise
-            logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
+            logger.error(f"HTTP error from Oura API {endpoint}: {e.response.status_code} {e.response.text}")
             raise EndpointFetchError(f"HTTP {e.response.status_code} from {endpoint}")
         except httpx.RequestError as e:
-            logger.error(f"Request error connecting to Apple Health API at {self._api_url}{endpoint}: {e}")
+            logger.error(f"Request error connecting to Oura API at {self._api_url}{endpoint}: {e}")
             raise EndpointFetchError(f"Network error at {endpoint}: {e}")
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from {endpoint} (possible proxy/HTML response): {e}")
@@ -434,7 +440,7 @@ class AppleHealthAdapter(BaseAdapter):
 
         try:
             response = httpx.get(
-                f"{self._api_url}/heart_rate",
+                f"{self._api_url}/oura/heart_rate",
                 params=params,
                 headers=headers,
                 timeout=10.0,
@@ -446,7 +452,7 @@ class AppleHealthAdapter(BaseAdapter):
                 raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
 
             # Group samples by date + hour
-            windows: dict[tuple[str, int], list[dict[str, Any]]] = {}
+            windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
             for sample in samples:
                 try:
                     timestamp = sample["timestamp"]
@@ -456,8 +462,6 @@ class AppleHealthAdapter(BaseAdapter):
                     hour = dt.hour
                     key = (date, hour)
 
-                    if key not in windows:
-                        windows[key] = []
                     windows[key].append(sample)
                 except (ValueError, KeyError) as e:
                     logger.error(f"Skipping malformed heart rate sample: {e}")
@@ -475,113 +479,21 @@ class AppleHealthAdapter(BaseAdapter):
             # Re-raise auth errors immediately
             if e.response.status_code in (401, 403):
                 logger.error(
-                    f"Authentication error from Apple Health API /heart_rate: "
+                    f"Authentication error from Oura API /oura/heart_rate: "
                     f"{e.response.status_code} {e.response.text}"
                 )
                 raise
-            logger.error(f"HTTP error from Apple Health API /heart_rate: {e.response.status_code} {e.response.text}")
-            raise EndpointFetchError(f"HTTP {e.response.status_code} from /heart_rate")
+            logger.error(f"HTTP error from Oura API /oura/heart_rate: {e.response.status_code} {e.response.text}")
+            raise EndpointFetchError(f"HTTP {e.response.status_code} from /oura/heart_rate")
         except httpx.RequestError as e:
-            logger.error(f"Request error connecting to Apple Health API at {self._api_url}/heart_rate: {e}")
-            raise EndpointFetchError(f"Network error at /heart_rate: {e}")
+            logger.error(f"Request error connecting to Oura API at {self._api_url}/oura/heart_rate: {e}")
+            raise EndpointFetchError(f"Network error at /oura/heart_rate: {e}")
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON response from /heart_rate (possible proxy/HTML response): {e}")
-            raise EndpointFetchError(f"JSON decode error at /heart_rate: {e}")
+            logger.error(f"Invalid JSON response from /oura/heart_rate (possible proxy/HTML response): {e}")
+            raise EndpointFetchError(f"JSON decode error at /oura/heart_rate: {e}")
         except ValueError as e:
             logger.error(f"Invalid heart rate response schema: {e}")
-            raise EndpointFetchError(f"Invalid schema at /heart_rate: {e}")
-
-    def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
-        """Process a single workout and yield NormalizedContent.
-
-        Args:
-            workout: Workout dict from API response
-
-        Yields:
-            NormalizedContent: Normalized workout with HealthMetadata
-
-        Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
-        """
-        # Extract required fields
-        workout_id = workout["id"]
-        if not workout_id:
-            raise ValueError("Workout 'id' must not be empty")
-
-        activity_type = workout["activityType"]
-        if not activity_type:
-            raise ValueError("Workout 'activityType' must not be empty")
-
-        start_date = workout["startDate"]
-        if not start_date:
-            raise ValueError("Workout 'startDate' must not be empty")
-
-        end_date = workout["endDate"]
-        if not end_date:
-            raise ValueError("Workout 'endDate' must not be empty")
-
-        duration_seconds = workout["durationSeconds"]
-        if not isinstance(duration_seconds, (int, float)):
-            raise ValueError(f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}")
-
-        # Extract optional fields
-        total_energy_burned = workout.get("totalEnergyBurned")
-        total_distance = workout.get("totalDistance")
-        average_heart_rate = workout.get("averageHeartRate")
-
-        # Compute duration in minutes
-        duration_minutes = int(duration_seconds // 60)
-
-        # Get current timestamp and extract date from start_date
-        now = datetime.now(timezone.utc).isoformat()
-        date = start_date[:10]  # Extract YYYY-MM-DD
-
-        # Create HealthMetadata with health-specific extra fields
-        health_metadata_dict = {
-            "record_id": workout_id,
-            "health_type": "workout_session",
-            "date": date,
-            "source_type": "apple_health",
-            "date_first_observed": now,
-            "duration_minutes": duration_minutes,
-            "calories_kcal": total_energy_burned,
-            "distance_meters": total_distance,
-            "avg_heart_rate_bpm": average_heart_rate,
-            "activity_type": activity_type,
-        }
-
-        # Validate using HealthMetadata model (validates required fields only)
-        try:
-            HealthMetadata.model_validate(health_metadata_dict)
-        except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for workout {workout_id}: {e}")
-            raise
-
-        # Create source_id
-        source_id = f"{activity_type}/{workout_id}"
-
-        # Build markdown summary
-        markdown = self._build_summary(workout, activity_type, duration_minutes)
-
-        # Create structural hints with extra_metadata to preserve all fields
-        structural_hints = StructuralHints(
-            has_headings=False,
-            has_lists=True,
-            has_tables=False,
-            natural_boundaries=(),
-            extra_metadata=health_metadata_dict,
-        )
-
-        # Create NormalizedContent
-        normalized_content = NormalizedContent(
-            markdown=markdown,
-            source_id=source_id,
-            structural_hints=structural_hints,
-            normalizer_version=self.normalizer_version,
-        )
-
-        yield normalized_content
+            raise EndpointFetchError(f"Invalid schema at /oura/heart_rate: {e}")
 
     def _process_sleep(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single sleep record and yield NormalizedContent.
@@ -593,54 +505,126 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized sleep summary
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing, empty, or invalid
         """
-        # Extract required fields
-        record_id = record["id"]
-        if not record_id:
-            raise ValueError("Sleep record 'id' must not be empty")
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Sleep record 'id' must not be empty")
 
-        date = record["date"]
-        if not date:
-            raise ValueError("Sleep record 'date' must not be empty")
+            date = record["date"]
+            if not date:
+                raise ValueError("Sleep record 'date' must not be empty")
 
-        total_sleep_minutes = record["totalSleepMinutes"]
-        if not isinstance(total_sleep_minutes, (int, float)):
-            raise ValueError("Sleep record 'totalSleepMinutes' must be numeric")
-
-        # Extract optional fields
-        deep_sleep_minutes = record.get("deepSleepMinutes")
-        rem_sleep_minutes = record.get("remSleepMinutes")
-        light_sleep_minutes = record.get("lightSleepMinutes")
-        efficiency = record.get("efficiency")
-        score = record.get("score")
+            total_sleep_minutes = record["totalSleepMinutes"]
+            if not isinstance(total_sleep_minutes, (int, float)):
+                raise ValueError(
+                    f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}"
+                )
+        except KeyError as e:
+            raise ValueError(f"Sleep record missing required field: {e}")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "sleep_summary",
             "date": date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
-            "duration_minutes": total_sleep_minutes,
-            "score": score,
-            "deep_sleep_minutes": deep_sleep_minutes,
-            "rem_sleep_minutes": rem_sleep_minutes,
-            "light_sleep_minutes": light_sleep_minutes,
-            "efficiency": efficiency,
+            "duration_minutes": int(total_sleep_minutes),
+            "score": record.get("score"),
+            "deep_sleep_minutes": record.get("deepSleepMinutes"),
+            "rem_sleep_minutes": record.get("remSleepMinutes"),
+            "light_sleep_minutes": record.get("lightSleepMinutes"),
+            "efficiency": record.get("efficiency"),
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
             logger.error(f"HealthMetadata validation failed for sleep record {record_id}: {e}")
             raise
 
-        source_id = f"sleep/{record_id}"
+        source_id = f"oura/sleep/{record_id}"
         markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
+
+        structural_hints = StructuralHints(
+            has_headings=False,
+            has_lists=True,
+            has_tables=False,
+            natural_boundaries=(),
+            extra_metadata=health_metadata_dict,
+        )
+
+        normalized_content = NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=structural_hints,
+            normalizer_version=self.normalizer_version,
+        )
+
+        yield normalized_content
+
+    def _process_readiness(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single readiness record and yield NormalizedContent.
+
+        Args:
+            record: Readiness record dict from API response
+
+        Yields:
+            NormalizedContent: Normalized readiness summary
+
+        Raises:
+            ValueError: If required fields are missing, empty, or invalid
+        """
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Readiness record 'id' must not be empty")
+
+            date = record["date"]
+            if not date:
+                raise ValueError("Readiness record 'date' must not be empty")
+
+            score = record["score"]
+            if not isinstance(score, (int, float)):
+                raise ValueError(f"Readiness record 'score' must be numeric, got {type(score)}")
+
+            avg_hrv = record["avgHrv"]
+            if not isinstance(avg_hrv, (int, float)):
+                raise ValueError(f"Readiness record 'avgHrv' must be numeric, got {type(avg_hrv)}")
+        except KeyError as e:
+            raise ValueError(f"Readiness record missing required field: {e}")
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Create HealthMetadata with all available fields
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "readiness_summary",
+            "date": date,
+            "source_type": "oura",
+            "date_first_observed": now,
+            "score": score,
+            "avg_hrv": avg_hrv,
+            "resting_heart_rate": record.get("restingHeartRate"),
+            "body_temperature_deviation": record.get("bodyTemperatureDeviation"),
+        }
+
+        # HealthMetadata.model_validate() will validate types and constraints
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for readiness record {record_id}: {e}")
+            raise
+
+        source_id = f"oura/readiness/{record_id}"
+        markdown = self._build_readiness_summary(record, score, avg_hrv)
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -669,53 +653,49 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized activity summary
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing, empty, or invalid
         """
-        # Extract required fields
-        record_id = record["id"]
-        if not record_id:
-            raise ValueError("Activity record 'id' must not be empty")
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Activity record 'id' must not be empty")
 
-        date = record["date"]
-        if not date:
-            raise ValueError("Activity record 'date' must not be empty")
+            date = record["date"]
+            if not date:
+                raise ValueError("Activity record 'date' must not be empty")
 
-        steps = record["steps"]
-        if not isinstance(steps, (int, float)):
-            raise ValueError("Activity record 'steps' must be numeric")
-
-        # Extract optional fields
-        active_calories = record.get("activeCalories")
-        total_calories = record.get("totalCalories")
-        active_minutes = record.get("activeMinutes")
-        sedentary_minutes = record.get("sedentaryMinutes")
-        distance_meters = record.get("distanceMeters")
+            steps = record["steps"]
+            if not isinstance(steps, (int, float)):
+                raise ValueError(f"Activity record 'steps' must be numeric, got {type(steps)}")
+        except KeyError as e:
+            raise ValueError(f"Activity record missing required field: {e}")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "activity_summary",
             "date": date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
-            "duration_minutes": active_minutes,
-            "steps": steps,
-            "active_calories": active_calories,
-            "total_calories": total_calories,
-            "sedentary_minutes": sedentary_minutes,
-            "distance_meters": distance_meters,
+            "duration_minutes": record.get("activeMinutes"),
+            "steps": int(steps),
+            "active_calories": record.get("activeCalories"),
+            "total_calories": record.get("totalCalories"),
+            "sedentary_minutes": record.get("sedentaryMinutes"),
+            "distance_meters": record.get("distanceMeters"),
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
             logger.error(f"HealthMetadata validation failed for activity record {record_id}: {e}")
             raise
 
-        source_id = f"activity/{record_id}"
+        source_id = f"oura/activity/{record_id}"
         markdown = self._build_activity_summary(record, int(steps))
 
         structural_hints = StructuralHints(
@@ -735,59 +715,79 @@ class AppleHealthAdapter(BaseAdapter):
 
         yield normalized_content
 
-    def _process_hrv(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
-        """Process a single HRV (heart rate variability / readiness) record and yield NormalizedContent.
+    def _process_workout(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single workout and yield NormalizedContent.
 
         Args:
-            record: HRV record dict from API response
+            record: Workout dict from API response
 
         Yields:
-            NormalizedContent: Normalized readiness summary
+            NormalizedContent: Normalized workout with HealthMetadata
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing, empty, or invalid
         """
-        # Extract required fields
-        record_id = record["id"]
-        if not record_id:
-            raise ValueError("HRV record 'id' must not be empty")
+        # Extract and validate required fields
+        try:
+            workout_id = record["id"]
+            if not workout_id:
+                raise ValueError("Workout 'id' must not be empty")
 
-        date = record["date"]
-        if not date:
-            raise ValueError("HRV record 'date' must not be empty")
+            activity_type = record["activityType"]
+            if not activity_type:
+                raise ValueError("Workout 'activityType' must not be empty")
 
-        avg_hrv = record["avgHrv"]
-        if not isinstance(avg_hrv, (int, float)):
-            raise ValueError("HRV record 'avgHrv' must be numeric")
+            start_date = record["startDate"]
+            if not start_date:
+                raise ValueError("Workout 'startDate' must not be empty")
 
-        # Extract optional fields
-        resting_heart_rate = record.get("restingHeartRate")
-        body_temperature_deviation = record.get("bodyTemperatureDeviation")
+            _ = record["endDate"]  # Validate presence of endDate field
+            if not _:
+                raise ValueError("Workout 'endDate' must not be empty")
+
+            duration_seconds = record["durationSeconds"]
+            if not isinstance(duration_seconds, (int, float)):
+                raise ValueError(
+                    f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}"
+                )
+        except KeyError as e:
+            raise ValueError(f"Workout record missing required field: {e}")
+
+        # Compute duration in minutes and extract date from start_date
+        duration_minutes = int(duration_seconds // 60)
+        date = start_date[:10]  # Extract YYYY-MM-DD
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
-            "record_id": record_id,
-            "health_type": "readiness_summary",
+            "record_id": workout_id,
+            "health_type": "workout_session",
             "date": date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
-            "avg_hrv": avg_hrv,
-            "resting_heart_rate": resting_heart_rate,
-            "body_temperature_deviation": body_temperature_deviation,
+            "duration_minutes": duration_minutes,
+            "calories_kcal": record.get("calories"),
+            "distance_meters": record.get("distanceMeters"),
+            "avg_heart_rate_bpm": record.get("avgHeartRate"),
+            "max_heart_rate_bpm": record.get("maxHeartRate"),
+            "activity_type": activity_type,
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for HRV record {record_id}: {e}")
+            logger.error(f"HealthMetadata validation failed for workout {workout_id}: {e}")
             raise
 
-        source_id = f"hrv/{record_id}"
-        markdown = self._build_hrv_summary(record, avg_hrv)
+        # Create source_id
+        source_id = f"oura/workout/{workout_id}"
 
+        # Build markdown summary
+        markdown = self._build_workout_summary(record, activity_type, duration_minutes)
+
+        # Create structural hints with extra_metadata to preserve all fields
         structural_hints = StructuralHints(
             has_headings=False,
             has_lists=True,
@@ -796,6 +796,7 @@ class AppleHealthAdapter(BaseAdapter):
             extra_metadata=health_metadata_dict,
         )
 
+        # Create NormalizedContent
         normalized_content = NormalizedContent(
             markdown=markdown,
             source_id=source_id,
@@ -822,8 +823,7 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized heart rate series for the hour
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing or invalid
         """
         if not window:
             raise ValueError("Heart rate window must not be empty")
@@ -845,14 +845,14 @@ class AppleHealthAdapter(BaseAdapter):
         max_bpm = max(heart_rates)
 
         now = datetime.now(timezone.utc).isoformat()
-        record_id = f"hr:{self._device_id}:{window_date}T{window_hour:02d}"
+        record_id = f"hr:oura:{self._device_id}:{window_date}T{window_hour:02d}"
 
-        # Create HealthMetadata
+        # Create HealthMetadata with computed statistics
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "heart_rate_series",
             "date": window_date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
             "avg_bpm": avg_bpm,
             "min_bpm": min_bpm,
@@ -861,13 +861,14 @@ class AppleHealthAdapter(BaseAdapter):
             "hour": window_hour,
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
             logger.error(f"HealthMetadata validation failed for heart rate window {record_id}: {e}")
             raise
 
-        source_id = f"heart_rate/{window_date}T{window_hour:02d}"
+        source_id = f"oura/heart_rate/{window_date}T{window_hour:02d}"
         markdown = self._build_heart_rate_summary(window, avg_bpm, min_bpm, max_bpm)
 
         structural_hints = StructuralHints(
@@ -897,45 +898,45 @@ class AppleHealthAdapter(BaseAdapter):
             NormalizedContent: Normalized SpO2 summary
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing, empty, or invalid
         """
-        # Extract required fields
-        record_id = record["id"]
-        if not record_id:
-            raise ValueError("SpO2 record 'id' must not be empty")
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("SpO2 record 'id' must not be empty")
 
-        date = record["date"]
-        if not date:
-            raise ValueError("SpO2 record 'date' must not be empty")
+            date = record["date"]
+            if not date:
+                raise ValueError("SpO2 record 'date' must not be empty")
 
-        avg_spo2 = record["avgSpo2"]
-        if not isinstance(avg_spo2, (int, float)):
-            raise ValueError("SpO2 record 'avgSpo2' must be numeric")
-
-        # Extract optional fields
-        breathing_disturbance_index = record.get("breathingDisturbanceIndex")
+            avg_spo2 = record["avgSpo2"]
+            if not isinstance(avg_spo2, (int, float)):
+                raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
+        except KeyError as e:
+            raise ValueError(f"SpO2 record missing required field: {e}")
 
         now = datetime.now(timezone.utc).isoformat()
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
             "health_type": "spo2_summary",
             "date": date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
             "avg_spo2": avg_spo2,
-            "breathing_disturbance_index": breathing_disturbance_index,
+            "breathing_disturbance_index": record.get("breathingDisturbanceIndex"),
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
             logger.error(f"HealthMetadata validation failed for SpO2 record {record_id}: {e}")
             raise
 
-        source_id = f"spo2/{record_id}"
+        source_id = f"oura/spo2/{record_id}"
         markdown = self._build_spo2_summary(record, avg_spo2)
 
         structural_hints = StructuralHints(
@@ -955,71 +956,57 @@ class AppleHealthAdapter(BaseAdapter):
 
         yield normalized_content
 
-    def _process_mindfulness(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
-        """Process a single mindfulness session record and yield NormalizedContent.
+    def _process_tag(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single user health tag and yield NormalizedContent.
 
         Args:
-            record: Mindfulness record dict from API response
+            record: User health tag dict from API response
 
         Yields:
-            NormalizedContent: Normalized mindfulness session
+            NormalizedContent: Normalized user health tag
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            ValueError: If required fields are missing, empty, or invalid
         """
-        # Extract required fields
-        record_id = record["id"]
-        if not record_id:
-            raise ValueError("Mindfulness record 'id' must not be empty")
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Tag record 'id' must not be empty")
 
-        start_date = record["startDate"]
-        if not start_date:
-            raise ValueError("Mindfulness record 'startDate' must not be empty")
+            date = record["date"]
+            if not date:
+                raise ValueError("Tag record 'date' must not be empty")
 
-        end_date = record["endDate"]
-        if not end_date:
-            raise ValueError("Mindfulness record 'endDate' must not be empty")
-
-        duration_seconds = record["durationSeconds"]
-        if not isinstance(duration_seconds, (int, float)):
-            raise ValueError("Mindfulness record 'durationSeconds' must be numeric")
-
-        session_type = record["sessionType"]
-        if not session_type:
-            raise ValueError("Mindfulness record 'sessionType' must not be empty")
-
-        # Extract optional fields
-        mood = record.get("mood")
-        tags = record.get("tags", [])
-
-        # Compute duration in minutes
-        duration_minutes = int(duration_seconds // 60)
+            text = record["text"]
+            if not text:
+                raise ValueError("Tag record 'text' must not be empty")
+        except KeyError as e:
+            raise ValueError(f"Tag record missing required field: {e}")
 
         now = datetime.now(timezone.utc).isoformat()
-        date = start_date[:10]  # Extract YYYY-MM-DD
 
-        # Create HealthMetadata
+        # Create HealthMetadata with all available fields
         health_metadata_dict = {
             "record_id": record_id,
-            "health_type": "mindfulness_session",
+            "health_type": "user_health_tag",
             "date": date,
-            "source_type": "apple_health",
+            "source_type": "oura",
             "date_first_observed": now,
-            "duration_minutes": duration_minutes,
-            "session_type": session_type,
-            "mood": mood,
-            "tags": tags,
+            "tag_text": text,
+            "tags": record.get("tags", []),
         }
 
+        # HealthMetadata.model_validate() will validate types and constraints
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
-            logger.error(f"HealthMetadata validation failed for mindfulness record {record_id}: {e}")
+            logger.error(f"HealthMetadata validation failed for user health tag {record_id}: {e}")
             raise
 
-        source_id = f"mindfulness/{record_id}"
-        markdown = self._build_mindfulness_summary(record, session_type, duration_minutes)
+        source_id = f"oura/tag/{record_id}"
+        tags = record.get("tags", [])
+        markdown = self._build_tag_summary(text, tags)
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -1038,44 +1025,89 @@ class AppleHealthAdapter(BaseAdapter):
 
         yield normalized_content
 
-    def _build_summary(self, workout: dict[str, Any], activity_type: str, duration_minutes: int) -> str:
-        """Build a human-readable markdown summary of a workout.
-
-        Generates markdown with bold title and bulleted metrics (no heading-level markers).
+    def _process_session(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single mindfulness session record and yield NormalizedContent.
 
         Args:
-            workout: Workout dict from API response
-            activity_type: Activity type (e.g., "running", "cycling")
-            duration_minutes: Duration in minutes
+            record: Mindfulness session record dict from API response
 
-        Returns:
-            Markdown string with bold title and bulleted activity summary
+        Yields:
+            NormalizedContent: Normalized mindfulness session
+
+        Raises:
+            ValueError: If required fields are missing, empty, or invalid
         """
-        lines = [f"**{activity_type.title()}**"]
+        # Extract and validate required fields
+        try:
+            record_id = record["id"]
+            if not record_id:
+                raise ValueError("Session record 'id' must not be empty")
 
-        # Add key metrics
-        total_energy_burned = workout.get("totalEnergyBurned")
-        if total_energy_burned is not None:
-            lines.append(f"- Calories: {total_energy_burned:.0f} kcal")
+            start_date = record["startDate"]
+            if not start_date:
+                raise ValueError("Session record 'startDate' must not be empty")
 
-        total_distance = workout.get("totalDistance")
-        if total_distance is not None:
-            km = total_distance / 1000
-            lines.append(f"- Distance: {km:.2f} km")
+            end_date = record["endDate"]  # Validate presence of endDate field
+            if not end_date:
+                raise ValueError("Session record 'endDate' must not be empty")
 
-        average_heart_rate = workout.get("averageHeartRate")
-        if average_heart_rate is not None:
-            lines.append(f"- Avg heart rate: {average_heart_rate:.0f} bpm")
+            duration_seconds = record["durationSeconds"]
+            if not isinstance(duration_seconds, (int, float)):
+                raise ValueError(
+                    f"Session record 'durationSeconds' must be numeric, got {type(duration_seconds)}"
+                )
 
-        # Add duration
-        lines.append(f"- Duration: {duration_minutes} minutes")
+            session_type = record["sessionType"]
+            if not session_type:
+                raise ValueError("Session record 'sessionType' must not be empty")
+        except KeyError as e:
+            raise ValueError(f"Session record missing required field: {e}")
 
-        # Add notes if present
-        notes = workout.get("notes")
-        if notes:
-            lines.append(f"\n{notes}")
+        # Compute duration in minutes and extract date from start_date
+        duration_minutes = int(duration_seconds // 60)
+        date = start_date[:10]  # Extract YYYY-MM-DD
 
-        return "\n".join(lines)
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Create HealthMetadata with all available fields
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "mindfulness_session",
+            "date": date,
+            "source_type": "oura",
+            "date_first_observed": now,
+            "duration_minutes": duration_minutes,
+            "session_type": session_type,
+            "mood": record.get("mood"),
+            "tags": record.get("tags", []),
+        }
+
+        # HealthMetadata.model_validate() will validate types and constraints
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for mindfulness session {record_id}: {e}")
+            raise
+
+        source_id = f"oura/session/{record_id}"
+        markdown = self._build_session_summary(record, session_type, duration_minutes)
+
+        structural_hints = StructuralHints(
+            has_headings=False,
+            has_lists=True,
+            has_tables=False,
+            natural_boundaries=(),
+            extra_metadata=health_metadata_dict,
+        )
+
+        normalized_content = NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=structural_hints,
+            normalizer_version=self.normalizer_version,
+        )
+
+        yield normalized_content
 
     def _build_sleep_summary(self, record: dict[str, Any], total_sleep_minutes: int) -> str:
         """Build markdown summary of a sleep record.
@@ -1111,6 +1143,32 @@ class AppleHealthAdapter(BaseAdapter):
         score = record.get("score")
         if score is not None:
             lines.append(f"- Score: {score}")
+
+        return "\n".join(lines)
+
+    def _build_readiness_summary(self, record: dict[str, Any], score: float, avg_hrv: float) -> str:
+        """Build markdown summary of a readiness record.
+
+        Args:
+            record: Readiness record dict from API response
+            score: Readiness score
+            avg_hrv: Average heart rate variability
+
+        Returns:
+            Markdown string with readiness metrics
+        """
+        lines = ["**Readiness Summary**"]
+
+        lines.append(f"- Score: {score}")
+        lines.append(f"- Avg HRV: {avg_hrv:.1f} ms")
+
+        resting_hr = record.get("restingHeartRate")
+        if resting_hr is not None:
+            lines.append(f"- Resting heart rate: {resting_hr:.0f} bpm")
+
+        temp_dev = record.get("bodyTemperatureDeviation")
+        if temp_dev is not None:
+            lines.append(f"- Temperature deviation: {temp_dev:.2f}°C")
 
         return "\n".join(lines)
 
@@ -1151,27 +1209,39 @@ class AppleHealthAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_hrv_summary(self, record: dict[str, Any], avg_hrv: float) -> str:
-        """Build markdown summary of an HRV record.
+    def _build_workout_summary(self, record: dict[str, Any], activity_type: str, duration_minutes: int) -> str:
+        """Build markdown summary of a workout.
 
         Args:
-            record: HRV record dict from API response
-            avg_hrv: Average heart rate variability
+            record: Workout dict from API response
+            activity_type: Activity type (e.g., "running", "cycling")
+            duration_minutes: Duration in minutes
 
         Returns:
-            Markdown string with HRV metrics
+            Markdown string with workout summary
         """
-        lines = ["**HRV / Readiness**"]
+        lines = [f"**{activity_type.title()}**"]
 
-        lines.append(f"- Avg HRV: {avg_hrv:.1f} ms")
+        # Add key metrics
+        calories = record.get("calories")
+        if calories is not None:
+            lines.append(f"- Calories: {calories:.0f} kcal")
 
-        resting_hr = record.get("restingHeartRate")
-        if resting_hr is not None:
-            lines.append(f"- Resting heart rate: {resting_hr:.0f} bpm")
+        distance = record.get("distanceMeters")
+        if distance is not None:
+            km = distance / 1000
+            lines.append(f"- Distance: {km:.2f} km")
 
-        temp_dev = record.get("bodyTemperatureDeviation")
-        if temp_dev is not None:
-            lines.append(f"- Temperature deviation: {temp_dev:.2f}°C")
+        avg_hr = record.get("avgHeartRate")
+        if avg_hr is not None:
+            lines.append(f"- Avg heart rate: {avg_hr:.0f} bpm")
+
+        max_hr = record.get("maxHeartRate")
+        if max_hr is not None:
+            lines.append(f"- Max heart rate: {max_hr:.0f} bpm")
+
+        # Add duration
+        lines.append(f"- Duration: {duration_minutes} minutes")
 
         return "\n".join(lines)
 
@@ -1222,7 +1292,26 @@ class AppleHealthAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_mindfulness_summary(
+    def _build_tag_summary(self, text: str, tags: list[str]) -> str:
+        """Build markdown summary of a user health tag.
+
+        Args:
+            text: Tag text
+            tags: List of tag strings
+
+        Returns:
+            Markdown string with tag information
+        """
+        lines = ["**Health Tag**"]
+
+        lines.append(f"- Text: {text}")
+
+        if tags:
+            lines.append(f"- Tags: {', '.join(tags)}")
+
+        return "\n".join(lines)
+
+    def _build_session_summary(
         self,
         record: dict[str, Any],
         session_type: str,
@@ -1231,7 +1320,7 @@ class AppleHealthAdapter(BaseAdapter):
         """Build markdown summary of a mindfulness session.
 
         Args:
-            record: Mindfulness record dict from API response
+            record: Mindfulness session record dict from API response
             session_type: Type of mindfulness session
             duration_minutes: Duration in minutes
 
