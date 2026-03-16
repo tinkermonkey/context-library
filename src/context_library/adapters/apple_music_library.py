@@ -46,6 +46,7 @@ from typing import Any, Iterator
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
+    DocumentMetadata,
     NormalizedContent,
     PollStrategy,
     StructuralHints,
@@ -216,6 +217,10 @@ class AppleMusicLibraryAdapter(BaseAdapter):
     def _process_track(self, track: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single track from the library and yield NormalizedContent.
 
+        Validates DocumentMetadata at adapter layer to catch type/constraint violations
+        early (e.g., negative play_count, invalid types), matching the pattern used by
+        other adapters (AppleHealthAdapter, AppleRemindersAdapter, AppleMusicAdapter).
+
         Raises:
             KeyError: If required fields are missing
             ValueError: If fields fail validation
@@ -236,20 +241,22 @@ class AppleMusicLibraryAdapter(BaseAdapter):
 
         duration_minutes = int(duration_seconds // 60) if duration_seconds is not None else None
 
-        document_metadata: dict[str, Any] = {
+        # Build metadata dict and validate via DocumentMetadata model
+        metadata_dict: dict[str, Any] = {
             "document_id": str(track_id),
             "title": title,
             "document_type": "audio/mpeg",
             "source_type": "apple_music",
             "author": artist,
-            # Music-specific extras preserved alongside DocumentMetadata fields:
             "album": album,
             "play_count": play_count,
             "duration_minutes": duration_minutes,
             "genre": genre,
         }
 
-        # Metadata will be validated by DocumentsDomain.chunk() during processing
+        # Validate metadata at adapter layer (catches type/constraint violations early)
+        validated_metadata = DocumentMetadata.model_validate(metadata_dict)
+
         markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
 
         structural_hints = StructuralHints(
@@ -257,7 +264,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             has_lists=True,
             has_tables=False,
             natural_boundaries=(),
-            extra_metadata=document_metadata,
+            extra_metadata=metadata_dict,
         )
 
         yield NormalizedContent(

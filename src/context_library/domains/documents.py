@@ -85,9 +85,10 @@ class DocumentsDomain(BaseDomain):
         chunks = []
         for idx, segment in enumerate(segments):
             chunk_hash = compute_chunk_hash(segment)
-            # Merge: validated fields take precedence over raw dict
-            # This ensures Pydantic normalization is preserved
-            domain_metadata = {**meta_dict, **meta.model_dump(exclude_none=True)}
+            # Use model_dump() to get validated and normalized metadata
+            # All explicitly declared fields (including music-specific fields like
+            # album, play_count, duration_minutes, genre) are included with validation applied
+            domain_metadata = meta.model_dump(exclude_none=True)
             chunk = Chunk(
                 chunk_hash=chunk_hash,
                 content=segment,

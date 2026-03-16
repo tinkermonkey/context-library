@@ -583,14 +583,24 @@ class DocumentMetadata(BaseModel):
     content where the primary value is the object itself and its metadata,
     rather than structured textual content (notes) or time-stamped occurrences (events).
 
+    Supports domain-specific extensions via explicitly declared optional fields:
+    - Music metadata (album, play_count, duration_minutes, genre) for Apple Music library tracks
+    - Additional fields for future document types may be added as model properties
+
     Invariants:
     - document_id, title, document_type, and source_type must be non-empty
     - date_first_observed, created_at, and modified_at must be valid ISO 8601 timestamps if provided
     - file_size_bytes if provided must be non-negative
+    - play_count if provided must be non-negative
+    - duration_minutes if provided must be non-negative
     - date_first_observed is managed by the storage layer and should not be set by adapters
+
+    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
+    All domain-specific fields must be explicitly declared as model properties with appropriate validators.
+    Extra fields not listed here are silently deleted during validation.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     document_id: str
     title: str
@@ -602,6 +612,12 @@ class DocumentMetadata(BaseModel):
     file_size_bytes: int | None = None
     author: str | None = None
     tags: tuple[str, ...] = ()
+
+    # Music-specific metadata (Apple Music library adapter)
+    album: str | None = None
+    genre: str | None = None
+    play_count: int | None = None
+    duration_minutes: int | None = None
 
     @field_validator("document_id")
     @classmethod
@@ -668,6 +684,22 @@ class DocumentMetadata(BaseModel):
         """Validate that file_size_bytes is non-negative if provided."""
         if value is not None and value < 0:
             raise ValueError(f"file_size_bytes must be non-negative, got: {value}")
+        return value
+
+    @field_validator("play_count")
+    @classmethod
+    def validate_play_count(cls, value: int | None) -> int | None:
+        """Validate that play_count is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"play_count must be non-negative, got: {value}")
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
 
