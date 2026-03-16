@@ -25,7 +25,7 @@ import type {
   ChunkQueryParams,
 } from '../types/api';
 
-const BASE = import.meta.env.DEV ? '/api' : '';
+const BASE = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_BASE_URL || '/api');
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
@@ -61,7 +61,7 @@ export const fetchAdapterStats = () => apiFetch<AdapterStatsResponse>('/stats/ad
 export const fetchAdapters = () => apiFetch<AdapterListResponse>('/adapters');
 
 export const fetchAdapter = (adapterId: string) =>
-  apiFetch<AdapterResponse>(`/adapters/${adapterId}`);
+  apiFetch<AdapterResponse>(`/adapters/${encodeURIComponent(adapterId)}`);
 
 // ── Sources ──────────────────────────────────────────────────────
 
@@ -71,22 +71,22 @@ export const fetchSources = (params: SourceQueryParams) => {
 };
 
 export const fetchSource = (sourceId: string) =>
-  apiFetch<SourceDetailResponse>(`/sources/${sourceId}`);
+  apiFetch<SourceDetailResponse>(`/sources/${encodeURIComponent(sourceId)}`);
 
 export const fetchSourceChunks = (sourceId: string, version?: number) => {
   const versionQs = version != null ? `?version=${version}` : '';
-  return apiFetch<ChunkListResponse>(`/sources/${sourceId}/chunks${versionQs}`);
+  return apiFetch<ChunkListResponse>(`/sources/${encodeURIComponent(sourceId)}/chunks${versionQs}`);
 };
 
 export const fetchVersionHistory = (sourceId: string) =>
-  apiFetch<VersionHistoryResponse>(`/sources/${sourceId}/versions`);
+  apiFetch<VersionHistoryResponse>(`/sources/${encodeURIComponent(sourceId)}/versions`);
 
 export const fetchVersionDetail = (sourceId: string, version: number) =>
-  apiFetch<VersionDetailResponse>(`/sources/${sourceId}/versions/${version}`);
+  apiFetch<VersionDetailResponse>(`/sources/${encodeURIComponent(sourceId)}/versions/${version}`);
 
 export const fetchVersionDiff = (sourceId: string, fromVersion: number, toVersion: number) =>
   apiFetch<VersionDiffResponse>(
-    `/sources/${sourceId}/diff?from_version=${fromVersion}&to_version=${toVersion}`
+    `/sources/${encodeURIComponent(sourceId)}/diff?from_version=${fromVersion}&to_version=${toVersion}`
   );
 
 // ── Chunks ───────────────────────────────────────────────────────
@@ -97,17 +97,17 @@ export const fetchChunks = (params: ChunkQueryParams) => {
 };
 
 export const fetchChunk = (hash: string, sourceId?: string) => {
-  const sourceQs = sourceId ? `?source_id=${sourceId}` : '';
-  return apiFetch<ChunkResponse>(`/chunks/${hash}${sourceQs}`);
+  const sourceQs = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : '';
+  return apiFetch<ChunkResponse>(`/chunks/${encodeURIComponent(hash)}${sourceQs}`);
 };
 
 export const fetchChunkProvenance = (hash: string, sourceId?: string) => {
-  const sourceQs = sourceId ? `?source_id=${sourceId}` : '';
-  return apiFetch<ChunkProvenanceResponse>(`/chunks/${hash}/provenance${sourceQs}`);
+  const sourceQs = sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : '';
+  return apiFetch<ChunkProvenanceResponse>(`/chunks/${encodeURIComponent(hash)}/provenance${sourceQs}`);
 };
 
 export const fetchChunkVersionChain = (hash: string, sourceId: string) => {
-  return apiFetch<ChunkVersionChainResponse>(`/chunks/${hash}/version-chain?source_id=${sourceId}`);
+  return apiFetch<ChunkVersionChainResponse>(`/chunks/${encodeURIComponent(hash)}/version-chain?source_id=${encodeURIComponent(sourceId)}`);
 };
 
 // ── Query ────────────────────────────────────────────────────────
