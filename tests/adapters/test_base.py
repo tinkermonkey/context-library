@@ -43,7 +43,7 @@ class ConcreteAdapter(BaseAdapter):
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[],
+            natural_boundaries=(),
         )
         yield NormalizedContent(
             markdown="# Test\n\nContent",

@@ -17,7 +17,7 @@ import pytest
 from context_library.core.exceptions import RerankerError
 from context_library.retrieval.query import RetrievalResult
 from context_library.retrieval.reranker import Reranker, _sigmoid
-from context_library.storage.models import Chunk, Domain, LineageRecord
+from context_library.storage.models import Chunk, ChunkType, Domain, LineageRecord
 
 
 def _make_hash(char: str) -> str:
@@ -32,7 +32,7 @@ def _create_test_chunk(hash_char: str, chunk_index: int = 0) -> Chunk:
         content=f"Test chunk {hash_char}",
         context_header=f"Context for {hash_char}",
         chunk_index=chunk_index,
-        chunk_type="standard",
+        chunk_type=ChunkType.STANDARD,
         domain_metadata=None,
     )
 
@@ -696,7 +696,8 @@ class TestRerankerRerank:
         result_dict = results[0].to_dict()
         assert "similarity_score" in result_dict
         # similarity_score is the reranker score (sigmoid(1.0) ≈ 0.73)
-        assert result_dict["similarity_score"] > 0.72 and result_dict["similarity_score"] < 0.74
+        similarity_score = result_dict["similarity_score"]
+        assert isinstance(similarity_score, float) and similarity_score > 0.72 and similarity_score < 0.74
         # Original similarity_score (0.6) is not in the returned result
         assert result_dict["similarity_score"] != original_score
 

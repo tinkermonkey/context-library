@@ -963,7 +963,8 @@ Some shared text here."""
         """Helper to count total insert operations in sync log."""
         cursor = pipeline.document_store.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'insert'")
-        return cursor.fetchone()[0]
+        result: int = cursor.fetchone()[0]  # type: ignore[assignment]
+        return result
 
 
 class TestPipelineErrorHandling:

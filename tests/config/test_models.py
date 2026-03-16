@@ -144,7 +144,7 @@ class TestRemoteAdapterConfig:
                 service_url="http://localhost:8001",
                 domain=Domain.NOTES,
                 adapter_id="test:adapter",
-                extra_field="should not be allowed",
+                extra_field="should not be allowed",  # type: ignore[call-arg]
             )
         assert "extra_field" in str(exc_info.value)
 
@@ -202,7 +202,7 @@ class TestLocalAdapterConfig:
                 adapter_type="filesystem",
                 domain=Domain.NOTES,
                 adapter_id="test:adapter",
-                extra_field="should not be allowed",
+                extra_field="should not be allowed",  # type: ignore[call-arg]
             )
         assert "extra_field" in str(exc_info.value)
 
@@ -213,13 +213,13 @@ class TestAdaptersConfig:
     def test_valid_remote_only(self) -> None:
         """Test valid config with only remote adapters."""
         config = AdaptersConfig(
-            remote_adapters=[
+            remote_adapters=(
                 RemoteAdapterConfig(
                     service_url="http://localhost:8001",
                     domain=Domain.NOTES,
                     adapter_id="remote:notes",
+                ),
                 )
-            ]
         )
         assert len(config.remote_adapters) == 1
         assert len(config.local_adapters) == 0
@@ -227,13 +227,13 @@ class TestAdaptersConfig:
     def test_valid_local_only(self) -> None:
         """Test valid config with only local adapters."""
         config = AdaptersConfig(
-            local_adapters=[
+            local_adapters=(
                 LocalAdapterConfig(
                     adapter_type="filesystem",
                     domain=Domain.NOTES,
                     adapter_id="local:files",
-                )
-            ]
+                ),
+            )
         )
         assert len(config.remote_adapters) == 0
         assert len(config.local_adapters) == 1
@@ -241,20 +241,20 @@ class TestAdaptersConfig:
     def test_valid_mixed_adapters(self) -> None:
         """Test valid config with both remote and local adapters."""
         config = AdaptersConfig(
-            remote_adapters=[
+            remote_adapters=(
                 RemoteAdapterConfig(
                     service_url="http://localhost:8001",
                     domain=Domain.NOTES,
                     adapter_id="remote:notes",
-                )
-            ],
-            local_adapters=[
+                ),
+                ),
+            local_adapters=(
                 LocalAdapterConfig(
                     adapter_type="filesystem",
                     domain=Domain.EVENTS,
                     adapter_id="local:files",
-                )
-            ],
+                ),
+            ),
         )
         assert len(config.remote_adapters) == 1
         assert len(config.local_adapters) == 1
@@ -269,7 +269,7 @@ class TestAdaptersConfig:
         """Test that duplicate adapter_ids in same list are rejected."""
         with pytest.raises(ValidationError) as exc_info:
             AdaptersConfig(
-                remote_adapters=[
+                remote_adapters=(
                     RemoteAdapterConfig(
                         service_url="http://localhost:8001",
                         domain=Domain.NOTES,
@@ -280,7 +280,7 @@ class TestAdaptersConfig:
                         domain=Domain.MESSAGES,
                         adapter_id="duplicate",
                     ),
-                ]
+                )
             )
         assert "Duplicate adapter_id found: 'duplicate'" in str(exc_info.value)
 
@@ -288,20 +288,20 @@ class TestAdaptersConfig:
         """Test that duplicate adapter_ids across lists are rejected."""
         with pytest.raises(ValidationError) as exc_info:
             AdaptersConfig(
-                remote_adapters=[
+                remote_adapters=(
                     RemoteAdapterConfig(
                         service_url="http://localhost:8001",
                         domain=Domain.NOTES,
                         adapter_id="shared:id",
-                    )
-                ],
-                local_adapters=[
+                    ),
+                ),
+                local_adapters=(
                     LocalAdapterConfig(
                         adapter_type="filesystem",
                         domain=Domain.EVENTS,
                         adapter_id="shared:id",
-                    )
-                ],
+                    ),
+                ),
             )
         assert "Duplicate adapter_id found: 'shared:id'" in str(exc_info.value)
 
@@ -309,21 +309,21 @@ class TestAdaptersConfig:
         """Test that extra fields are rejected."""
         with pytest.raises(ValidationError) as exc_info:
             AdaptersConfig(
-                remote_adapters=[
+                remote_adapters=(
                     RemoteAdapterConfig(
                         service_url="http://localhost:8001",
                         domain=Domain.NOTES,
                         adapter_id="test:adapter",
-                    )
-                ],
-                extra_field="should not be allowed",
+                    ),
+                ),
+                extra_field="should not be allowed",  # type: ignore[call-arg]
             )
         assert "extra_field" in str(exc_info.value)
 
     def test_valid_multiple_adapters_unique_ids(self) -> None:
         """Test valid config with multiple adapters with unique IDs."""
         config = AdaptersConfig(
-            remote_adapters=[
+            remote_adapters=(
                 RemoteAdapterConfig(
                     service_url="http://localhost:8001",
                     domain=Domain.NOTES,
@@ -334,14 +334,14 @@ class TestAdaptersConfig:
                     domain=Domain.MESSAGES,
                     adapter_id="remote:messages",
                 ),
-            ],
-            local_adapters=[
+            ),
+            local_adapters=(
                 LocalAdapterConfig(
                     adapter_type="filesystem",
                     domain=Domain.EVENTS,
                     adapter_id="local:events",
                 ),
-            ],
+            ),
         )
         assert len(config.remote_adapters) == 2
         assert len(config.local_adapters) == 1

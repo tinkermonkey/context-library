@@ -96,7 +96,7 @@ export function DataTable<TData>({
       }
     }
     return filterObj;
-  }, [params, facets]);
+  }, [routerState.location.search, facets]);
 
   // Local state for expanded row and debounced search
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);

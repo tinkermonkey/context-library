@@ -17,15 +17,17 @@ Covers:
 
 import pytest
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     AdapterConfig,
     Chunk,
+    ChunkType,
     Domain,
     LineageRecord,
     PollStrategy,
-    VersionDiff,
+    VersionDiff
 )
 
 
@@ -372,14 +374,14 @@ class TestChunkWriteAndRead:
                 content="This is chunk 1",
                 context_header="Section 1",
                 chunk_index=0,
-                chunk_type="standard",
+                chunk_type=ChunkType.STANDARD,
             ),
             Chunk(
                 chunk_hash=_make_hash("b"),
                 content="This is chunk 2",
                 context_header="Section 2",
                 chunk_index=1,
-                chunk_type="standard",
+                chunk_type=ChunkType.STANDARD,
             ),
         ]
 
@@ -422,7 +424,7 @@ class TestChunkWriteAndRead:
             chunk_hash=_make_hash("c"),
             content="Deduplicated content",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -463,7 +465,7 @@ class TestChunkWriteAndRead:
                 chunk_hash=_make_hash("f"),
                 content="Invalid chunk",
                 chunk_index=0,
-                chunk_type="invalid_type_value",  # Not in ChunkType enum
+                chunk_type=cast(ChunkType, "invalid_type_value"),  # Not in ChunkType enum
             )
 
         # Verify the error message mentions the invalid chunk_type
@@ -480,7 +482,7 @@ class TestChunkWriteAndRead:
             chunk_hash=_make_hash("1"),
             content="Foreign key test",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -508,7 +510,7 @@ class TestChunkWriteAndRead:
         """Test writing and retrieving a chunk with domain_metadata."""
         source_id, adapter_id, version_id = self._setup_with_version(store)
 
-        metadata = {"sender": "user@example.com", "timestamp": "2025-03-02"}
+        metadata: dict[str, object] = {"sender": "user@example.com", "timestamp": "2025-03-02"}
         chunk = Chunk(
             chunk_hash=_make_hash("d"),
             content="Email content",
@@ -1563,7 +1565,7 @@ class TestRecoveryMechanisms:
             chunk_hash=_make_hash("a"),
             content="Chunk A content",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -2941,9 +2943,8 @@ class TestVersionDiff:
         assert isinstance(diff.removed_hashes, frozenset)
         assert isinstance(diff.unchanged_hashes, frozenset)
 
-        # Verify they are immutable
-        with pytest.raises(AttributeError):
-            diff.added_hashes.add(_make_hash("x"))
+        # Verify they are immutable - frozenset has no add method
+        assert not hasattr(diff.added_hashes, 'add')
 
     def test_get_version_diff_retrieves_retired_removed_chunks(self, store: DocumentStore) -> None:
         """Test that removed chunks can be retrieved even if they've been retired.
@@ -3464,7 +3465,7 @@ class TestChunkVersionChain:
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
 
-        metadata = {"source": "email", "sender": "user@example.com"}
+        metadata: dict[str, object] = {"source": "email", "sender": "user@example.com"}
         chunk = Chunk(
             chunk_hash=_make_hash("6"),
             content="With metadata",

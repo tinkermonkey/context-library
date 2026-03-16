@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from context_library.adapters._watching import FileEvent, FileSystemWatcher, PollStrategy
+from context_library.storage.models import EventType
 
 
 class TestFileEvent:
@@ -15,20 +16,20 @@ class TestFileEvent:
     def test_file_event_creation(self) -> None:
         """Test creating a FileEvent."""
         path = Path("/tmp/test.md")
-        event = FileEvent(path=path, event_type="created")
+        event = FileEvent(path=path, event_type=EventType.CREATED)
 
         assert event.path == path
         assert event.event_type == "created"
 
     def test_file_event_immutability(self) -> None:
         """Test that FileEvent is immutable (frozen dataclass)."""
-        event = FileEvent(path=Path("/tmp/test.md"), event_type="created")
+        event = FileEvent(path=Path("/tmp/test.md"), event_type=EventType.CREATED)
 
         with pytest.raises(AttributeError):
-            event.path = Path("/tmp/other.md")
+            event.path = Path("/tmp/other.md")  # type: ignore[misc]
 
         with pytest.raises(AttributeError):
-            event.event_type = "modified"
+            event.event_type = EventType.MODIFIED  # type: ignore[misc]
 
 
 class TestFileSystemWatcherInit:
