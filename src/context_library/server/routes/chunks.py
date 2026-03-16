@@ -77,7 +77,7 @@ async def list_chunks(
     """List active chunks with optional domain and adapter filtering.
 
     Returns paginated chunks across all sources, ordered by created_at DESC.
-    Only returns non-retired chunks.
+    Only returns non-retired chunks from current source versions.
     """
     ds = request.app.state.document_store
     rows, total = await asyncio.to_thread(
@@ -92,11 +92,20 @@ async def list_chunks(
     for row in rows:
         chunk_hash = row["chunk_hash"]
         source_id = row["source_id"]
-        # Get the chunk object and lineage for this row
+        # Build chunk and lineage objects from the query result
         chunk = await asyncio.to_thread(ds.get_chunk_by_hash, chunk_hash, source_id)
-        lineage = await asyncio.to_thread(ds.get_lineage, chunk_hash, source_id)
-
-        if chunk and lineage:
+        if chunk:
+            # Construct lineage from row data
+            from context_library.storage.models import LineageRecord, Domain as DomainEnum
+            lineage = LineageRecord(
+                chunk_hash=chunk_hash,
+                source_id=source_id,
+                source_version_id=row["source_version_id"],
+                adapter_id=row["adapter_id"],
+                domain=DomainEnum(row["domain"]),
+                normalizer_version=row["normalizer_version"],
+                embedding_model_id=row["embedding_model_id"],
+            )
             chunk_responses.append(_chunk_response(chunk, lineage, source_id))
 
     return TopLevelChunkListResponse(

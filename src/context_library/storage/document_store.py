@@ -1785,9 +1785,9 @@ class DocumentStore:
     ) -> tuple[list[dict], int]:
         """List active chunks with optional filtering and pagination.
 
-        Returns paginated chunks from the latest version of each source,
+        Returns paginated chunks from the current (latest) version of each source,
         filtered by domain and/or adapter_id if specified. Only returns
-        non-retired chunks.
+        non-retired chunks. Deduplicates by constraining to current_version.
 
         Args:
             domain: Optional domain filter (e.g., "notes", "messages").
@@ -1797,11 +1797,11 @@ class DocumentStore:
 
         Returns:
             Tuple of (page rows, total_matching_count). Each row dict includes
-            all chunk fields plus source-level metadata.
+            all chunk fields plus lineage metadata (adapter_id, domain, source_version_id).
         """
         cursor = self.conn.cursor()
         filter_params: list[object] = []
-        where_clauses = ["c.retired_at IS NULL"]
+        where_clauses = ["c.retired_at IS NULL", "c.source_version = s.current_version"]
 
         if domain is not None:
             where_clauses.append("s.domain = ?")
@@ -1812,10 +1812,10 @@ class DocumentStore:
 
         where_sql = " AND ".join(where_clauses)
 
-        # Total count of matching chunks (without LIMIT/OFFSET)
+        # Total count of matching chunks (without LIMIT/OFFSET), with deduplication
         cursor.execute(
             f"""
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT c.chunk_hash)
             FROM chunks c
             JOIN sources s ON c.source_id = s.source_id
             WHERE {where_sql}
@@ -1824,14 +1824,14 @@ class DocumentStore:
         )
         total: int = cursor.fetchone()[0]
 
-        # Paginated rows ordered by created_at DESC
+        # Paginated rows ordered by created_at DESC, with all data needed for responses
         page_params = list(filter_params) + [limit, offset]
         cursor.execute(
             f"""
             SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
-                   c.content, c.context_header, c.domain, c.adapter_id,
-                   c.chunk_type, c.domain_metadata, c.normalizer_version,
-                   c.embedding_model_id, c.created_at
+                   c.content, c.context_header, c.chunk_type, c.domain_metadata,
+                   c.normalizer_version, c.embedding_model_id, c.created_at,
+                   s.adapter_id, s.domain, s.current_version as source_version_id
             FROM chunks c
             JOIN sources s ON c.source_id = s.source_id
             WHERE {where_sql}

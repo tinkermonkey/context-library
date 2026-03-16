@@ -4409,7 +4409,10 @@ class TestListChunks:
         from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
         _setup_adapter_and_source(store)
 
-        # Create multiple chunks
+        # Create 5 chunks in a single source version
+        chunks = []
+        chunk_hashes = []
+        lineages = []
         for i in range(5):
             ch = compute_chunk_hash(f"content{i}")
             chunk = Chunk(
@@ -4419,25 +4422,29 @@ class TestListChunks:
                 chunk_index=i,
                 chunk_type=ChunkType.STANDARD,
             )
-            store.create_source_version(
-                source_id="read-src",
-                version=i+1,
-                markdown=f"content{i}",
-                chunk_hashes=[ch],
-                adapter_id="read-adapter",
-                normalizer_version="1.0.0",
-                fetch_timestamp=f"2024-01-0{i+1}T00:00:00+00:00",
-            )
+            chunks.append(chunk)
+            chunk_hashes.append(ch)
             lineage = LineageRecord(
                 chunk_hash=ch,
                 source_id="read-src",
-                source_version_id=i+1,
+                source_version_id=1,
                 adapter_id="read-adapter",
                 domain=Domain.NOTES,
                 normalizer_version="1.0.0",
                 embedding_model_id="test-model",
             )
-            store.write_chunks([chunk], [lineage])
+            lineages.append(lineage)
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content0\ncontent1\ncontent2\ncontent3\ncontent4",
+            chunk_hashes=chunk_hashes,
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(chunks, lineages)
 
         # Test limit
         rows, total = store.list_chunks(limit=2)

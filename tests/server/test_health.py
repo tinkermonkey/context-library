@@ -47,3 +47,19 @@ class TestGetHealth:
             assert data["vector_count"] == 0
         finally:
             vector_store.count = original_count
+
+    def test_degraded_when_sqlite_unreachable(self, client: TestClient) -> None:
+        # Replace the document_store connection with one that raises on execute
+        document_store = client.app.state.document_store
+        original_conn = document_store.conn
+        # Create a mock connection that raises when execute is called
+        mock_conn = MagicMock()
+        mock_conn.execute = MagicMock(side_effect=Exception("SQLite unreachable"))
+        document_store.conn = mock_conn
+        try:
+            data = client.get("/health").json()
+            assert data["status"] == "degraded"
+            assert data["sqlite_ok"] is False
+            assert data["chromadb_ok"] is True
+        finally:
+            document_store.conn = original_conn
