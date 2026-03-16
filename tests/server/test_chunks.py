@@ -135,6 +135,20 @@ class TestListChunks:
         assert data["total"] == 1
         assert len(data["chunks"]) == 1
 
+    def test_filters_by_source_id(self, client: TestClient, chunk_hash: str) -> None:
+        # Test with matching source_id
+        resp = client.get("/chunks?source_id=src-1")
+        data = resp.json()
+        assert data["total"] == 1
+        assert len(data["chunks"]) == 1
+        assert data["chunks"][0]["chunk_hash"] == chunk_hash
+
+        # Test with non-matching source_id
+        resp = client.get("/chunks?source_id=nonexistent-source")
+        data = resp.json()
+        assert data["total"] == 0
+        assert len(data["chunks"]) == 0
+
     def test_invalid_limit_too_large(self, client: TestClient) -> None:
         resp = client.get("/chunks?limit=2000")
         assert resp.status_code == 422

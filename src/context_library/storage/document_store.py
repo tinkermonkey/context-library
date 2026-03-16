@@ -1780,18 +1780,20 @@ class DocumentStore:
         self,
         domain: Optional[str] = None,
         adapter_id: Optional[str] = None,
+        source_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
         """List active chunks with optional filtering and pagination.
 
         Returns paginated chunks from the current (latest) version of each source,
-        filtered by domain and/or adapter_id if specified. Only returns
+        filtered by domain, adapter_id, and/or source_id if specified. Only returns
         non-retired chunks. Deduplicates by constraining to current_version.
 
         Args:
             domain: Optional domain filter (e.g., "notes", "messages").
             adapter_id: Optional adapter_id filter.
+            source_id: Optional source_id filter (returns only chunks from this source).
             limit: Maximum number of results to return.
             offset: Number of results to skip.
 
@@ -1809,6 +1811,9 @@ class DocumentStore:
         if adapter_id is not None:
             where_clauses.append("s.adapter_id = ?")
             filter_params.append(adapter_id)
+        if source_id is not None:
+            where_clauses.append("c.source_id = ?")
+            filter_params.append(source_id)
 
         where_sql = " AND ".join(where_clauses)
 
@@ -1825,10 +1830,11 @@ class DocumentStore:
         total: int = cursor.fetchone()[0]
 
         # Paginated rows ordered by created_at DESC, with all data needed for responses
+        # Use DISTINCT to match the count query and ensure pagination consistency
         page_params = list(filter_params) + [limit, offset]
         cursor.execute(
             f"""
-            SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+            SELECT DISTINCT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
                    c.content, c.context_header, c.chunk_type, c.domain_metadata,
                    c.normalizer_version, c.embedding_model_id, c.created_at,
                    s.adapter_id, s.domain, s.current_version as source_version_id

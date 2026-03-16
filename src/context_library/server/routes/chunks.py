@@ -14,7 +14,7 @@ from context_library.server.schemas import (
     LineageResponse,
     TopLevelChunkListResponse,
 )
-from context_library.storage.models import Domain, LineageRecord
+from context_library.storage.models import Chunk, ChunkType, Domain, LineageRecord
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -71,19 +71,22 @@ async def list_chunks(
     request: Request,
     domain: Domain | None = Query(default=None),
     adapter_id: str | None = Query(default=None),
+    source_id: str | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> TopLevelChunkListResponse:
-    """List active chunks with optional domain and adapter filtering.
+    """List active chunks with optional domain, adapter, and source filtering.
 
-    Returns paginated chunks across all sources, ordered by created_at DESC.
-    Only returns non-retired chunks from current source versions.
+    Returns paginated chunks across all sources (or filtered by source_id),
+    ordered by created_at DESC. Only returns non-retired chunks from current
+    source versions.
     """
     ds = request.app.state.document_store
     rows, total = await asyncio.to_thread(
         ds.list_chunks,
         domain.value if domain else None,
         adapter_id,
+        source_id,
         limit,
         offset,
     )
@@ -91,21 +94,30 @@ async def list_chunks(
     chunk_responses = []
     for row in rows:
         chunk_hash = row["chunk_hash"]
-        source_id = row["source_id"]
-        # Build chunk and lineage objects from the query result
-        chunk = await asyncio.to_thread(ds.get_chunk_by_hash, chunk_hash, source_id)
-        if chunk:
-            # Construct lineage from row data
-            lineage = LineageRecord(
-                chunk_hash=chunk_hash,
-                source_id=source_id,
-                source_version_id=row["source_version_id"],
-                adapter_id=row["adapter_id"],
-                domain=Domain(row["domain"]),
-                normalizer_version=row["normalizer_version"],
-                embedding_model_id=row["embedding_model_id"],
-            )
-            chunk_responses.append(_chunk_response(chunk, lineage, source_id))
+        src_id = row["source_id"]
+        # Construct chunk and lineage objects directly from the query result
+        # without additional DB calls (query already returns all needed fields)
+        chunk = Chunk(
+            chunk_hash=chunk_hash,
+            content=row["content"],
+            context_header=row["context_header"],
+            chunk_index=row["chunk_index"],
+            chunk_type=ChunkType(row["chunk_type"]),
+            domain_metadata=row["domain_metadata"],
+            cross_refs=[],  # cross_refs not included in list_chunks query
+            created_at=row["created_at"],
+            retired_at=None,
+        )
+        lineage = LineageRecord(
+            chunk_hash=chunk_hash,
+            source_id=src_id,
+            source_version_id=row["source_version_id"],
+            adapter_id=row["adapter_id"],
+            domain=Domain(row["domain"]),
+            normalizer_version=row["normalizer_version"],
+            embedding_model_id=row["embedding_model_id"],
+        )
+        chunk_responses.append(_chunk_response(chunk, lineage, src_id))
 
     return TopLevelChunkListResponse(
         chunks=chunk_responses,
