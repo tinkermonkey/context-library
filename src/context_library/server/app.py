@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -177,9 +177,33 @@ def create_app() -> FastAPI:
         # Serve assets (JS, CSS, images) from /assets/
         app.mount("/assets", StaticFiles(directory=ui_dist / "assets"), name="assets")
 
-        # SPA fallback: any unmatched GET returns index.html
+        # Serve root-level static files (favicon.svg, robots.txt, etc.)
+        @app.get("/favicon.svg")
+        async def favicon():
+            favicon_path = ui_dist / "favicon.svg"
+            if favicon_path.exists():
+                return FileResponse(favicon_path, media_type="image/svg+xml")
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        # SPA fallback: unmatched GET requests for client-side routes return index.html
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str):
+            # Whitelist of known client-side routes. Only these routes (and their subpaths)
+            # get the SPA fallback. Any other path is assumed to be an API route attempt
+            # and returns 404 JSON instead of HTML to avoid confusing API clients with HTML.
+            # Client-side route prefixes (from the React Router configuration in ui/src/router.tsx)
+            client_prefixes = ("browser", "search")
+
+            # Check if this is a known client-side route
+            is_client_route = (
+                full_path == ""  # root path (/) is the dashboard
+                or any(full_path == prefix or full_path.startswith(prefix + "/") for prefix in client_prefixes)
+            )
+
+            # If not a known client route, return 404 to protect API clients from getting HTML
+            if not is_client_route:
+                raise HTTPException(status_code=404, detail="Not Found")
+
             return FileResponse(ui_dist / "index.html")
 
     return app
