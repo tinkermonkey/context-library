@@ -6,7 +6,7 @@
  * Generic over row data type TData.
  */
 
-import { useCallback, useMemo, useState, useEffect, Fragment } from 'react';
+import { useCallback, useMemo, useState, useEffect, Fragment, useRef } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -55,6 +55,11 @@ export interface DataTableProps<TData> {
   defaultPageSize?: number;
   rowKey: (row: TData) => string;
   queryKey: string; // For cache namespacing
+  /**
+   * Callback to update URL search parameters. Parent component is responsible for
+   * proper typing based on the route's search schema.
+   */
+  onSearchParamsChange?: (params: Record<string, unknown>) => void;
 }
 
 /**
@@ -70,12 +75,31 @@ export function DataTable<TData>({
   defaultPageSize = 25,
   rowKey,
   queryKey,
+  onSearchParamsChange,
 }: DataTableProps<TData>) {
   const navigate = useNavigate();
   const routerState = useRouterState();
 
+  // Navigation handler that uses callback if provided (for proper typing), otherwise falls back to navigate
+  const updateSearchParams = useCallback(
+    (newParams: Record<string, unknown>) => {
+      if (onSearchParamsChange) {
+        onSearchParamsChange(newParams);
+      } else {
+        // Fallback to direct navigation (loses type safety but still works)
+        navigate({ search: (newParams) as any });
+      }
+    },
+    [navigate, onSearchParamsChange]
+  );
+
+  // Use a ref to hold current params without triggering callback updates on every URL change
+  const paramsRef = useRef<Record<string, unknown>>({});
+
   // Safely parse URL search params into table state
   const params = (routerState.location.search ?? {}) as Record<string, unknown>;
+  paramsRef.current = params;
+
   const sortColumn = (typeof params.sort === 'string' ? params.sort : undefined) ?? undefined;
   const sortDir = (typeof params.dir === 'string' && (params.dir === 'asc' || params.dir === 'desc') ? params.dir : undefined) ?? undefined;
   const searchQuery = (typeof params.q === 'string' ? params.q : '') ?? '';
@@ -96,7 +120,7 @@ export function DataTable<TData>({
       }
     }
     return filterObj;
-  }, [routerState.location.search, facets]);
+  }, [params, facets]);
 
   // Local state for expanded row and debounced search
   const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
@@ -142,9 +166,8 @@ export function DataTable<TData>({
         newSort = undefined;
       }
 
-      // Read current params at call time to avoid dependency issues
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
+      // Read current params from ref at call time (always fresh, no stale closure)
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: 0 };
 
       if (newSort !== undefined) {
         newParams.sort = columnId;
@@ -154,33 +177,31 @@ export function DataTable<TData>({
         delete newParams.dir;
       }
 
-      navigate({ search: newParams as never });
+      updateSearchParams(newParams);
     },
-    [sortColumn, sortDir, navigate, routerState.location.search]
+    [sortColumn, sortDir, updateSearchParams]
   );
 
   // Search handler
   const handleSearch = useCallback(
     (query: string) => {
-      // Read current params at call time to avoid dependency issues
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
+      // Read current params from ref at call time (always fresh, no stale closure)
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: 0 };
       if (query && query.trim()) {
         newParams.q = query;
       } else {
         delete newParams.q;
       }
-      navigate({ search: newParams as never });
+      updateSearchParams(newParams);
     },
-    [navigate, routerState.location.search]
+    [updateSearchParams]
   );
 
   // Facet filter handler
   const handleFacetChange = useCallback(
     (column: string, values: string[]) => {
-      // Read current params at call time to avoid dependency issues
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
+      // Read current params from ref at call time (always fresh, no stale closure)
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: 0 };
       const filterKey = `filter_${column}`;
 
       if (values.length > 0) {
@@ -189,36 +210,35 @@ export function DataTable<TData>({
         delete newParams[filterKey];
       }
 
-      navigate({ search: newParams as never });
+      updateSearchParams(newParams);
     },
-    [navigate, routerState.location.search]
+    [updateSearchParams]
   );
 
   // Pagination handlers
   const handlePrevPage = useCallback(() => {
     if (currentPage > 0) {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      navigate({ search: { ...currentParams, page: currentPage - 1 } as never });
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: currentPage - 1 };
+      updateSearchParams(newParams);
     }
-  }, [currentPage, navigate, routerState.location.search]);
+  }, [currentPage, updateSearchParams]);
 
   const handleNextPage = useCallback(() => {
     const total = queryData?.total ?? 0;
     const maxPage = Math.ceil(total / pageSize) - 1;
     if (currentPage < maxPage) {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      navigate({ search: { ...currentParams, page: currentPage + 1 } as never });
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: currentPage + 1 };
+      updateSearchParams(newParams);
     }
-  }, [currentPage, pageSize, queryData?.total, navigate, routerState.location.search]);
+  }, [currentPage, pageSize, queryData?.total, updateSearchParams]);
 
   const handlePageSizeChange = useCallback(
     (size: string) => {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, unknown>;
-      const newParams: Record<string, unknown> = { ...currentParams, page: 0 };
+      const newParams: Record<string, unknown> = { ...paramsRef.current, page: 0 };
       newParams.pageSize = parseInt(size, 10);
-      navigate({ search: newParams as never });
+      updateSearchParams(newParams);
     },
-    [navigate, routerState.location.search]
+    [updateSearchParams]
   );
 
   // Row click handler

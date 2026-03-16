@@ -508,6 +508,17 @@ export default function BrowserPage() {
     setDiffModalOpen(true);
   };
 
+  // Type-safe callback for DataTable to update search params
+  const handleDataTableSearchParamsChange = useCallback(
+    (params: Record<string, unknown>) => {
+      navigate({
+        to: '/browser',
+        search: params as BrowserPageSearch,
+      });
+    },
+    [navigate]
+  );
+
   // Handle domain tab change
   const handleDomainChange = useCallback(
     (domain: string) => {
@@ -682,6 +693,7 @@ export default function BrowserPage() {
           rowKey={(row) => row.source_id}
           defaultPageSize={25}
           renderDetail={(source) => <SourceDetailPanel source={source} />}
+          onSearchParamsChange={handleDataTableSearchParamsChange}
         />
       )}
 
@@ -696,6 +708,7 @@ export default function BrowserPage() {
           rowKey={(row) => row.chunk_hash}
           defaultPageSize={25}
           renderDetail={(chunk) => <ChunkDetailPanel chunk={chunk} />}
+          onSearchParamsChange={handleDataTableSearchParamsChange}
         />
       )}
 
@@ -715,6 +728,7 @@ export default function BrowserPage() {
               onCompareClick={handleVersionDiffClick}
             />
           )}
+          onSearchParamsChange={handleDataTableSearchParamsChange}
         />
       )}
 
