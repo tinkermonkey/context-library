@@ -658,6 +658,46 @@ class TestDocumentSourceTypeVariations:
         assert len(chunks) == 1
         assert chunks[0].domain_metadata["source_type"] == source_type
 
+    @pytest.mark.parametrize(
+        "source_type",
+        ["filesystem", "apple_music"],
+    )
+    def test_source_types_without_date_first_observed(self, documents_domain, source_type):
+        """Source types like filesystem and apple_music work with date_first_observed=None.
+
+        This tests the production path where adapters don't set date_first_observed
+        (managed by storage layer instead).
+        """
+        meta = DocumentMetadata(
+            document_id="doc-001",
+            title="Sample Document",
+            document_type="text/markdown",
+            source_type=source_type,
+            date_first_observed=None,  # Storage layer will set this later
+        )
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Document content description.",
+            source_id="doc_1",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = documents_domain.chunk(content)
+
+        assert len(chunks) == 1
+        assert chunks[0].domain_metadata["source_type"] == source_type
+        # date_first_observed should not be in domain_metadata (excluded via exclude_none=True)
+        assert "date_first_observed" not in chunks[0].domain_metadata or chunks[0].domain_metadata.get("date_first_observed") is None
+
 
 class TestDocumentMetadataFields:
     """Tests for document-specific metadata fields validation and preservation."""
@@ -707,6 +747,100 @@ class TestDocumentMetadataFields:
         assert chunk.domain_metadata["file_size_bytes"] == 2048576
         assert chunk.domain_metadata["author"] == "Jane Doe"
         assert chunk.domain_metadata["tags"] == ("important", "technical", "2026-Q1")
+
+    def test_document_metadata_with_all_optional_fields_and_music_metadata(self, documents_domain):
+        """DocumentMetadata with all optional fields including music metadata produces valid chunks."""
+        meta = DocumentMetadata(
+            document_id="doc-comprehensive-music-001",
+            title="Comprehensive Music Track",
+            document_type="audio/mpeg",
+            source_type="apple_music",
+            date_first_observed="2026-03-07T08:00:00Z",
+            album="Greatest Hits",
+            play_count=100,
+            duration_minutes=5,
+            genre="Rock",
+            author="The Beatles",
+        )
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Comprehensive music track content.",
+            source_id="doc_1",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = documents_domain.chunk(content)
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # Music-specific fields should be in domain_metadata
+        assert chunk.domain_metadata["document_id"] == "doc-comprehensive-music-001"
+        assert chunk.domain_metadata["title"] == "Comprehensive Music Track"
+        assert chunk.domain_metadata["document_type"] == "audio/mpeg"
+        assert chunk.domain_metadata["source_type"] == "apple_music"
+        assert chunk.domain_metadata["album"] == "Greatest Hits"
+        assert chunk.domain_metadata["play_count"] == 100
+        assert chunk.domain_metadata["duration_minutes"] == 5
+        assert chunk.domain_metadata["genre"] == "Rock"
+        assert chunk.domain_metadata["author"] == "The Beatles"
+
+    def test_document_metadata_with_all_optional_fields_no_date_first_observed(self, documents_domain):
+        """DocumentMetadata with all optional fields but no date_first_observed (storage layer manages it)."""
+        meta = DocumentMetadata(
+            document_id="doc-comprehensive-no-date-001",
+            title="Comprehensive Document No Date",
+            document_type="application/pdf",
+            source_type="filesystem",
+            date_first_observed=None,  # Storage layer will manage this
+            created_at="2026-03-01T10:00:00Z",
+            modified_at="2026-03-07T12:00:00Z",
+            file_size_bytes=2048576,
+            author="Jane Doe",
+            tags=("important", "technical", "2026-Q1"),
+        )
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Comprehensive document content.",
+            source_id="doc_1",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = documents_domain.chunk(content)
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # Fields should be in domain_metadata, but date_first_observed excluded via exclude_none
+        assert chunk.domain_metadata["document_id"] == "doc-comprehensive-no-date-001"
+        assert chunk.domain_metadata["title"] == "Comprehensive Document No Date"
+        assert chunk.domain_metadata["document_type"] == "application/pdf"
+        assert chunk.domain_metadata["source_type"] == "filesystem"
+        assert chunk.domain_metadata["created_at"] == "2026-03-01T10:00:00Z"
+        assert chunk.domain_metadata["modified_at"] == "2026-03-07T12:00:00Z"
+        assert chunk.domain_metadata["file_size_bytes"] == 2048576
+        assert chunk.domain_metadata["author"] == "Jane Doe"
+        assert chunk.domain_metadata["tags"] == ("important", "technical", "2026-Q1")
+        # date_first_observed should be excluded (exclude_none=True)
+        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
 
     def test_document_metadata_with_minimal_fields(self, documents_domain):
         """DocumentMetadata with only required fields produces valid chunks."""
@@ -798,6 +932,50 @@ class TestDocumentMetadataFields:
                 file_size_bytes=-1024,  # Invalid: negative
             )
 
+    def test_document_metadata_music_fields_without_date_first_observed(self, documents_domain):
+        """Music metadata fields work correctly when date_first_observed is None."""
+        meta = DocumentMetadata(
+            document_id="doc-music-no-date-001",
+            title="Song Without Observation Date",
+            document_type="audio/mpeg",
+            source_type="apple_music",
+            date_first_observed=None,  # Storage layer manages this
+            album="Album Name",
+            play_count=25,
+            duration_minutes=4,
+            genre="Pop",
+            author="Artist Name",
+        )
+
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Music track content.",
+            source_id="doc_1",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = documents_domain.chunk(content)
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # Music fields should be preserved
+        assert chunk.domain_metadata["album"] == "Album Name"
+        assert chunk.domain_metadata["play_count"] == 25
+        assert chunk.domain_metadata["duration_minutes"] == 4
+        assert chunk.domain_metadata["genre"] == "Pop"
+        assert chunk.domain_metadata["author"] == "Artist Name"
+        # date_first_observed should be excluded
+        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
+
 
 class TestCrossReferences:
     """Tests for cross-reference detection in chunks."""
@@ -836,3 +1014,179 @@ class TestCrossReferences:
         for chunk in chunks:
             assert hasattr(chunk, 'cross_refs')
             assert isinstance(chunk.cross_refs, tuple)
+
+
+class TestAppleMusicLibraryAdapterIntegration:
+    """Integration tests for AppleMusicLibraryAdapter with DocumentsDomain."""
+
+    def test_apple_music_library_adapter_with_documents_domain(
+        self, documents_domain, mock_apple_music_library_endpoints
+    ):
+        """Integration: AppleMusicLibraryAdapter.fetch() output chunks correctly via DocumentsDomain.
+
+        This test verifies the end-to-end flow:
+        1. AppleMusicLibraryAdapter.fetch() produces NormalizedContent with music-specific fields in extra_metadata
+        2. DocumentsDomain.chunk() extracts and validates DocumentMetadata (including music fields like album, play_count)
+        3. The domain chunker preserves all validated fields in domain_metadata
+        """
+        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+
+        # Setup: Mock the /tracks endpoint with a track containing music-specific fields
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            [
+                {
+                    "id": "music-track-001",
+                    "title": "Bohemian Rhapsody",
+                    "artist": "Queen",
+                    "album": "A Night at the Opera",
+                    "duration_seconds": 354,
+                    "play_count": 42,
+                    "genre": "Rock",
+                }
+            ],
+        )
+
+        # Step 1: Fetch via adapter
+        adapter = AppleMusicLibraryAdapter(
+            api_url="http://127.0.0.1:7123",
+            api_key="test-token",
+        )
+        results = list(adapter.fetch(""))
+
+        # Verify fetch produced exactly one NormalizedContent
+        assert len(results) == 1
+        content = results[0]
+
+        # Verify NormalizedContent has extra_metadata with music fields
+        assert content.structural_hints.extra_metadata is not None
+        metadata_dict = content.structural_hints.extra_metadata
+        assert metadata_dict["album"] == "A Night at the Opera"
+        assert metadata_dict["play_count"] == 42
+        assert metadata_dict["duration_minutes"] == 5  # 354 // 60
+        assert metadata_dict["genre"] == "Rock"
+        assert metadata_dict["document_type"] == "audio/mpeg"
+        assert metadata_dict["source_type"] == "apple_music"
+
+        # Step 2: Chunk via DocumentsDomain
+        chunks = documents_domain.chunk(content)
+
+        # Verify chunking succeeded and produced one chunk
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # Step 3: Verify all fields (including music-specific) are preserved in domain_metadata
+        assert chunk.domain_metadata is not None
+        assert chunk.domain_metadata["document_id"] == "music-track-001"
+        assert chunk.domain_metadata["title"] == "Bohemian Rhapsody"
+        assert chunk.domain_metadata["author"] == "Queen"  # artist maps to author
+        assert chunk.domain_metadata["album"] == "A Night at the Opera"
+        assert chunk.domain_metadata["play_count"] == 42
+        assert chunk.domain_metadata["duration_minutes"] == 5
+        assert chunk.domain_metadata["genre"] == "Rock"
+        assert chunk.domain_metadata["document_type"] == "audio/mpeg"
+        assert chunk.domain_metadata["source_type"] == "apple_music"
+
+        # Verify context_header format
+        assert chunk.context_header == "Bohemian Rhapsody — audio/mpeg"
+
+        # Verify chunk content contains expected markdown elements
+        assert "**Bohemian Rhapsody**" in chunk.content
+        assert "Artist: Queen" in chunk.content
+        assert "Album: A Night at the Opera" in chunk.content
+        assert "Duration: 5 min" in chunk.content
+        assert "Play count: 42" in chunk.content
+        assert "Genre: Rock" in chunk.content
+
+    def test_apple_music_library_adapter_with_documents_domain_minimal_fields(
+        self, documents_domain, mock_apple_music_library_endpoints
+    ):
+        """Integration: AppleMusicLibraryAdapter with minimal fields (nulls) chunks correctly.
+
+        Verifies that when optional music fields are null, they're excluded from both
+        markdown and domain_metadata (via exclude_none=True), but chunking still succeeds.
+        """
+        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+
+        # Setup: Mock with minimal/null fields
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            [
+                {
+                    "id": "music-track-002",
+                    "title": "Unknown Song",
+                    "artist": None,
+                    "album": None,
+                    "duration_seconds": None,
+                    "play_count": 0,
+                }
+            ],
+        )
+
+        # Fetch
+        adapter = AppleMusicLibraryAdapter(
+            api_url="http://127.0.0.1:7123",
+            api_key="test-token",
+        )
+        results = list(adapter.fetch(""))
+        content = results[0]
+
+        # Chunk
+        chunks = documents_domain.chunk(content)
+        assert len(chunks) == 1
+        chunk = chunks[0]
+
+        # Verify null fields are excluded from domain_metadata
+        assert "author" not in chunk.domain_metadata or chunk.domain_metadata["author"] is None
+        assert "album" not in chunk.domain_metadata or chunk.domain_metadata["album"] is None
+        assert "duration_minutes" not in chunk.domain_metadata or chunk.domain_metadata["duration_minutes"] is None
+        assert "genre" not in chunk.domain_metadata or chunk.domain_metadata["genre"] is None
+
+        # But required fields are still present
+        assert chunk.domain_metadata["document_id"] == "music-track-002"
+        assert chunk.domain_metadata["title"] == "Unknown Song"
+        assert chunk.domain_metadata["play_count"] == 0
+
+    def test_apple_music_library_adapter_without_date_first_observed(
+        self, documents_domain, mock_apple_music_library_endpoints
+    ):
+        """Integration: AppleMusicLibraryAdapter never sets date_first_observed (storage layer manages it).
+
+        This verifies the adapter production path where date_first_observed is not set,
+        testing the gap mentioned in the issue.
+        """
+        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+
+        mock_apple_music_library_endpoints.set_response(
+            "http://127.0.0.1:7123/tracks",
+            [
+                {
+                    "id": "music-track-003",
+                    "title": "Song Title",
+                    "artist": "Artist Name",
+                    "album": "Album Name",
+                    "duration_seconds": 240,
+                    "play_count": 5,
+                }
+            ],
+        )
+
+        adapter = AppleMusicLibraryAdapter(
+            api_url="http://127.0.0.1:7123",
+            api_key="test-token",
+        )
+        results = list(adapter.fetch(""))
+        content = results[0]
+
+        # Verify adapter does NOT set date_first_observed
+        metadata_dict = content.structural_hints.extra_metadata
+        assert metadata_dict.get("date_first_observed") is None
+
+        # Chunk successfully even though date_first_observed is None
+        chunks = documents_domain.chunk(content)
+        assert len(chunks) == 1
+
+        # Storage layer would set date_first_observed later
+        # For now, verify it's None in the chunk
+        chunk = chunks[0]
+        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
