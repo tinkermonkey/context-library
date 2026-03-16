@@ -233,7 +233,7 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version=2")
 
             # Commit transaction
-            cursor.execute("COMMIT")
+            self.conn.commit()
 
             # Re-enable foreign key enforcement
             cursor.execute("PRAGMA foreign_keys=ON")
@@ -241,7 +241,10 @@ class DocumentStore:
             logger.info("Successfully migrated schema from v1 to v2")
 
         except Exception as e:
-            cursor.execute("ROLLBACK")
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
             cursor.execute("PRAGMA foreign_keys=ON")
             raise RuntimeError(
                 f"Failed to migrate schema from v1 to v2: {e}"
@@ -407,8 +410,11 @@ class DocumentStore:
             logger.info("Successfully migrated schema from v2 to v3")
 
         except Exception as e:
-            # Rollback transaction using connection object
-            self.conn.rollback()
+            # Rollback transaction using connection object, catching any rollback errors
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
             cursor.execute("PRAGMA foreign_keys=ON")
             raise RuntimeError(
                 f"Failed to migrate schema from v2 to v3: {e}"
