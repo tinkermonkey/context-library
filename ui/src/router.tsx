@@ -56,10 +56,12 @@ const browserRoute = createRoute({
 
 const searchSearchSchema = z.object({
   q: z.string().optional(),
-  topK: z.number().optional(),
   domain: z.string().optional(),
-  source: z.string().optional(),
+  rerank: z.boolean().optional(),
+  top_k: z.number().optional(),
 })
+
+export type SearchPageSearch = z.infer<typeof searchSearchSchema>
 
 const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
