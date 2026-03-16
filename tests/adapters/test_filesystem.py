@@ -656,8 +656,8 @@ class TestFilesystemAdapterDocumentMetadata:
         dt = datetime.fromisoformat(meta["modified_at"])
         assert dt.tzinfo is not None
 
-    def test_extra_metadata_date_first_observed_iso8601(self, tmp_path):
-        """extra_metadata['date_first_observed'] is a valid ISO 8601 timestamp."""
+    def test_extra_metadata_date_first_observed_not_set_by_adapter(self, tmp_path):
+        """extra_metadata['date_first_observed'] is not set by adapter (managed by storage layer)."""
         md_file = tmp_path / "test.md"
         md_file.write_text("Content", encoding="utf-8")
 
@@ -666,9 +666,8 @@ class TestFilesystemAdapterDocumentMetadata:
 
         meta = results[0].structural_hints.extra_metadata
         assert meta is not None
-        # Should be parseable as ISO 8601
-        dt = datetime.fromisoformat(meta["date_first_observed"])
-        assert dt.tzinfo is not None
+        # date_first_observed should not be set by the adapter
+        assert "date_first_observed" not in meta
 
     def test_extra_metadata_deserializable_to_document_metadata(self, tmp_path):
         """extra_metadata can be deserialized to DocumentMetadata without errors."""

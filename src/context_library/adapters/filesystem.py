@@ -111,16 +111,12 @@ class FilesystemAdapter(BaseAdapter):
                 mime_type, _ = mimetypes.guess_type(str(md_file))
                 document_type = mime_type or "text/markdown"
 
-                # Current timestamp for date_first_observed
-                now = datetime.now(timezone.utc).isoformat()
-
                 # Build DocumentMetadata dict
                 document_metadata: dict[str, object] = {
                     "document_id": source_id,
                     "title": md_file.name,
                     "document_type": document_type,
                     "source_type": "filesystem",
-                    "date_first_observed": now,
                     "created_at": created_at,
                     "modified_at": modified_at,
                     "file_size_bytes": stat.st_size,

@@ -191,23 +191,21 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         artist = track.get("artist")
         album = track.get("album")
         duration_seconds = track.get("duration_seconds")
-        play_count = track.get("play_count", 1)
+        play_count = track.get("play_count", 0)
 
-        duration_minutes = int(duration_seconds // 60) if duration_seconds else None
-
-        now = datetime.now(timezone.utc).isoformat()
+        duration_minutes = int(duration_seconds // 60) if duration_seconds is not None else None
 
         document_metadata: dict[str, Any] = {
             "document_id": str(track_id),
             "title": title,
             "document_type": "audio/mpeg",
             "source_type": "apple_music",
-            "date_first_observed": now,
             "author": artist,
             # Music-specific extras preserved alongside DocumentMetadata fields:
             "album": album,
             "play_count": play_count,
             "duration_minutes": duration_minutes,
+            "genre": track.get("genre"),
         }
 
         # Validate via DocumentMetadata (will raise ValueError on bad data)
@@ -217,7 +215,8 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             logger.error(f"DocumentMetadata validation failed for track {track_id}: {e}")
             raise
 
-        markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count)
+        genre = track.get("genre")
+        markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -241,6 +240,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         album: str | None,
         duration_minutes: int | None,
         play_count: int,
+        genre: str | None = None,
     ) -> str:
         """Build markdown representation of a track."""
         lines = [f"**{title}**"]
@@ -249,6 +249,8 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             lines.append(f"- Artist: {artist}")
         if album:
             lines.append(f"- Album: {album}")
+        if genre:
+            lines.append(f"- Genre: {genre}")
         if duration_minutes is not None:
             lines.append(f"- Duration: {duration_minutes} min")
         lines.append(f"- Play count: {play_count}")

@@ -584,9 +584,10 @@ class DocumentMetadata(BaseModel):
     rather than structured textual content (notes) or time-stamped occurrences (events).
 
     Invariants:
-    - document_id, title, document_type, source_type, and date_first_observed must be non-empty
+    - document_id, title, document_type, and source_type must be non-empty
     - date_first_observed, created_at, and modified_at must be valid ISO 8601 timestamps if provided
     - file_size_bytes if provided must be non-negative
+    - date_first_observed is managed by the storage layer and should not be set by adapters
     """
 
     model_config = ConfigDict(frozen=True)
@@ -595,7 +596,7 @@ class DocumentMetadata(BaseModel):
     title: str
     document_type: str        # MIME type or category, e.g. "audio/mpeg", "text/markdown"
     source_type: str          # Origin system, e.g. "apple_music", "filesystem"
-    date_first_observed: str  # ISO 8601 timestamp
+    date_first_observed: str | None = None  # ISO 8601 timestamp (managed by storage layer)
     created_at: str | None = None    # ISO 8601 timestamp
     modified_at: str | None = None   # ISO 8601 timestamp
     file_size_bytes: int | None = None
