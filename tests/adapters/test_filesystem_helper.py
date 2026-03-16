@@ -78,9 +78,9 @@ class TestFilesystemHelperAdapterConstruction:
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
         assert adapter.adapter_id == "filesystem_helper:default"
 
-    def test_domain_is_notes(self):
+    def test_domain_is_documents(self):
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
-        assert adapter.domain == Domain.NOTES
+        assert adapter.domain == Domain.DOCUMENTS
 
     def test_normalizer_version(self):
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")

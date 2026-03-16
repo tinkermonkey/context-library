@@ -1,7 +1,7 @@
 """FilesystemHelperAdapter — ingests markdown files from a context-helpers service.
 
 Calls POST /filesystem/fetch on the context-helpers bridge and streams each document
-as an NDJSON line, mapping results to NormalizedContent for the Notes domain.
+as an NDJSON line, mapping results to NormalizedContent for the Documents domain.
 
 Expected endpoint contract:
   POST /filesystem/fetch
@@ -57,7 +57,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
         # Pass service_url with /filesystem suffix so RemoteAdapter posts to /filesystem/fetch
         super().__init__(
             service_url=f"{api_url.rstrip('/')}/filesystem",
-            domain=Domain.NOTES,
+            domain=Domain.DOCUMENTS,
             adapter_id=f"filesystem_helper:{directory_id}",
             api_key=api_key,
         )
@@ -74,7 +74,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         """Fetch and normalize content via NDJSON streaming.
 
         Streams the response line-by-line so neither side needs to buffer
@@ -83,6 +83,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
 
         Args:
             source_ref: ISO 8601 cursor string (empty = start from beginning)
+            extra_body: Optional additional fields merged into the JSON request body
 
         Yields:
             NormalizedContent for each file in the page
@@ -104,6 +105,8 @@ class FilesystemHelperAdapter(RemoteAdapter):
             headers["Authorization"] = f"Bearer {self._api_key}"
 
         body = {"source_ref": source_ref, **self._fetch_params}
+        if extra_body:
+            body.update(extra_body)
 
         with self._client.stream(
             "POST",

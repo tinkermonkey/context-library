@@ -256,3 +256,61 @@ def mock_all_oura_endpoints(mock_oura_httpx_get):
         mock_oura_httpx_get.set_response(f"{base_url}{endpoint}", [])
 
     return mock_oura_httpx_get
+
+
+@pytest.fixture
+def mock_apple_music_library_client(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Music Library endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleMusicLibraryAdapter.
+    """
+
+    class MockClient:
+        """Mock httpx.Client that tracks requests and returns configured responses."""
+        def __init__(self, *args, **kwargs):
+            self.requests = []
+            self.responses = {}
+            self.timeout = kwargs.get("timeout")
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+            if url not in self.responses:
+                raise AssertionError(
+                    f"MockClient.get() called with unconfigured URL: {url}. "
+                    f"Configured URLs: {list(self.responses.keys())}. "
+                    f"Did you call set_response() for this URL?"
+                )
+            return self.responses[url]
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code, url=url)
+
+        def close(self):
+            """No-op for mock client."""
+            pass
+
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_music_library.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_apple_music_library_endpoints(mock_apple_music_library_client):
+    """Fixture that configures Apple Music Library endpoint with empty response.
+
+    Convenience fixture for tests that want to mock the Apple Music Library endpoint
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = ["/tracks"]
+
+    for endpoint in endpoints:
+        mock_apple_music_library_client.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_apple_music_library_client

@@ -3,6 +3,7 @@
 import pytest
 
 from context_library.domains.base import BaseDomain
+from context_library.domains.documents import DocumentsDomain
 from context_library.domains.messages import MessagesDomain
 from context_library.domains.notes import NotesDomain
 from context_library.domains.registry import (
@@ -42,6 +43,13 @@ class TestGetDomainChunker:
 
         assert isinstance(chunker, BaseDomain)
         assert chunker.__class__.__name__ == "TasksDomain"
+
+    def test_get_documents_chunker(self):
+        """get_domain_chunker returns DocumentsDomain for DOCUMENTS domain."""
+        chunker = get_domain_chunker(Domain.DOCUMENTS)
+
+        assert isinstance(chunker, DocumentsDomain)
+        assert isinstance(chunker, BaseDomain)
 
     def test_each_call_returns_new_instance(self):
         """get_domain_chunker returns a new instance on each call."""
@@ -99,11 +107,17 @@ class TestListRegisteredDomains:
 
         assert Domain.HEALTH in domains
 
-    def test_expected_count(self):
-        """list_registered_domains returns exactly five registered domains."""
+    def test_contains_documents_domain(self):
+        """list_registered_domains includes Domain.DOCUMENTS."""
         domains = list_registered_domains()
 
-        assert len(domains) == 5
+        assert Domain.DOCUMENTS in domains
+
+    def test_expected_count(self):
+        """list_registered_domains returns exactly six registered domains."""
+        domains = list_registered_domains()
+
+        assert len(domains) == 6
 
     def test_all_returned_domains_are_enum_values(self):
         """All values returned are valid Domain enum members."""

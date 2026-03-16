@@ -40,6 +40,7 @@ class Domain(str, Enum):
     EVENTS = "events"
     TASKS = "tasks"
     HEALTH = "health"
+    DOCUMENTS = "documents"
 
 
 class ChunkType(str, Enum):
@@ -104,6 +105,7 @@ class StructuralHints(BaseModel):
     - For Events domain: extra_metadata must be deserializable to EventMetadata
     - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Health domain: extra_metadata must be deserializable to HealthMetadata
+    - For Documents domain: extra_metadata must be deserializable to DocumentMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -571,6 +573,133 @@ class HealthMetadata(BaseModel):
         """Validate that score is in the range 0-100 if provided."""
         if value is not None and (value < 0 or value > 100):
             raise ValueError(f"score must be in range 0-100, got: {value}")
+        return value
+
+
+class DocumentMetadata(BaseModel):
+    """Document metadata for the documents domain.
+
+    Captures identification, format, and provenance metadata for file/object
+    content where the primary value is the object itself and its metadata,
+    rather than structured textual content (notes) or time-stamped occurrences (events).
+
+    Supports domain-specific extensions via explicitly declared optional fields:
+    - Music metadata (album, play_count, duration_minutes, genre) for Apple Music library tracks
+    - Additional fields for future document types may be added as model properties
+
+    Invariants:
+    - document_id, title, document_type, and source_type must be non-empty
+    - date_first_observed, created_at, and modified_at must be valid ISO 8601 timestamps if provided
+    - file_size_bytes if provided must be non-negative
+    - play_count if provided must be non-negative
+    - duration_minutes if provided must be non-negative
+    - date_first_observed is managed by the storage layer and should not be set by adapters
+
+    WARNING: extra="ignore" config silently DISCARDS any fields not explicitly defined in this model.
+    All domain-specific fields must be explicitly declared as model properties with appropriate validators.
+    Extra fields not listed here are silently deleted during validation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    document_id: str
+    title: str
+    document_type: str        # MIME type or category, e.g. "audio/mpeg", "text/markdown"
+    source_type: str          # Origin system, e.g. "apple_music", "filesystem"
+    date_first_observed: str | None = None  # ISO 8601 timestamp (managed by storage layer)
+    created_at: str | None = None    # ISO 8601 timestamp
+    modified_at: str | None = None   # ISO 8601 timestamp
+    file_size_bytes: int | None = None
+    author: str | None = None
+    tags: tuple[str, ...] = ()
+
+    # Music-specific metadata (Apple Music library adapter)
+    album: str | None = None
+    genre: str | None = None
+    play_count: int | None = None
+    duration_minutes: int | None = None
+
+    @field_validator("document_id")
+    @classmethod
+    def validate_document_id(cls, value: str) -> str:
+        """Validate that document_id is not empty."""
+        if not value:
+            raise ValueError("document_id must be a non-empty string")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        """Validate that title is not empty."""
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
+
+    @field_validator("document_type")
+    @classmethod
+    def validate_document_type(cls, value: str) -> str:
+        """Validate that document_type is not empty."""
+        if not value:
+            raise ValueError("document_type must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str | None) -> str | None:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp if provided.
+
+        This field is managed by the storage layer and should not be set by adapters.
+        """
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: str | None) -> str | None:
+        """Validate that created_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("modified_at")
+    @classmethod
+    def validate_modified_at(cls, value: str | None) -> str | None:
+        """Validate that modified_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("file_size_bytes")
+    @classmethod
+    def validate_file_size_bytes(cls, value: int | None) -> int | None:
+        """Validate that file_size_bytes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"file_size_bytes must be non-negative, got: {value}")
+        return value
+
+    @field_validator("play_count")
+    @classmethod
+    def validate_play_count(cls, value: int | None) -> int | None:
+        """Validate that play_count is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"play_count must be non-negative, got: {value}")
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
 

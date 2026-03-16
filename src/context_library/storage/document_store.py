@@ -51,8 +51,8 @@ class DocumentStore:
         # Set row_factory to access columns by name
         self.conn.row_factory = sqlite3.Row
 
-        # Check if this is an existing v1 database that needs migration
-        # This must be done BEFORE executing schema.sql which sets version to 2
+        # Check if this is an existing database that needs migration
+        # This must be done BEFORE executing schema.sql which sets version to 3
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
@@ -60,8 +60,18 @@ class DocumentStore:
         if version == 1:
             # Migrate from v1 to v2 BEFORE executing new schema
             self._migrate_v1_to_v2()
+            # Re-read version after migration to allow chaining to v2→v3
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=2)
+        if version == 2:
+            # Migrate from v2 to v3 BEFORE executing new schema
+            self._migrate_v2_to_v3()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=3)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -90,9 +100,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 2:
+        if final_version != 3:
             raise RuntimeError(
-                f"Schema version mismatch: expected 2, got {final_version}"
+                f"Schema version mismatch: expected 3, got {final_version}"
             )
 
     def _migrate_v1_to_v2(self) -> None:
@@ -223,7 +233,7 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version=2")
 
             # Commit transaction
-            cursor.execute("COMMIT")
+            self.conn.commit()
 
             # Re-enable foreign key enforcement
             cursor.execute("PRAGMA foreign_keys=ON")
@@ -231,10 +241,189 @@ class DocumentStore:
             logger.info("Successfully migrated schema from v1 to v2")
 
         except Exception as e:
-            cursor.execute("ROLLBACK")
-            cursor.execute("PRAGMA foreign_keys=ON")
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as pragma_error:
+                logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v1 to v2: {e}"
+            ) from e
+
+    def _migrate_v2_to_v3(self) -> None:
+        """Migrate schema from v2 to v3: add 'documents' to domain CHECK constraints.
+
+        SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so we must
+        use the rename-recreate-copy pattern for each affected table (adapters,
+        sources, chunks). All operations are wrapped in a transaction and foreign
+        key enforcement is temporarily disabled.
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v2 to v3 (adding documents domain support)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            # Disable foreign key enforcement temporarily
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Start transaction
+            cursor.execute("BEGIN")
+
+            # Migrate adapters table: rename old, create new with documents domain, copy data
+            cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
+            cursor.execute("""
+                CREATE TABLE adapters (
+                    adapter_id          TEXT PRIMARY KEY,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                    adapter_type        TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    config              TEXT,
+                    enabled             BOOLEAN NOT NULL DEFAULT 1,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("INSERT INTO adapters SELECT * FROM _adapters_old")
+            cursor.execute("DROP TABLE _adapters_old")
+
+            # Migrate sources table: rename old, create new with documents domain, copy data
+            cursor.execute("ALTER TABLE sources RENAME TO _sources_old")
+            cursor.execute("""
+                CREATE TABLE sources (
+                    source_id           TEXT PRIMARY KEY,
+                    adapter_id          TEXT NOT NULL,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                    origin_ref          TEXT NOT NULL,
+                    display_name        TEXT,
+                    current_version     INTEGER NOT NULL DEFAULT 0,
+                    last_fetched_at     DATETIME,
+                    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                    poll_interval_sec   INTEGER,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO sources SELECT * FROM _sources_old")
+            cursor.execute("DROP TABLE _sources_old")
+
+            # Recreate indices for sources
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+            # Recreate sources_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS sources_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER sources_update_timestamp
+                AFTER UPDATE ON sources
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+                END
+            """)
+
+            # Migrate source_versions table: rename old, create new with correct foreign keys, copy data
+            # This is necessary because the old source_versions has foreign keys pointing to _sources_old and _adapters_old
+            cursor.execute("ALTER TABLE source_versions RENAME TO _source_versions_old")
+            cursor.execute("""
+                CREATE TABLE source_versions (
+                    source_id           TEXT NOT NULL,
+                    version             INTEGER NOT NULL,
+                    markdown            TEXT NOT NULL,
+                    chunk_hashes        TEXT NOT NULL,
+                    adapter_id          TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (source_id, version),
+                    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO source_versions SELECT * FROM _source_versions_old")
+            cursor.execute("DROP TABLE _source_versions_old")
+
+            # Create index for source_versions
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+            # Migrate chunks table: rename old, create new with documents domain, copy data
+            cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    chunk_hash          TEXT NOT NULL,
+                    source_id           TEXT NOT NULL,
+                    source_version      INTEGER NOT NULL,
+                    chunk_index         INTEGER NOT NULL,
+                    content             TEXT NOT NULL,
+                    context_header      TEXT,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                    adapter_id          TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                    parent_chunk_hash   TEXT,
+                    domain_metadata     TEXT,
+                    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                    retired_at          DATETIME,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (chunk_hash, source_id, source_version),
+                    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                    UNIQUE (source_id, source_version, chunk_index)
+                )
+            """)
+            cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
+            cursor.execute("DROP TABLE _chunks_old")
+
+            # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+            # Recreate adapters_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS adapters_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER adapters_update_timestamp
+                AFTER UPDATE ON adapters
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+                END
+            """)
+
+            # Update schema version to 3
+            cursor.execute("PRAGMA user_version=3")
+
+            # Commit transaction using connection object
+            self.conn.commit()
+
+            # Re-enable foreign key enforcement
+            cursor.execute("PRAGMA foreign_keys=ON")
+
+            logger.info("Successfully migrated schema from v2 to v3")
+
+        except Exception as e:
+            # Rollback transaction using connection object, catching any rollback errors
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as pragma_error:
+                logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v2 to v3: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
@@ -300,6 +489,11 @@ class DocumentStore:
         all source configuration (adapter_id, domain, poll_strategy, poll_interval_sec)
         if the source is re-registered with different values.
 
+        When a source is re-registered with a different domain, all existing chunks
+        for that source are updated to the new domain in SQLite, and sync log entries
+        are recorded for all affected chunks so the vector store is updated during
+        reconciliation.
+
         Args:
             source_id: Unique identifier for the source.
             adapter_id: ID of the adapter handling this source. Updated on re-registration.
@@ -312,9 +506,9 @@ class DocumentStore:
         """
         with self.conn:
             cursor = self.conn.cursor()
-            # Check if source already exists
+            # Check if source already exists and get its current domain
             cursor.execute(
-                "SELECT source_id FROM sources WHERE source_id = ?",
+                "SELECT source_id, domain FROM sources WHERE source_id = ?",
                 (source_id,),
             )
             existing = cursor.fetchone()
@@ -330,6 +524,32 @@ class DocumentStore:
                     (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
                 )
             else:
+                # Check if domain is changing
+                old_domain = existing["domain"]
+                if old_domain != domain.value:
+                    # Get all chunk hashes affected by the domain change
+                    cursor.execute(
+                        "SELECT DISTINCT chunk_hash FROM chunks WHERE source_id = ?",
+                        (source_id,),
+                    )
+                    affected_hashes = [row["chunk_hash"] for row in cursor.fetchall()]
+
+                    # Update all chunks for this source to the new domain
+                    self.conn.execute(
+                        "UPDATE chunks SET domain = ? WHERE source_id = ?",
+                        (domain.value, source_id),
+                    )
+
+                    # Record sync log entries to trigger vector store reconciliation
+                    if affected_hashes:
+                        self.conn.executemany(
+                            """
+                            INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
+                            VALUES (?, 'insert')
+                            """,
+                            [(h,) for h in affected_hashes],
+                        )
+
                 # Update all source configuration on re-registration
                 self.conn.execute(
                     """

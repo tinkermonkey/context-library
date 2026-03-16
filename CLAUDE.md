@@ -82,7 +82,7 @@ The `IngestionPipeline` in `core/pipeline.py` orchestrates this flow. Per-source
 
 Chunks are identified by SHA-256 hash of normalized content (`compute_chunk_hash` in `storage/models.py`). Diffing uses set operations on hash sets — no positional alignment needed. The normalization rules (whitespace collapsing, line-ending normalization) are critical for deterministic hashing.
 
-### Five Domains
+### Six Domains
 
 Each adapter declares one domain, which determines its chunking strategy:
 
@@ -91,6 +91,7 @@ Each adapter declares one domain, which determines its chunking strategy:
 - **Events** (`domains/events.py`): One-event-per-chunk with time-window batching
 - **Tasks** (`domains/tasks.py`): One-task-per-chunk with lifecycle state tracking
 - **Health** (`domains/health.py`): Time-series health metrics with date-stamped context headers, groups records within configurable windows
+- **Documents** (`domains/documents.py`): Whole-document chunking with metadata-rich context headers; used for filesystem files and music library catalog
 
 ### Data Models
 

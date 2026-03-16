@@ -262,6 +262,7 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
     - "caldav" -> CalDAVAdapter
     - "apple_reminders" -> AppleRemindersAdapter
     - "apple_health" -> AppleHealthAdapter
+    - "apple_music_library" -> AppleMusicLibraryAdapter
 
     Args:
         config: LocalAdapterConfig with adapter type and parameters
@@ -278,7 +279,7 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
         LocalAdapterConfig.domain and adapter_id are used for validation and
         identification within the configuration file. However, most local adapters
         derive their actual domain and adapter_id from their own configuration or
-        hardcoded values (e.g., FilesystemAdapter hardcodes domain=NOTES).
+        hardcoded values (e.g., FilesystemAdapter hardcodes domain=DOCUMENTS).
         The config fields are not passed to the adapter constructor.
     """
     # Map adapter types to module paths and class names
@@ -298,6 +299,10 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
         "apple_health": (
             "context_library.adapters.apple_health",
             "AppleHealthAdapter",
+        ),
+        "apple_music_library": (
+            "context_library.adapters.apple_music_library",
+            "AppleMusicLibraryAdapter",
         ),
     }
 
