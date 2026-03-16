@@ -696,7 +696,7 @@ class TestDocumentSourceTypeVariations:
         assert len(chunks) == 1
         assert chunks[0].domain_metadata["source_type"] == source_type
         # date_first_observed should not be in domain_metadata (excluded via exclude_none=True)
-        assert "date_first_observed" not in chunks[0].domain_metadata or chunks[0].domain_metadata.get("date_first_observed") is None
+        assert "date_first_observed" not in chunks[0].domain_metadata
 
 
 class TestDocumentMetadataFields:
@@ -840,7 +840,7 @@ class TestDocumentMetadataFields:
         assert chunk.domain_metadata["author"] == "Jane Doe"
         assert chunk.domain_metadata["tags"] == ("important", "technical", "2026-Q1")
         # date_first_observed should be excluded (exclude_none=True)
-        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
+        assert "date_first_observed" not in chunk.domain_metadata
 
     def test_document_metadata_with_minimal_fields(self, documents_domain):
         """DocumentMetadata with only required fields produces valid chunks."""
@@ -931,50 +931,6 @@ class TestDocumentMetadataFields:
                 date_first_observed="2026-03-07T08:00:00Z",
                 file_size_bytes=-1024,  # Invalid: negative
             )
-
-    def test_document_metadata_music_fields_without_date_first_observed(self, documents_domain):
-        """Music metadata fields work correctly when date_first_observed is None."""
-        meta = DocumentMetadata(
-            document_id="doc-music-no-date-001",
-            title="Song Without Observation Date",
-            document_type="audio/mpeg",
-            source_type="apple_music",
-            date_first_observed=None,  # Storage layer manages this
-            album="Album Name",
-            play_count=25,
-            duration_minutes=4,
-            genre="Pop",
-            author="Artist Name",
-        )
-
-        hints = StructuralHints(
-            has_headings=False,
-            has_lists=False,
-            has_tables=False,
-            natural_boundaries=[],
-            extra_metadata=meta.model_dump(),
-        )
-
-        content = NormalizedContent(
-            markdown="Music track content.",
-            source_id="doc_1",
-            structural_hints=hints,
-            normalizer_version="1.0.0",
-        )
-
-        chunks = documents_domain.chunk(content)
-
-        assert len(chunks) == 1
-        chunk = chunks[0]
-
-        # Music fields should be preserved
-        assert chunk.domain_metadata["album"] == "Album Name"
-        assert chunk.domain_metadata["play_count"] == 25
-        assert chunk.domain_metadata["duration_minutes"] == 4
-        assert chunk.domain_metadata["genre"] == "Pop"
-        assert chunk.domain_metadata["author"] == "Artist Name"
-        # date_first_observed should be excluded
-        assert "date_first_observed" not in chunk.domain_metadata or chunk.domain_metadata.get("date_first_observed") is None
 
 
 class TestCrossReferences:

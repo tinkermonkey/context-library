@@ -3,8 +3,9 @@
 import pytest
 
 
-# Import fixtures from adapters conftest to make them available in domain tests
-# This allows domain integration tests to use adapter mocking fixtures
+# Pytest conftest.py scoping requires fixtures to be defined in the same directory tree.
+# These fixtures are duplicated from tests/adapters/conftest.py to enable domain integration
+# tests to mock Apple Music Library endpoints without creating a monolithic root conftest.py.
 @pytest.fixture
 def mock_apple_music_library_endpoints(mock_apple_music_library_client):
     """Fixture that configures Apple Music Library endpoint with empty response.
