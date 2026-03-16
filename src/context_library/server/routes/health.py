@@ -1,5 +1,6 @@
 """Health and status endpoint."""
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Request
@@ -22,7 +23,7 @@ async def health(request: Request) -> HealthResponse:
     chromadb_ok = True
 
     try:
-        vector_count = vector_store.count()
+        vector_count = await asyncio.to_thread(vector_store.count)
     except Exception as e:
         logger.warning("Health check: vector store unreachable: %s", e)
         vector_count = 0
@@ -30,7 +31,7 @@ async def health(request: Request) -> HealthResponse:
         status = "degraded"
 
     try:
-        document_store.conn.execute("SELECT 1")
+        await asyncio.to_thread(document_store.conn.execute, "SELECT 1")
     except Exception as e:
         logger.warning("Health check: document store unreachable: %s", e)
         sqlite_ok = False
