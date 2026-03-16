@@ -57,6 +57,9 @@ export const fetchAdapterStats = () => apiFetch<AdapterStatsResponse>('/stats/ad
 
 export const fetchAdapters = () => apiFetch<AdapterListResponse>('/adapters');
 
+export const fetchAdapter = (adapterId: string) =>
+  apiFetch<AdapterListResponse>(`/adapters/${adapterId}`);
+
 // ── Sources ──────────────────────────────────────────────────────
 
 export const fetchSources = (params: SourceQueryParams) => {
@@ -74,6 +77,9 @@ export const fetchSourceChunks = (sourceId: string, version?: number) => {
 
 export const fetchVersionHistory = (sourceId: string) =>
   apiFetch<VersionHistoryResponse>(`/sources/${sourceId}/versions`);
+
+export const fetchVersionDetail = (sourceId: string, version: number) =>
+  apiFetch<VersionHistoryResponse>(`/sources/${sourceId}/versions/${version}`);
 
 export const fetchVersionDiff = (sourceId: string, fromVersion: number, toVersion: number) =>
   apiFetch<VersionDiffResponse>(
@@ -95,6 +101,11 @@ export const fetchChunk = (hash: string, sourceId?: string) => {
 export const fetchChunkProvenance = (hash: string, sourceId?: string) => {
   const sourceQs = sourceId ? `?source_id=${sourceId}` : '';
   return apiFetch<ChunkProvenanceResponse>(`/chunks/${hash}/provenance${sourceQs}`);
+};
+
+export const fetchChunkVersionChain = (hash: string, sourceId?: string) => {
+  const sourceQs = sourceId ? `?source_id=${sourceId}` : '';
+  return apiFetch<ChunkProvenanceResponse>(`/chunks/${hash}/version-chain${sourceQs}`);
 };
 
 // ── Query ────────────────────────────────────────────────────────

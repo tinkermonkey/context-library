@@ -1,4 +1,5 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { z } from 'zod'
 import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
 import BrowserPage from './routes/browser'
@@ -14,16 +15,32 @@ const indexRoute = createRoute({
   component: DashboardPage,
 })
 
+const browserSearchSchema = z.object({
+  selectedSourceId: z.string().optional(),
+  selectedVersion: z.number().optional(),
+  limit: z.number().optional(),
+  offset: z.number().optional(),
+})
+
 const browserRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/browser',
   component: BrowserPage,
+  validateSearch: (search: unknown) => browserSearchSchema.parse(search),
+})
+
+const searchSearchSchema = z.object({
+  q: z.string().optional(),
+  topK: z.number().optional(),
+  domain: z.string().optional(),
+  source: z.string().optional(),
 })
 
 const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/search',
   component: SearchPage,
+  validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
 const routeTree = rootRoute.addChildren([indexRoute, browserRoute, searchRoute])
