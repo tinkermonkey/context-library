@@ -160,3 +160,31 @@ def ds_with_metadata(ds: DocumentStore) -> DocumentStore:
     )
 
     return ds
+
+
+@pytest.fixture()
+def client_with_metadata(ds_with_metadata: DocumentStore) -> TestClient:
+    """FastAPI TestClient with mocked app state using ds_with_metadata fixture."""
+    from contextlib import asynccontextmanager
+
+    mock_embedder = MagicMock()
+    mock_embedder.model_id = "all-MiniLM-L6-v2"
+    mock_embedder.dimension = 384
+    mock_vector_store = MagicMock()
+    mock_vector_store.count.return_value = 0
+
+    @asynccontextmanager
+    async def noop_lifespan(app):
+        app.state.document_store = ds_with_metadata
+        app.state.embedder = mock_embedder
+        app.state.vector_store = mock_vector_store
+        app.state.pipeline = MagicMock()
+        app.state.reranker = None
+        yield
+
+    app = create_app()
+    # Replace the lifespan with a no-op that injects state
+    app.router.lifespan_context = noop_lifespan
+
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
