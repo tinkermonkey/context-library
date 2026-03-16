@@ -1,5 +1,26 @@
 import { useRouterState, Link } from '@tanstack/react-router';
+import type { ComponentProps, ReactNode } from 'react';
+import { Navbar, NavbarBrand, NavbarCollapse, NavbarLink, NavbarToggle } from 'flowbite-react';
 import { HealthIndicator } from './HealthIndicator';
+
+interface NavbarLinkRouterProps {
+  to: string;
+  active: boolean;
+  children: ReactNode;
+}
+
+function NavbarLinkRouter({ to, active, children }: NavbarLinkRouterProps) {
+  return (
+    <NavbarLink
+      as={Link}
+      href={to}
+      active={active}
+      {...(Object.assign({}, { to }) as ComponentProps<typeof NavbarLink>)}
+    >
+      {children}
+    </NavbarLink>
+  );
+}
 
 export function AppNavbar() {
   const routerState = useRouterState();
@@ -8,41 +29,25 @@ export function AppNavbar() {
   const isActive = (path: string) => currentPath === path;
 
   return (
-    <nav className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-full flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="text-xl font-semibold text-gray-900">Context Library</div>
-
-        <div className="flex items-center gap-6">
-          <div className="hidden gap-6 md:flex">
-            <Link
-              to="/"
-              className={`${
-                isActive('/') ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-700 hover:text-gray-900'
-              } pb-1 font-medium transition-colors`}
-            >
-              Dashboard
-            </Link>
-            <Link
-              to="/browser"
-              className={`${
-                isActive('/browser') ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-700 hover:text-gray-900'
-              } pb-1 font-medium transition-colors`}
-            >
-              Data Browser
-            </Link>
-            <Link
-              to="/search"
-              className={`${
-                isActive('/search') ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-700 hover:text-gray-900'
-              } pb-1 font-medium transition-colors`}
-            >
-              Semantic Search
-            </Link>
-          </div>
-
-          <HealthIndicator />
-        </div>
+    <Navbar fluid>
+      <NavbarBrand as="div">
+        <span className="self-center whitespace-nowrap text-xl font-semibold">Context Library</span>
+      </NavbarBrand>
+      <NavbarToggle />
+      <NavbarCollapse>
+        <NavbarLinkRouter to="/" active={isActive('/')}>
+          Dashboard
+        </NavbarLinkRouter>
+        <NavbarLinkRouter to="/browser" active={isActive('/browser')}>
+          Data Browser
+        </NavbarLinkRouter>
+        <NavbarLinkRouter to="/search" active={isActive('/search')}>
+          Semantic Search
+        </NavbarLinkRouter>
+      </NavbarCollapse>
+      <div className="ml-auto">
+        <HealthIndicator />
       </div>
-    </nav>
+    </Navbar>
   );
 }
