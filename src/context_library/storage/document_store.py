@@ -477,6 +477,9 @@ class DocumentStore:
         all source configuration (adapter_id, domain, poll_strategy, poll_interval_sec)
         if the source is re-registered with different values.
 
+        When a source is re-registered with a different domain, all existing chunks
+        for that source are updated to the new domain to maintain consistency.
+
         Args:
             source_id: Unique identifier for the source.
             adapter_id: ID of the adapter handling this source. Updated on re-registration.
@@ -489,9 +492,9 @@ class DocumentStore:
         """
         with self.conn:
             cursor = self.conn.cursor()
-            # Check if source already exists
+            # Check if source already exists and get its current domain
             cursor.execute(
-                "SELECT source_id FROM sources WHERE source_id = ?",
+                "SELECT source_id, domain FROM sources WHERE source_id = ?",
                 (source_id,),
             )
             existing = cursor.fetchone()
@@ -507,6 +510,15 @@ class DocumentStore:
                     (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
                 )
             else:
+                # Check if domain is changing
+                old_domain = existing["domain"]
+                if old_domain != domain.value:
+                    # Update all chunks for this source to the new domain
+                    self.conn.execute(
+                        "UPDATE chunks SET domain = ? WHERE source_id = ?",
+                        (domain.value, source_id),
+                    )
+
                 # Update all source configuration on re-registration
                 self.conn.execute(
                     """

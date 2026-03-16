@@ -1,7 +1,7 @@
 """FilesystemHelperAdapter — ingests markdown files from a context-helpers service.
 
 Calls POST /filesystem/fetch on the context-helpers bridge and streams each document
-as an NDJSON line, mapping results to NormalizedContent for the Notes domain.
+as an NDJSON line, mapping results to NormalizedContent for the Documents domain.
 
 Expected endpoint contract:
   POST /filesystem/fetch
@@ -57,7 +57,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
         # Pass service_url with /filesystem suffix so RemoteAdapter posts to /filesystem/fetch
         super().__init__(
             service_url=f"{api_url.rstrip('/')}/filesystem",
-            domain=Domain.NOTES,
+            domain=Domain.DOCUMENTS,
             adapter_id=f"filesystem_helper:{directory_id}",
             api_key=api_key,
         )
