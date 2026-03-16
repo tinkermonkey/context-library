@@ -12,7 +12,7 @@ import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
 import { fetchSources, fetchChunks, fetchVersionHistory } from '../api/client';
 import type { BrowserPageSearch } from '../router';
 
-const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health'] as const;
+const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
 
 // ── Sources Table ──────────────────────────────────────────────
 const sourceColumnHelper = createColumnHelper<SourceSummary>();

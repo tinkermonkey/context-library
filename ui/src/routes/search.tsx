@@ -5,7 +5,7 @@ import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 
-const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health'] as const;
+const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
 
 function SearchResultCard({ result }: { result: QueryResultItem }) {
   const navigate = useNavigate();
