@@ -30,6 +30,12 @@ function buildSourceColumns(): ColumnDef<SourceSummary, unknown>[] {
     sourceColumnHelper.accessor('adapter_id', {
       header: 'Adapter',
     }) as ColumnDef<SourceSummary, unknown>,
+    sourceColumnHelper.accessor('adapter_type', {
+      header: 'Adapter Type',
+    }) as ColumnDef<SourceSummary, unknown>,
+    sourceColumnHelper.accessor('domain', {
+      header: 'Domain',
+    }) as ColumnDef<SourceSummary, unknown>,
     sourceColumnHelper.accessor('display_name', {
       header: 'Name',
       cell: (info) => info.getValue() || '(unnamed)',
@@ -39,6 +45,20 @@ function buildSourceColumns(): ColumnDef<SourceSummary, unknown>[] {
     }) as ColumnDef<SourceSummary, unknown>,
     sourceColumnHelper.accessor('current_version', {
       header: 'Version',
+    }) as ColumnDef<SourceSummary, unknown>,
+    sourceColumnHelper.accessor('created_at', {
+      header: 'Created',
+      cell: (info) => {
+        const date = info.getValue<string>();
+        return new Date(date).toLocaleString();
+      },
+    }) as ColumnDef<SourceSummary, unknown>,
+    sourceColumnHelper.accessor('updated_at', {
+      header: 'Updated',
+      cell: (info) => {
+        const date = info.getValue<string>();
+        return new Date(date).toLocaleString();
+      },
     }) as ColumnDef<SourceSummary, unknown>,
     sourceColumnHelper.accessor('last_fetched_at', {
       header: 'Last Fetched',
@@ -170,7 +190,28 @@ function buildVersionColumns(): ColumnDef<VersionSummary, unknown>[] {
       cell: (info) => `v${info.getValue<number>()}`,
     }) as ColumnDef<VersionSummary, unknown>,
     versionColumnHelper.accessor('chunk_hash_count', {
-      header: 'Chunks',
+      header: 'Total Chunks',
+    }) as ColumnDef<VersionSummary, unknown>,
+    versionColumnHelper.accessor('added_chunks', {
+      header: 'Added',
+      cell: (info) => {
+        const count = info.getValue<number>();
+        return <span className="text-green-700 font-semibold">{count}</span>;
+      },
+    }) as ColumnDef<VersionSummary, unknown>,
+    versionColumnHelper.accessor('removed_chunks', {
+      header: 'Removed',
+      cell: (info) => {
+        const count = info.getValue<number>();
+        return <span className="text-red-700 font-semibold">{count}</span>;
+      },
+    }) as ColumnDef<VersionSummary, unknown>,
+    versionColumnHelper.accessor('unchanged_chunks', {
+      header: 'Unchanged',
+      cell: (info) => {
+        const count = info.getValue<number>();
+        return <span className="text-gray-700">{count}</span>;
+      },
     }) as ColumnDef<VersionSummary, unknown>,
     versionColumnHelper.accessor('fetch_timestamp', {
       header: 'Fetch Timestamp',
@@ -197,7 +238,7 @@ function VersionDetailPanel({
           <span className="block text-sm text-gray-600">v{version.version}</span>
         </div>
         <div>
-          <span className="text-sm font-semibold">Chunk Count:</span>
+          <span className="text-sm font-semibold">Total Chunks:</span>
           <span className="block text-sm text-gray-600">{version.chunk_hash_count}</span>
         </div>
         <div>
@@ -215,6 +256,23 @@ function VersionDetailPanel({
           </span>
         </div>
       </div>
+
+      {/* Diff Summary */}
+      <div className="grid grid-cols-3 gap-3 pt-2 border-t">
+        <div className="bg-green-50 p-3 rounded border border-green-200">
+          <span className="text-xs font-semibold text-green-900">Added</span>
+          <span className="block text-lg font-semibold text-green-700">{version.added_chunks}</span>
+        </div>
+        <div className="bg-red-50 p-3 rounded border border-red-200">
+          <span className="text-xs font-semibold text-red-900">Removed</span>
+          <span className="block text-lg font-semibold text-red-700">{version.removed_chunks}</span>
+        </div>
+        <div className="bg-gray-50 p-3 rounded border border-gray-200">
+          <span className="text-xs font-semibold text-gray-900">Unchanged</span>
+          <span className="block text-lg font-semibold text-gray-700">{version.unchanged_chunks}</span>
+        </div>
+      </div>
+
       <div className="flex gap-2 pt-2 border-t">
         <Button
           size="sm"

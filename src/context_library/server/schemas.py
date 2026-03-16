@@ -148,6 +148,7 @@ class SourceSummary(BaseModel):
 
     source_id: str
     adapter_id: str
+    adapter_type: str
     domain: str
     origin_ref: str
     display_name: str | None
@@ -155,6 +156,8 @@ class SourceSummary(BaseModel):
     last_fetched_at: str | None
     poll_strategy: str
     chunk_count: int
+    created_at: str
+    updated_at: str
     links: dict[str, str] = Field(default_factory=dict, alias="_links")
 
 
@@ -191,6 +194,9 @@ class VersionSummary(BaseModel):
     source_id: str
     version: int
     chunk_hash_count: int
+    added_chunks: int
+    removed_chunks: int
+    unchanged_chunks: int
     adapter_id: str
     normalizer_version: str
     fetch_timestamp: str

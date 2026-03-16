@@ -64,6 +64,7 @@ export interface AdapterListResponse {
 export interface SourceSummary {
   source_id: string;
   adapter_id: string;
+  adapter_type: string;
   domain: string;
   origin_ref: string;
   display_name: string | null;
@@ -71,6 +72,8 @@ export interface SourceSummary {
   last_fetched_at: string | null;
   poll_strategy: string;
   chunk_count: number;
+  created_at: string;
+  updated_at: string;
   _links: Record<string, string>;
 }
 
@@ -132,6 +135,9 @@ export interface VersionSummary {
   source_id: string;
   version: number;
   chunk_hash_count: number;
+  added_chunks: number;
+  removed_chunks: number;
+  unchanged_chunks: number;
   adapter_id: string;
   normalizer_version: string;
   fetch_timestamp: string;
