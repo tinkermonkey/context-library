@@ -9,6 +9,7 @@ import { useAdapters } from '../hooks/useAdapters';
 import { useSource } from '../hooks/useSources';
 import { useChunkProvenance } from '../hooks/useChunks';
 import { fetchSources, fetchChunks } from '../api/client';
+import type { BrowserPageSearch } from '../router';
 
 const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health'] as const;
 
@@ -60,7 +61,7 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
     return <div className="text-gray-500">Loading...</div>;
   }
 
-  const currentSearch = (routerState.location.search ?? {}) as Record<string, any>;
+  const currentSearch = (routerState.location.search ?? {}) as BrowserPageSearch;
 
   return (
     <div className="space-y-4">
@@ -123,7 +124,8 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
           size="sm"
           onClick={() => {
             navigate({
-              search: { ...currentSearch, table: 'chunks', source_id: source.source_id, page: 0 } as any,
+              to: '/browser',
+              search: { ...currentSearch, table: 'chunks', source_id: source.source_id, page: 0 },
             });
           }}
         >
@@ -414,7 +416,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
 export default function BrowserPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const params = (routerState.location.search ?? {}) as Record<string, unknown>;
+  const params = (routerState.location.search ?? {}) as BrowserPageSearch;
 
   const activeDomain = (params.domain as string) ?? 'messages';
   const tableType = (params.table as string) ?? 'sources';
@@ -426,9 +428,10 @@ export default function BrowserPage() {
   // Handle domain tab change
   const handleDomainChange = useCallback(
     (domain: string) => {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, any>;
+      const currentParams = (routerState.location.search ?? {}) as BrowserPageSearch;
       navigate({
-        search: { ...currentParams, domain, page: 0 } as any,
+        to: '/browser',
+        search: { ...currentParams, domain, page: 0 },
       });
     },
     [navigate, routerState.location.search]
@@ -437,9 +440,10 @@ export default function BrowserPage() {
   // Handle table type change
   const handleTableTypeChange = useCallback(
     (table: string) => {
-      const currentParams = (routerState.location.search ?? {}) as Record<string, any>;
+      const currentParams = (routerState.location.search ?? {}) as BrowserPageSearch;
       navigate({
-        search: { ...currentParams, table, page: 0 } as any,
+        to: '/browser',
+        search: { ...currentParams, table, page: 0 },
       });
     },
     [navigate, routerState.location.search]
