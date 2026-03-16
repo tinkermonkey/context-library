@@ -2342,6 +2342,124 @@ class TestSourceScheduling:
         count = cursor.fetchone()[0]
         assert count == 1
 
+    def test_register_source_migrates_chunk_domains_on_domain_change(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that chunks are migrated to new domain when source is re-registered."""
+        # Setup adapters
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="notes-adapter",
+                adapter_type="TestAdapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+        store.register_adapter(
+            AdapterConfig(
+                adapter_id="docs-adapter",
+                adapter_type="TestAdapter",
+                domain=Domain.DOCUMENTS,
+                normalizer_version="1.0",
+                config=None,
+            )
+        )
+
+        # Register source with NOTES domain
+        store.register_source(
+            source_id="migrating-source",
+            adapter_id="notes-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Create a source version and add chunks with notes domain
+        test_hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00"
+        store.create_source_version(
+            source_id="migrating-source",
+            version=1,
+            markdown="# Test\nContent here",
+            chunk_hashes=[test_hash],
+            adapter_id="notes-adapter",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+
+        # Add chunks for this version
+        cursor = store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO chunks
+            (chunk_hash, source_id, source_version, chunk_index, content, context_header, domain, adapter_id, fetch_timestamp, normalizer_version, embedding_model_id, domain_metadata, chunk_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                test_hash,
+                "migrating-source",
+                1,
+                0,
+                "Test content",
+                "# Test",
+                "notes",  # Initial domain is notes
+                "notes-adapter",
+                "2024-01-01T00:00:00Z",
+                "1.0",
+                "test-model",
+                None,
+                "standard",
+            ),
+        )
+        store.conn.commit()
+
+        # Verify chunk has notes domain
+        cursor.execute(
+            "SELECT domain FROM chunks WHERE chunk_hash = ?",
+            (test_hash,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["domain"] == "notes"
+
+        # Re-register source with DOCUMENTS domain
+        store.register_source(
+            source_id="migrating-source",
+            adapter_id="docs-adapter",
+            domain=Domain.DOCUMENTS,
+            origin_ref="test://source",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Verify chunk domain was updated
+        cursor.execute(
+            "SELECT domain FROM chunks WHERE chunk_hash = ?",
+            (test_hash,),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["domain"] == "documents"
+
+        # Verify sync log entry was recorded to trigger vector store update
+        cursor.execute(
+            "SELECT chunk_hash, operation FROM lancedb_sync_log WHERE chunk_hash = ?",
+            (test_hash,),
+        )
+        log_row = cursor.fetchone()
+        assert log_row is not None
+        assert log_row["operation"] == "insert"
+
+        # Verify source domain was updated
+        cursor.execute(
+            "SELECT domain FROM sources WHERE source_id = ?",
+            ("migrating-source",),
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row["domain"] == "documents"
+
     def test_get_sources_due_for_poll_never_fetched(self, store: DocumentStore) -> None:
         """Test that sources with last_fetched_at IS NULL are returned."""
         self._setup_adapter(store)

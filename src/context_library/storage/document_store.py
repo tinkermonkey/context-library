@@ -478,7 +478,9 @@ class DocumentStore:
         if the source is re-registered with different values.
 
         When a source is re-registered with a different domain, all existing chunks
-        for that source are updated to the new domain to maintain consistency.
+        for that source are updated to the new domain in SQLite, and sync log entries
+        are recorded for all affected chunks so the vector store is updated during
+        reconciliation.
 
         Args:
             source_id: Unique identifier for the source.
@@ -513,11 +515,28 @@ class DocumentStore:
                 # Check if domain is changing
                 old_domain = existing["domain"]
                 if old_domain != domain.value:
+                    # Get all chunk hashes affected by the domain change
+                    cursor.execute(
+                        "SELECT DISTINCT chunk_hash FROM chunks WHERE source_id = ?",
+                        (source_id,),
+                    )
+                    affected_hashes = [row["chunk_hash"] for row in cursor.fetchall()]
+
                     # Update all chunks for this source to the new domain
                     self.conn.execute(
                         "UPDATE chunks SET domain = ? WHERE source_id = ?",
                         (domain.value, source_id),
                     )
+
+                    # Record sync log entries to trigger vector store reconciliation
+                    if affected_hashes:
+                        self.conn.executemany(
+                            """
+                            INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
+                            VALUES (?, 'insert')
+                            """,
+                            [(h,) for h in affected_hashes],
+                        )
 
                 # Update all source configuration on re-registration
                 self.conn.execute(
