@@ -168,8 +168,8 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
           color="gray"
           onClick={() => {
             navigate({
-              to: '/browser',
-              search: { ...currentSearch, table: 'versions', source_id: source.source_id, page: 0 },
+              to: '/browser/versions/$sourceId',
+              params: { sourceId: source.source_id },
             });
           }}
         >

@@ -23,10 +23,10 @@ export const useVersionHistory = (sourceId: string) =>
     staleTime: 10_000,
   });
 
-export const useVersionDiff = (sourceId: string, fromVersion: number, toVersion: number) =>
+export const useVersionDiff = (sourceId: string, fromVersion: number, toVersion: number, enabled = true) =>
   useQuery({
     queryKey: ['version-diff', sourceId, fromVersion, toVersion],
     queryFn: () => fetchVersionDiff(sourceId, fromVersion, toVersion),
-    staleTime: 10_000,
-    enabled: !!sourceId && fromVersion > 0 && toVersion > 0,
+    staleTime: Infinity, // diffs are immutable
+    enabled: enabled && !!sourceId && fromVersion > 0 && toVersion > 0,
   });
