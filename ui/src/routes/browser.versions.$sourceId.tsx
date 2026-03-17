@@ -1,12 +1,12 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Checkbox, Spinner } from 'flowbite-react';
 import { DataTable, type FetchParams } from '../components/DataTable';
-import type { VersionSummary, VersionDiffResponse } from '../types/api';
+import type { VersionSummary, VersionDiffResponse, VersionHistoryResponse } from '../types/api';
 import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
-import { fetchVersionHistory } from '../api/client';
 
 // ── Versions Table Column Definitions ──────────────────────────────
 const versionColumnHelper = createColumnHelper<VersionSummary>();
@@ -148,6 +148,7 @@ function DiffView({ diff }: { diff: VersionDiffResponse }) {
 export default function BrowserVersionsPage() {
   const { sourceId } = useParams({ from: '/browser/versions/$sourceId' });
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Version selection state
   const [selectedVersions, setSelectedVersions] = useState<number[]>([]);
@@ -169,31 +170,36 @@ export default function BrowserVersionsPage() {
     error: diffErrorObj,
   } = useVersionDiff(sourceId, from, to, showDiff && selectedVersions.length === 2);
 
-  const versionColumns = useMemo(
-    () => buildVersionColumns(selectedVersions, handleVersionSelectionChange),
-    [selectedVersions]
+  const handleVersionSelectionChange = useCallback(
+    (version: number, selected: boolean) => {
+      if (selected) {
+        // Add version, but limit to 2 maximum
+        setSelectedVersions((prev) => {
+          if (prev.length >= 2) {
+            return [prev[1], version]; // Replace the first with the new one
+          }
+          return [...prev, version].sort((a, b) => a - b); // Keep sorted
+        });
+      } else {
+        // Remove version
+        setSelectedVersions((prev) => prev.filter((v) => v !== version));
+        setShowDiff(false); // Hide diff when deselecting
+      }
+    },
+    []
   );
 
-  function handleVersionSelectionChange(version: number, selected: boolean) {
-    if (selected) {
-      // Add version, but limit to 2 maximum
-      setSelectedVersions((prev) => {
-        if (prev.length >= 2) {
-          return [prev[1], version]; // Replace the first with the new one
-        }
-        return [...prev, version].sort((a, b) => a - b); // Keep sorted
-      });
-    } else {
-      // Remove version
-      setSelectedVersions((prev) => prev.filter((v) => v !== version));
-      setShowDiff(false); // Hide diff when deselecting
-    }
-  }
+  const versionColumns = useMemo(
+    () => buildVersionColumns(selectedVersions, handleVersionSelectionChange),
+    [selectedVersions, handleVersionSelectionChange]
+  );
 
   const versionFetchFn = useCallback(
     async (params: FetchParams) => {
-      const response = await fetchVersionHistory(sourceId);
-      const versions = response.versions || [];
+      const cachedData = queryClient.getQueryData<VersionHistoryResponse>(
+        ['version-history', sourceId]
+      );
+      const versions = cachedData?.versions || [];
       const start = params.page * params.pageSize;
       const end = start + params.pageSize;
       const paginated = versions.slice(start, end);
@@ -202,7 +208,7 @@ export default function BrowserVersionsPage() {
         total: versions.length,
       };
     },
-    [sourceId]
+    [sourceId, queryClient]
   );
 
   if (historyLoading) {
