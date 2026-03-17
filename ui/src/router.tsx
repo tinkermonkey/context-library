@@ -3,6 +3,7 @@ import { z } from 'zod'
 import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
 import BrowserPage from './routes/browser'
+import BrowserVersionsPage from './routes/browser.versions.$sourceId'
 import SearchPage from './routes/search'
 
 const rootRoute = createRootRoute({
@@ -54,6 +55,12 @@ const browserRoute = createRoute({
   validateSearch: (search: unknown) => browserSearchSchema.parse(search),
 })
 
+const browserVersionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/browser/versions/$sourceId',
+  component: BrowserVersionsPage,
+})
+
 const searchSearchSchema = z.object({
   q: z.string().optional(),
   domain: z.string().optional(),
@@ -71,7 +78,7 @@ const searchRoute = createRoute({
   validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, browserRoute, searchRoute])
+const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, searchRoute])
 
 export const router = createRouter({ routeTree })
 
