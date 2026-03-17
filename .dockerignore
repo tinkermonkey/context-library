@@ -37,3 +37,7 @@ coverage.xml
 
 # Exclude documentation (not needed for image build)
 documentation/
+
+# Exclude node_modules (prevents host platform-specific binaries from overwriting container deps)
+**/node_modules/
+node_modules/

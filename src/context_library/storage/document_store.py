@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import AdapterConfig, Chunk, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
 logger = logging.getLogger(__name__)
 
@@ -1634,11 +1634,12 @@ class DocumentStore:
         page_params = list(filter_params) + [limit, offset]
         cursor.execute(
             f"""
-            SELECT s.source_id, s.adapter_id, s.domain, s.origin_ref, s.display_name,
-                   s.current_version, s.last_fetched_at, s.poll_strategy,
+            SELECT s.source_id, s.adapter_id, a.adapter_type, s.domain, s.origin_ref,
+                   s.display_name, s.current_version, s.last_fetched_at, s.poll_strategy,
                    s.poll_interval_sec, s.created_at, s.updated_at,
                    COUNT(c.chunk_hash) AS chunk_count
             FROM sources s
+            JOIN adapters a ON s.adapter_id = a.adapter_id
             LEFT JOIN chunks c
               ON c.source_id = s.source_id
              AND c.source_version = s.current_version
@@ -1775,6 +1776,133 @@ class DocumentStore:
             "sync_queue_pending_insert": sync_counts["insert"],
             "sync_queue_pending_delete": sync_counts["delete"],
         }
+
+    def list_chunks(
+        self,
+        domain: Optional[str] = None,
+        adapter_id: Optional[str] = None,
+        source_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ChunkWithLineageContext], int]:
+        """List active chunks with optional filtering and pagination.
+
+        Returns paginated chunks from the current (latest) version of each source,
+        filtered by domain, adapter_id, and/or source_id if specified. Only returns
+        non-retired chunks. Deduplicates by constraining to current_version.
+
+        Corrupt chunks (with malformed domain_metadata JSON) are skipped with warnings
+        logged, but do not cause the entire list operation to fail. This ensures one
+        corrupt chunk does not make all valid chunks invisible.
+
+        Args:
+            domain: Optional domain filter (e.g., "notes", "messages").
+            adapter_id: Optional adapter_id filter.
+            source_id: Optional source_id filter (returns only chunks from this source).
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (page chunks, total_count). Each chunk is a ChunkWithLineageContext
+            with the chunk object and associated metadata. Total count is the full count
+            of matching, returnable (non-corrupt) chunks across all pages.
+        """
+        cursor = self.conn.cursor()
+        filter_params: list[object] = []
+        where_clauses = ["c.retired_at IS NULL", "c.source_version = s.current_version"]
+
+        if domain is not None:
+            where_clauses.append("s.domain = ?")
+            filter_params.append(domain)
+        if adapter_id is not None:
+            where_clauses.append("s.adapter_id = ?")
+            filter_params.append(adapter_id)
+        if source_id is not None:
+            where_clauses.append("c.source_id = ?")
+            filter_params.append(source_id)
+
+        where_sql = " AND ".join(where_clauses)
+
+        # Fetch all matching rows (without limit/offset) to count returnable items
+        # and build the full result set, then slice for pagination
+        all_params = filter_params
+        cursor.execute(
+            f"""
+            SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+                   c.content, c.context_header, c.chunk_type, c.domain_metadata,
+                   c.normalizer_version, c.embedding_model_id, c.created_at,
+                   s.adapter_id, s.domain, s.current_version as source_version_id
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            ORDER BY c.created_at DESC
+            """,
+            all_params,
+        )
+        all_rows = cursor.fetchall()
+
+        # Build chunks, skipping corrupt ones with logged warnings
+        # Process all rows to get accurate total count of returnable items
+        all_results = []
+        for row in all_rows:
+            try:
+                chunk = self._build_chunk_from_row(row)
+                all_results.append(ChunkWithLineageContext(
+                    chunk=chunk,
+                    source_id=row["source_id"],
+                    source_version_id=row["source_version_id"],
+                    adapter_id=row["adapter_id"],
+                    domain=row["domain"],
+                    normalizer_version=row["normalizer_version"],
+                    embedding_model_id=row["embedding_model_id"],
+                ))
+            except ValueError as e:
+                logger.warning("Skipping corrupt chunk during list: %s", e)
+                continue
+
+        # Apply pagination to the filtered results
+        total = len(all_results)
+        paginated_results = all_results[offset : offset + limit]
+
+        return paginated_results, total
+
+    def get_adapter_stats(self) -> list[dict]:
+        """Get per-adapter source and active chunk counts.
+
+        Returns a list of one dict per adapter, with source and chunk counts.
+        Adapters with no sources are not included.
+
+        Returns:
+            List of dicts with keys: adapter_id, adapter_type, domain,
+            source_count, active_chunk_count. Ordered by adapter_id.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.adapter_id, a.adapter_type, s.domain,
+                   COUNT(DISTINCT s.source_id) AS source_count,
+                   COUNT(DISTINCT c.chunk_hash) AS active_chunk_count
+            FROM sources s
+            LEFT JOIN adapters a ON s.adapter_id = a.adapter_id
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
+            GROUP BY s.adapter_id, a.adapter_type, s.domain
+            ORDER BY s.adapter_id ASC
+            """
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "adapter_id": row["adapter_id"],
+                "adapter_type": row["adapter_type"],
+                "domain": row["domain"],
+                "source_count": row["source_count"],
+                "active_chunk_count": row["active_chunk_count"],
+            }
+            for row in rows
+        ]
 
     def close(self) -> None:
         """Close the database connection.

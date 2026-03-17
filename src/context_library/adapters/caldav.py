@@ -352,6 +352,12 @@ class CalDAVAdapter(BaseAdapter):
                 f"Failed to decode iCalendar data: {e}"
             )
             raise
+        except ValueError as e:
+            logger.warning(
+                f"Skipping event from calendar {calendar_name!r}: "
+                f"Failed to parse iCalendar data: {e}"
+            )
+            raise UnicodeDecodeError("utf-8", b"", 0, 1, "Invalid iCalendar data")
 
     def _extract_event_metadata(
         self,
@@ -371,15 +377,15 @@ class CalDAVAdapter(BaseAdapter):
         """
         # Extract basic fields with explicit presence checks (following Apple Reminders pattern)
         uid = vevent.get("UID")
-        if uid is None:
+        if "UID" not in vevent:
             # Missing UID: log warning and skip event
             logger.warning(
                 f"Skipping event from calendar {calendar_name!r}: "
                 "UID is missing (required for event identification)"
             )
             return
-        # Convert to string before checking emptiness to handle vText objects
-        uid_str = str(uid).strip()
+        # UID is present but may be None or empty after string conversion
+        uid_str = str(uid).strip() if uid is not None else ""
         if not uid_str:
             # Empty UID after conversion: log warning and skip event
             logger.warning(
@@ -419,9 +425,11 @@ class CalDAVAdapter(BaseAdapter):
         end_date: str | None = None
 
         if dtstart:
-            start_date = self._normalize_datetime(dtstart.dt)
+            dt_value = dtstart.dt if hasattr(dtstart, 'dt') else dtstart
+            start_date = self._normalize_datetime(dt_value)
         if dtend:
-            end_date = self._normalize_datetime(dtend.dt)
+            dt_value = dtend.dt if hasattr(dtend, 'dt') else dtend
+            end_date = self._normalize_datetime(dt_value)
 
         # Compute duration
         duration_minutes = self._compute_duration(vevent, dtstart, dtend)
@@ -504,14 +512,14 @@ class CalDAVAdapter(BaseAdapter):
         # Try DURATION property first
         duration = vevent.get("DURATION")
         if duration:
-            delta = duration.dt
+            delta = duration.dt if hasattr(duration, 'dt') else duration
             if isinstance(delta, timedelta):
                 return int(delta.total_seconds() / 60)
 
         # Fallback to DTEND - DTSTART
         if dtstart and dtend:
-            start = dtstart.dt
-            end = dtend.dt
+            start = dtstart.dt if hasattr(dtstart, 'dt') else dtstart
+            end = dtend.dt if hasattr(dtend, 'dt') else dtend
             # Normalize date objects to datetime for consistent subtraction
             if isinstance(start, date) and not isinstance(start, datetime):
                 start = datetime.combine(start, time.min, timezone.utc)
@@ -520,10 +528,10 @@ class CalDAVAdapter(BaseAdapter):
 
             # Normalize naive datetimes to UTC (matching _normalize_datetime behavior)
             if isinstance(start, datetime) and start.tzinfo is None:
-                logger.debug(f"Naive DTSTART {start!r}; assuming UTC.")
+                logger.warning(f"Naive DTSTART {start!r}; assuming UTC.")
                 start = start.replace(tzinfo=timezone.utc)
             if isinstance(end, datetime) and end.tzinfo is None:
-                logger.debug(f"Naive DTEND {end!r}; assuming UTC.")
+                logger.warning(f"Naive DTEND {end!r}; assuming UTC.")
                 end = end.replace(tzinfo=timezone.utc)
 
             delta = end - start
@@ -532,7 +540,7 @@ class CalDAVAdapter(BaseAdapter):
 
         return None
 
-    def _normalize_datetime(self, dt_value: date | datetime) -> str:
+    def _normalize_datetime(self, dt_value: date | datetime | str) -> str:
         """Normalize date/datetime to ISO 8601 timestamp string.
 
         Converts all-day events (represented as date objects) to midnight UTC datetimes
@@ -543,16 +551,21 @@ class CalDAVAdapter(BaseAdapter):
         A warning is logged when this assumption is made.
 
         Args:
-            dt_value: A datetime.date or datetime.datetime object from iCalendar
+            dt_value: A datetime.date, datetime.datetime, or ISO 8601 string from iCalendar
 
         Returns:
             ISO 8601 timestamp string in UTC
         """
+        # Handle string values (raw iCalendar data)
+        if isinstance(dt_value, str):
+            # Parse ISO 8601 string, handling both Z and +00:00 formats
+            dt_value = datetime.fromisoformat(dt_value.replace("Z", "+00:00"))
+
         if isinstance(dt_value, datetime):
             # Already a datetime, convert to UTC if needed
             if dt_value.tzinfo is None:
                 # Naive datetime, assume UTC (with warning)
-                logger.debug(
+                logger.warning(
                     f"Naive datetime {dt_value!r} in iCalendar data; assuming UTC."
                 )
                 return dt_value.replace(tzinfo=timezone.utc).isoformat()
@@ -588,13 +601,13 @@ class CalDAVAdapter(BaseAdapter):
             and logged; the event is included (safety-first approach).
         """
         try:
-            last_mod_dt = last_modified.dt
+            last_mod_dt = last_modified.dt if hasattr(last_modified, 'dt') else last_modified
             if isinstance(last_mod_dt, str):
                 last_mod_dt = datetime.fromisoformat(last_mod_dt.replace("Z", "+00:00"))
             if isinstance(last_mod_dt, datetime):
                 # Normalize naive datetimes to UTC for comparison
                 if last_mod_dt.tzinfo is None:
-                    logger.debug(
+                    logger.warning(
                         f"Event {event_id!r} LAST-MODIFIED is naive; assuming UTC."
                     )
                     last_mod_dt = last_mod_dt.replace(tzinfo=timezone.utc)

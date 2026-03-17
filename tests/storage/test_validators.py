@@ -115,7 +115,7 @@ class TestValidateEmbeddingDimension:
 
     def test_empty_embedding_raises_error(self) -> None:
         """Test that empty embedding raises dimension mismatch error."""
-        empty_embedding = []
+        empty_embedding: list[float] = []
         with pytest.raises(ValueError, match="Embedding dimension mismatch"):
             validate_embedding_dimension(empty_embedding)
 

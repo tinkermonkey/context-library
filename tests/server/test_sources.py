@@ -144,3 +144,100 @@ class TestVersionDiff:
     def test_404_for_missing_source(self, client: TestClient) -> None:
         resp = client.get("/sources/no-such/diff?from_version=1&to_version=2")
         assert resp.status_code == 404
+
+
+class TestListSourcesMultiEntity:
+    """Tests for listing sources with multi-source/multi-adapter/multi-domain scenarios."""
+
+    def test_multi_source_list_all(self, client_multi_source: TestClient) -> None:
+        """Verify all sources appear in multi-source fixture."""
+        data = client_multi_source.get("/sources").json()
+        assert data["total"] == 3
+        source_ids = {s["source_id"] for s in data["sources"]}
+        assert source_ids == {"src-1", "src-2", "src-3"}
+
+    def test_multi_source_filter_by_adapter(self, client_multi_source: TestClient) -> None:
+        """Verify filtering by adapter_id works with multiple sources."""
+        data = client_multi_source.get("/sources?adapter_id=test-adapter").json()
+        assert data["total"] == 3
+        for src in data["sources"]:
+            assert src["adapter_id"] == "test-adapter"
+
+    def test_multi_source_filter_by_domain(self, client_multi_source: TestClient) -> None:
+        """Verify filtering by domain works with multiple sources."""
+        data = client_multi_source.get("/sources?domain=notes").json()
+        assert data["total"] == 3
+        for src in data["sources"]:
+            assert src["domain"] == "notes"
+
+    def test_multi_adapter_same_domain_all(self, client_multi_adapter_same_domain: TestClient) -> None:
+        """Verify all sources appear with multiple adapters in same domain."""
+        data = client_multi_adapter_same_domain.get("/sources").json()
+        assert data["total"] == 2
+        source_ids = {s["source_id"] for s in data["sources"]}
+        assert source_ids == {"src-1", "src-obsidian"}
+
+    def test_multi_adapter_same_domain_filter_by_adapter(
+        self, client_multi_adapter_same_domain: TestClient
+    ) -> None:
+        """Verify filtering by adapter_id isolates sources to correct adapter."""
+        fs_data = client_multi_adapter_same_domain.get("/sources?adapter_id=test-adapter").json()
+        assert fs_data["total"] == 1
+        assert fs_data["sources"][0]["source_id"] == "src-1"
+
+        obs_data = client_multi_adapter_same_domain.get(
+            "/sources?adapter_id=obsidian-adapter"
+        ).json()
+        assert obs_data["total"] == 1
+        assert obs_data["sources"][0]["source_id"] == "src-obsidian"
+
+    def test_multi_domain_list_all(self, client_multi_domain: TestClient) -> None:
+        """Verify all sources appear with multiple domains."""
+        data = client_multi_domain.get("/sources").json()
+        assert data["total"] == 3  # notes, messages, events
+        domains = {s["domain"] for s in data["sources"]}
+        assert domains == {"notes", "messages", "events"}
+
+    def test_multi_domain_filter_by_domain(self, client_multi_domain: TestClient) -> None:
+        """Verify filtering by domain returns only matching sources."""
+        notes_data = client_multi_domain.get("/sources?domain=notes").json()
+        assert notes_data["total"] == 1
+        assert notes_data["sources"][0]["domain"] == "notes"
+
+        messages_data = client_multi_domain.get("/sources?domain=messages").json()
+        assert messages_data["total"] == 1
+        assert messages_data["sources"][0]["domain"] == "messages"
+
+        events_data = client_multi_domain.get("/sources?domain=events").json()
+        assert events_data["total"] == 1
+        assert events_data["sources"][0]["domain"] == "events"
+
+    def test_comprehensive_fixture_all_sources(self, client_comprehensive: TestClient) -> None:
+        """Verify all sources appear in comprehensive fixture."""
+        data = client_comprehensive.get("/sources").json()
+        assert data["total"] == 5  # base + 2 obsidian + 1 email + 1 calendar
+        source_ids = {s["source_id"] for s in data["sources"]}
+        expected = {"src-1", "src-obsidian-1", "src-obsidian-2", "src-email-1", "src-calendar-1"}
+        assert source_ids == expected
+
+    def test_comprehensive_fixture_filter_by_adapter(self, client_comprehensive: TestClient) -> None:
+        """Verify filtering by adapter_id in comprehensive fixture."""
+        obsidian_data = client_comprehensive.get("/sources?adapter_id=obsidian-adapter").json()
+        assert obsidian_data["total"] == 2
+        for src in obsidian_data["sources"]:
+            assert src["adapter_id"] == "obsidian-adapter"
+            assert src["source_id"].startswith("src-obsidian")
+
+    def test_comprehensive_fixture_filter_by_domain(self, client_comprehensive: TestClient) -> None:
+        """Verify filtering by domain in comprehensive fixture."""
+        # NOTES: base + 2 obsidian = 3
+        notes_data = client_comprehensive.get("/sources?domain=notes").json()
+        assert notes_data["total"] == 3
+
+        # MESSAGES: 1 email
+        messages_data = client_comprehensive.get("/sources?domain=messages").json()
+        assert messages_data["total"] == 1
+
+        # EVENTS: 1 calendar
+        events_data = client_comprehensive.get("/sources?domain=events").json()
+        assert events_data["total"] == 1

@@ -22,7 +22,7 @@ def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         s.listen(1)
-        port = s.getsockname()[1]
+        port: int = s.getsockname()[1]  # type: ignore[assignment]
     return port
 
 
@@ -105,7 +105,7 @@ class MockAdapter(BaseAdapter):
                 has_headings=True,
                 has_lists=False,
                 has_tables=False,
-                natural_boundaries=[],
+                natural_boundaries=(),
             )
             yield NormalizedContent(
                 markdown=f"# {source_ref}\n\nContent for {source_ref}",
@@ -252,7 +252,7 @@ class TestFetchEndpoint:
                 has_headings=False,
                 has_lists=False,
                 has_tables=False,
-                natural_boundaries=[],
+                natural_boundaries=(),
             )
             yield NormalizedContent(
                 markdown="test",
@@ -317,7 +317,7 @@ class TestFetchEndpoint:
                 has_headings=False,
                 has_lists=False,
                 has_tables=False,
-                natural_boundaries=[],
+                natural_boundaries=(),
             )
             for i in range(3):
                 yield NormalizedContent(
@@ -684,7 +684,7 @@ class TestRoundTrip:
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[],
+            natural_boundaries=(),
             extra_metadata={
                 "string_val": "text",
                 "int_val": 42,
@@ -980,7 +980,7 @@ class TestJSONSerializationFailure:
                 has_headings=False,
                 has_lists=False,
                 has_tables=False,
-                natural_boundaries=[],
+                natural_boundaries=(),
                 extra_metadata={"non_serializable": object()},  # object() is not JSON serializable
             )
             yield NormalizedContent(

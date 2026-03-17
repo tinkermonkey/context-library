@@ -7,6 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - ./src:/app/src
+      - ui-dist:/app/ui
       - sqlite-data:/data/sqlite
       - chromadb-data:/data/chromadb
     restart: unless-stopped
@@ -25,5 +26,6 @@ services:
       - CTX_HELPER_OBSIDIAN_ENABLED=${CTX_HELPER_OBSIDIAN_ENABLED:-false}
 
 volumes:
+  ui-dist:
   sqlite-data:
   chromadb-data:

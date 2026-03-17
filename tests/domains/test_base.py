@@ -18,7 +18,7 @@ class ConcreteBaseDomain(BaseDomain):
 
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Simple chunking that splits at sentence boundaries."""
-        sentences = content.content.split(". ")
+        sentences = content.markdown.split(". ")
         chunks = []
         for i, sentence in enumerate(sentences):
             chunk_content = sentence.strip()
@@ -101,7 +101,7 @@ class TestApplyCrossReferences:
     def test_apply_cross_refs_to_empty_chunks_list(self) -> None:
         """Test applying cross-references to empty chunk list."""
         domain = ConcreteBaseDomain()
-        chunks = []
+        chunks: list[Chunk] = []
 
         result = domain._apply_cross_references(chunks)
 

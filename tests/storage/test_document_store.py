@@ -17,15 +17,17 @@ Covers:
 
 import pytest
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     AdapterConfig,
     Chunk,
+    ChunkType,
     Domain,
     LineageRecord,
     PollStrategy,
-    VersionDiff,
+    VersionDiff
 )
 
 
@@ -372,14 +374,14 @@ class TestChunkWriteAndRead:
                 content="This is chunk 1",
                 context_header="Section 1",
                 chunk_index=0,
-                chunk_type="standard",
+                chunk_type=ChunkType.STANDARD,
             ),
             Chunk(
                 chunk_hash=_make_hash("b"),
                 content="This is chunk 2",
                 context_header="Section 2",
                 chunk_index=1,
-                chunk_type="standard",
+                chunk_type=ChunkType.STANDARD,
             ),
         ]
 
@@ -422,7 +424,7 @@ class TestChunkWriteAndRead:
             chunk_hash=_make_hash("c"),
             content="Deduplicated content",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -463,7 +465,7 @@ class TestChunkWriteAndRead:
                 chunk_hash=_make_hash("f"),
                 content="Invalid chunk",
                 chunk_index=0,
-                chunk_type="invalid_type_value",  # Not in ChunkType enum
+                chunk_type=cast(ChunkType, "invalid_type_value"),  # Not in ChunkType enum
             )
 
         # Verify the error message mentions the invalid chunk_type
@@ -480,7 +482,7 @@ class TestChunkWriteAndRead:
             chunk_hash=_make_hash("1"),
             content="Foreign key test",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -508,7 +510,7 @@ class TestChunkWriteAndRead:
         """Test writing and retrieving a chunk with domain_metadata."""
         source_id, adapter_id, version_id = self._setup_with_version(store)
 
-        metadata = {"sender": "user@example.com", "timestamp": "2025-03-02"}
+        metadata: dict[str, object] = {"sender": "user@example.com", "timestamp": "2025-03-02"}
         chunk = Chunk(
             chunk_hash=_make_hash("d"),
             content="Email content",
@@ -1563,7 +1565,7 @@ class TestRecoveryMechanisms:
             chunk_hash=_make_hash("a"),
             content="Chunk A content",
             chunk_index=0,
-            chunk_type="standard",
+            chunk_type=ChunkType.STANDARD,
         )
 
         lineage = LineageRecord(
@@ -2941,9 +2943,8 @@ class TestVersionDiff:
         assert isinstance(diff.removed_hashes, frozenset)
         assert isinstance(diff.unchanged_hashes, frozenset)
 
-        # Verify they are immutable
-        with pytest.raises(AttributeError):
-            diff.added_hashes.add(_make_hash("x"))
+        # Verify they are immutable - frozenset has no add method
+        assert not hasattr(diff.added_hashes, 'add')
 
     def test_get_version_diff_retrieves_retired_removed_chunks(self, store: DocumentStore) -> None:
         """Test that removed chunks can be retrieved even if they've been retired.
@@ -3464,7 +3465,7 @@ class TestChunkVersionChain:
             fetch_timestamp="2025-03-02T10:00:00Z",
         )
 
-        metadata = {"source": "email", "sender": "user@example.com"}
+        metadata: dict[str, object] = {"source": "email", "sender": "user@example.com"}
         chunk = Chunk(
             chunk_hash=_make_hash("6"),
             content="With metadata",
@@ -4275,3 +4276,371 @@ class TestGetDatasetStats:
         assert stats["total_sources"] == 1
         assert stats["by_domain"][0]["domain"] == "notes"
         assert stats["by_domain"][0]["source_count"] == 1
+
+class TestListChunks:
+    """Tests for DocumentStore.list_chunks()."""
+
+    def test_empty_db(self, store: DocumentStore) -> None:
+        rows, total = store.list_chunks()
+        assert rows == []
+        assert total == 0
+
+    def test_returns_all_chunks(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        ch1 = compute_chunk_hash("content1")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content1",
+            context_header="Header1",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content1",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        chunk_tuples, total = store.list_chunks()
+        assert total == 1
+        assert len(chunk_tuples) == 1
+        chunk, src_id, src_version_id, adapter_id_val, domain_val, normalizer_version, embedding_model_id = chunk_tuples[0]
+        assert chunk.chunk_hash == ch1
+        assert chunk.content == "content1"
+
+    def test_filters_by_domain(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        # Create a chunk in notes domain
+        ch1 = compute_chunk_hash("notes content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="notes content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="notes content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        # Query for notes domain
+        rows, total = store.list_chunks(domain="notes")
+        assert total == 1
+        assert len(rows) == 1
+
+        # Query for different domain returns nothing
+        rows, total = store.list_chunks(domain="messages")
+        assert total == 0
+        assert len(rows) == 0
+
+    def test_filters_by_adapter_id(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        ch1 = compute_chunk_hash("content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        # Query for correct adapter_id
+        rows, total = store.list_chunks(adapter_id="read-adapter")
+        assert total == 1
+
+        # Query for different adapter_id returns nothing
+        rows, total = store.list_chunks(adapter_id="other-adapter")
+        assert total == 0
+
+    def test_pagination(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        # Create 5 chunks in a single source version
+        chunks = []
+        chunk_hashes = []
+        lineages = []
+        for i in range(5):
+            ch = compute_chunk_hash(f"content{i}")
+            chunk = Chunk(
+                chunk_hash=ch,
+                content=f"content{i}",
+                context_header=f"Header{i}",
+                chunk_index=i,
+                chunk_type=ChunkType.STANDARD,
+            )
+            chunks.append(chunk)
+            chunk_hashes.append(ch)
+            lineage = LineageRecord(
+                chunk_hash=ch,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            lineages.append(lineage)
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content0\ncontent1\ncontent2\ncontent3\ncontent4",
+            chunk_hashes=chunk_hashes,
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(chunks, lineages)
+
+        # Test limit
+        rows, total = store.list_chunks(limit=2)
+        assert total == 5
+        assert len(rows) == 2
+
+        # Test offset
+        rows, total = store.list_chunks(limit=2, offset=2)
+        assert total == 5
+        assert len(rows) == 2
+
+    def test_excludes_retired_chunks(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        ch1 = compute_chunk_hash("content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        # Initially should have 1 chunk
+        rows, total = store.list_chunks()
+        assert total == 1
+
+        # Retire the chunk
+        store.retire_chunks({ch1}, "read-src", 1)
+
+        # Should now have 0 chunks
+        rows, total = store.list_chunks()
+        assert total == 0
+
+
+class TestGetAdapterStats:
+    """Tests for DocumentStore.get_adapter_stats()."""
+
+    def test_empty_db(self, store: DocumentStore) -> None:
+        stats = store.get_adapter_stats()
+        assert stats == []
+
+    def test_single_adapter_single_source(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        ch1 = compute_chunk_hash("content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        stats = store.get_adapter_stats()
+        assert len(stats) == 1
+        assert stats[0]["adapter_id"] == "read-adapter"
+        assert stats[0]["adapter_type"] == "filesystem"
+        assert stats[0]["domain"] == "notes"
+        assert stats[0]["source_count"] == 1
+        assert stats[0]["active_chunk_count"] == 1
+
+    def test_single_adapter_multiple_chunks(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        # Create multiple chunks in same source
+        chunks = []
+        lineages = []
+        for i in range(3):
+            ch = compute_chunk_hash(f"content{i}")
+            chunk = Chunk(
+                chunk_hash=ch,
+                content=f"content{i}",
+                context_header=f"Header{i}",
+                chunk_index=i,
+                chunk_type=ChunkType.STANDARD,
+            )
+            chunks.append(chunk)
+            lineage = LineageRecord(
+                chunk_hash=ch,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            lineages.append(lineage)
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[c.chunk_hash for c in chunks],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(chunks, lineages)
+
+        stats = store.get_adapter_stats()
+        assert len(stats) == 1
+        assert stats[0]["source_count"] == 1
+        assert stats[0]["active_chunk_count"] == 3
+
+    def test_excludes_retired_chunks(self, store: DocumentStore) -> None:
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        _setup_adapter_and_source(store)
+
+        # Create 2 chunks
+        chunks = []
+        lineages = []
+        hashes = []
+        for i in range(2):
+            ch = compute_chunk_hash(f"content{i}")
+            chunk = Chunk(
+                chunk_hash=ch,
+                content=f"content{i}",
+                context_header=f"Header{i}",
+                chunk_index=i,
+                chunk_type=ChunkType.STANDARD,
+            )
+            chunks.append(chunk)
+            hashes.append(ch)
+            lineage = LineageRecord(
+                chunk_hash=ch,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            lineages.append(lineage)
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=hashes,
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(chunks, lineages)
+
+        # Initially should have 2 active chunks
+        stats = store.get_adapter_stats()
+        assert stats[0]["active_chunk_count"] == 2
+
+        # Retire one chunk
+        store.retire_chunks({hashes[0]}, "read-src", 1)
+
+        # Should now have 1 active chunk
+        stats = store.get_adapter_stats()
+        assert stats[0]["active_chunk_count"] == 1

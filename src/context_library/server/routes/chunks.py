@@ -12,7 +12,9 @@ from context_library.server.schemas import (
     ChunkVersionChainItem,
     ChunkVersionChainResponse,
     LineageResponse,
+    TopLevelChunkListResponse,
 )
+from context_library.storage.models import Domain, LineageRecord
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -61,6 +63,53 @@ def _to_chain_item(chunk) -> ChunkVersionChainItem:
         context_header=chunk.context_header,
         chunk_index=chunk.chunk_index,
         chunk_type=chunk.chunk_type.value,
+    )
+
+
+@router.get("", response_model=TopLevelChunkListResponse)
+async def list_chunks(
+    request: Request,
+    domain: Domain | None = Query(default=None),
+    adapter_id: str | None = Query(default=None),
+    source_id: str | None = Query(default=None),
+    limit: int = Query(default=50, gt=0, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> TopLevelChunkListResponse:
+    """List active chunks with optional domain, adapter, and source filtering.
+
+    Returns paginated chunks across all sources (or filtered by source_id),
+    ordered by created_at DESC. Only returns non-retired chunks from current
+    source versions. Corrupt chunks are skipped with warnings, ensuring partial
+    data availability.
+    """
+    ds = request.app.state.document_store
+    chunk_tuples, total = await asyncio.to_thread(
+        ds.list_chunks,
+        domain.value if domain else None,
+        adapter_id,
+        source_id,
+        limit,
+        offset,
+    )
+
+    chunk_responses = []
+    for chunk_ctx in chunk_tuples:
+        lineage = LineageRecord(
+            chunk_hash=chunk_ctx.chunk.chunk_hash,
+            source_id=chunk_ctx.source_id,
+            source_version_id=chunk_ctx.source_version_id,
+            adapter_id=chunk_ctx.adapter_id,
+            domain=Domain(chunk_ctx.domain),
+            normalizer_version=chunk_ctx.normalizer_version,
+            embedding_model_id=chunk_ctx.embedding_model_id,
+        )
+        chunk_responses.append(_chunk_response(chunk_ctx.chunk, lineage, chunk_ctx.source_id))
+
+    return TopLevelChunkListResponse(
+        chunks=chunk_responses,
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

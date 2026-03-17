@@ -70,6 +70,7 @@ async def list_sources(
         SourceSummary(
             source_id=r["source_id"],
             adapter_id=r["adapter_id"],
+            adapter_type=r["adapter_type"],
             domain=r["domain"],
             origin_ref=r["origin_ref"],
             display_name=r["display_name"],
@@ -77,6 +78,8 @@ async def list_sources(
             last_fetched_at=r["last_fetched_at"],
             poll_strategy=r["poll_strategy"],
             chunk_count=r["chunk_count"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
             **{
                 "_links": {
                     "self": f"/sources/{r['source_id']}",
@@ -133,21 +136,38 @@ async def get_version_history(source_id: str, request: Request) -> VersionHistor
             detail=f"Source '{source_id}' not found or has no versions",
         )
     version_summaries = []
-    for v in versions:
+    for idx, v in enumerate(versions):
         links: dict[str, str] = {
             "self": f"/sources/{source_id}/versions/{v.version}",
             "chunks": f"/sources/{source_id}/chunks?version={v.version}",
             "source": f"/sources/{source_id}",
         }
-        if v.version > 1:
+
+        # Calculate diff counts from in-memory hash sets
+        # (no additional DB queries — using chunk_hashes already fetched)
+        if v.version == 1:
+            added_count = len(v.chunk_hashes)
+            removed_count = 0
+            unchanged_count = 0
+        else:
             links["diff_from_prev"] = (
                 f"/sources/{source_id}/diff?from_version={v.version - 1}&to_version={v.version}"
             )
+            # Compute set differences from previous version's hashes
+            current_hashes = set(v.chunk_hashes)
+            prev_hashes = set(versions[idx - 1].chunk_hashes)
+            added_count = len(current_hashes - prev_hashes)
+            removed_count = len(prev_hashes - current_hashes)
+            unchanged_count = len(current_hashes & prev_hashes)
+
         version_summaries.append(
             VersionSummary(
                 source_id=v.source_id,
                 version=v.version,
                 chunk_hash_count=len(v.chunk_hashes),
+                added_chunks=added_count,
+                removed_chunks=removed_count,
+                unchanged_chunks=unchanged_count,
                 adapter_id=v.adapter_id,
                 normalizer_version=v.normalizer_version,
                 fetch_timestamp=v.fetch_timestamp,

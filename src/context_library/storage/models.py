@@ -10,7 +10,7 @@ import hashlib
 import re
 from datetime import date
 from enum import Enum
-from typing import Annotated, ClassVar
+from typing import Annotated, ClassVar, NamedTuple
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
@@ -756,6 +756,23 @@ class LineageRecord(BaseModel):
     source_version_id: int
     adapter_id: str
     domain: Domain
+    normalizer_version: str
+    embedding_model_id: str
+
+
+class ChunkWithLineageContext(NamedTuple):
+    """Chunk with its associated lineage context metadata.
+
+    Named tuple returned by list_chunks() to safely convey chunk data and related
+    lineage fields without using positional-only tuples. Enables safe field access
+    by name and protects against field reordering in future changes.
+    """
+
+    chunk: Chunk
+    source_id: str
+    source_version_id: int
+    adapter_id: str
+    domain: str
     normalizer_version: str
     embedding_model_id: str
 

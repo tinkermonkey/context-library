@@ -41,7 +41,7 @@ class TestStructuralHints:
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[10, 20, 30],
+            natural_boundaries=(10, 20, 30),
         )
         assert hints.has_headings is True
         assert hints.has_lists is False
@@ -57,7 +57,7 @@ class TestStructuralHints:
             has_headings=True,
             has_lists=True,
             has_tables=True,
-            natural_boundaries=[100, 200],
+            natural_boundaries=(100, 200),
             file_path="/path/to/file.md",
             modified_at="2025-03-02T10:00:00Z",
             file_size_bytes=1024,
@@ -72,7 +72,7 @@ class TestStructuralHints:
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[],
+            natural_boundaries=(),
         )
         with pytest.raises(ValidationError):
             hints.has_headings = False  # type: ignore[assignment]
@@ -87,7 +87,7 @@ class TestNormalizedContent:
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[50],
+            natural_boundaries=(50,),
         )
         content = NormalizedContent(
             markdown="# Heading\n\nParagraph.",
@@ -106,7 +106,7 @@ class TestNormalizedContent:
             has_headings=True,
             has_lists=False,
             has_tables=False,
-            natural_boundaries=[],
+            natural_boundaries=(),
         )
         content = NormalizedContent(
             markdown="test",
@@ -145,7 +145,7 @@ class TestChunk:
             content="Content here.",
             context_header="# Section > ## Subsection",
             chunk_index=5,
-            chunk_type="oversized",
+            chunk_type=ChunkType.OVERSIZED,
             domain_metadata={"key": "value"},
         )
         assert chunk.chunk_index == 5
@@ -248,7 +248,7 @@ class TestSourceVersion:
 
     def test_create_source_version(self) -> None:
         """Test creating SourceVersion with chunk hashes."""
-        hashes = ["a" * 64, "b" * 64, "c" * 64]
+        hashes = ("a" * 64, "b" * 64, "c" * 64)
         version = SourceVersion(
             source_id="source-1",
             version=1,
@@ -268,7 +268,7 @@ class TestSourceVersion:
             source_id="source-1",
             version=0,
             markdown="",
-            chunk_hashes=[],
+            chunk_hashes=(),
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -281,7 +281,7 @@ class TestSourceVersion:
             source_id="source-1",
             version=1,
             markdown="test",
-            chunk_hashes=[],
+            chunk_hashes=(),
             adapter_id="adapter-1",
             normalizer_version="1.0.0",
             fetch_timestamp="2025-03-02T10:00:00Z",
@@ -297,9 +297,9 @@ class TestDiffResult:
         """Test DiffResult when content has not changed."""
         result = DiffResult(
             changed=False,
-            added_hashes=set(),
-            removed_hashes=set(),
-            unchanged_hashes={"a" * 64, "b" * 64},
+            added_hashes=frozenset(),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset({"a" * 64, "b" * 64}),
         )
         assert result.changed is False
         assert result.added_hashes == frozenset()
@@ -310,9 +310,9 @@ class TestDiffResult:
         """Test DiffResult when content has changed with additions and removals."""
         result = DiffResult(
             changed=True,
-            added_hashes={"c" * 64, "d" * 64},
-            removed_hashes={"e" * 64},
-            unchanged_hashes={"a" * 64, "b" * 64},
+            added_hashes=frozenset({"c" * 64, "d" * 64}),
+            removed_hashes=frozenset({"e" * 64}),
+            unchanged_hashes=frozenset({"a" * 64, "b" * 64}),
             prev_hash="1111111111111111111111111111111111111111111111111111111111111111",
             curr_hash="2222222222222222222222222222222222222222222222222222222222222222",
         )
@@ -327,9 +327,9 @@ class TestDiffResult:
         """Test DiffResult for first ingest (all chunks are added)."""
         result = DiffResult(
             changed=True,
-            added_hashes={"a" * 64, "b" * 64, "c" * 64},
-            removed_hashes=set(),
-            unchanged_hashes=set(),
+            added_hashes=frozenset({"a" * 64, "b" * 64, "c" * 64}),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset(),
             prev_hash=None,
             curr_hash="2222222222222222222222222222222222222222222222222222222222222222",
         )
@@ -343,9 +343,9 @@ class TestDiffResult:
         with pytest.raises(ValueError) as exc_info:
             DiffResult(
                 changed=True,
-                added_hashes={overlapping_hash, "b" * 64},
-                removed_hashes={overlapping_hash, "c" * 64},
-                unchanged_hashes=set(),
+                added_hashes=frozenset({overlapping_hash, "b" * 64}),
+                removed_hashes=frozenset({overlapping_hash, "c" * 64}),
+                unchanged_hashes=frozenset(),
             )
         assert "added_hashes and removed_hashes must be disjoint" in str(exc_info.value)
 
@@ -355,9 +355,9 @@ class TestDiffResult:
         with pytest.raises(ValueError) as exc_info:
             DiffResult(
                 changed=True,
-                added_hashes={overlapping_hash, "b" * 64},
-                removed_hashes=set(),
-                unchanged_hashes={overlapping_hash, "c" * 64},
+                added_hashes=frozenset({overlapping_hash, "b" * 64}),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset({overlapping_hash, "c" * 64}),
             )
         assert "added_hashes and unchanged_hashes must be disjoint" in str(exc_info.value)
 
@@ -367,9 +367,9 @@ class TestDiffResult:
         with pytest.raises(ValueError) as exc_info:
             DiffResult(
                 changed=True,
-                added_hashes=set(),
-                removed_hashes={overlapping_hash, "b" * 64},
-                unchanged_hashes={overlapping_hash, "c" * 64},
+                added_hashes=frozenset(),
+                removed_hashes=frozenset({overlapping_hash, "b" * 64}),
+                unchanged_hashes=frozenset({overlapping_hash, "c" * 64}),
             )
         assert "removed_hashes and unchanged_hashes must be disjoint" in str(exc_info.value)
 
@@ -378,9 +378,9 @@ class TestDiffResult:
         with pytest.raises(ValueError) as exc_info:
             DiffResult(
                 changed=False,
-                added_hashes={"a" * 64},
-                removed_hashes=set(),
-                unchanged_hashes={"b" * 64},
+                added_hashes=frozenset({"a" * 64}),
+                removed_hashes=frozenset(),
+                unchanged_hashes=frozenset({"b" * 64}),
             )
         assert "If changed=False, both added_hashes and removed_hashes must be empty" in str(
             exc_info.value
@@ -391,9 +391,9 @@ class TestDiffResult:
         with pytest.raises(ValueError) as exc_info:
             DiffResult(
                 changed=False,
-                added_hashes=set(),
-                removed_hashes={"a" * 64},
-                unchanged_hashes={"b" * 64},
+                added_hashes=frozenset(),
+                removed_hashes=frozenset({"a" * 64}),
+                unchanged_hashes=frozenset({"b" * 64}),
             )
         assert "If changed=False, both added_hashes and removed_hashes must be empty" in str(
             exc_info.value
@@ -403,9 +403,9 @@ class TestDiffResult:
         """Test that DiffResult is frozen."""
         result = DiffResult(
             changed=False,
-            added_hashes=set(),
-            removed_hashes=set(),
-            unchanged_hashes=set(),
+            added_hashes=frozenset(),
+            removed_hashes=frozenset(),
+            unchanged_hashes=frozenset(),
         )
         with pytest.raises(ValidationError):
             result.changed = True  # type: ignore[assignment]
@@ -429,7 +429,7 @@ class TestAdapterConfig:
 
     def test_create_adapter_config_full(self) -> None:
         """Test creating AdapterConfig with all fields."""
-        cfg_dict = {"directory": "/home/user/notes", "extensions": [".md", ".txt"]}
+        cfg_dict: dict[str, object] = {"directory": "/home/user/notes", "extensions": (".md", ".txt")}
         config = AdapterConfig(
             adapter_id="adapter-fs-1",
             adapter_type="filesystem",
@@ -495,7 +495,7 @@ class TestMessageMetadata:
             thread_id="thread-123",
             message_id="msg-456",
             sender="alice@example.com",
-            recipients=["bob@example.com", "charlie@example.com"],
+            recipients=("bob@example.com", "charlie@example.com"),
             timestamp="2024-01-15T10:30:00Z",
             in_reply_to="msg-455",
             subject="Re: Project Discussion",
@@ -516,7 +516,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m1",
             sender="a@b.com",
-            recipients=["c@d.com"],
+            recipients=("c@d.com",),
             timestamp="2024-01-01T00:00:00Z",
             in_reply_to=None,
             subject=None,
@@ -538,7 +538,7 @@ class TestMessageMetadata:
                 thread_id="t1",
                 message_id="m1",
                 sender="a@b.com",
-                recipients=["c@d.com"],
+                recipients=("c@d.com",),
                 timestamp="not-a-timestamp",
                 in_reply_to=None,
                 subject=None,
@@ -551,7 +551,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m1",
             sender="a@b.com",
-            recipients=["c@d.com"],
+            recipients=("c@d.com",),
             timestamp="2024-01-01T00:00:00Z",
             in_reply_to=None,
             subject=None,
@@ -566,7 +566,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m1",
             sender="a@b.com",
-            recipients=["c@d.com"],
+            recipients=("c@d.com",),
             timestamp="2024-01-01T00:00:00Z",
             in_reply_to=None,
             subject="Test",
@@ -589,7 +589,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m1",
             sender="a@b.com",
-            recipients=[],
+            recipients=(),
             timestamp="2024-01-01T00:00:00Z",
             in_reply_to=None,
             subject=None,
@@ -604,7 +604,7 @@ class TestMessageMetadata:
                 thread_id="",
                 message_id="m1",
                 sender="a@b.com",
-                recipients=["c@d.com"],
+                recipients=("c@d.com",),
                 timestamp="2024-01-01T00:00:00Z",
                 in_reply_to=None,
                 subject=None,
@@ -619,7 +619,7 @@ class TestMessageMetadata:
                 thread_id="t1",
                 message_id="",
                 sender="a@b.com",
-                recipients=["c@d.com"],
+                recipients=("c@d.com",),
                 timestamp="2024-01-01T00:00:00Z",
                 in_reply_to=None,
                 subject=None,
@@ -634,7 +634,7 @@ class TestMessageMetadata:
                 thread_id="t1",
                 message_id="m1",
                 sender="",
-                recipients=["c@d.com"],
+                recipients=("c@d.com",),
                 timestamp="2024-01-01T00:00:00Z",
                 in_reply_to=None,
                 subject=None,
@@ -651,7 +651,7 @@ class TestMessageMetadata:
                 thread_id="t1",
                 message_id="m1",
                 sender="a@b.com",
-                recipients=["c@d.com"],
+                recipients=("c@d.com",),
                 timestamp="2024-01-01T00:00:00Z",
                 in_reply_to="msg-0",
                 subject=None,
@@ -666,7 +666,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m1",
             sender="a@b.com",
-            recipients=["c@d.com"],
+            recipients=("c@d.com",),
             timestamp="2024-01-01T00:00:00Z",
             in_reply_to=None,
             subject=None,
@@ -681,7 +681,7 @@ class TestMessageMetadata:
             thread_id="t1",
             message_id="m2",
             sender="b@b.com",
-            recipients=["a@b.com"],
+            recipients=("a@b.com",),
             timestamp="2024-01-01T01:00:00Z",
             in_reply_to="m1",
             subject=None,
@@ -860,6 +860,7 @@ class TestTaskMetadata:
                 status="open",
                 title="Task",
                 source_type="",
+                date_first_observed="2024-01-01T00:00:00Z",
             )
 
     def test_task_metadata_priority_valid_range_1_4(self) -> None:
@@ -1130,6 +1131,7 @@ class TestEventMetadata:
                 event_id="e1",
                 title="Event",
                 source_type="",
+                date_first_observed="2024-01-01T00:00:00Z",
             )
 
     def test_event_metadata_duration_minutes_non_negative_valid(self) -> None:

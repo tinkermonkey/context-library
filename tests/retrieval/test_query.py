@@ -15,7 +15,7 @@ import pytest
 from context_library.core.embedder import Embedder
 from context_library.retrieval.query import RetrievalResult, retrieve
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import AdapterConfig, Chunk, Domain, LineageRecord
+from context_library.storage.models import AdapterConfig, Chunk, ChunkType, Domain, LineageRecord
 from context_library.storage.vector_store import VectorSearchResult, VectorStore
 
 
@@ -43,7 +43,7 @@ def _create_test_chunk(hash_char: str, chunk_index: int = 0) -> Chunk:
         content=f"Test chunk {hash_char}",
         context_header=f"Context for {hash_char}",
         chunk_index=chunk_index,
-        chunk_type="standard",
+        chunk_type=ChunkType.STANDARD,
         domain_metadata=None,
     )
 
