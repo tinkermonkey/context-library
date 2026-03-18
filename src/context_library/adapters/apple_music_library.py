@@ -8,7 +8,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /tracks
+  GET /music/tracks
     Query parameters:
       - since (optional): ISO 8601 timestamp; return only tracks modified after this time
 
@@ -176,7 +176,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
 
         try:
             response = self._client.get(
-                f"{self._api_url}/tracks",
+                f"{self._api_url}/music/tracks",
                 params=params,
                 headers=headers,
             )
@@ -185,7 +185,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             tracks = response.json()
             if not isinstance(tracks, list):
                 raise ValueError(
-                    f"macOS helper API '/tracks' response must be a list, got {type(tracks).__name__}"
+                    f"macOS helper API '/music/tracks' response must be a list, got {type(tracks).__name__}"
                 )
 
             return tracks
@@ -199,18 +199,18 @@ class AppleMusicLibraryAdapter(BaseAdapter):
                 )
                 raise
             logger.error(
-                f"HTTP error from Apple Music API /tracks: "
+                f"HTTP error from Apple Music API /music/tracks: "
                 f"{e.response.status_code} {e.response.text}"
             )
             raise
         except httpx.RequestError as e:
             logger.error(
-                f"Network error connecting to Apple Music API at {self._api_url}/tracks: {e}"
+                f"Network error connecting to Apple Music API at {self._api_url}/music/tracks: {e}"
             )
             raise
         except json.JSONDecodeError as e:
             logger.error(
-                f"Invalid JSON response from Apple Music API /tracks (possible proxy/HTML response): {e}"
+                f"Invalid JSON response from Apple Music API /music/tracks (possible proxy/HTML response): {e}"
             )
             raise
 

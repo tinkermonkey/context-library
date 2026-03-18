@@ -8,7 +8,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /messages
+  GET /imessage/messages
     Query parameters:
       - since (optional): ISO 8601 timestamp; return only messages after this time
 
@@ -173,7 +173,7 @@ class AppleiMessageAdapter(BaseAdapter):
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         response = self._client.get(
-            f"{self._api_url}/messages",
+            f"{self._api_url}/imessage/messages",
             params=params,
             headers=headers,
         )

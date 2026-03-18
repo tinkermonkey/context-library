@@ -8,7 +8,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /tracks
+  GET /music/tracks
     Query parameters:
       - since (optional): ISO 8601 timestamp; return only tracks played after this time
 
@@ -161,7 +161,7 @@ class AppleMusicAdapter(BaseAdapter):
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         response = self._client.get(
-            f"{self._api_url}/tracks",
+            f"{self._api_url}/music/tracks",
             params=params,
             headers=headers,
         )

@@ -23,7 +23,7 @@ Expected local service API contract
 
 The helper process exposes the following HTTP endpoints:
 
-GET /workouts
+GET /health/workouts
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only workouts starting after this time
 
@@ -42,7 +42,7 @@ GET /workouts
       }
     ]
 
-GET /sleep
+GET /sleep  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only sleep records starting after this time
 
@@ -60,7 +60,7 @@ GET /sleep
       }
     ]
 
-GET /activity
+GET /activity  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only activity records starting after this time
 
@@ -78,7 +78,7 @@ GET /activity
       }
     ]
 
-GET /hrv
+GET /hrv  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only records starting after this time
 
@@ -93,7 +93,7 @@ GET /hrv
       }
     ]
 
-GET /heart_rate
+GET /heart_rate  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only samples starting after this time
 
@@ -106,7 +106,7 @@ GET /heart_rate
       }
     ]
 
-GET /spo2
+GET /spo2  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only records starting after this time
 
@@ -120,7 +120,7 @@ GET /spo2
       }
     ]
 
-GET /mindfulness
+GET /mindfulness  # NOTE: this endpoint does NOT exist in context-helpers; remove or replace
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only sessions starting after this time
 
@@ -288,52 +288,18 @@ class AppleHealthAdapter(BaseAdapter):
         params = {"since": since} if since else {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        # Fetch from all endpoints in order (six via generic handler, one via specialized heart_rate handler)
-        endpoints_config = [
-            ("/workouts", self._process_workout, "workout"),
-            ("/sleep", self._process_sleep, "sleep record"),
-            ("/activity", self._process_activity, "activity record"),
-            ("/hrv", self._process_hrv, "HRV record"),
-            ("/spo2", self._process_spo2, "SpO2 record"),
-            ("/mindfulness", self._process_mindfulness, "mindfulness record"),
-        ]
-        failed_endpoints = []
-
-        for endpoint, handler, item_label in endpoints_config:
-            try:
-                yield from self._fetch_endpoint(endpoint, handler, item_label, params, headers)
-            except httpx.HTTPStatusError:
-                # Auth errors already logged and re-raised by _fetch_endpoint
-                raise
-            except EndpointFetchError:
-                failed_endpoints.append(endpoint)
-
-        # Fetch heart rate separately (requires windowing by hour)
+        # Apple Health helper only exposes workouts. Sleep, activity, HRV, SpO2,
+        # mindfulness, and heart rate are served by the Oura collector (oura.py adapter).
         try:
-            yield from self._fetch_heart_rate(since, headers)
+            yield from self._fetch_endpoint("/health/workouts", self._process_workout, "workout", params, headers)
         except httpx.HTTPStatusError:
-            # Auth errors already logged and re-raised by _fetch_heart_rate
             raise
         except EndpointFetchError:
-            failed_endpoints.append("/heart_rate")
-
-        # Surface endpoint failures to the caller
-        total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
-        if failed_endpoints:
-            if len(failed_endpoints) == total_endpoints:
-                raise AllEndpointsFailedError(
-                    total_endpoints,
-                    f"All {total_endpoints} endpoints failed to fetch from Apple Health API. "
-                    "Check API connectivity, credentials, and service status."
-                )
-            else:
-                # Partial failure: some endpoints succeeded, others failed
-                raise PartialFetchError(
-                    failed_endpoints,
-                    total_endpoints,
-                    f"Partial fetch from Apple Health API: {len(failed_endpoints)}/{total_endpoints} "
-                    f"endpoint(s) failed. Successful endpoints provided partial data.",
-                )
+            raise AllEndpointsFailedError(
+                1,
+                "Failed to fetch from /health/workouts. "
+                "Check API connectivity, credentials, and service status.",
+            )
 
     def _fetch_endpoint(
         self,
@@ -346,7 +312,7 @@ class AppleHealthAdapter(BaseAdapter):
         """Fetch and process records from a single endpoint.
 
         Args:
-            endpoint: API endpoint path (e.g., "/sleep", "/activity")
+            endpoint: API endpoint path (e.g., "/health/workouts")
             handler: Handler method to process each record
             item_label: Label for logging (e.g., "sleep record")
             params: Query parameters (including "since" if incremental)
@@ -433,6 +399,7 @@ class AppleHealthAdapter(BaseAdapter):
         params = {"since": since} if since else {}
 
         try:
+            # NOTE: /heart_rate does NOT exist in context-helpers; this call will fail
             response = httpx.get(
                 f"{self._api_url}/heart_rate",
                 params=params,

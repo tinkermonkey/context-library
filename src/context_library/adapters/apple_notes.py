@@ -8,7 +8,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /notes
+  GET /notes/notes
     Query parameters:
       - since (optional): ISO 8601 timestamp; return only notes modified after this time
 
@@ -182,7 +182,7 @@ class AppleNotesAdapter(BaseAdapter):
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         response = self._client.get(
-            f"{self._api_url}/notes",
+            f"{self._api_url}/notes/notes",
             params=params,
             headers=headers,
         )

@@ -1,10 +1,10 @@
 """ObsidianHelperAdapter — ingests Obsidian vault notes from a context-helpers service.
 
-Calls GET /vault-notes on the context-helpers bridge and maps each note to
+Calls GET /obsidian/vault-notes on the context-helpers bridge and maps each note to
 NormalizedContent for the Notes domain with full Obsidian metadata.
 
 Expected endpoint contract:
-  GET /vault-notes
+  GET /obsidian/vault-notes
     Query params:
       - since (optional): ISO 8601 timestamp; return only notes modified after this time
 
@@ -96,7 +96,7 @@ class ObsidianHelperAdapter(BaseAdapter):
             params["since"] = since
 
         response = self._client.get(
-            f"{self._api_url}/vault-notes",
+            f"{self._api_url}/obsidian/vault-notes",
             headers=headers,
             params=params,
         )
