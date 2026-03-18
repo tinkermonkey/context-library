@@ -5,6 +5,21 @@
 
 // ── Health ──────────────────────────────────────────────────────
 
+export interface CollectorStatus {
+  name: string;           // adapter_id, e.g. "apple_music:default"
+  adapter_type: string;   // class name, e.g. "AppleMusicAdapter"
+  enabled: boolean;
+  healthy: boolean | null;
+  error: string | null;
+}
+
+export interface HelperHealth {
+  reachable: boolean;
+  probed_at: string;      // ISO 8601 UTC
+  collectors: CollectorStatus[];
+  error: string | null;
+}
+
 export interface HealthResponse {
   status: string;
   vector_count: number;
@@ -12,6 +27,7 @@ export interface HealthResponse {
   embedding_dimension: number;
   sqlite_ok: boolean;
   chromadb_ok: boolean;
+  helper: HelperHealth | null;
 }
 
 // ── Stats ────────────────────────────────────────────────────────

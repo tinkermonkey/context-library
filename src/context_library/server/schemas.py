@@ -112,6 +112,25 @@ class AppleIngestResponse(BaseModel):
 # ── Health ─────────────────────────────────────────────────────────
 
 
+class CollectorStatus(BaseModel):
+    """Health status of a single configured adapter / helper collector."""
+
+    name: str               # adapter_id, e.g. "apple_music:default"
+    adapter_type: str       # class name, e.g. "AppleMusicAdapter"
+    enabled: bool
+    healthy: bool | None = None   # None = helper didn't report per-collector
+    error: str | None = None
+
+
+class HelperHealth(BaseModel):
+    """Health status of the context-helper service."""
+
+    reachable: bool
+    probed_at: str                          # ISO 8601 UTC
+    collectors: list[CollectorStatus] = []
+    error: str | None = None
+
+
 class HealthResponse(BaseModel):
     status: str
     vector_count: int
@@ -119,6 +138,7 @@ class HealthResponse(BaseModel):
     embedding_dimension: int
     sqlite_ok: bool = True
     chromadb_ok: bool = True
+    helper: HelperHealth | None = None
 
 
 # ── Adapters ────────────────────────────────────────────────────────

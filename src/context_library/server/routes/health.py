@@ -5,11 +5,30 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from context_library.server.schemas import HealthResponse
+from context_library.server.helper_health import CollectorHealth, HelperHealthSnapshot
+from context_library.server.schemas import CollectorStatus, HelperHealth, HealthResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _snapshot_to_schema(snapshot: HelperHealthSnapshot) -> HelperHealth:
+    return HelperHealth(
+        reachable=snapshot.reachable,
+        probed_at=snapshot.probed_at,
+        collectors=[
+            CollectorStatus(
+                name=c.name,
+                adapter_type=c.adapter_type,
+                enabled=c.enabled,
+                healthy=c.healthy,
+                error=c.error,
+            )
+            for c in snapshot.collectors
+        ],
+        error=snapshot.error,
+    )
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -31,11 +50,21 @@ async def health(request: Request) -> HealthResponse:
         status = "degraded"
 
     try:
-        await asyncio.to_thread(document_store.conn.execute, "SELECT 1")
+        await asyncio.to_thread(lambda: document_store.conn.execute("SELECT 1"))
     except Exception as e:
         logger.warning("Health check: document store unreachable: %s", e)
         sqlite_ok = False
         status = "degraded"
+
+    # Probe the helper service (uses in-memory cache with 30s TTL)
+    helper_health: HelperHealth | None = None
+    cache = getattr(request.app.state, "helper_health_cache", None)
+    if cache is not None:
+        try:
+            snapshot = await asyncio.to_thread(cache.get_or_probe)
+            helper_health = _snapshot_to_schema(snapshot)
+        except Exception as e:
+            logger.warning("Failed to get helper health snapshot: %s", e)
 
     return HealthResponse(
         status=status,
@@ -44,4 +73,5 @@ async def health(request: Request) -> HealthResponse:
         embedding_dimension=embedder.dimension,
         sqlite_ok=sqlite_ok,
         chromadb_ok=chromadb_ok,
+        helper=helper_health,
     )

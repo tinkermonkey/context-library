@@ -24,6 +24,8 @@ RUN apt-get update && \
 # Install dependencies (cached layer — only rebuilds when pyproject.toml changes)
 COPY pyproject.toml ./
 RUN mkdir -p src/context_library && touch src/context_library/__init__.py
+# Install CPU-only torch first to prevent pip from pulling large NVIDIA CUDA packages
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir ".[server]"
 
 # Pre-download the default embedding model into the image
@@ -39,6 +41,7 @@ COPY src/ ./src/
 RUN mkdir -p /data/sqlite /data/chromadb
 
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
     CTX_SQLITE_DB_PATH=/data/sqlite/documents.db \
     CTX_CHROMADB_PATH=/data/chromadb \
     CTX_HOST=0.0.0.0 \

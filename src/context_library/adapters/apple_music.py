@@ -195,17 +195,14 @@ class AppleMusicAdapter(BaseAdapter):
             raise ValueError("Track 'played_at' must not be empty")
 
         artist = track.get("artist")
-        album = track.get("album")
         duration_seconds = track.get("duration_seconds")
-        play_count = track.get("play_count", 1)
-
         duration_minutes = int(duration_seconds // 60) if duration_seconds else None
 
         now = datetime.now(timezone.utc).isoformat()
 
         event_metadata_dict: dict[str, Any] = {
-            "event_id": str(track_id),
-            "title": title,
+            "event_id": f"play/{track_id}",
+            "title": f"Listened to {title}" + (f" by {artist}" if artist else ""),
             "start_date": played_at,
             "end_date": played_at,
             "duration_minutes": duration_minutes,
@@ -213,10 +210,8 @@ class AppleMusicAdapter(BaseAdapter):
             "invitees": [],
             "date_first_observed": now,
             "source_type": "apple_music",
-            # Music-specific extras
-            "artist": artist,
-            "album": album,
-            "play_count": play_count,
+            # Reference to the track's library document
+            "library_source_id": f"music/library/{track_id}",
         }
 
         try:
@@ -225,7 +220,7 @@ class AppleMusicAdapter(BaseAdapter):
             logger.error(f"EventMetadata validation failed for track {track_id}: {e}")
             raise
 
-        markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count)
+        markdown = self._build_event_markdown(title, artist, played_at, duration_minutes)
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -237,28 +232,22 @@ class AppleMusicAdapter(BaseAdapter):
 
         yield NormalizedContent(
             markdown=markdown,
-            source_id=f"music/{track_id}",
+            source_id=f"music/play/{track_id}",
             structural_hints=structural_hints,
             normalizer_version=self.normalizer_version,
         )
 
-    def _build_track_markdown(
+    def _build_event_markdown(
         self,
         title: str,
         artist: str | None,
-        album: str | None,
+        played_at: str,
         duration_minutes: int | None,
-        play_count: int,
     ) -> str:
-        """Build markdown representation of a track play."""
-        lines = [f"**{title}**"]
-
-        if artist:
-            lines.append(f"- Artist: {artist}")
-        if album:
-            lines.append(f"- Album: {album}")
+        """Build markdown for a listen event (not the track catalog entry)."""
+        heading = f"Listened to **{title}**" + (f" by {artist}" if artist else "")
+        lines = [heading]
+        lines.append(f"- Played: {played_at}")
         if duration_minutes is not None:
             lines.append(f"- Duration: {duration_minutes} min")
-        lines.append(f"- Play count: {play_count}")
-
         return "\n".join(lines)

@@ -4,12 +4,13 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "${CTX_PORT:-8000}:8000"
     volumes:
       - ./src:/app/src
-      - ui-dist:/app/ui
       - sqlite-data:/data/sqlite
       - chromadb-data:/data/chromadb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     env_file:
       - path: .env
@@ -17,15 +18,18 @@ services:
     environment:
       - CTX_SQLITE_DB_PATH=/data/sqlite/documents.db
       - CTX_CHROMADB_PATH=/data/chromadb
+      - CTX_HOST=${CTX_HOST:-0.0.0.0}
+      - CTX_PORT=${CTX_PORT:-8000}
       - CTX_EMBEDDING_MODEL=${CTX_EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - CTX_WEBHOOK_SECRET=${CTX_WEBHOOK_SECRET:-}
       - CTX_ENABLE_RERANKER=${CTX_ENABLE_RERANKER:-false}
+      - CTX_RERANKER_MODEL=${CTX_RERANKER_MODEL:-cross-encoder/ms-marco-MiniLM-L-6-v2}
       - CTX_HELPER_URL=${CTX_HELPER_URL:-}
       - CTX_HELPER_API_KEY=${CTX_HELPER_API_KEY:-}
       - CTX_HELPER_FILESYSTEM_ENABLED=${CTX_HELPER_FILESYSTEM_ENABLED:-false}
       - CTX_HELPER_OBSIDIAN_ENABLED=${CTX_HELPER_OBSIDIAN_ENABLED:-false}
+      - CTX_HELPER_OURA_ENABLED=${CTX_HELPER_OURA_ENABLED:-false}
 
 volumes:
-  ui-dist:
   sqlite-data:
   chromadb-data:

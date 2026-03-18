@@ -82,6 +82,7 @@ async def helper_ingest(
     request: Request,
     since: str | None = Query(default=None, description="ISO 8601 cursor; only return items modified after this time"),
     full: bool = Query(default=False, description="Force a full pull, ignoring the since cursor"),
+    adapter_id: str | None = Query(default=None, description="Run only this adapter (matches adapter_id prefix)"),
 ) -> AppleIngestResponse:
     """Pull and ingest content from all configured helper adapters."""
     pipeline = request.app.state.pipeline
@@ -96,6 +97,11 @@ async def helper_ingest(
 
     if not helper_adapters:
         raise HTTPException(status_code=503, detail="No helper adapters configured (set CTX_HELPER_URL and CTX_HELPER_API_KEY)")
+
+    if adapter_id:
+        helper_adapters = [a for a in helper_adapters if a.adapter_id == adapter_id]
+        if not helper_adapters:
+            raise HTTPException(status_code=404, detail=f"No configured adapter with adapter_id={adapter_id!r}")
 
     if since and not full:
         try:

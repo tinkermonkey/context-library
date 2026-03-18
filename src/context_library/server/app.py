@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
+from context_library.server.helper_health import HelperHealthCache
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.server.config import ServerConfig
@@ -96,7 +97,7 @@ async def lifespan(app: FastAPI):
                 e
             )
 
-        # AppleMusicAdapter
+        # AppleMusicAdapter (listen events → events domain)
         try:
             from context_library.adapters.apple_music import AppleMusicAdapter
             helper_adapters.append(AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
@@ -105,6 +106,19 @@ async def lifespan(app: FastAPI):
         except ValueError as e:
             logger.warning(
                 "AppleMusicAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
+        # AppleMusicLibraryAdapter (track catalog → documents domain)
+        try:
+            from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+            helper_adapters.append(AppleMusicLibraryAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleMusicLibraryAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleMusicLibraryAdapter not available (invalid configuration): %s. "
                 "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
                 e
             )
@@ -139,6 +153,15 @@ async def lifespan(app: FastAPI):
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
 
+    # Build helper health cache (probes helper /health on demand, TTL 30s)
+    helper_health_cache = None
+    if config.helper_url and config.helper_api_key and helper_adapters:
+        helper_health_cache = HelperHealthCache(
+            helper_url=config.helper_url,
+            api_key=config.helper_api_key,
+            adapters=helper_adapters,
+        )
+
     # Store on app.state for route access
     app.state.config = config
     app.state.document_store = document_store
@@ -147,6 +170,7 @@ async def lifespan(app: FastAPI):
     app.state.pipeline = pipeline
     app.state.reranker = reranker
     app.state.helper_adapters = helper_adapters
+    app.state.helper_health_cache = helper_health_cache
 
     logger.info(
         "Server started (model=%s, dim=%d, vectors=%d)",

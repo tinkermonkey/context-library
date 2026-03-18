@@ -3,6 +3,7 @@
 import json
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -35,21 +36,31 @@ class DocumentStore:
 
         Args:
             db_path: Path to SQLite database file. Use ':memory:' for in-memory DB.
-            check_same_thread: If False, allow the connection to be used across threads.
-                Set to False when running inside an async server (e.g., FastAPI with
-                asyncio.to_thread). SQLite in WAL mode serializes writes safely.
+            check_same_thread: Deprecated — ignored. Thread safety is now handled via
+                per-thread connections (threading.local). Kept for API compatibility.
 
         Raises:
             RuntimeError: If schema execution or verification fails.
         """
         # Convert to string path (handles both str and Path)
-        db_path_str = str(db_path)
+        self._db_path = str(db_path)
 
-        # Connect to database
-        self.conn = sqlite3.connect(db_path_str, check_same_thread=check_same_thread)
+        # Per-thread connection storage. SQLite connections must not be shared
+        # across threads — even check_same_thread=False only disables the safety
+        # check; the underlying C library is not thread-safe for concurrent access
+        # on the same connection. Each thread gets its own connection via _local.
+        self._local = threading.local()
 
-        # Set row_factory to access columns by name
-        self.conn.row_factory = sqlite3.Row
+        # Reentrant write lock. WAL mode serialises writers at the OS level, but
+        # Python's `with conn:` transaction context manager is not thread-safe:
+        # concurrent callers from different thread-local connections can still
+        # interleave DML within the same WAL write slot. The write lock ensures
+        # only one thread runs a write transaction at a time.
+        self._write_lock = threading.RLock()
+
+        # Initialise the connection for this (main) thread. Schema migration and
+        # setup run here; subsequent threads get fresh connections via the property.
+        self._local.conn = self._make_connection()
 
         # Check if this is an existing database that needs migration
         # This must be done BEFORE executing schema.sql which sets version to 3
@@ -104,6 +115,22 @@ class DocumentStore:
             raise RuntimeError(
                 f"Schema version mismatch: expected 3, got {final_version}"
             )
+
+    def _make_connection(self) -> sqlite3.Connection:
+        """Create a new SQLite connection with required pragmas applied."""
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Return the SQLite connection for the current thread, creating one if needed."""
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            self._local.conn = self._make_connection()
+        return self._local.conn
 
     def _migrate_v1_to_v2(self) -> None:
         """Migrate schema from v1 to v2: add 'health' to domain CHECK constraints.
@@ -446,7 +473,7 @@ class DocumentStore:
         """
         config_json = json.dumps(config.config) if config.config else None
 
-        with self.conn:
+        with self._write_lock, self.conn:
             cursor = self.conn.cursor()
             # Check if adapter already exists
             cursor.execute(
@@ -504,7 +531,7 @@ class DocumentStore:
             poll_interval_sec: Interval in seconds between polls for PULL strategy.
                               None if not applicable for this strategy. Updated on re-registration.
         """
-        with self.conn:
+        with self._write_lock, self.conn:
             cursor = self.conn.cursor()
             # Check if source already exists and get its current domain
             cursor.execute(
@@ -596,7 +623,7 @@ class DocumentStore:
 
         chunk_hashes_json = json.dumps(chunk_hashes)
 
-        with self.conn:
+        with self._write_lock, self.conn:
             cursor = self.conn.cursor()
             cursor.execute(
                 """
@@ -684,7 +711,7 @@ class DocumentStore:
         # Generate timestamp once for the entire batch
         batch_timestamp = datetime.now(timezone.utc).isoformat()
 
-        with self.conn:
+        with self._write_lock, self.conn:
             for chunk in chunks:
                 # Merge domain_metadata with cross_refs
                 # cross_refs are stored in domain_metadata JSON under the reserved "_system_cross_refs" key
@@ -775,7 +802,7 @@ class DocumentStore:
 
         now = datetime.now(timezone.utc).isoformat()
 
-        with self.conn:
+        with self._write_lock, self.conn:
             cursor = self.conn.cursor()
             for chunk_hash in chunk_hashes:
                 cursor.execute(
@@ -808,7 +835,7 @@ class DocumentStore:
         for chunk_hash in chunk_hashes:
             _validate_sha256_hex(chunk_hash)
 
-        with self.conn:
+        with self._write_lock, self.conn:
             self.conn.executemany(
                 """
                 INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
@@ -838,7 +865,7 @@ class DocumentStore:
         for chunk_hash in chunk_hashes:
             _validate_sha256_hex(chunk_hash)
 
-        with self.conn:
+        with self._write_lock, self.conn:
             self.conn.executemany(
                 """
                 INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation)
@@ -1416,7 +1443,7 @@ class DocumentStore:
             RuntimeError: If the source_id does not exist.
         """
         now = datetime.now(timezone.utc).isoformat()
-        with self.conn:
+        with self._write_lock, self.conn:
             cursor = self.conn.cursor()
             cursor.execute(
                 "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
@@ -1905,12 +1932,15 @@ class DocumentStore:
         ]
 
     def close(self) -> None:
-        """Close the database connection.
+        """Close the current thread's database connection.
 
-        Should be called when the document store is no longer needed to ensure
-        proper cleanup of the WAL mode checkpoint and file handles.
+        Should be called from the thread that owns the main connection (i.e. the
+        server lifespan coroutine) when the document store is no longer needed,
+        to flush the WAL checkpoint and release file handles.
         """
-        self.conn.close()
+        if hasattr(self._local, "conn") and self._local.conn is not None:
+            self._local.conn.close()
+            self._local.conn = None
 
     def __enter__(self) -> "DocumentStore":
         """Enter context manager."""

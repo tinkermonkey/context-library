@@ -94,39 +94,7 @@ async def list_sources(
     return SourceListResponse(sources=sources, total=total, limit=limit, offset=offset)
 
 
-@router.get("/{source_id}", response_model=SourceDetailResponse)
-async def get_source(source_id: str, request: Request) -> SourceDetailResponse:
-    ds = request.app.state.document_store
-    row = await asyncio.to_thread(ds.get_source_detail, source_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
-    return SourceDetailResponse(
-        source_id=row["source_id"],
-        adapter_id=row["adapter_id"],
-        adapter_type=row["adapter_type"],
-        domain=row["domain"],
-        origin_ref=row["origin_ref"],
-        display_name=row["display_name"],
-        current_version=row["current_version"],
-        last_fetched_at=row["last_fetched_at"],
-        poll_strategy=row["poll_strategy"],
-        poll_interval_sec=row["poll_interval_sec"],
-        normalizer_version=row["normalizer_version"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-        chunk_count=row["chunk_count"],
-        **{
-            "_links": {
-                "self": f"/sources/{source_id}",
-                "versions": f"/sources/{source_id}/versions",
-                "chunks": f"/sources/{source_id}/chunks",
-                "adapter": f"/adapters/{row['adapter_id']}",
-            }
-        },
-    )
-
-
-@router.get("/{source_id}/versions", response_model=VersionHistoryResponse)
+@router.get("/{source_id:path}/versions", response_model=VersionHistoryResponse)
 async def get_version_history(source_id: str, request: Request) -> VersionHistoryResponse:
     ds = request.app.state.document_store
     versions = await asyncio.to_thread(ds.get_version_history, source_id)
@@ -177,7 +145,7 @@ async def get_version_history(source_id: str, request: Request) -> VersionHistor
     return VersionHistoryResponse(source_id=source_id, versions=version_summaries)
 
 
-@router.get("/{source_id}/versions/{version}", response_model=VersionDetailResponse)
+@router.get("/{source_id:path}/versions/{version}", response_model=VersionDetailResponse)
 async def get_source_version(
     source_id: str, version: int, request: Request
 ) -> VersionDetailResponse:
@@ -206,7 +174,7 @@ async def get_source_version(
     )
 
 
-@router.get("/{source_id}/chunks", response_model=ChunkListResponse)
+@router.get("/{source_id:path}/chunks", response_model=ChunkListResponse)
 async def get_source_chunks(
     source_id: str,
     request: Request,
@@ -229,7 +197,7 @@ async def get_source_chunks(
     return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses)
 
 
-@router.get("/{source_id}/diff", response_model=VersionDiffResponse)
+@router.get("/{source_id:path}/diff", response_model=VersionDiffResponse)
 async def get_version_diff_endpoint(
     source_id: str,
     request: Request,
@@ -262,4 +230,38 @@ async def get_version_diff_endpoint(
         unchanged_hashes=sorted(diff.unchanged_hashes),
         added_chunks=[_to_item(c) for c in diff.added_chunks],
         removed_chunks=[_to_item(c) for c in diff.removed_chunks],
+    )
+
+
+# Registered last so the greedy {source_id:path} catch-all does not shadow
+# the more specific sub-routes above (versions, chunks, diff).
+@router.get("/{source_id:path}", response_model=SourceDetailResponse)
+async def get_source(source_id: str, request: Request) -> SourceDetailResponse:
+    ds = request.app.state.document_store
+    row = await asyncio.to_thread(ds.get_source_detail, source_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+    return SourceDetailResponse(
+        source_id=row["source_id"],
+        adapter_id=row["adapter_id"],
+        adapter_type=row["adapter_type"],
+        domain=row["domain"],
+        origin_ref=row["origin_ref"],
+        display_name=row["display_name"],
+        current_version=row["current_version"],
+        last_fetched_at=row["last_fetched_at"],
+        poll_strategy=row["poll_strategy"],
+        poll_interval_sec=row["poll_interval_sec"],
+        normalizer_version=row["normalizer_version"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        chunk_count=row["chunk_count"],
+        **{
+            "_links": {
+                "self": f"/sources/{source_id}",
+                "versions": f"/sources/{source_id}/versions",
+                "chunks": f"/sources/{source_id}/chunks",
+                "adapter": f"/adapters/{row['adapter_id']}",
+            }
+        },
     )
