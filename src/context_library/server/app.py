@@ -97,20 +97,7 @@ async def lifespan(app: FastAPI):
                 e
             )
 
-        # AppleMusicAdapter (listen events → events domain)
-        try:
-            from context_library.adapters.apple_music import AppleMusicAdapter
-            helper_adapters.append(AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
-        except ImportError as e:
-            logger.warning("AppleMusicAdapter not available (missing dependency): %s", e)
-        except ValueError as e:
-            logger.warning(
-                "AppleMusicAdapter not available (invalid configuration): %s. "
-                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
-                e
-            )
-
-        # AppleMusicLibraryAdapter (track catalog → documents domain)
+        # AppleMusicLibraryAdapter (track catalog → documents domain, play events → events domain)
         try:
             from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
             helper_adapters.append(AppleMusicLibraryAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
@@ -130,25 +117,31 @@ async def lifespan(app: FastAPI):
             except ImportError as e:
                 logger.warning("FilesystemHelperAdapter not available (missing dependency): %s", e)
 
-        if config.helper_obsidian_enabled:
-            try:
-                from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
-                helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
-            except ImportError as e:
-                logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
+        # ObsidianHelperAdapter
+        try:
+            from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
+            helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "ObsidianHelperAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
 
-        if config.helper_oura_enabled:
-            try:
-                from context_library.adapters.oura import OuraAdapter
-                helper_adapters.append(OuraAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
-            except ImportError as e:
-                logger.warning("OuraAdapter not available (missing dependency): %s", e)
-            except ValueError as e:
-                logger.warning(
-                    "OuraAdapter not available (invalid configuration): %s. "
-                    "Ensure CTX_HELPER_API_KEY is set when CTX_HELPER_OURA_ENABLED=true",
-                    e
-                )
+        # OuraAdapter
+        try:
+            from context_library.adapters.oura import OuraAdapter
+            helper_adapters.append(OuraAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("OuraAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "OuraAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
 
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)

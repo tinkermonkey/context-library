@@ -13,6 +13,7 @@ from context_library.core.exceptions import (
 )
 from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
 from context_library.domains.base import BaseDomain
+from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
@@ -133,11 +134,24 @@ class IngestionPipeline:
                 try:
                     sources_processed += 1
 
+                    # Resolve domain: per-content override takes precedence over adapter domain.
+                    # This allows adapters to yield content destined for multiple domains
+                    # (e.g. AppleMusicLibraryAdapter produces both DOCUMENTS and EVENTS).
+                    effective_domain = content.domain if content.domain is not None else adapter.domain
+
+                    # Resolve domain chunker: reuse the caller-supplied chunker when the
+                    # content's domain matches the adapter's primary domain (avoids a
+                    # registry lookup on the common path); resolve from registry otherwise.
+                    if effective_domain == adapter.domain:
+                        effective_chunker = domain_chunker
+                    else:
+                        effective_chunker = _get_domain_chunker(effective_domain)
+
                     # Look up latest version for this source
                     prev_version = self.document_store.get_latest_version(content.source_id)
 
                     # Chunk the current content
-                    chunks = domain_chunker.chunk(content)
+                    chunks = effective_chunker.chunk(content)
 
                     # Compute current chunk hashes
                     curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
@@ -161,13 +175,12 @@ class IngestionPipeline:
                     # Case 2: Content changed - process added/removed/unchanged chunks
                     # Register source if new
                     if prev_version is None:
-                        # Determine poll strategy: use adapter's poll_strategy if available, else default to PULL
-                        poll_strategy = getattr(adapter, '_poll_strategy', PollStrategy.PULL)
+                        poll_strategy = getattr(adapter, 'poll_strategy', PollStrategy.PULL)
 
                         self.document_store.register_source(
                             source_id=content.source_id,
                             adapter_id=adapter.adapter_id,
-                            domain=adapter.domain,
+                            domain=effective_domain,
                             origin_ref=content.structural_hints.file_path or content.source_id,
                             poll_strategy=poll_strategy,
                         )
@@ -226,7 +239,7 @@ class IngestionPipeline:
                             source_id=content.source_id,
                             source_version_id=new_version,  # Use version number (not rowid), for FK to source_versions.version
                             adapter_id=adapter.adapter_id,
-                            domain=adapter.domain,
+                            domain=effective_domain,
                             normalizer_version=content.normalizer_version,
                             embedding_model_id=self.embedder.model_id,
                         )
@@ -253,7 +266,7 @@ class IngestionPipeline:
                             source_id=content.source_id,
                             source_version_id=new_version,  # Same version as added chunks
                             adapter_id=adapter.adapter_id,
-                            domain=adapter.domain,
+                            domain=effective_domain,
                             normalizer_version=content.normalizer_version,
                             embedding_model_id=original_embedding_model,  # Use original embedding model
                         )
@@ -301,7 +314,7 @@ class IngestionPipeline:
                                     chunk_hash=added_chunk.chunk_hash,
                                     content=added_chunk.content,
                                     vector=vector,
-                                    domain=adapter.domain,
+                                    domain=effective_domain,
                                     source_id=content.source_id,
                                     source_version=new_version,
                                     created_at=fetch_timestamp,

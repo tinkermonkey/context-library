@@ -707,6 +707,11 @@ class NormalizedContent(BaseModel):
     """Content after adapter normalization (e.g., markdown extraction, deduplication).
 
     This is the input to domain chunkers. The structural_hints guide chunking strategy.
+
+    ``domain`` is an optional per-item override.  When set it takes precedence over
+    ``adapter.domain`` in the pipeline, allowing a single adapter to produce content
+    destined for multiple domains (e.g. AppleMusicLibraryAdapter yields both
+    DOCUMENTS catalog entries and EVENTS play records from the same /tracks fetch).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -715,6 +720,7 @@ class NormalizedContent(BaseModel):
     source_id: str
     structural_hints: StructuralHints
     normalizer_version: str
+    domain: Domain | None = None
 
 
 class Chunk(BaseModel):

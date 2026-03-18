@@ -118,7 +118,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() yields NormalizedContent for a single track."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Bohemian Rhapsody",
@@ -140,7 +140,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() yields NormalizedContent for multiple tracks."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Bohemian Rhapsody",
@@ -191,7 +191,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() produces DocumentMetadata that passes model_validate."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Bohemian Rhapsody",
@@ -217,7 +217,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() includes music-specific fields in extra_metadata."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Bohemian Rhapsody",
@@ -240,7 +240,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() generates source_id with format music/library/{track_id}."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "spotify-12345",
                 "title": "Song Title",
@@ -259,7 +259,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() handles null values for optional music fields."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Unknown Song",
@@ -284,7 +284,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips and logs tracks with missing 'id' field."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 # Missing 'id'
                 "title": "Song Title",
@@ -303,7 +303,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips and logs tracks with missing 'title' field."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 # Missing 'title'
@@ -322,7 +322,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips and logs tracks with empty 'id'."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "",  # Empty
                 "title": "Song Title",
@@ -341,7 +341,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips and logs tracks with empty title."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "",  # Empty
@@ -360,7 +360,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips malformed tracks and continues to next."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Good Song",
@@ -397,7 +397,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() maps track 'artist' to DocumentMetadata 'author' field."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -420,7 +420,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() sets document_type to 'audio/mpeg' for all tracks."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -440,7 +440,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes track title in bold."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Bohemian Rhapsody",
@@ -458,7 +458,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes artist when available."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -476,7 +476,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown excludes artist when null."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Unknown Song",
@@ -494,7 +494,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes album when available."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -512,7 +512,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown excludes album when null."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -530,7 +530,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes duration in minutes when available."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -549,7 +549,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown excludes duration when null."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -567,7 +567,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes play count."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Favorite Song",
@@ -585,7 +585,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """StructuralHints.has_headings is False (no heading-level markers in markdown)."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -608,7 +608,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """StructuralHints.has_lists is True (markdown uses list markers)."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -630,7 +630,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() produces duration_minutes=0 when duration_seconds=0, not None."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Silence",
@@ -652,7 +652,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() defaults play_count to 0 when absent from track data."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Never Played",
@@ -673,7 +673,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() includes genre in metadata when provided."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -694,7 +694,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown includes genre when available."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -713,7 +713,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """Generated markdown excludes genre when null."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -732,7 +732,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() does not set date_first_observed in metadata (storage layer manages it)."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Song",
@@ -753,7 +753,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips track if duration_seconds is a string (TypeError) and continues."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Good Song",
@@ -790,7 +790,7 @@ class TestAppleMusicLibraryAdapterFetch:
         """fetch() skips track if track element is not a dict (TypeError) and continues."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/tracks", [
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
             {
                 "id": "track-1",
                 "title": "Good Song",
@@ -821,7 +821,7 @@ class TestAppleMusicLibraryAdapterFetch:
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="invalid-token")
 
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             {"error": "Unauthorized"},
             status_code=401,
         )
@@ -837,7 +837,7 @@ class TestAppleMusicLibraryAdapterFetch:
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             {"error": "Forbidden"},
             status_code=403,
         )
@@ -853,7 +853,7 @@ class TestAppleMusicLibraryAdapterFetch:
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             {"error": "Internal Server Error"},
             status_code=500,
         )
@@ -870,7 +870,7 @@ class TestAppleMusicLibraryAdapterFetch:
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             {"error": "unexpected response format"}  # dict instead of list
         )
 

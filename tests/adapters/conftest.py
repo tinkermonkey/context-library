@@ -308,7 +308,7 @@ def mock_apple_music_library_endpoints(mock_apple_music_library_client):
     and only override the ones they care about.
     """
     base_url = "http://127.0.0.1:7123"
-    endpoints = ["/tracks"]
+    endpoints = ["/music/tracks"]
 
     for endpoint in endpoints:
         mock_apple_music_library_client.set_response(f"{base_url}{endpoint}", [])

@@ -137,7 +137,7 @@ class HelperHealthCache:
                     for key, info in raw.items():
                         collector = short_map.get(key)
                         if collector is not None and isinstance(info, dict):
-                            collector.healthy = bool(info.get("healthy", True))
+                            collector.healthy = info.get("status") == "ok"
                             if not collector.healthy:
                                 collector.error = (
                                     info.get("error") or info.get("message")
@@ -175,7 +175,16 @@ class HelperHealthCache:
             "apple_reminders:default"     → "reminders"
             "apple_imessage:default"      → "imessage"
             "apple_music_library:default" → "music_library"
-            "filesystem:default"          → "filesystem"
+            "obsidian_helper:default"     → "obsidian"
+            "filesystem_helper:default"   → "filesystem"
+            "oura:default"               → "oura"
         """
         base = adapter_id.split(":")[0]         # e.g. "apple_music"
+        _OVERRIDES: dict[str, str] = {
+            "apple_music_library": "music",   # combined adapter covers both events + library
+            "obsidian_helper": "obsidian",
+            "filesystem_helper": "filesystem",
+        }
+        if base in _OVERRIDES:
+            return _OVERRIDES[base]
         return base.removeprefix("apple_")      # e.g. "music"

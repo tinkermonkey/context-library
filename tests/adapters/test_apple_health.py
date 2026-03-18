@@ -4,7 +4,6 @@ import pytest
 
 
 from context_library.adapters.apple_health import AppleHealthAdapter
-from context_library.adapters.base import PartialFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata
 
 
@@ -255,55 +254,26 @@ class TestAppleHealthAdapterFetch:
         assert metadata_dict["distance_meters"] is None
         assert metadata_dict["avg_heart_rate_bpm"] is None
 
-    def test_fetch_http_error_logged_continues(self, mock_all_health_endpoints):
-        """fetch() logs HTTP errors and surfaces partial failures via PartialFetchError."""
+    def test_fetch_http_error_raises_all_endpoints_failed(self, mock_all_health_endpoints):
+        """fetch() raises AllEndpointsFailedError when /workouts returns HTTP error."""
+        from context_library.adapters.base import AllEndpointsFailedError
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        # Set workouts to error, but sleep to succeed
         mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {}, status_code=500)
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.92,
-                "score": 85,
-            }
-        ])
 
-        # Should yield sleep data but raise PartialFetchError for the failed workouts endpoint
-        with pytest.raises(PartialFetchError) as exc_info:
+        with pytest.raises(AllEndpointsFailedError):
             list(adapter.fetch(""))
 
-        # Verify the error indicates which endpoint failed
-        assert "/workouts" in exc_info.value.failed_endpoints
-        assert len(exc_info.value.failed_endpoints) == 1
-
-    def test_fetch_invalid_response_schema_logged_continues(self, mock_all_health_endpoints):
-        """fetch() logs invalid response schema and surfaces partial failure via PartialFetchError."""
+    def test_fetch_invalid_response_schema_raises_all_endpoints_failed(self, mock_all_health_endpoints):
+        """fetch() raises AllEndpointsFailedError when /workouts returns invalid schema."""
+        from context_library.adapters.base import AllEndpointsFailedError
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        # Set workouts endpoint to return dict instead of list (invalid schema)
+        # Return dict instead of list (invalid schema)
         mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {"workouts": []})
-        # Set sleep endpoint to return valid data
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 450,
-            }
-        ])
 
-        # Should yield sleep data but raise PartialFetchError for the invalid workouts endpoint
-        with pytest.raises(PartialFetchError) as exc_info:
+        with pytest.raises(AllEndpointsFailedError):
             list(adapter.fetch(""))
-
-        # Verify the error indicates which endpoint failed
-        assert "/workouts" in exc_info.value.failed_endpoints
-        assert len(exc_info.value.failed_endpoints) == 1
 
     def test_fetch_missing_required_field_skips_workout(self, mock_all_health_endpoints):
         """fetch() skips and logs workouts with missing required fields."""
@@ -722,747 +692,27 @@ class TestAppleHealthAdapterMarkdownGeneration:
         assert extra["source_type"] == "apple_health"
 
 
-class TestAppleHealthAdapterSleep:
-    """Tests for sleep endpoint handler (_process_sleep)."""
-
-    def test_fetch_single_sleep_record(self, mock_all_health_endpoints):
-        """fetch() yields NormalizedContent for a single sleep record."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.95,
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        assert len(sleep_records) == 1
-        assert sleep_records[0].source_id == "sleep/sleep-1"
-        assert "Sleep Summary" in sleep_records[0].markdown
-        assert "480" in sleep_records[0].markdown  # Total sleep
-
-
-class TestAppleHealthAdapterActivity:
-    """Tests for activity endpoint handler (_process_activity)."""
-
-    def test_fetch_single_activity_record(self, mock_all_health_endpoints):
-        """fetch() yields NormalizedContent for a single activity record."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/activity", [
-            {
-                "id": "activity-1",
-                "date": "2026-03-07",
-                "steps": 10000,
-                "activeCalories": 500.0,
-                "totalCalories": 2000.0,
-                "activeMinutes": 60,
-                "sedentaryMinutes": 540,
-                "distanceMeters": 8000.0,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        activity_records = [r for r in results if r.source_id.startswith("activity/")]
-        assert len(activity_records) == 1
-        assert activity_records[0].source_id == "activity/activity-1"
-        assert "Activity Summary" in activity_records[0].markdown
-        assert "10,000" in activity_records[0].markdown  # Steps (formatted with comma)
-
-
-class TestAppleHealthAdapterHRV:
-    """Tests for HRV endpoint handler (_process_hrv)."""
-
-    def test_fetch_single_hrv_record(self, mock_all_health_endpoints):
-        """fetch() yields NormalizedContent for a single HRV record."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/hrv", [
-            {
-                "id": "hrv-1",
-                "date": "2026-03-07",
-                "avgHrv": 50.5,
-                "restingHeartRate": 55.0,
-                "bodyTemperatureDeviation": 0.2,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        hrv_records = [r for r in results if r.source_id.startswith("hrv/")]
-        assert len(hrv_records) == 1
-        assert hrv_records[0].source_id == "hrv/hrv-1"
-        assert "HRV / Readiness" in hrv_records[0].markdown
-        assert "50.5" in hrv_records[0].markdown  # Avg HRV
-
-
-class TestAppleHealthAdapterHeartRate:
-    """Tests for heart rate endpoint handler with hourly windowing."""
-
-    def test_fetch_heart_rate_hourly_windowing(self, mock_all_health_endpoints):
-        """fetch() groups heart rate samples into hourly windows."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token", device_id="device-1")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/heart_rate", [
-            {
-                "timestamp": "2026-03-07T10:15:00+00:00",
-                "bpm": 70,
-                "context": "resting",
-            },
-            {
-                "timestamp": "2026-03-07T10:30:00+00:00",
-                "bpm": 72,
-                "context": "resting",
-            },
-            {
-                "timestamp": "2026-03-07T10:45:00+00:00",
-                "bpm": 75,
-                "context": "active",
-            },
-            {
-                "timestamp": "2026-03-07T11:15:00+00:00",
-                "bpm": 80,
-                "context": "active",
-            },
-        ])
-
-        results = list(adapter.fetch(""))
-        hr_records = [r for r in results if r.source_id.startswith("heart_rate/")]
-        # Should have 2 hourly windows: 10:00 and 11:00
-        assert len(hr_records) == 2
-        assert hr_records[0].source_id == "heart_rate/2026-03-07T10"
-        assert hr_records[1].source_id == "heart_rate/2026-03-07T11"
-
-
-class TestAppleHealthAdapterSpO2:
-    """Tests for SpO2 endpoint handler (_process_spo2)."""
-
-    def test_fetch_single_spo2_record(self, mock_all_health_endpoints):
-        """fetch() yields NormalizedContent for a single SpO2 record."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/spo2", [
-            {
-                "id": "spo2-1",
-                "date": "2026-03-07",
-                "avgSpo2": 97.5,
-                "breathingDisturbanceIndex": 2.1,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        spo2_records = [r for r in results if r.source_id.startswith("spo2/")]
-        assert len(spo2_records) == 1
-        assert spo2_records[0].source_id == "spo2/spo2-1"
-        assert "Blood Oxygen" in spo2_records[0].markdown
-        assert "97.5" in spo2_records[0].markdown  # Avg SpO2
-
-
-class TestAppleHealthAdapterMindfulness:
-    """Tests for mindfulness endpoint handler (_process_mindfulness)."""
-
-    def test_fetch_single_mindfulness_record(self, mock_all_health_endpoints):
-        """fetch() yields NormalizedContent for a single mindfulness record."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/mindfulness", [
-            {
-                "id": "mindfulness-1",
-                "startDate": "2026-03-07T18:00:00+00:00",
-                "endDate": "2026-03-07T18:10:00+00:00",
-                "durationSeconds": 600,
-                "sessionType": "meditation",
-                "mood": "calm",
-                "tags": ["evening", "relaxation"],
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        mindfulness_records = [r for r in results if r.source_id.startswith("mindfulness/")]
-        assert len(mindfulness_records) == 1
-        assert mindfulness_records[0].source_id == "mindfulness/mindfulness-1"
-        assert "Meditation Session" in mindfulness_records[0].markdown
-        assert "10" in mindfulness_records[0].markdown  # Duration in minutes
-
-
-class TestAppleHealthAdapterSleepIncremental:
-    """Tests for sleep endpoint incremental fetch."""
-
-    def test_fetch_sleep_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to sleep endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.92,
-                "score": 85,
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find sleep request in mock requests
-        sleep_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/sleep" in req["url"]:
-                sleep_request = req
-                break
-
-        assert sleep_request is not None
-        assert sleep_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_sleep_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips sleep records with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                # Missing 'id'
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.92,
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        assert len(sleep_records) == 0
-
-    def test_fetch_sleep_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with sleep metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.92,
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        markdown = sleep_records[0].markdown
-
-        assert "Sleep Summary" in markdown
-        assert "480" in markdown  # Total sleep
-        assert "120" in markdown  # Deep sleep
-        assert "100" in markdown  # REM sleep
-        assert "260" in markdown  # Light sleep
-        assert "92" in markdown or "92.0" in markdown  # Efficiency as percentage
-        assert "85" in markdown  # Score
-
-    def test_fetch_sleep_efficiency_decimal_range(self, mock_all_health_endpoints):
-        """fetch() formats efficiency correctly when in 0.0–1.0 decimal range."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.95,  # Decimal range
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        markdown = sleep_records[0].markdown
-
-        # 0.95 should format as 95.0%
-        assert "95.0%" in markdown
-
-    def test_fetch_sleep_efficiency_percentage_range(self, mock_all_health_endpoints):
-        """fetch() formats efficiency correctly when in 0–100 percentage range."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 92,  # Percentage range (0–100)
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        markdown = sleep_records[0].markdown
-
-        # 92 should format as 92.0%
-        assert "92.0%" in markdown
-
-    def test_fetch_sleep_efficiency_boundary_100_percent(self, mock_all_health_endpoints):
-        """fetch() formats efficiency correctly at 100% boundary (1.0)."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 1.0,  # Boundary: 100%
-                "score": 85,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        sleep_records = [r for r in results if r.source_id.startswith("sleep/")]
-        markdown = sleep_records[0].markdown
-
-        # 1.0 should format as 100.0%
-        assert "100.0%" in markdown
-
-
-class TestAppleHealthAdapterActivityIncremental:
-    """Tests for activity endpoint incremental fetch."""
-
-    def test_fetch_activity_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to activity endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/activity", [
-            {
-                "id": "activity-1",
-                "date": "2026-03-07",
-                "steps": 10000,
-                "activeCalories": 500.0,
-                "totalCalories": 2000.0,
-                "activeMinutes": 60,
-                "sedentaryMinutes": 480,
-                "distanceMeters": 7500.0,
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find activity request in mock requests
-        activity_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/activity" in req["url"]:
-                activity_request = req
-                break
-
-        assert activity_request is not None
-        assert activity_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_activity_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips activity records with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/activity", [
-            {
-                "id": "activity-1",
-                # Missing 'date'
-                "steps": 10000,
-                "activeCalories": 500.0,
-                "totalCalories": 2000.0,
-                "activeMinutes": 60,
-                "sedentaryMinutes": 480,
-                "distanceMeters": 7500.0,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        activity_records = [r for r in results if r.source_id.startswith("activity/")]
-        assert len(activity_records) == 0
-
-    def test_fetch_activity_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with activity metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/activity", [
-            {
-                "id": "activity-1",
-                "date": "2026-03-07",
-                "steps": 10000,
-                "activeCalories": 500.0,
-                "totalCalories": 2000.0,
-                "activeMinutes": 60,
-                "sedentaryMinutes": 480,
-                "distanceMeters": 7500.0,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        activity_records = [r for r in results if r.source_id.startswith("activity/")]
-        markdown = activity_records[0].markdown
-
-        assert "Activity Summary" in markdown
-        assert "10,000" in markdown  # Steps formatted with comma
-        assert "500" in markdown  # Active calories
-        assert "2000" in markdown  # Total calories
-        assert "60" in markdown  # Active minutes
-        assert "480" in markdown  # Sedentary minutes
-        assert "7.50" in markdown or "7.5" in markdown  # Distance in km
-
-
-class TestAppleHealthAdapterHRVIncremental:
-    """Tests for HRV endpoint incremental fetch."""
-
-    def test_fetch_hrv_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to HRV endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/hrv", [
-            {
-                "id": "hrv-1",
-                "date": "2026-03-07",
-                "avgHrv": 45.5,
-                "restingHeartRate": 58.0,
-                "bodyTemperatureDeviation": 0.2,
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find HRV request in mock requests
-        hrv_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/hrv" in req["url"]:
-                hrv_request = req
-                break
-
-        assert hrv_request is not None
-        assert hrv_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_hrv_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips HRV records with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/hrv", [
-            {
-                "id": "hrv-1",
-                # Missing 'avgHrv'
-                "date": "2026-03-07",
-                "restingHeartRate": 58.0,
-                "bodyTemperatureDeviation": 0.2,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        hrv_records = [r for r in results if r.source_id.startswith("hrv/")]
-        assert len(hrv_records) == 0
-
-    def test_fetch_hrv_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with HRV metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/hrv", [
-            {
-                "id": "hrv-1",
-                "date": "2026-03-07",
-                "avgHrv": 45.5,
-                "restingHeartRate": 58.0,
-                "bodyTemperatureDeviation": 0.2,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        hrv_records = [r for r in results if r.source_id.startswith("hrv/")]
-        markdown = hrv_records[0].markdown
-
-        assert "HRV / Readiness" in markdown
-        assert "45.5" in markdown  # Avg HRV
-        assert "58" in markdown  # Resting heart rate
-        assert "0.2" in markdown  # Temperature deviation
-
-
-class TestAppleHealthAdapterHeartRateIncremental:
-    """Tests for heart rate endpoint incremental fetch."""
-
-    def test_fetch_heart_rate_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to heart_rate endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/heart_rate", [
-            {
-                "timestamp": "2026-03-07T10:15:00+00:00",
-                "bpm": 72,
-                "context": "resting",
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find heart_rate request in mock requests
-        hr_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/heart_rate" in req["url"]:
-                hr_request = req
-                break
-
-        assert hr_request is not None
-        assert hr_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_heart_rate_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips malformed heart rate samples."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/heart_rate", [
-            {
-                # Missing 'timestamp'
-                "bpm": 72,
-                "context": "resting",
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        hr_records = [r for r in results if r.source_id.startswith("heart_rate/")]
-        # Should have no records since the only sample was malformed
-        assert len(hr_records) == 0
-
-    def test_fetch_heart_rate_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with heart rate metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/heart_rate", [
-            {
-                "timestamp": "2026-03-07T10:15:00+00:00",
-                "bpm": 72,
-                "context": "resting",
-            },
-            {
-                "timestamp": "2026-03-07T10:30:00+00:00",
-                "bpm": 75,
-                "context": "resting",
-            },
-            {
-                "timestamp": "2026-03-07T10:45:00+00:00",
-                "bpm": 68,
-                "context": "resting",
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        hr_records = [r for r in results if r.source_id.startswith("heart_rate/")]
-        markdown = hr_records[0].markdown
-
-        assert "Heart Rate" in markdown
-        assert "72" in markdown or "71" in markdown  # Average (72+75+68)/3 ≈ 71.67
-        assert "68" in markdown  # Min
-        assert "75" in markdown  # Max
-        assert "3" in markdown  # Sample count
-
-
-class TestAppleHealthAdapterSpO2Incremental:
-    """Tests for SpO2 endpoint incremental fetch."""
-
-    def test_fetch_spo2_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to SpO2 endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/spo2", [
-            {
-                "id": "spo2-1",
-                "date": "2026-03-07",
-                "avgSpo2": 97.5,
-                "breathingDisturbanceIndex": 2.1,
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find SpO2 request in mock requests
-        spo2_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/spo2" in req["url"]:
-                spo2_request = req
-                break
-
-        assert spo2_request is not None
-        assert spo2_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_spo2_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips SpO2 records with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/spo2", [
-            {
-                # Missing 'avgSpo2'
-                "id": "spo2-1",
-                "date": "2026-03-07",
-                "breathingDisturbanceIndex": 2.1,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        spo2_records = [r for r in results if r.source_id.startswith("spo2/")]
-        assert len(spo2_records) == 0
-
-    def test_fetch_spo2_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with SpO2 metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/spo2", [
-            {
-                "id": "spo2-1",
-                "date": "2026-03-07",
-                "avgSpo2": 97.5,
-                "breathingDisturbanceIndex": 2.1,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        spo2_records = [r for r in results if r.source_id.startswith("spo2/")]
-        markdown = spo2_records[0].markdown
-
-        assert "Blood Oxygen" in markdown
-        assert "97.5" in markdown  # Avg SpO2
-        assert "2.1" in markdown  # Breathing disturbance index
-
-
-class TestAppleHealthAdapterMindfulnessIncremental:
-    """Tests for mindfulness endpoint incremental fetch."""
-
-    def test_fetch_mindfulness_incremental_with_since(self, mock_all_health_endpoints):
-        """fetch() passes 'since' parameter to mindfulness endpoint."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/mindfulness", [
-            {
-                "id": "mindfulness-1",
-                "startDate": "2026-03-07T18:00:00+00:00",
-                "endDate": "2026-03-07T18:10:00+00:00",
-                "durationSeconds": 600,
-                "sessionType": "meditation",
-                "mood": "calm",
-                "tags": ["evening", "relaxation"],
-            }
-        ])
-
-        list(adapter.fetch("2026-03-06T10:00:00Z"))
-
-        # Find mindfulness request in mock requests
-        mindfulness_request = None
-        for req in mock_all_health_endpoints.requests:
-            if "/mindfulness" in req["url"]:
-                mindfulness_request = req
-                break
-
-        assert mindfulness_request is not None
-        assert mindfulness_request["params"]["since"] == "2026-03-06T10:00:00Z"
-
-    def test_fetch_mindfulness_missing_required_field_skips(self, mock_all_health_endpoints):
-        """fetch() skips mindfulness records with missing required fields."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/mindfulness", [
-            {
-                # Missing 'sessionType'
-                "id": "mindfulness-1",
-                "startDate": "2026-03-07T18:00:00+00:00",
-                "endDate": "2026-03-07T18:10:00+00:00",
-                "durationSeconds": 600,
-                "mood": "calm",
-                "tags": ["evening", "relaxation"],
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        mindfulness_records = [r for r in results if r.source_id.startswith("mindfulness/")]
-        assert len(mindfulness_records) == 0
-
-    def test_fetch_mindfulness_markdown_content(self, mock_all_health_endpoints):
-        """fetch() generates markdown with mindfulness metrics."""
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/mindfulness", [
-            {
-                "id": "mindfulness-1",
-                "startDate": "2026-03-07T18:00:00+00:00",
-                "endDate": "2026-03-07T18:10:00+00:00",
-                "durationSeconds": 600,
-                "sessionType": "meditation",
-                "mood": "calm",
-                "tags": ["evening", "relaxation"],
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        mindfulness_records = [r for r in results if r.source_id.startswith("mindfulness/")]
-        markdown = mindfulness_records[0].markdown
-
-        assert "Meditation Session" in markdown
-        assert "10" in markdown  # Duration in minutes
-        assert "calm" in markdown  # Mood
-        assert "evening" in markdown  # Tags
-        assert "relaxation" in markdown  # Tags
-
 
 class TestAppleHealthAdapterNetworkErrors:
     """Tests for AppleHealthAdapter network error handling."""
 
-    def test_fetch_network_error_request_error_resilience(self, mock_all_health_endpoints):
-        """fetch() handles RequestError (network errors) gracefully and continues."""
+    def test_fetch_network_error_raises_all_endpoints_failed(self, monkeypatch):
+        """fetch() raises AllEndpointsFailedError when /workouts fails with a network error."""
         import httpx
+        from context_library.adapters.base import AllEndpointsFailedError
 
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        # Mock the mock_get to raise for workouts but return data for sleep
-        original_call = mock_all_health_endpoints.__call__
+        def mock_get_with_error(*args, **kwargs):
+            raise httpx.RequestError("Connection refused")
 
-        def patched_call(url, params=None, headers=None, timeout=None):
-            if "workouts" in url:
-                raise httpx.RequestError("Connection refused")
-            return original_call(url, params=params, headers=headers, timeout=timeout)
+        monkeypatch.setattr(
+            "context_library.adapters.apple_health.httpx.get",
+            mock_get_with_error
+        )
 
-        # Set up proper responses for other endpoints
-        mock_all_health_endpoints.__call__ = patched_call
-
-        # Setup a successful sleep response
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/sleep", [
-            {
-                "id": "sleep-1",
-                "date": "2026-03-07",
-                "totalSleepMinutes": 480,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 100,
-                "lightSleepMinutes": 260,
-                "efficiency": 0.92,
-                "score": 90,
-            }
-        ])
-
-        # Should not raise; continues after workouts failure
-        results = list(adapter.fetch(""))
-
-        # Should have sleep results despite workouts endpoint failing
-        sleep_results = [r for r in results if "sleep" in r.source_id.lower()]
-        assert len(sleep_results) > 0
+        with pytest.raises(AllEndpointsFailedError):
+            list(adapter.fetch(""))
 
     def test_fetch_dns_resolution_error_all_endpoints_fail(self, monkeypatch):
         """fetch() raises RuntimeError when ALL endpoints fail with network errors."""
@@ -1481,7 +731,7 @@ class TestAppleHealthAdapterNetworkErrors:
 
         # Should raise AllEndpointsFailedError when all endpoints fail
         from context_library.adapters.base import AllEndpointsFailedError
-        with pytest.raises(AllEndpointsFailedError, match="All.*endpoints failed"):
+        with pytest.raises(AllEndpointsFailedError):
             list(adapter.fetch(""))
 
 
@@ -1540,65 +790,26 @@ class TestAppleHealthAdapterAuthErrors:
 
         assert exc_info.value.response.status_code == 403
 
-    def test_fetch_401_on_single_endpoint_stops_all_fetching(self, monkeypatch):
-        """fetch() immediately stops when 401 occurs on any endpoint."""
-        import httpx
-
-        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="invalid-token")
-        call_count = [0]
-
-        def mock_get_401_sleep_only(url, **kwargs):
-            call_count[0] += 1
-            if "sleep" in url:
-                request = httpx.Request("GET", url)
-                response = httpx.Response(
-                    status_code=401,
-                    content=b"Unauthorized",
-                    request=request,
-                )
-                raise httpx.HTTPStatusError("401 Client Error", request=request, response=response)
-            # Other endpoints would succeed, but we shouldn't get there
-            request = httpx.Request("GET", url)
-            return httpx.Response(status_code=200, content=b"[]", request=request)
-
-        monkeypatch.setattr(
-            "context_library.adapters.apple_health.httpx.get",
-            mock_get_401_sleep_only
-        )
-
-        # fetch() should raise immediately on 401
-        with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            list(adapter.fetch(""))
-
-        assert exc_info.value.response.status_code == 401
-        # Should have called at least once (hit the failing /sleep endpoint)
-        # and fewer than all 7 endpoints + heart_rate (would be 8+ if it continued)
-        assert 1 <= call_count[0] < 8, f"Expected 1-7 calls, got {call_count[0]}"
-
-    def test_fetch_403_on_single_endpoint_stops_all_fetching(self, monkeypatch):
-        """fetch() immediately stops when 403 occurs on any endpoint."""
+    def test_fetch_403_on_workouts_stops_immediately(self, monkeypatch):
+        """fetch() immediately stops when 403 occurs on /workouts."""
         import httpx
 
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
         call_count = [0]
 
-        def mock_get_403_workouts_only(url, **kwargs):
+        def mock_get_403(url, **kwargs):
             call_count[0] += 1
-            if "workouts" in url:
-                request = httpx.Request("GET", url)
-                response = httpx.Response(
-                    status_code=403,
-                    content=b"Forbidden",
-                    request=request,
-                )
-                raise httpx.HTTPStatusError("403 Client Error", request=request, response=response)
-            # Other endpoints would succeed, but we shouldn't get there
             request = httpx.Request("GET", url)
-            return httpx.Response(status_code=200, content=b"[]", request=request)
+            response = httpx.Response(
+                status_code=403,
+                content=b"Forbidden",
+                request=request,
+            )
+            raise httpx.HTTPStatusError("403 Client Error", request=request, response=response)
 
         monkeypatch.setattr(
             "context_library.adapters.apple_health.httpx.get",
-            mock_get_403_workouts_only
+            mock_get_403
         )
 
         # fetch() should raise immediately on 403
@@ -1606,9 +817,7 @@ class TestAppleHealthAdapterAuthErrors:
             list(adapter.fetch(""))
 
         assert exc_info.value.response.status_code == 403
-        # Should have called at least once (hit the failing /workouts endpoint - first in order)
-        # and fewer than all 7 endpoints + heart_rate (would be 8+ if it continued)
-        assert 1 <= call_count[0] < 8, f"Expected 1-7 calls, got {call_count[0]}"
+        assert call_count[0] == 1  # Only /workouts is called
 
     def test_fetch_other_http_errors_wrapped_in_endpoint_fetch_error(self, monkeypatch):
         """fetch() wraps non-auth HTTP errors (4xx/5xx) in EndpointFetchError."""

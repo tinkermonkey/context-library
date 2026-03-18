@@ -39,6 +39,7 @@ This adapter:
 """
 
 import logging
+from datetime import datetime
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
@@ -148,18 +149,29 @@ class AppleNotesAdapter(BaseAdapter):
         for note in notes:
             self._validate_note(note)
 
+            # Ensure modified_at has timezone info — macOS timestamps are local time
+            # with no offset; treat as UTC if no timezone is present.
+            modified_at = note["modified_at"]
+            if modified_at:
+                try:
+                    dt = datetime.fromisoformat(modified_at)
+                    if dt.tzinfo is None:
+                        modified_at = modified_at + "+00:00"
+                except ValueError:
+                    pass  # leave as-is if parsing fails
+
             hints = StructuralHints(
                 has_headings=True,
                 has_lists=False,
                 has_tables=False,
                 natural_boundaries=(),
-                modified_at=note["modified_at"],
+                modified_at=modified_at,
                 extra_metadata={
                     "note_id": note["id"],
                     "title": note["title"],
                     "folder": note.get("folder"),
                     "created_at": note["created_at"],
-                    "modified_at": note["modified_at"],
+                    "modified_at": modified_at,
                     "source_type": "apple_notes",
                 },
             )

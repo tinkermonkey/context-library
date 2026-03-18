@@ -1,52 +1,53 @@
-"""AppleMusicLibraryAdapter for ingesting Apple Music library catalog from a macOS helper service.
+"""AppleMusicLibraryAdapter — ingests Apple Music data from the macOS helper service.
 
-This adapter consumes an HTTP REST API served by a macOS helper process that reads
-from iTunes Library.xml and exposes the music catalog as a collection of documents.
+This adapter handles both types of Apple Music data from a single /tracks fetch:
+
+  1. Library catalog  (DOCUMENTS domain) — one persistent document per track,
+     keyed by source_id ``music/library/<track_id>``.  Captures title, artist,
+     album, genre, duration, and play count.
+
+  2. Play events (EVENTS domain) — one event per track play, keyed by
+     source_id ``music/play/<track_id>``.  Records the most-recent played_at
+     timestamp reported by the helper.
+
+Both are yielded from a single ``fetch()`` call so that the /tracks endpoint is
+hit only once per ingest cycle.  The pipeline handles the mixed domains via the
+``domain`` field on each NormalizedContent item.
 
 Expected Local Service API Contract:
 ====================================
 
-The macOS helper service should expose the following HTTP endpoint:
-
   GET /music/tracks
     Query parameters:
-      - since (optional): ISO 8601 timestamp; return only tracks modified after this time
+      - since (optional): ISO 8601 timestamp; only tracks last played after this time
 
-    Response: JSON array of track objects
-    Status: 200 OK
-    Content-Type: application/json
-
-    Example response body:
+    Response: JSON array of track objects (only tracks played at least once)
     [
       {
         "id": "<string>",
         "title": "<string>",
         "artist": "<string | null>",
         "album": "<string | null>",
+        "played_at": "<ISO 8601>",
         "duration_seconds": <int | null>,
         "play_count": <int>
       }
     ]
 
 Security:
-  The helper binds to 0.0.0.0 for network access from remote servers.
   A Bearer API token is REQUIRED: Authorization: Bearer <api_key>
-
-This adapter:
-- Fetches the music catalog from the local macOS helper API
-- Maps track fields to DocumentMetadata (title = title, artist = author)
-- Yields NormalizedContent with DocumentMetadata in extra_metadata
-- Each track is treated as a persistent document rather than a time-stamped event
 """
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     DocumentMetadata,
+    EventMetadata,
     NormalizedContent,
     PollStrategy,
     StructuralHints,
@@ -215,11 +216,11 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             raise
 
     def _process_track(self, track: dict[str, Any]) -> Iterator[NormalizedContent]:
-        """Process a single track from the library and yield NormalizedContent.
+        """Process a single track and yield both a library document and a play event.
 
-        Validates DocumentMetadata at adapter layer to catch type/constraint violations
-        early (e.g., negative play_count, invalid types), matching the pattern used by
-        other adapters (AppleHealthAdapter, AppleRemindersAdapter, AppleMusicAdapter).
+        Yields:
+            NormalizedContent (domain=DOCUMENTS) — persistent library catalog entry
+            NormalizedContent (domain=EVENTS)    — most-recent play event (when played_at present)
 
         Raises:
             KeyError: If required fields are missing
@@ -238,11 +239,12 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         genre = track.get("genre")
         duration_seconds = track.get("duration_seconds")
         play_count = track.get("play_count", 0)
+        played_at = track.get("played_at")
 
         duration_minutes = int(duration_seconds // 60) if duration_seconds is not None else None
 
-        # Build metadata dict and validate via DocumentMetadata model
-        metadata_dict: dict[str, Any] = {
+        # ── 1. Library catalog document (DOCUMENTS domain) ──────────────────
+        doc_metadata: dict[str, Any] = {
             "document_id": str(track_id),
             "title": title,
             "document_type": "audio/mpeg",
@@ -254,28 +256,67 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             "genre": genre,
         }
 
-        # Validate metadata at adapter layer (catches type/constraint violations early)
         try:
-            DocumentMetadata.model_validate(metadata_dict)
+            DocumentMetadata.model_validate(doc_metadata)
         except ValueError as e:
             logger.error(f"DocumentMetadata validation failed for track {track_id}: {e}")
             raise
 
-        markdown = self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre)
-
-        structural_hints = StructuralHints(
-            has_headings=False,
-            has_lists=True,
-            has_tables=False,
-            natural_boundaries=(),
-            extra_metadata=metadata_dict,
+        yield NormalizedContent(
+            markdown=self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre),
+            source_id=f"music/library/{track_id}",
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=doc_metadata,
+            ),
+            normalizer_version=self.normalizer_version,
+            domain=Domain.DOCUMENTS,
         )
 
+        # ── 2. Play event (EVENTS domain) ────────────────────────────────────
+        if not played_at:
+            return
+
+        now = datetime.now(timezone.utc).isoformat()
+        event_metadata: dict[str, Any] = {
+            "event_id": f"play/{track_id}",
+            "title": f"Listened to {title}" + (f" by {artist}" if artist else ""),
+            "start_date": played_at,
+            "end_date": played_at,
+            "duration_minutes": duration_minutes,
+            "host": None,
+            "invitees": [],
+            "date_first_observed": now,
+            "source_type": "apple_music",
+            "library_source_id": f"music/library/{track_id}",
+        }
+
+        try:
+            EventMetadata.model_validate(event_metadata)
+        except ValueError as e:
+            logger.error(f"EventMetadata validation failed for track {track_id}: {e}")
+            raise
+
+        event_heading = f"Listened to **{title}**" + (f" by {artist}" if artist else "")
+        event_lines = [event_heading, f"- Played: {played_at}"]
+        if duration_minutes is not None:
+            event_lines.append(f"- Duration: {duration_minutes} min")
+
         yield NormalizedContent(
-            markdown=markdown,
-            source_id=f"music/library/{track_id}",
-            structural_hints=structural_hints,
+            markdown="\n".join(event_lines),
+            source_id=f"music/play/{track_id}",
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=event_metadata,
+            ),
             normalizer_version=self.normalizer_version,
+            domain=Domain.EVENTS,
         )
 
     def _build_track_markdown(
