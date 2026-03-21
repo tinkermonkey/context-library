@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
 import { Timestamp } from '../components/shared/Timestamp';
+import { formatDuration, formatDayHeader } from '../utils/formatters';
 
 /**
  * Health domain metadata structure.
@@ -125,25 +126,6 @@ function extractHealthMetadata(chunk: ChunkResponse): HealthMetadata | null {
   };
 }
 
-/**
- * Format a date string as a human-readable day header.
- * Example: 'Friday, March 21 2026'
- */
-function formatDayHeader(dateStr: string): string {
-  try {
-    const date = new Date(dateStr + 'T00:00:00Z');
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone: 'UTC',
-    });
-    return formatter.format(date);
-  } catch {
-    return dateStr;
-  }
-}
 
 /**
  * Format efficiency as a percentage (0-1 -> 0-100%).
@@ -168,21 +150,6 @@ function formatDistance(distanceMeters: number | null): string | null {
   return `${km.toFixed(1)} km`;
 }
 
-/**
- * Format duration in minutes to a human-readable string.
- */
-function formatDuration(durationMinutes: number | null): string | null {
-  if (durationMinutes === null || durationMinutes === 0) return null;
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
-  if (hours > 0 && minutes > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (hours > 0) {
-    return `${hours}h`;
-  } else {
-    return `${minutes}m`;
-  }
-}
 
 /**
  * Format calories with K suffix for thousands.

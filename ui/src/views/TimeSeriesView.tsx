@@ -4,6 +4,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
 import { Timestamp } from '../components/shared/Timestamp';
+import { formatDuration, formatDayHeader } from '../utils/formatters';
 
 /**
  * Event domain metadata structure.
@@ -57,22 +58,6 @@ function isAllDay(isoString: string | null): boolean {
   return isoString.length === 10 && !isoString.includes('T');
 }
 
-/**
- * Format duration in minutes to a human-readable string.
- * Returns '1h 30m' format, or null if no duration available.
- */
-function formatDuration(durationMinutes: number | null): string | null {
-  if (durationMinutes === null || durationMinutes === 0) return null;
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
-  if (hours > 0 && minutes > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (hours > 0) {
-    return `${hours}h`;
-  } else {
-    return `${minutes}m`;
-  }
-}
 
 /**
  * Compute duration in minutes from start_date and end_date ISO strings.
@@ -102,25 +87,6 @@ function getDatePortion(isoString: string | null): string | null {
   return isoString.substring(0, 10);
 }
 
-/**
- * Format a date string as a human-readable day header.
- * Example: 'Monday, January 15 2024'
- */
-function formatDayHeader(dateStr: string): string {
-  try {
-    const date = new Date(dateStr + 'T00:00:00Z');
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone: 'UTC',
-    });
-    return formatter.format(date);
-  } catch {
-    return dateStr;
-  }
-}
 
 /**
  * Group chunks by day, filtering by date range.
