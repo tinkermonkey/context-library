@@ -1,5 +1,6 @@
 """Tests for GET /health endpoint."""
 
+from typing import Any, cast
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
@@ -26,7 +27,7 @@ class TestGetHealth:
 
     def test_degraded_when_chromadb_unreachable(self, client: TestClient) -> None:
         # Replace the vector_store.count method with one that raises
-        vector_store = client.app.state.vector_store
+        vector_store = cast(Any, client).app.state.vector_store
         original_count = vector_store.count
         vector_store.count = MagicMock(side_effect=Exception("ChromaDB unreachable"))
         try:
@@ -39,7 +40,7 @@ class TestGetHealth:
 
     def test_vector_count_zero_when_error(self, client: TestClient) -> None:
         # When vector_store fails, vector_count should be 0
-        vector_store = client.app.state.vector_store
+        vector_store = cast(Any, client).app.state.vector_store
         original_count = vector_store.count
         vector_store.count = MagicMock(side_effect=Exception("ChromaDB unreachable"))
         try:
@@ -50,7 +51,7 @@ class TestGetHealth:
 
     def test_degraded_when_sqlite_unreachable(self, client: TestClient) -> None:
         # Mock the _make_connection method to return a broken connection
-        document_store = client.app.state.document_store
+        document_store = cast(Any, client).app.state.document_store
         original_make_connection = document_store._make_connection
 
         def broken_make_connection():

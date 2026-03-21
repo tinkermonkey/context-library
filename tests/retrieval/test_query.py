@@ -10,6 +10,7 @@ Covers:
 
 import os
 import tempfile
+from typing import Generator
 from unittest.mock import MagicMock, patch  # noqa: F401 - used in new test
 
 import pytest
@@ -28,7 +29,7 @@ def embedder() -> Embedder:
 
 
 @pytest.fixture
-def document_store() -> DocumentStore:
+def document_store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
     # Use file-based DB to support multi-threaded access
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")

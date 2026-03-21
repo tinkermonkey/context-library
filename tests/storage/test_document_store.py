@@ -18,7 +18,7 @@ Covers:
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from typing import cast, Generator
 
 import pytest
 
@@ -35,7 +35,7 @@ from context_library.storage.models import (
 
 
 @pytest.fixture
-def store() -> DocumentStore:
+def store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
     # Use file-based DB to support multi-threaded access
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")

@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from typing import Any, AsyncGenerator, Generator
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
@@ -13,7 +14,7 @@ from context_library.storage.models import AdapterConfig, Domain
 
 
 @pytest.fixture()
-def ds_for_spa() -> DocumentStore:
+def ds_for_spa() -> Generator[DocumentStore, None, None]:
     """In-memory DocumentStore for SPA tests."""
     # Use file-based DB to support multi-threaded access
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
@@ -36,7 +37,7 @@ def ds_for_spa() -> DocumentStore:
 
 
 @pytest.fixture()
-def client_spa(ds_for_spa: DocumentStore) -> TestClient:
+def client_spa(ds_for_spa: DocumentStore) -> Generator[TestClient, None, None]:
     """FastAPI TestClient for SPA routing tests."""
     mock_embedder = MagicMock()
     mock_embedder.model_id = "all-MiniLM-L6-v2"
@@ -45,7 +46,7 @@ def client_spa(ds_for_spa: DocumentStore) -> TestClient:
     mock_vector_store.count.return_value = 0
 
     @asynccontextmanager
-    async def noop_lifespan(app):
+    async def noop_lifespan(app: Any) -> AsyncGenerator[None, None]:
         app.state.document_store = ds_for_spa
         app.state.embedder = mock_embedder
         app.state.vector_store = mock_vector_store
