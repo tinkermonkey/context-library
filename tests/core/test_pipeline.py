@@ -1,4 +1,5 @@
 """Tests for the pipeline module."""
+import os
 
 import logging
 import tempfile
@@ -49,9 +50,18 @@ More content."""
 @pytest.fixture
 def document_store():
     """Create an in-memory document store."""
-    store = DocumentStore(":memory:")
+    # Use file-based DB to support multi-threaded access
+    import os
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+    store = DocumentStore(temp_path)
     yield store
     store.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 @pytest.fixture

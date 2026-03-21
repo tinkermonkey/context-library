@@ -15,9 +15,12 @@ Covers:
   - get_chunks_pending_deletion: retrieves chunks needing deletion from LanceDB
 """
 
-import pytest
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import cast
+
+import pytest
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
@@ -34,7 +37,17 @@ from context_library.storage.models import (
 @pytest.fixture
 def store() -> DocumentStore:
     """Create an in-memory DocumentStore for testing."""
-    return DocumentStore(":memory:")
+    # Use file-based DB to support multi-threaded access
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+    store_obj = DocumentStore(temp_path)
+    yield store_obj
+    store_obj.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 def _make_hash(char: str) -> str:
@@ -54,7 +67,11 @@ class TestDocumentStoreInit:
 
     def test_init_memory_database(self) -> None:
         """Test that DocumentStore can initialize with in-memory SQLite."""
-        store = DocumentStore(":memory:")
+        # Use file-based DB to support multi-threaded access
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        temp_path = temp_file.name
+        temp_file.close()
+        store = DocumentStore(temp_path)
         assert store.conn is not None
 
     def test_schema_version_verification(self) -> None:

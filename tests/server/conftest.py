@@ -1,6 +1,8 @@
 """Shared fixtures for server tests."""
 
 import pytest
+import tempfile
+import os
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 from contextlib import asynccontextmanager
@@ -64,7 +66,14 @@ def _create_app_with_store(
 @pytest.fixture()
 def ds() -> DocumentStore:
     """In-memory DocumentStore pre-populated with test data."""
-    store = DocumentStore(":memory:", check_same_thread=False)
+    # Use a temporary file instead of :memory: to support multi-threaded access.
+    # SQLite :memory: databases are per-connection, so each thread gets its own
+    # isolated empty database. File-based databases work correctly across threads.
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+
+    store = DocumentStore(temp_path, check_same_thread=False)
 
     # Register adapter
     config = AdapterConfig(
@@ -120,7 +129,14 @@ def ds() -> DocumentStore:
         lineage_records=[lineage],
     )
 
-    return store
+    yield store
+
+    # Cleanup: close connections and delete temporary file
+    store.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass  # File might already be deleted
 
 
 @pytest.fixture()

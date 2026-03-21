@@ -49,17 +49,29 @@ class TestGetHealth:
             vector_store.count = original_count
 
     def test_degraded_when_sqlite_unreachable(self, client: TestClient) -> None:
-        # Replace the document_store connection with one that raises on execute
+        # Mock the _make_connection method to return a broken connection
         document_store = client.app.state.document_store
-        original_conn = document_store.conn
-        # Create a mock connection that raises when execute is called
-        mock_conn = MagicMock()
-        mock_conn.execute = MagicMock(side_effect=Exception("SQLite unreachable"))
-        document_store.conn = mock_conn
+        original_make_connection = document_store._make_connection
+
+        def broken_make_connection():
+            # Return a mock connection that fails on execute
+            mock_conn = MagicMock()
+            mock_conn.execute = MagicMock(side_effect=Exception("SQLite unreachable"))
+            return mock_conn
+
+        document_store._make_connection = broken_make_connection
         try:
+            # Clear the thread-local connection so a new one is created
+            if hasattr(document_store._local, "conn"):
+                del document_store._local.conn
+
             data = client.get("/health").json()
             assert data["status"] == "degraded"
             assert data["sqlite_ok"] is False
             assert data["chromadb_ok"] is True
         finally:
-            document_store.conn = original_conn
+            # Restore the original method
+            document_store._make_connection = original_make_connection
+            # Clear the thread-local connection so a new one is created on next use
+            if hasattr(document_store._local, "conn"):
+                del document_store._local.conn

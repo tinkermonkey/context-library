@@ -8,6 +8,8 @@ Covers:
 - Version chain ordering (oldest-first)
 """
 
+import os
+import tempfile
 import pytest
 import time
 
@@ -32,7 +34,17 @@ from context_library.storage.models import (
 @pytest.fixture
 def store() -> DocumentStore:
     """Create an in-memory DocumentStore for testing."""
-    return DocumentStore(":memory:")
+    # Use file-based DB to support multi-threaded access
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+    store_obj = DocumentStore(temp_path)
+    yield store_obj
+    store_obj.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 def _make_hash(char: str) -> str:

@@ -987,9 +987,9 @@ class TestAppleMusicLibraryAdapterIntegration:
         """
         from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
 
-        # Setup: Mock the /tracks endpoint with a track containing music-specific fields
+        # Setup: Mock the /music/tracks endpoint with a track containing music-specific fields
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             [
                 {
                     "id": "music-track-001",
@@ -1066,7 +1066,7 @@ class TestAppleMusicLibraryAdapterIntegration:
 
         # Setup: Mock with minimal/null fields
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             [
                 {
                     "id": "music-track-002",
@@ -1114,7 +1114,7 @@ class TestAppleMusicLibraryAdapterIntegration:
         from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
 
         mock_apple_music_library_endpoints.set_response(
-            "http://127.0.0.1:7123/tracks",
+            "http://127.0.0.1:7123/music/tracks",
             [
                 {
                     "id": "music-track-003",

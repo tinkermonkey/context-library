@@ -1,5 +1,7 @@
 """Tests for SPA routing and static file serving."""
 
+import os
+import tempfile
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
@@ -13,7 +15,11 @@ from context_library.storage.models import AdapterConfig, Domain
 @pytest.fixture()
 def ds_for_spa() -> DocumentStore:
     """In-memory DocumentStore for SPA tests."""
-    store = DocumentStore(":memory:", check_same_thread=False)
+    # Use file-based DB to support multi-threaded access
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+    store = DocumentStore(temp_path, check_same_thread=False)
     config = AdapterConfig(
         adapter_id="test-adapter",
         adapter_type="filesystem",
@@ -21,7 +27,12 @@ def ds_for_spa() -> DocumentStore:
         normalizer_version="1.0.0",
     )
     store.register_adapter(config)
-    return store
+    yield store
+    store.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 @pytest.fixture()
