@@ -43,6 +43,7 @@ export const domainViewSearchSchema = z.object({
   status: z.string().optional(),
   priority: z.number().optional(),
   section: z.string().optional(), // TOC anchor for document views
+  documentType: z.string().optional(), // Document type filter for documents domain catalog
 });
 
 export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>;

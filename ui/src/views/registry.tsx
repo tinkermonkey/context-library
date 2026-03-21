@@ -5,10 +5,8 @@ import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
-import {
-  DocumentView,
-  DocumentCatalogView,
-} from './placeholders';
+import { DocumentView } from './placeholders';
+import { DocumentCatalogView } from './DocumentCatalogView';
 
 /**
  * Props passed to all domain view components.

@@ -11,9 +11,3 @@ export const DocumentView: ComponentType<DomainViewProps> = () => (
     <p className="text-sm text-blue-900">Document view not yet available</p>
   </div>
 );
-
-export const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Document catalog view not yet available</p>
-  </div>
-);
