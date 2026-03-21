@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useSourceChunks } from '../hooks/useChunks';
 import { getDomainView } from '../views/registry';
@@ -8,6 +8,7 @@ import { getDomainView } from '../views/registry';
  *
  * Fetches source chunks and metadata, then dispatches to the appropriate
  * domain-specific view component based on the domain parameter.
+ * Implements server-side pagination to avoid loading entire datasets into browser memory.
  */
 export default function DomainViewPage() {
   const params = useParams({ from: '/browser/view/$domain/$sourceId' });
@@ -15,8 +16,12 @@ export default function DomainViewPage() {
 
   const { domain, sourceId } = params;
 
-  // Fetch chunks
-  const { data: chunksData, isLoading: chunksLoading, isError: chunksError, error: chunksErrorObj } = useSourceChunks(sourceId);
+  // Pagination state
+  const [offset, setOffset] = useState(0);
+  const pageSize = 50;
+
+  // Fetch chunks with pagination
+  const { data: chunksData, isLoading: chunksLoading, isError: chunksError, error: chunksErrorObj } = useSourceChunks(sourceId, undefined, pageSize, offset);
 
   // Get the domain view component
   const viewEntry = getDomainView(domain);
@@ -60,17 +65,41 @@ export default function DomainViewPage() {
         <p className="text-gray-600">
           Source: <code className="text-xs bg-gray-100 px-2 py-1 rounded">{sourceId}</code>
         </p>
-        {sourceData.display_name && (
-          <p className="text-gray-600 mt-1">{sourceData.display_name}</p>
-        )}
       </div>
 
       <Suspense fallback={<div className="text-gray-600">Loading view…</div>}>
         <ViewComponent sourceId={sourceId} chunks={chunks} />
       </Suspense>
 
+      {/* Pagination controls */}
+      <div className="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
+        <div className="text-sm text-gray-600">
+          {chunksData ? (
+            <>
+              Showing {offset + 1}-{Math.min(offset + pageSize, chunksData.total)} of {chunksData.total} chunks
+            </>
+          ) : null}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setOffset(Math.max(0, offset - pageSize))}
+            disabled={offset === 0 || chunksLoading}
+            className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => setOffset(offset + pageSize)}
+            disabled={!chunksData || offset + pageSize >= chunksData.total || chunksLoading}
+            className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
       {/* Navigation back to chunks */}
-      <div className="mt-8 pt-6 border-t border-gray-200">
+      <div className="mt-4">
         <button
           onClick={() => navigate({ to: '/browser', search: { table: 'chunks', source_id: sourceId } })}
           className="text-blue-600 hover:underline text-sm bg-none border-none cursor-pointer p-0"

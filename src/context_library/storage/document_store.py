@@ -1872,13 +1872,29 @@ class DocumentStore:
             where_clauses.append("c.source_id = ?")
             filter_params.append(source_id)
 
+        # Add metadata filters to WHERE clause (server-side filtering via SQL)
+        if metadata_filter:
+            for key, value in metadata_filter.items():
+                where_clauses.append(f"json_extract(c.domain_metadata, ?) = ?")
+                filter_params.append(f"$.{key}")
+                filter_params.append(value)
+
         where_sql = " AND ".join(where_clauses)
 
-        # Fetch all matching rows (without limit/offset) to count returnable items
-        # and build the full result set, then slice for pagination
-        all_params = filter_params
+        # Get total count of matching items (after metadata filters)
         cursor.execute(
             f"""
+            SELECT COUNT(*) as count
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            """,
+            filter_params,
+        )
+        total = cursor.fetchone()["count"]
+
+        # Fetch paginated results
+        query = f"""
             SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
                    c.content, c.context_header, c.chunk_type, c.domain_metadata,
                    c.normalizer_version, c.embedding_model_id, c.created_at,
@@ -1887,25 +1903,18 @@ class DocumentStore:
             JOIN sources s ON c.source_id = s.source_id
             WHERE {where_sql}
             ORDER BY c.created_at DESC
-            """,
-            all_params,
-        )
+            LIMIT ? OFFSET ?
+            """
+        all_params = filter_params + [limit, offset]
+        cursor.execute(query, all_params)
         all_rows = cursor.fetchall()
 
         # Build chunks, skipping corrupt ones with logged warnings
-        # Process all rows to get accurate total count of returnable items
-        all_results = []
+        paginated_results = []
         for row in all_rows:
             try:
                 chunk = self._build_chunk_from_row(row)
-
-                # Apply metadata filter if specified
-                if metadata_filter:
-                    metadata = chunk.domain_metadata or {}
-                    if not all(metadata.get(k) == v for k, v in metadata_filter.items()):
-                        continue
-
-                all_results.append(ChunkWithLineageContext(
+                paginated_results.append(ChunkWithLineageContext(
                     chunk=chunk,
                     source_id=row["source_id"],
                     source_version_id=row["source_version_id"],
@@ -1916,11 +1925,9 @@ class DocumentStore:
                 ))
             except ValueError as e:
                 logger.warning("Skipping corrupt chunk during list: %s", e)
+                # Note: Corrupt chunks reduce the actual returned count below total.
+                # This is acceptable as corrupt chunks are not returnable.
                 continue
-
-        # Apply pagination to the filtered results
-        total = len(all_results)
-        paginated_results = all_results[offset : offset + limit]
 
         return paginated_results, total
 

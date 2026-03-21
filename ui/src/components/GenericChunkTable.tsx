@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { ChunkResponse, SourceDetailResponse } from '../types/api';
+import type { ChunkResponse } from '../types/api';
 
 /**
  * Props for GenericChunkTable component.
@@ -8,7 +8,6 @@ import type { ChunkResponse, SourceDetailResponse } from '../types/api';
 interface GenericChunkTableProps {
   chunks: ChunkResponse[];
   sourceId: string;
-  source: SourceDetailResponse;
 }
 
 /**
