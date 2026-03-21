@@ -9,7 +9,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /reminders/reminders
+  GET /reminders
     Query parameters:
       - list (optional): Filter by Reminders list name
       - since (optional): ISO 8601 timestamp; return only reminders modified after this time
