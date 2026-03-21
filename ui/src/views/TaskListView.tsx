@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
@@ -271,24 +271,11 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
   const [pendingStatus, setPendingStatus] = useState<string>(statusFilter || '');
   const [pendingPriority, setPendingPriority] = useState<string>(priorityFilter?.toString() || '');
 
-  // Track previous URL params to detect external changes
-  const previousStatusRef = useRef<string>(statusFilter || '');
-  const previousPriorityRef = useRef<string>(priorityFilter?.toString() || '');
-
   // Sync pending state with URL params on route change (external nav)
   useEffect(() => {
-    const statusFromUrl = statusFilter || '';
-    const priorityFromUrl = priorityFilter?.toString() || '';
-
-    if (statusFromUrl !== previousStatusRef.current) {
-      setPendingStatus(statusFromUrl);
-      previousStatusRef.current = statusFromUrl;
-    }
-
-    if (priorityFromUrl !== previousPriorityRef.current) {
-      setPendingPriority(priorityFromUrl);
-      previousPriorityRef.current = priorityFromUrl;
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingStatus(statusFilter || '');
+    setPendingPriority(priorityFilter?.toString() || '');
   }, [statusFilter, priorityFilter]);
 
   // Apply filters and group/sort tasks using URL params as source of truth
