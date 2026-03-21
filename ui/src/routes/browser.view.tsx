@@ -2,6 +2,7 @@ import { Suspense, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useSourceChunks } from '../hooks/useChunks';
 import { getDomainView } from '../views/registry';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /**
  * Domain view route handler.
@@ -67,9 +68,11 @@ export default function DomainViewPage() {
         </p>
       </div>
 
-      <Suspense fallback={<div className="text-gray-600">Loading view…</div>}>
-        <ViewComponent sourceId={sourceId} chunks={chunks} />
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<div className="text-gray-600">Loading view…</div>}>
+          <ViewComponent sourceId={sourceId} chunks={chunks} />
+        </Suspense>
+      </ErrorBoundary>
 
       {/* Pagination controls */}
       <div className="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
