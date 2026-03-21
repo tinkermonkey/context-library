@@ -44,14 +44,18 @@ function formatFileSize(bytes: number): string {
 }
 
 /**
- * Parse context header breadcrumb (format: "# H1 > ## H2 > ### H3").
+ * Parse context header breadcrumb.
+ * Handles two formats:
+ * 1. Notes domain: "# H1 > ## H2 > ### H3" (hierarchical markdown headings)
+ * 2. Documents domain: "{title} — {document_type}" (title-based context)
  * Returns array of heading levels and text pairs.
  */
 function parseContextHeaderHierarchy(contextHeader: string | null): Array<{ level: number; text: string }> {
   if (!contextHeader) return [];
 
+  // Try parsing notes domain format: "# H1 > ## H2 > ### H3"
   const parts = contextHeader.split(' > ');
-  return parts
+  const hierarchicalHeadings = parts
     .map((part) => {
       const match = part.match(/^(#+)\s+(.*)$/);
       if (!match) return null;
@@ -61,6 +65,24 @@ function parseContextHeaderHierarchy(contextHeader: string | null): Array<{ leve
       };
     })
     .filter((item) => item !== null) as Array<{ level: number; text: string }>;
+
+  if (hierarchicalHeadings.length > 0) {
+    return hierarchicalHeadings;
+  }
+
+  // Fallback to documents domain format: "{title} — {document_type}"
+  // Extract title (part before dash) and treat as h1
+  const titleMatch = contextHeader.match(/^([^—\-]+)/);
+  if (titleMatch) {
+    return [
+      {
+        level: 1,
+        text: titleMatch[1].trim(),
+      },
+    ];
+  }
+
+  return [];
 }
 
 /**
@@ -101,14 +123,17 @@ function buildTableOfContents(chunks: ChunkResponse[]): HeadingEntry[] {
 function TableOfContents({ headings }: { headings: HeadingEntry[] }): ReactNode {
   if (headings.length === 0) return null;
 
-  const renderHeadings = (items: HeadingEntry[], minLevel: number = 1, startIndex: number = 0): ReactNode => {
+  // Dynamically calculate minimum level present in headings
+  const minLevelInData = Math.min(...headings.map((h) => h.level));
+
+  const renderHeadings = (items: HeadingEntry[], minLevel: number = minLevelInData, startIndex: number = 0): ReactNode => {
     const filtered = items.slice(startIndex).filter((h) => h.level === minLevel);
     if (filtered.length === 0) return null;
 
     return (
-      <ul className={`${minLevel === 1 ? 'list-none' : 'list-disc ml-4'} space-y-1`}>
+      <ul className={`${minLevel === minLevelInData ? 'list-none' : 'list-disc ml-4'} space-y-1`}>
         {filtered.map((heading) => {
-          const headingIndexInSlice = items.slice(startIndex).indexOf(heading);
+          const headingIndexInSlice = items.slice(startIndex).findIndex((h) => h === heading);
           const headingIndexInFull = startIndex + headingIndexInSlice;
 
           const nextSameLevelIndex = items.findIndex(
@@ -136,13 +161,18 @@ function TableOfContents({ headings }: { headings: HeadingEntry[] }): ReactNode 
   return (
     <nav className="bg-white rounded-lg border border-gray-200 p-4">
       <h3 className="text-sm font-semibold text-gray-900 mb-3">Contents</h3>
-      {renderHeadings(headings)}
+      {renderHeadings(headings, minLevelInData)}
     </nav>
   );
 }
 
 /**
  * Render cross-reference links for a chunk.
+ * Each cross-ref button displays the source ID (truncated) for differentiation.
+ *
+ * NOTE: Domain is currently hardcoded to 'documents' as the cross_refs data model
+ * does not include domain context. If cross-domain references are needed in the future,
+ * the cross_refs format should be updated to include domain information.
  */
 function CrossReferences({
   crossRefs,
@@ -156,6 +186,7 @@ function CrossReferences({
   const handleCrossRefClick = (refSourceId: string): void => {
     void navigate({
       to: '/browser/view/$domain/$sourceId',
+      // TODO: Update when cross_refs includes domain information
       params: { domain: 'documents', sourceId: refSourceId },
     });
   };
@@ -164,15 +195,20 @@ function CrossReferences({
     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
       <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Documents</h4>
       <div className="flex flex-wrap gap-2">
-        {crossRefs.map((refSourceId, idx) => (
-          <button
-            key={idx}
-            onClick={() => handleCrossRefClick(refSourceId)}
-            className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer"
-          >
-            View Document
-          </button>
-        ))}
+        {crossRefs.map((refSourceId, idx) => {
+          // Truncate source ID to first 8 characters for display
+          const displayId = refSourceId.substring(0, 8);
+          return (
+            <button
+              key={idx}
+              onClick={() => handleCrossRefClick(refSourceId)}
+              className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer"
+              title={refSourceId}
+            >
+              View {displayId}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

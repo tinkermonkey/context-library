@@ -337,11 +337,17 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
           <div className="text-xs text-gray-600 pt-2">
             {documentTypeFilter ? (
               <>
-                Showing {filteredSources.length} of {totalSources} total document(s)
+                Showing {filteredSources.length} of {allSources.length} loaded document(s)
                 <span className="font-semibold">
                   {' '}
                   — filtered by type: {getDocumentTypeLabel(documentTypeFilter)}
                 </span>
+                {allSources.length < totalSources && (
+                  <span className="text-gray-500">
+                    {' '}
+                    (more available on server)
+                  </span>
+                )}
               </>
             ) : (
               <>
