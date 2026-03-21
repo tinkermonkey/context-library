@@ -45,6 +45,7 @@ export const domainViewSearchSchema = z.object({
   priority: z.number().optional(),
   section: z.string().optional(), // TOC anchor for document/notes views
   documentType: z.string().optional(), // Document type filter for documents domain catalog
+  groupBy: z.enum(['day', 'week']).optional(), // Events domain: manual grouping mode override
 });
 
 export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>;

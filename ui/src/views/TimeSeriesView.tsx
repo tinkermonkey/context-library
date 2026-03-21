@@ -133,75 +133,25 @@ function getWeekStartDate(weekKey: string): string | null {
 }
 
 /**
- * Group chunks by day, filtering by date range.
- * Returns a Map with date keys (YYYY-MM-DD) in chronological order.
+ * Typed structure for grouped events (day or week).
  */
-function groupEventsByDay(
-  chunks: ChunkResponse[],
-  dateFrom?: string,
-  dateTo?: string
-): Map<string, ChunkResponse[]> {
-  const grouped = new Map<string, ChunkResponse[]>();
-  // Cache metadata to avoid redundant extraction during sort
-  const metadataCache = new Map<ChunkResponse, EventMetadata | null>();
-
-  // Parse date range
-  let fromDate: Date | null = null;
-  let toDate: Date | null = null;
-  if (dateFrom) {
-    fromDate = new Date(dateFrom + 'T00:00:00Z');
-  }
-  if (dateTo) {
-    toDate = new Date(dateTo + 'T23:59:59Z');
-  }
-
-  // Process each chunk
-  for (const chunk of chunks) {
-    const metadata = extractEventMetadata(chunk);
-    metadataCache.set(chunk, metadata);
-    if (!metadata || !metadata.start_date) continue;
-
-    const dateKey = getDatePortion(metadata.start_date);
-    if (!dateKey) continue;
-
-    // Apply date range filter
-    const chunkDate = new Date(dateKey + 'T00:00:00Z');
-    if (fromDate && chunkDate < fromDate) continue;
-    if (toDate && chunkDate > toDate) continue;
-
-    if (!grouped.has(dateKey)) {
-      grouped.set(dateKey, []);
-    }
-    grouped.get(dateKey)!.push(chunk);
-  }
-
-  // Sort chunks within each day by start_date (ascending)
-  for (const dayChunks of grouped.values()) {
-    dayChunks.sort((a, b) => {
-      const aTime = metadataCache.get(a)?.start_date || '';
-      const bTime = metadataCache.get(b)?.start_date || '';
-      return aTime.localeCompare(bTime);
-    });
-  }
-
-  // Return sorted by date keys (chronologically)
-  const sorted = new Map(
-    Array.from(grouped.entries()).sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
-  );
-
-  return sorted;
+interface GroupedEvents {
+  type: 'day' | 'week';
+  key: string;
+  label: string;
+  chunks: ChunkResponse[];
 }
 
 /**
- * Group chunks by week, filtering by date range.
- * Returns a Map with week keys (YYYY-W##) and the start date of each week.
+ * Group chunks by day or week, filtering by date range.
+ * Returns a typed array of GroupedEvents objects.
  */
-function groupEventsByWeek(
+function groupEventsByGroupMode(
   chunks: ChunkResponse[],
+  mode: 'day' | 'week',
   dateFrom?: string,
   dateTo?: string
-): Map<string, { startDate: string; chunks: ChunkResponse[] }> {
-  const grouped = new Map<string, ChunkResponse[]>();
+): GroupedEvents[] {
   // Cache metadata to avoid redundant extraction during sort
   const metadataCache = new Map<ChunkResponse, EventMetadata | null>();
 
@@ -215,7 +165,9 @@ function groupEventsByWeek(
     toDate = new Date(dateTo + 'T23:59:59Z');
   }
 
-  // Process each chunk
+  // Group chunks by key (day or week)
+  const grouped = new Map<string, ChunkResponse[]>();
+
   for (const chunk of chunks) {
     const metadata = extractEventMetadata(chunk);
     metadataCache.set(chunk, metadata);
@@ -229,33 +181,38 @@ function groupEventsByWeek(
     if (fromDate && chunkDate < fromDate) continue;
     if (toDate && chunkDate > toDate) continue;
 
-    const weekKey = getWeekKey(dateKey);
-    if (!weekKey) continue;
-
-    if (!grouped.has(weekKey)) {
-      grouped.set(weekKey, []);
+    // Compute grouping key
+    let groupKey = dateKey; // default to day
+    if (mode === 'week') {
+      const weekKey = getWeekKey(dateKey);
+      if (!weekKey) continue;
+      groupKey = weekKey;
     }
-    grouped.get(weekKey)!.push(chunk);
+
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, []);
+    }
+    grouped.get(groupKey)!.push(chunk);
   }
 
-  // Sort chunks within each week by start_date (ascending)
-  for (const weekChunks of grouped.values()) {
-    weekChunks.sort((a, b) => {
+  // Sort chunks within each group by start_date (ascending)
+  for (const groupChunks of grouped.values()) {
+    groupChunks.sort((a, b) => {
       const aTime = metadataCache.get(a)?.start_date || '';
       const bTime = metadataCache.get(b)?.start_date || '';
       return aTime.localeCompare(bTime);
     });
   }
 
-  // Convert to result format with start dates
-  const result = new Map(
-    Array.from(grouped.entries())
-      .map(([weekKey, chunks]) => {
-        const startDate = getWeekStartDate(weekKey);
-        return [weekKey, { startDate: startDate || '', chunks }];
-      })
-      .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
-  );
+  // Convert to typed result array
+  const result: GroupedEvents[] = Array.from(grouped.entries())
+    .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
+    .map(([key, groupChunks]) => {
+      const label = mode === 'week'
+        ? formatWeekHeader(getWeekStartDate(key) || '')
+        : formatDayHeader(key);
+      return { type: mode, key, label, chunks: groupChunks };
+    });
 
   return result;
 }
@@ -383,23 +340,12 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
 
   // Determine grouping mode: explicit override or auto-detect based on date range
   const groupMode = search.groupBy || getAutoGroupMode(search.dateFrom, search.dateTo);
+  const isAutoSelected = !search.groupBy;
 
   // Group events by day or week based on mode
   const groupedEvents = useMemo(
-    () => {
-      if (groupMode === 'week') {
-        // For week grouping, convert to simpler structure
-        const weekGroups = groupEventsByWeek(chunks, search.dateFrom, search.dateTo);
-        const dayGroups = new Map<string, ChunkResponse[]>();
-        for (const [weekKey, { startDate, chunks: weekChunks }] of weekGroups.entries()) {
-          // Store with a special marker to distinguish week groups
-          dayGroups.set(`__week__${weekKey}__${startDate}`, weekChunks);
-        }
-        return dayGroups;
-      }
-      return groupEventsByDay(chunks, search.dateFrom, search.dateTo);
-    },
-    [chunks, search.dateFrom, search.dateTo, groupMode]
+    () => groupEventsByGroupMode(chunks, groupMode, search.dateFrom, search.dateTo),
+    [chunks, groupMode, search.dateFrom, search.dateTo]
   );
 
   // Handle date range filter application
@@ -426,13 +372,15 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
     });
   };
 
-  // Helper to check if this is a week group marker
-  const isWeekGroup = (key: string): { isWeek: boolean; weekKey?: string; startDate?: string } => {
-    if (key.startsWith('__week__')) {
-      const parts = key.slice(7).split('__');
-      return { isWeek: true, weekKey: parts[0], startDate: parts[1] };
-    }
-    return { isWeek: false };
+  // Handle grouping mode change
+  const handleGroupModeChange = (mode: 'day' | 'week') => {
+    navigate({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        groupBy: mode,
+      }),
+    });
   };
 
   return (
@@ -480,40 +428,57 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
         </div>
 
         {/* Grouping mode indicator and toggle */}
-        <div className="text-sm text-gray-600">
-          <span className="font-medium">Grouping:</span> {groupMode === 'week' ? 'By week' : 'By day'}
-          {search.dateFrom && search.dateTo && !search.groupBy && (
-            <span className="text-gray-500 ml-2">(auto-selected)</span>
-          )}
-          {search.groupBy && (
-            <span className="text-gray-500 ml-2">(manually selected)</span>
-          )}
+        <div className="flex items-center gap-4 text-sm text-gray-600">
+          <div>
+            <span className="font-medium">Grouping:</span> {groupMode === 'week' ? 'By week' : 'By day'}
+            {isAutoSelected && (
+              <span className="text-gray-500 ml-2">(auto-selected)</span>
+            )}
+            {!isAutoSelected && (
+              <span className="text-gray-500 ml-2">(manually selected)</span>
+            )}
+          </div>
+          <div className="flex gap-2 border-l border-gray-300 pl-4">
+            <button
+              onClick={() => handleGroupModeChange('day')}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                groupMode === 'day'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Day
+            </button>
+            <button
+              onClick={() => handleGroupModeChange('week')}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                groupMode === 'week'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Week
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Events timeline */}
-      {groupedEvents.size > 0 ? (
+      {groupedEvents.length > 0 ? (
         <div>
-          {Array.from(groupedEvents.entries()).map(([key, chunks]) => {
-            const weekInfo = isWeekGroup(key);
-            const headerText = weekInfo.isWeek && weekInfo.startDate
-              ? formatWeekHeader(weekInfo.startDate)
-              : formatDayHeader(key);
+          {groupedEvents.map((group) => (
+            <div key={group.key} className="mb-8">
+              {/* Day or week header */}
+              <h2 className="text-xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-blue-200">
+                {group.label}
+              </h2>
 
-            return (
-              <div key={key} className="mb-8">
-                {/* Day or week header */}
-                <h2 className="text-xl font-bold text-gray-900 mb-4 pb-2 border-b-2 border-blue-200">
-                  {headerText}
-                </h2>
-
-                {/* Events for this day/week */}
-                {chunks.map((chunk) => (
-                  <EventCard key={chunk.chunk_hash} chunk={chunk} />
-                ))}
-              </div>
-            );
-          })}
+              {/* Events for this day/week */}
+              {group.chunks.map((chunk) => (
+                <EventCard key={chunk.chunk_hash} chunk={chunk} />
+              ))}
+            </div>
+          ))}
         </div>
       ) : (
         <div className="p-8 bg-blue-50 border border-blue-200 rounded-lg text-center">
