@@ -67,12 +67,11 @@ class TestDocumentStoreInit:
 
     def test_init_memory_database(self) -> None:
         """Test that DocumentStore can initialize with in-memory SQLite."""
-        # Use file-based DB to support multi-threaded access
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-        temp_path = temp_file.name
-        temp_file.close()
-        store = DocumentStore(temp_path)
-        assert store.conn is not None
+        store = DocumentStore(":memory:")
+        try:
+            assert store.conn is not None
+        finally:
+            store.close()
 
     def test_schema_version_verification(self) -> None:
         """Test that user_version is verified to be 3 (documents domain support)."""

@@ -55,6 +55,7 @@ def _create_app_with_store(
         app.state.reranker = mock_reranker or None
         app.state.config = mock_config
         app.state.helper_adapters = []
+        app.state.helper_health_cache = None
         yield
 
     app = create_app()

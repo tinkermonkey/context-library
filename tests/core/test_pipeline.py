@@ -457,17 +457,27 @@ class TestIngestionPipelineEdgeCases:
         # First ingest with chunker1
         result1 = pipeline.ingest(adapter, chunker1)
 
-        # Reset for second test
+        # Reset for second test: close old store and create fresh file-based store
         pipeline.document_store.close()
-        pipeline.document_store = DocumentStore(":memory:")
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        temp_path = temp_file.name
+        temp_file.close()
+        pipeline.document_store = DocumentStore(temp_path)
 
-        # Second ingest with chunker2
-        result2 = pipeline.ingest(adapter, chunker2)
+        try:
+            # Second ingest with chunker2
+            result2 = pipeline.ingest(adapter, chunker2)
 
-        # Different chunkers may produce different chunk counts
-        # (This test just verifies both succeed)
-        assert result1["sources_processed"] > 0
-        assert result2["sources_processed"] > 0
+            # Different chunkers may produce different chunk counts
+            # (This test just verifies both succeed)
+            assert result1["sources_processed"] > 0
+            assert result2["sources_processed"] > 0
+        finally:
+            pipeline.document_store.close()
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
 
 class TestIntegrationVectorSearch:
