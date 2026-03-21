@@ -3,10 +3,10 @@ import type { ChunkResponse, SourceDetailResponse } from '../types/api';
 import { GenericChunkTable as GenericChunkTableComponent } from '../components/GenericChunkTable';
 import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
+import { HealthMetricsView } from './HealthMetricsView';
 import {
   DocumentView,
   TaskListView,
-  HealthMetricsView,
   DocumentCatalogView,
 } from './placeholders';
 
