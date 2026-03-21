@@ -29,32 +29,32 @@ export interface RegistryEntry {
  */
 const ThreadView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Thread view coming in Phase 2</p>
+    <p className="text-sm text-blue-900">Thread view not yet available</p>
   </div>
 );
 const DocumentView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Document view coming in Phase 2</p>
+    <p className="text-sm text-blue-900">Document view not yet available</p>
   </div>
 );
 const TimeSeriesView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Timeline view coming in Phase 3</p>
+    <p className="text-sm text-blue-900">Timeline view not yet available</p>
   </div>
 );
 const TaskListView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Task list view coming in Phase 4</p>
+    <p className="text-sm text-blue-900">Task list view not yet available</p>
   </div>
 );
 const HealthMetricsView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Health metrics view coming in Phase 5</p>
+    <p className="text-sm text-blue-900">Health metrics view not yet available</p>
   </div>
 );
 const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Document catalog view coming in Phase 5</p>
+    <p className="text-sm text-blue-900">Document catalog view not yet available</p>
   </div>
 );
 

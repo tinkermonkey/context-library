@@ -72,7 +72,6 @@ function parseMarkdownContent(content: string): ReactNode {
       const codeBlockLines: string[] = [];
       // Language identifier is parsed but not currently used for syntax highlighting
       // To add syntax highlighting, integrate a library like highlight.js or prism
-      trimmed.slice(3).trim(); // Language identifier available but unused
       i++;
 
       while (i < lines.length && !lines[i].trim().startsWith('```')) {
