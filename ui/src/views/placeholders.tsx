@@ -12,18 +12,6 @@ export const DocumentView: ComponentType<DomainViewProps> = () => (
   </div>
 );
 
-export const TimeSeriesView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Timeline view not yet available</p>
-  </div>
-);
-
-export const TaskListView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Task list view not yet available</p>
-  </div>
-);
-
 export const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
     <p className="text-sm text-blue-900">Document catalog view not yet available</p>

@@ -4,9 +4,9 @@ import { GenericChunkTable as GenericChunkTableComponent } from '../components/G
 import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
+import { TaskListView } from './TaskListView';
 import {
   DocumentView,
-  TaskListView,
   DocumentCatalogView,
 } from './placeholders';
 
