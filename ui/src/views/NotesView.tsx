@@ -87,21 +87,39 @@ function buildTableOfContents(chunks: ChunkResponse[]): HeadingEntry[] {
 function TableOfContents({ headings }: { headings: HeadingEntry[] }): ReactNode {
   if (headings.length === 0) return null;
 
-  const renderHeadings = (items: HeadingEntry[], minLevel: number = 1): ReactNode => {
-    const filtered = items.filter((h) => h.level === minLevel);
+  const renderHeadings = (items: HeadingEntry[], minLevel: number = 1, startIndex: number = 0): ReactNode => {
+    const filtered = items
+      .slice(startIndex)
+      .filter((h) => h.level === minLevel);
     if (filtered.length === 0) return null;
 
     return (
       <ul className={`${minLevel === 1 ? 'list-none' : 'list-disc ml-4'} space-y-1`}>
-        {filtered.map((heading) => (
-          <li key={`${heading.level}-${heading.chunkIndex}`} className="text-sm text-blue-600">
-            <a href={`#chunk-${heading.chunkIndex}`} className="hover:underline">
-              {heading.text}
-            </a>
-            {items.some((h) => h.level === minLevel + 1 && items.indexOf(h) > items.indexOf(heading)) &&
-              renderHeadings(items, minLevel + 1)}
-          </li>
-        ))}
+        {filtered.map((heading) => {
+          // Find the range of items under this heading
+          const headingIndexInSlice = items.slice(startIndex).indexOf(heading);
+          const headingIndexInFull = startIndex + headingIndexInSlice;
+
+          // Find next heading at same level to determine section boundary
+          const nextSameLevelIndex = items.findIndex(
+            (h, idx) => idx > headingIndexInFull && h.level === minLevel
+          );
+          const sectionEndIndex = nextSameLevelIndex === -1 ? items.length : nextSameLevelIndex;
+
+          // Check if there are child headings in this section
+          const hasChildren = items.some(
+            (h, idx) => idx > headingIndexInFull && idx < sectionEndIndex && h.level === minLevel + 1
+          );
+
+          return (
+            <li key={`${heading.level}-${heading.chunkIndex}`} className="text-sm text-blue-600">
+              <a href={`#chunk-${heading.chunkIndex}`} className="hover:underline">
+                {heading.text}
+              </a>
+              {hasChildren && renderHeadings(items.slice(headingIndexInFull + 1, sectionEndIndex), minLevel + 1, 0)}
+            </li>
+          );
+        })}
       </ul>
     );
   };
@@ -119,10 +137,8 @@ function TableOfContents({ headings }: { headings: HeadingEntry[] }): ReactNode 
  */
 function MetadataSection({
   metadata,
-  chunks,
 }: {
   metadata: NoteMetadata | null;
-  chunks: ChunkResponse[];
 }): ReactNode {
   if (!metadata) return null;
 
@@ -182,7 +198,6 @@ function MetadataSection({
  */
 function NoteChunk({ chunk, index, totalChunks }: { chunk: ChunkResponse; index: number; totalChunks: number }): ReactNode {
   const metadata = extractNoteMetadata(chunk.domain_metadata);
-  const breadcrumb = parseContextHeaderBreadcrumb(chunk.context_header);
 
   // Determine visual indentation based on heading level
   const indentClass = {
@@ -207,9 +222,6 @@ function NoteChunk({ chunk, index, totalChunks }: { chunk: ChunkResponse; index:
       <div className="prose prose-sm max-w-none">
         <MarkdownContent content={chunk.content} />
       </div>
-
-      {/* Visual separator between chunks */}
-      {index < totalChunks - 1 && <div className="mt-6 border-t border-gray-200" />}
     </div>
   );
 }
@@ -252,7 +264,7 @@ export function NotesView({ chunks }: DomainViewProps): ReactNode {
       {tableOfContents.length > 0 && <TableOfContents headings={tableOfContents} />}
 
       {/* Note Metadata */}
-      <MetadataSection metadata={noteMetadata} chunks={sortedChunks} />
+      <MetadataSection metadata={noteMetadata} />
 
       {/* Note Content */}
       <div className="space-y-4">
