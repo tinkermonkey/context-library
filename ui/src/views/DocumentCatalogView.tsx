@@ -335,12 +335,24 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
 
           {/* Filter Summary */}
           <div className="text-xs text-gray-600 pt-2">
-            Showing {filteredSources.length} of {totalSources} document(s)
-            {documentTypeFilter && (
-              <span className="font-semibold">
-                {' '}
-                — filtered by type: {getDocumentTypeLabel(documentTypeFilter)}
-              </span>
+            {documentTypeFilter ? (
+              <>
+                Showing {filteredSources.length} of {totalSources} total document(s)
+                <span className="font-semibold">
+                  {' '}
+                  — filtered by type: {getDocumentTypeLabel(documentTypeFilter)}
+                </span>
+              </>
+            ) : (
+              <>
+                Showing {allSources.length} of {totalSources} document(s)
+                {limit < totalSources && (
+                  <span className="text-gray-500">
+                    {' '}
+                    — load more to see remaining
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -365,7 +377,7 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
           </div>
 
           {/* Load More Button */}
-          {limit < totalSources && (
+          {!documentTypeFilter && limit < totalSources && (
             <div className="flex justify-center pt-4">
               <button
                 onClick={loadMore}

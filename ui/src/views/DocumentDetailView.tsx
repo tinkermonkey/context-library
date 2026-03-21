@@ -1,4 +1,7 @@
+import { useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import { useMemo } from 'react';
+import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
 import { MarkdownContent } from '../components/shared/MarkdownContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
@@ -41,12 +44,149 @@ function formatFileSize(bytes: number): string {
 }
 
 /**
+ * Parse context header breadcrumb (format: "# H1 > ## H2 > ### H3").
+ * Returns array of heading levels and text pairs.
+ */
+function parseContextHeaderHierarchy(contextHeader: string | null): Array<{ level: number; text: string }> {
+  if (!contextHeader) return [];
+
+  const parts = contextHeader.split(' > ');
+  return parts
+    .map((part) => {
+      const match = part.match(/^(#+)\s+(.*)$/);
+      if (!match) return null;
+      return {
+        level: match[1].length,
+        text: match[2],
+      };
+    })
+    .filter((item) => item !== null) as Array<{ level: number; text: string }>;
+}
+
+/**
+ * Hierarchical heading entry for TOC generation.
+ */
+interface HeadingEntry {
+  level: number;
+  text: string;
+  chunkIndex: number;
+}
+
+/**
+ * Extract headings from chunks to build a table of contents.
+ * For documents, we use context_header since documents don't have heading_level metadata.
+ */
+function buildTableOfContents(chunks: ChunkResponse[]): HeadingEntry[] {
+  const headings: HeadingEntry[] = [];
+
+  chunks.forEach((chunk) => {
+    const hierarchy = parseContextHeaderHierarchy(chunk.context_header);
+    if (hierarchy.length > 0) {
+      // Use the most specific (last) heading in the hierarchy
+      const lastHeading = hierarchy[hierarchy.length - 1];
+      headings.push({
+        level: lastHeading.level,
+        text: lastHeading.text,
+        chunkIndex: chunk.chunk_index,
+      });
+    }
+  });
+
+  return headings;
+}
+
+/**
+ * Render table of contents as a hierarchical list.
+ */
+function TableOfContents({ headings }: { headings: HeadingEntry[] }): ReactNode {
+  if (headings.length === 0) return null;
+
+  const renderHeadings = (items: HeadingEntry[], minLevel: number = 1, startIndex: number = 0): ReactNode => {
+    const filtered = items.slice(startIndex).filter((h) => h.level === minLevel);
+    if (filtered.length === 0) return null;
+
+    return (
+      <ul className={`${minLevel === 1 ? 'list-none' : 'list-disc ml-4'} space-y-1`}>
+        {filtered.map((heading) => {
+          const headingIndexInSlice = items.slice(startIndex).indexOf(heading);
+          const headingIndexInFull = startIndex + headingIndexInSlice;
+
+          const nextSameLevelIndex = items.findIndex(
+            (h, idx) => idx > headingIndexInFull && h.level === minLevel
+          );
+          const sectionEndIndex = nextSameLevelIndex === -1 ? items.length : nextSameLevelIndex;
+
+          const hasChildren = items.some(
+            (h, idx) => idx > headingIndexInFull && idx < sectionEndIndex && h.level === minLevel + 1
+          );
+
+          return (
+            <li key={`${heading.level}-${heading.chunkIndex}`} className="text-sm text-blue-600">
+              <a href={`#chunk-${heading.chunkIndex}`} className="hover:underline">
+                {heading.text}
+              </a>
+              {hasChildren && renderHeadings(items.slice(headingIndexInFull + 1, sectionEndIndex), minLevel + 1, 0)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  return (
+    <nav className="bg-white rounded-lg border border-gray-200 p-4">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">Contents</h3>
+      {renderHeadings(headings)}
+    </nav>
+  );
+}
+
+/**
+ * Render cross-reference links for a chunk.
+ */
+function CrossReferences({
+  crossRefs,
+}: {
+  crossRefs: string[];
+}): ReactNode {
+  const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
+
+  if (!crossRefs || crossRefs.length === 0) return null;
+
+  const handleCrossRefClick = (refSourceId: string): void => {
+    void navigate({
+      to: '/browser/view/$domain/$sourceId',
+      params: { domain: 'documents', sourceId: refSourceId },
+    });
+  };
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+      <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Documents</h4>
+      <div className="flex flex-wrap gap-2">
+        {crossRefs.map((refSourceId, idx) => (
+          <button
+            key={idx}
+            onClick={() => handleCrossRefClick(refSourceId)}
+            className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer"
+          >
+            View Document
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Document Detail View Component.
  *
  * Displays content from the documents domain (filesystem files and music library items)
  * as a detailed view with:
  * - Document metadata (type, author, tags, file size, modified date)
+ * - Table of contents with hierarchical navigation
  * - Chronological chunk display with boundaries
+ * - Cross-reference navigation to related documents
  * - Markdown rendering for text content
  *
  * Handles both filesystem documents (PDFs, Markdown, text) and music library items.
@@ -59,6 +199,9 @@ export function DocumentDetailView(props: DomainViewProps): ReactNode {
   const documentMetadata = firstChunk?.domain_metadata
     ? extractDocumentMetadata(firstChunk.domain_metadata as Record<string, unknown>)
     : null;
+
+  // Build table of contents from chunks
+  const tableOfContents = useMemo(() => buildTableOfContents(chunks), [chunks]);
 
   return (
     <div className="space-y-6">
@@ -115,6 +258,9 @@ export function DocumentDetailView(props: DomainViewProps): ReactNode {
         </div>
       )}
 
+      {/* Table of Contents */}
+      {tableOfContents.length > 0 && <TableOfContents headings={tableOfContents} />}
+
       {/* Document Content */}
       <div className="space-y-4">
         {chunks.length === 0 ? (
@@ -123,11 +269,22 @@ export function DocumentDetailView(props: DomainViewProps): ReactNode {
           </div>
         ) : (
           chunks.map((chunk, index) => (
-            <div key={chunk.chunk_hash} className="bg-white rounded-lg border border-gray-200 p-4">
+            <div key={chunk.chunk_hash} id={`chunk-${chunk.chunk_index}`} className="bg-white rounded-lg border border-gray-200 p-4">
+              {/* Context header breadcrumb */}
+              {chunk.context_header && (
+                <div className="text-xs text-gray-500 mb-3 font-mono">
+                  {chunk.context_header}
+                </div>
+              )}
+
               <ChunkBoundary label={`Chunk ${index + 1}`} />
               <div className="mt-4 prose prose-sm max-w-none">
                 <MarkdownContent content={chunk.content} />
               </div>
+
+              {/* Cross-references */}
+              <CrossReferences crossRefs={chunk.cross_refs} />
+
               {index < chunks.length - 1 && (
                 <div className="mt-6 border-t border-gray-200" />
               )}
