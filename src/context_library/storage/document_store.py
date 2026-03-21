@@ -1875,7 +1875,7 @@ class DocumentStore:
         # Add metadata filters to WHERE clause (server-side filtering via SQL)
         if metadata_filter:
             for key, value in metadata_filter.items():
-                where_clauses.append(f"json_extract(c.domain_metadata, ?) = ?")
+                where_clauses.append("json_extract(c.domain_metadata, ?) = ?")
                 filter_params.append(f"$.{key}")
                 filter_params.append(value)
 
