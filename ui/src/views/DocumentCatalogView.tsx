@@ -178,8 +178,8 @@ function CatalogEntryCard({
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
-  const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
-  const search = useSearch({ from: '/browser/view/$domain/$sourceId' });
+  const navigate = useNavigate({ from: '/browser/catalog/documents' });
+  const search = useSearch({ from: '/browser/catalog/documents' });
 
   // Extract filter value from URL search params
   const documentTypeFilter = (search as { documentType?: string }).documentType || '';
@@ -187,19 +187,19 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   // Local state for filter control (UI-only, not source of truth)
   const [pendingDocumentType, setPendingDocumentType] = useState<string>(documentTypeFilter);
 
-  // Pagination state: use offset for proper cursor-based pagination
-  const [offset, setOffset] = useState(0);
+  // Pagination state: use limit expansion to accumulate all loaded results
+  const [limit, setLimit] = useState(50);
 
   // Sync pending state with URL params on external navigation
   useEffect(() => {
     setPendingDocumentType(documentTypeFilter);
   }, [documentTypeFilter]);
 
-  // Fetch sources with current pagination
+  // Fetch sources with expanded limit for accumulation
   const { data: sourcesData, isLoading, isError } = useSources({
     domain: 'documents',
-    limit: 50,
-    offset,
+    limit,
+    offset: 0,
   });
 
   // Memoize allSources to prevent dependency array issues
@@ -249,10 +249,11 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   };
 
   /**
-   * Load more sources (next page of results).
+   * Load more sources (expand results).
+   * Increments the limit to load more items while keeping all previously loaded items.
    */
   const loadMore = (): void => {
-    setOffset((prevOffset) => prevOffset + 50);
+    setLimit((prevLimit) => prevLimit + 50);
   };
 
   /**
@@ -364,7 +365,7 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
           </div>
 
           {/* Load More Button */}
-          {offset + 50 < totalSources && (
+          {limit < totalSources && (
             <div className="flex justify-center pt-4">
               <button
                 onClick={loadMore}

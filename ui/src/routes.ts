@@ -20,6 +20,9 @@ import {
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
 
+// Lazy load DocumentCatalogPage to enable code splitting
+const DocumentCatalogPage = lazy(() => import('./routes/browser.catalog.documents'))
+
 const rootRoute = createRootRoute({
   component: RootLayout,
 })
@@ -51,6 +54,13 @@ const domainViewRoute = createRoute({
   validateSearch: (search: unknown) => domainViewSearchSchema.parse(search),
 })
 
+const documentCatalogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/browser/catalog/documents',
+  component: DocumentCatalogPage,
+  validateSearch: (search: unknown) => domainViewSearchSchema.parse(search),
+})
+
 const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/search',
@@ -58,7 +68,7 @@ const searchRoute = createRoute({
   validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, searchRoute])
+const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, documentCatalogRoute, searchRoute])
 
 export const router = createRouter({ routeTree })
 
