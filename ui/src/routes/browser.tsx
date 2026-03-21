@@ -154,6 +154,18 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
       <div className="flex gap-2 pt-2 border-t">
         <Button
           size="sm"
+          color="success"
+          onClick={() => {
+            navigate({
+              to: '/browser/view/$domain/$sourceId',
+              params: { domain: source.domain, sourceId: source.source_id },
+            });
+          }}
+        >
+          View
+        </Button>
+        <Button
+          size="sm"
           onClick={() => {
             navigate({
               to: '/browser',

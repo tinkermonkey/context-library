@@ -1,10 +1,14 @@
 import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { lazy } from 'react'
 import { z } from 'zod'
 import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
 import BrowserPage from './routes/browser'
 import BrowserVersionsPage from './routes/browser.versions.$sourceId'
 import SearchPage from './routes/search'
+
+// Lazy load DomainViewPage to enable code splitting
+const DomainViewPage = lazy(() => import('./routes/browser.view'))
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -61,6 +65,24 @@ const browserVersionsRoute = createRoute({
   component: BrowserVersionsPage,
 })
 
+const domainViewSearchSchema = z.object({
+  healthType: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+  status: z.string().optional(),
+  priority: z.number().optional(),
+  section: z.string().optional(), // TOC anchor for document views
+})
+
+export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>
+
+const domainViewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/browser/view/$domain/$sourceId',
+  component: DomainViewPage,
+  validateSearch: (search: unknown) => domainViewSearchSchema.parse(search),
+})
+
 const searchSearchSchema = z.object({
   q: z.string().optional(),
   domain: z.string().optional(),
@@ -78,7 +100,7 @@ const searchRoute = createRoute({
   validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, searchRoute])
+const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, searchRoute])
 
 export const router = createRouter({ routeTree })
 
