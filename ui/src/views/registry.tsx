@@ -6,20 +6,19 @@ import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
 import { DocumentDetailView } from './DocumentDetailView';
-import { DocumentCatalogView } from './DocumentCatalogView';
 import { NotesView } from './NotesView';
 
 /**
- * Supported domain types.
- * Ensures all domain keys are typed and typos are caught at compile time.
+ * All supported domains as the source of truth.
+ * Typed as const to enable deriving the DomainType union from this array.
  */
-export type DomainType = 'messages' | 'notes' | 'events' | 'tasks' | 'health' | 'documents';
+export const ALL_DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
 
 /**
- * All supported domains as an array constant.
- * Useful for form options and iteration.
+ * Supported domain types, derived from ALL_DOMAINS to ensure type and runtime array stay synchronized.
+ * Ensures all domain keys are typed and typos are caught at compile time.
  */
-export const ALL_DOMAINS: readonly DomainType[] = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
+export type DomainType = (typeof ALL_DOMAINS)[number];
 
 /**
  * Props passed to all domain view components.
@@ -38,27 +37,21 @@ export interface RegistryEntry {
   component: ComponentType<DomainViewProps>;
   /** Human-readable label for this domain (e.g., "Thread", "Document") */
   label: string;
-  /** Optional: domain_metadata field key for sub-type dispatch (e.g., "health_type") */
+  /**
+   * Optional: metadata field key for sub-type dispatch (e.g., "health_type").
+   *
+   * RESERVED FOR FUTURE USE: Currently informational only. To implement subtype dispatch:
+   * 1. Read the subtypeKey from the registry entry
+   * 2. Extract the field value from chunk.domain_metadata[subtypeKey]
+   * 3. Create a subtypeViews map and populate it in the registry
+   * 4. Update getDomainView() to return subtype-specific components based on the metadata
+   * 5. Update the view dispatcher (e.g., browser.view.tsx) to consume subtypeViews
+   *
+   * The HealthMetricsView currently dispatches internally via a switch statement
+   * on the health_type metadata field rather than via the registry.
+   */
   subtypeKey?: string;
-  /** Optional: components for sub-type rendering (keyed by subtype value) */
-  subtypeViews?: Record<string, ComponentType<DomainViewProps>>;
 }
-
-/**
- * Health subtype view components.
- * HealthMetricsView uses these internally based on the health_type metadata field.
- * Registered here for completeness and to support future dispatching patterns.
- */
-const healthSubtypeViews: Record<string, ComponentType<DomainViewProps>> = {
-  sleep_summary: HealthMetricsView,
-  activity_summary: HealthMetricsView,
-  readiness_summary: HealthMetricsView,
-  workout_session: HealthMetricsView,
-  heart_rate_series: HealthMetricsView,
-  spo2_summary: HealthMetricsView,
-  mindfulness_session: HealthMetricsView,
-  user_health_tag: HealthMetricsView,
-};
 
 /**
  * Domain view registry.
@@ -86,11 +79,10 @@ const registry: Record<DomainType, RegistryEntry> = {
     component: HealthMetricsView,
     label: 'Metrics',
     subtypeKey: 'health_type',
-    subtypeViews: healthSubtypeViews,
   },
   documents: {
-    component: DocumentCatalogView,
-    label: 'Catalog',
+    component: DocumentDetailView,
+    label: 'Document',
   },
 };
 
@@ -98,8 +90,6 @@ const registry: Record<DomainType, RegistryEntry> = {
  * Get the domain view registry entry for a given domain.
  *
  * Supports fallback to GenericChunkTable for any unrecognized domain.
- * For domains with subtypeKey and subtypeViews, the component selection
- * can be further refined by the view using the subtype metadata field.
  *
  * @param domain - The domain string (e.g., "messages", "health")
  * @returns The registry entry with component reference and metadata
