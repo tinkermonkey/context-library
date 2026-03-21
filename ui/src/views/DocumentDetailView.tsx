@@ -72,7 +72,7 @@ function parseContextHeaderHierarchy(contextHeader: string | null): Array<{ leve
 
   // Fallback to documents domain format: "{title} — {document_type}"
   // Extract title (part before dash) and treat as h1
-  const titleMatch = contextHeader.match(/^([^—\-]+)/);
+  const titleMatch = contextHeader.match(/^([^—-]+)/);
   if (titleMatch) {
     return [
       {
