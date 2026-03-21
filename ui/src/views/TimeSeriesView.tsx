@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
@@ -62,7 +62,7 @@ function isAllDay(isoString: string | null): boolean {
  * Returns '1h 30m' format, or null if no duration available.
  */
 function formatDuration(durationMinutes: number | null): string | null {
-  if (durationMinutes === null) return null;
+  if (durationMinutes === null || durationMinutes === 0) return null;
   const hours = Math.floor(durationMinutes / 60);
   const minutes = durationMinutes % 60;
   if (hours > 0 && minutes > 0) {
@@ -71,6 +71,26 @@ function formatDuration(durationMinutes: number | null): string | null {
     return `${hours}h`;
   } else {
     return `${minutes}m`;
+  }
+}
+
+/**
+ * Compute duration in minutes from start_date and end_date ISO strings.
+ * Returns null if either date is missing or invalid.
+ */
+function computeDurationFromDates(
+  startDate: string | null,
+  endDate: string | null
+): number | null {
+  if (!startDate || !endDate) return null;
+  try {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+    const minutes = Math.round((end.getTime() - start.getTime()) / (1000 * 60));
+    return minutes > 0 ? minutes : null;
+  } catch {
+    return null;
   }
 }
 
@@ -94,6 +114,7 @@ function formatDayHeader(dateStr: string): string {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
+      timeZone: 'UTC',
     });
     return formatter.format(date);
   } catch {
@@ -111,6 +132,8 @@ function groupEventsByDay(
   dateTo?: string
 ): Map<string, ChunkResponse[]> {
   const grouped = new Map<string, ChunkResponse[]>();
+  // Cache metadata to avoid redundant extraction during sort
+  const metadataCache = new Map<ChunkResponse, EventMetadata | null>();
 
   // Parse date range
   let fromDate: Date | null = null;
@@ -125,6 +148,7 @@ function groupEventsByDay(
   // Process each chunk
   for (const chunk of chunks) {
     const metadata = extractEventMetadata(chunk);
+    metadataCache.set(chunk, metadata);
     if (!metadata || !metadata.start_date) continue;
 
     const dateKey = getDatePortion(metadata.start_date);
@@ -144,8 +168,8 @@ function groupEventsByDay(
   // Sort chunks within each day by start_date (ascending)
   for (const dayChunks of grouped.values()) {
     dayChunks.sort((a, b) => {
-      const aTime = extractEventMetadata(a)?.start_date || '';
-      const bTime = extractEventMetadata(b)?.start_date || '';
+      const aTime = metadataCache.get(a)?.start_date || '';
+      const bTime = metadataCache.get(b)?.start_date || '';
       return aTime.localeCompare(bTime);
     });
   }
@@ -166,9 +190,12 @@ function EventCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
   if (!metadata) return null;
 
   const allDay = isAllDay(metadata.start_date);
-  const duration = metadata.duration_minutes
-    ? formatDuration(metadata.duration_minutes)
-    : null;
+  // Use provided duration_minutes, fall back to computed duration, or null
+  const durationMinutes =
+    metadata.duration_minutes !== null
+      ? metadata.duration_minutes
+      : computeDurationFromDates(metadata.start_date, metadata.end_date);
+  const duration = formatDuration(durationMinutes);
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
@@ -187,10 +214,15 @@ function EventCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
       </div>
 
       {/* Time range and duration */}
-      {!allDay && metadata.start_date && metadata.end_date && (
+      {!allDay && metadata.start_date && (
         <div className="text-sm text-gray-700 mb-3">
-          <Timestamp value={metadata.start_date} granularity="datetime" /> –{' '}
-          <Timestamp value={metadata.end_date} granularity="datetime" />
+          <Timestamp value={metadata.start_date} granularity="datetime" />
+          {metadata.end_date && (
+            <>
+              {' – '}
+              <Timestamp value={metadata.end_date} granularity="datetime" />
+            </>
+          )}
           {duration && <span className="text-gray-600 ml-2">({duration})</span>}
         </div>
       )}
@@ -234,8 +266,25 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
     dateTo?: string;
   };
 
-  const [dateFromInput, setDateFromInput] = useState<string>(search.dateFrom || '');
-  const [dateToInput, setDateToInput] = useState<string>(search.dateTo || '');
+  // Local state for inputs during editing (before "Apply Filter" is clicked)
+  // Derived from URL params, but can be edited before applying
+  const [pendingDateFrom, setPendingDateFrom] = useState<string>(search.dateFrom || '');
+  const [pendingDateTo, setPendingDateTo] = useState<string>(search.dateTo || '');
+  const prevSearchRef = useRef({ dateFrom: search.dateFrom, dateTo: search.dateTo });
+
+  // Sync pending state when URL params change (e.g., browser back/forward)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Only update if the URL params actually changed (not on initial mount)
+    if (
+      prevSearchRef.current.dateFrom !== search.dateFrom ||
+      prevSearchRef.current.dateTo !== search.dateTo
+    ) {
+      setPendingDateFrom(search.dateFrom || '');
+      setPendingDateTo(search.dateTo || '');
+      prevSearchRef.current = { dateFrom: search.dateFrom, dateTo: search.dateTo };
+    }
+  }, [search.dateFrom, search.dateTo]);
 
   // Group events by day with filtering
   const groupedEvents = useMemo(
@@ -246,20 +295,20 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
   // Handle date range filter application
   const handleApplyFilter = () => {
     navigate({
-      search: (prev) => ({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
         ...prev,
-        dateFrom: dateFromInput || undefined,
-        dateTo: dateToInput || undefined,
+        dateFrom: pendingDateFrom || undefined,
+        dateTo: pendingDateTo || undefined,
       }),
     });
   };
 
   // Handle clear filter
   const handleClearFilter = () => {
-    setDateFromInput('');
-    setDateToInput('');
     navigate({
-      search: (prev) => ({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
         ...prev,
         dateFrom: undefined,
         dateTo: undefined,
@@ -279,8 +328,8 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
             </label>
             <input
               type="date"
-              value={dateFromInput}
-              onChange={(e) => setDateFromInput(e.target.value)}
+              value={pendingDateFrom}
+              onChange={(e) => setPendingDateFrom(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
@@ -290,8 +339,8 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
             </label>
             <input
               type="date"
-              value={dateToInput}
-              onChange={(e) => setDateToInput(e.target.value)}
+              value={pendingDateTo}
+              onChange={(e) => setPendingDateTo(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
