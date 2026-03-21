@@ -33,25 +33,32 @@ interface MessageNode {
 
 /**
  * Cast domain_metadata to MessageMetadata with safety checks.
+ * Validates that required fields are present and have correct types.
  */
 function extractMessageMetadata(chunk: ChunkResponse): MessageMetadata | null {
   if (!chunk.domain_metadata) return null;
 
   const meta = chunk.domain_metadata;
-  try {
-    return {
-      thread_id: meta.thread_id as string,
-      message_id: meta.message_id as string,
-      sender: meta.sender as string,
-      recipients: (meta.recipients as string[]) ?? [],
-      timestamp: meta.timestamp as string,
-      in_reply_to: (meta.in_reply_to as string | null) ?? null,
-      subject: (meta.subject as string | null) ?? null,
-      is_thread_root: Boolean(meta.is_thread_root),
-    };
-  } catch {
+
+  // Validate required fields
+  if (
+    typeof meta.message_id !== 'string' ||
+    typeof meta.sender !== 'string' ||
+    typeof meta.timestamp !== 'string'
+  ) {
     return null;
   }
+
+  return {
+    thread_id: typeof meta.thread_id === 'string' ? meta.thread_id : '',
+    message_id: meta.message_id,
+    sender: meta.sender,
+    recipients: Array.isArray(meta.recipients) ? meta.recipients : [],
+    timestamp: meta.timestamp,
+    in_reply_to: typeof meta.in_reply_to === 'string' ? meta.in_reply_to : null,
+    subject: typeof meta.subject === 'string' ? meta.subject : null,
+    is_thread_root: Boolean(meta.is_thread_root),
+  };
 }
 
 /**
@@ -74,10 +81,17 @@ function buildReplyTree(chunks: ChunkResponse[]): MessageNode | null {
 
   // Find root: is_thread_root or lowest chunk_index
   let root = chunksByMetadata[0];
+  let minChunkIndex = chunksByMetadata[0][0].chunk_index;
+
   for (const entry of chunksByMetadata) {
     if (entry[1].is_thread_root) {
       root = entry;
       break;
+    }
+    // Track the entry with lowest chunk_index as fallback
+    if (entry[0].chunk_index < minChunkIndex) {
+      minChunkIndex = entry[0].chunk_index;
+      root = entry;
     }
   }
 
@@ -152,7 +166,7 @@ function MessageCard({
   const indentPx = depth * 24;
 
   return (
-    <div key={metadata.message_id} style={{ paddingLeft: `${indentPx}px` }} className="mb-4">
+    <div style={{ paddingLeft: `${indentPx}px` }} className="mb-4">
       <div
         className={`border rounded-lg overflow-hidden ${
           isRoot

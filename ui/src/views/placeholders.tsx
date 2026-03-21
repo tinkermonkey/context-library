@@ -6,12 +6,6 @@
 import type { ComponentType } from 'react';
 import type { DomainViewProps } from './registry';
 
-export const ThreadView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Thread view not yet available</p>
-  </div>
-);
-
 export const DocumentView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
     <p className="text-sm text-blue-900">Document view not yet available</p>
