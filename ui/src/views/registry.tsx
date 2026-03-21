@@ -1,15 +1,14 @@
 import type { ComponentType } from 'react';
 import type { ChunkResponse, SourceDetailResponse } from '../types/api';
 import { GenericChunkTable as GenericChunkTableComponent } from '../components/GenericChunkTable';
+import { ThreadView } from './ThreadView';
 import {
-  ThreadView,
   DocumentView,
   TimeSeriesView,
   TaskListView,
   HealthMetricsView,
   DocumentCatalogView,
-} from './placeholders'
-;
+} from './placeholders';
 
 /**
  * Props passed to all domain view components.
