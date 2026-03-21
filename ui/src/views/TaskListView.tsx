@@ -237,7 +237,7 @@ function TaskGroup({
     <div className="mb-8">
       {/* Group Header */}
       <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-xl font-bold text-gray-900 capitalize">{status.replace('-', ' ')}</h2>
+        <h2 className="text-xl font-bold text-gray-900 capitalize">{status.replaceAll('-', ' ')}</h2>
         <span className="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded">
           {chunks.length}
         </span>
@@ -267,78 +267,64 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
   const statusFilter = (search as { status?: string }).status;
   const priorityFilter = (search as { priority?: number }).priority;
 
-  // Local state for filter controls
-  const [localStatus, setLocalStatus] = useState<string>(statusFilter || '');
-  const [localPriority, setLocalPriority] = useState<string>(priorityFilter?.toString() || '');
+  // Local state for filter controls (UI-only, not source of truth)
+  const [pendingStatus, setPendingStatus] = useState<string>(statusFilter || '');
+  const [pendingPriority, setPendingPriority] = useState<string>(priorityFilter?.toString() || '');
 
   // Track previous URL params to detect external changes
   const previousStatusRef = useRef<string>(statusFilter || '');
   const previousPriorityRef = useRef<string>(priorityFilter?.toString() || '');
 
-  // Sync local state with URL params on route change
+  // Sync pending state with URL params on route change (external nav)
   useEffect(() => {
     const statusFromUrl = statusFilter || '';
     const priorityFromUrl = priorityFilter?.toString() || '';
 
     if (statusFromUrl !== previousStatusRef.current) {
-      setLocalStatus(statusFromUrl);
+      setPendingStatus(statusFromUrl);
       previousStatusRef.current = statusFromUrl;
     }
 
     if (priorityFromUrl !== previousPriorityRef.current) {
-      setLocalPriority(priorityFromUrl);
+      setPendingPriority(priorityFromUrl);
       previousPriorityRef.current = priorityFromUrl;
     }
   }, [statusFilter, priorityFilter]);
 
-  // Apply filters and group/sort tasks
+  // Apply filters and group/sort tasks using URL params as source of truth
   const groupedTasks = useMemo(() => {
-    const parsedPriority = localPriority ? parseInt(localPriority, 10) : undefined;
-    return groupAndSortTasks(chunks, localStatus || undefined, parsedPriority);
-  }, [chunks, localStatus, localPriority]);
+    const parsedPriority = statusFilter || priorityFilter ? (priorityFilter ?? undefined) : undefined;
+    return groupAndSortTasks(chunks, statusFilter, parsedPriority);
+  }, [chunks, statusFilter, priorityFilter]);
 
   /**
    * Apply filters by updating URL search params.
    */
   const applyFilters = (): void => {
-    const newSearch: Record<string, string | number | undefined> = {};
-
-    // Preserve other search params
-    if ((search as Record<string, unknown>).dateFrom) {
-      newSearch.dateFrom = (search as { dateFrom?: string }).dateFrom;
-    }
-    if ((search as Record<string, unknown>).dateTo) {
-      newSearch.dateTo = (search as { dateTo?: string }).dateTo;
-    }
-
-    // Add status and priority if set
-    if (localStatus) {
-      newSearch.status = localStatus;
-    }
-    if (localPriority) {
-      newSearch.priority = parseInt(localPriority, 10);
-    }
-
-    void navigate({ search: newSearch });
+    void navigate({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        status: pendingStatus || undefined,
+        priority: pendingPriority ? parseInt(pendingPriority, 10) : undefined,
+      }),
+    });
   };
 
   /**
    * Clear all filters.
    */
   const clearFilters = (): void => {
-    setLocalStatus('');
-    setLocalPriority('');
-    const newSearch: Record<string, unknown> = {};
-
-    // Preserve other search params
-    if ((search as Record<string, unknown>).dateFrom) {
-      newSearch.dateFrom = (search as { dateFrom?: string }).dateFrom;
-    }
-    if ((search as Record<string, unknown>).dateTo) {
-      newSearch.dateTo = (search as { dateTo?: string }).dateTo;
-    }
-
-    void navigate({ search: newSearch });
+    setPendingStatus('');
+    setPendingPriority('');
+    void navigate({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        status: undefined,
+        priority: undefined,
+      }),
+    });
   };
 
   // Calculate total task count
@@ -362,8 +348,8 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
               </label>
               <select
                 id="status-filter"
-                value={localStatus}
-                onChange={(e) => setLocalStatus(e.target.value)}
+                value={pendingStatus}
+                onChange={(e) => setPendingStatus(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
               >
                 <option value="">All statuses</option>
@@ -381,8 +367,8 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
               </label>
               <select
                 id="priority-filter"
-                value={localPriority}
-                onChange={(e) => setLocalPriority(e.target.value)}
+                value={pendingPriority}
+                onChange={(e) => setPendingPriority(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
               >
                 <option value="">All priorities</option>
@@ -402,7 +388,7 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
             >
               Apply Filters
             </button>
-            {(localStatus || localPriority) && (
+            {(statusFilter || priorityFilter) && (
               <button
                 onClick={clearFilters}
                 className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors"
@@ -415,12 +401,12 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
           {/* Filter Summary */}
           <div className="text-xs text-gray-600 pt-2">
             Showing {filteredTasks} of {totalTasks} task(s)
-            {(localStatus || localPriority) && (
+            {(statusFilter || priorityFilter) && (
               <span className="font-semibold">
                 {' '}
-                — filtered by {localStatus && `status: ${localStatus.replace('-', ' ')}`}
-                {localStatus && localPriority && ' and '}
-                {localPriority && `priority: P${localPriority}`}
+                — filtered by {statusFilter && `status: ${statusFilter.replaceAll('-', ' ')}`}
+                {statusFilter && priorityFilter && ' and '}
+                {priorityFilter && `priority: P${priorityFilter}`}
               </span>
             )}
           </div>
