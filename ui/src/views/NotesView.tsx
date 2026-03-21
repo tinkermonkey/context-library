@@ -196,7 +196,7 @@ function MetadataSection({
 /**
  * Render a single chunk with heading hierarchy and context.
  */
-function NoteChunk({ chunk, index, totalChunks }: { chunk: ChunkResponse; index: number; totalChunks: number }): ReactNode {
+function NoteChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
   const metadata = extractNoteMetadata(chunk.domain_metadata);
 
   // Determine visual indentation based on heading level
@@ -275,7 +275,7 @@ export function NotesView({ chunks }: DomainViewProps): ReactNode {
         ) : (
           sortedChunks.map((chunk, index) => (
             <div key={chunk.chunk_hash}>
-              <NoteChunk chunk={chunk} index={index} totalChunks={sortedChunks.length} />
+              <NoteChunk chunk={chunk} />
               {index < sortedChunks.length - 1 && <ChunkBoundary />}
             </div>
           ))
