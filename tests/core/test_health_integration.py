@@ -175,50 +175,6 @@ class TestHealthDomainIntegration:
         assert running_chunks[0].domain_metadata["health_type"] == "workout_session"
         assert cycling_chunks[0].domain_metadata["health_type"] == "workout_session"
 
-    def test_cross_adapter_health_types(
-        self, pipeline, health_domain, mock_all_health_endpoints_integration
-    ):
-        """Test pipeline can process and store multiple health types from different adapters (cross-type coverage).
-
-        Verifies that the system maintains separate data for both workout (Apple Health) and sleep
-        (Oura) health metric types. This test covers Apple Health workouts; Oura sleep is tested
-        separately to avoid fixture composition issues across independent adapter mocks.
-        """
-        # Configure Apple Health workout data
-        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
-            {
-                "id": "workout-001",
-                "activityType": "running",
-                "startDate": "2026-03-07T08:00:00+00:00",
-                "endDate": "2026-03-07T08:30:00+00:00",
-                "durationSeconds": 1800,
-            },
-            {
-                "id": "workout-002",
-                "activityType": "cycling",
-                "startDate": "2026-03-08T09:00:00+00:00",
-                "endDate": "2026-03-08T10:00:00+00:00",
-                "durationSeconds": 3600,
-            }
-        ])
-
-        # Ingest workout data from Apple Health
-        apple_adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-        result = pipeline.ingest(apple_adapter, health_domain)
-        assert result["sources_processed"] >= 2
-        assert result["chunks_added"] > 0
-
-        # Verify both workout types are stored correctly
-        running_chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
-        cycling_chunks, _ = pipeline.document_store.get_chunks_by_source("cycling/workout-002")
-
-        assert len(running_chunks) > 0
-        assert len(cycling_chunks) > 0
-
-        # Verify correct health type for workouts
-        assert running_chunks[0].domain_metadata["health_type"] == "workout_session"
-        assert cycling_chunks[0].domain_metadata["health_type"] == "workout_session"
-
     def test_oura_full_pipeline_single_record(
         self, pipeline, health_domain, mock_all_oura_endpoints_integration
     ):

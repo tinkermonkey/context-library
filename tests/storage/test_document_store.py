@@ -76,35 +76,47 @@ class TestDocumentStoreInit:
     def test_schema_version_verification(self) -> None:
         """Test that user_version is verified to be 3 (documents domain support)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA user_version")
-        version = cursor.fetchone()[0]
-        assert version == 3
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 3
+        finally:
+            store.close()
 
     def test_wal_mode_enabled(self) -> None:
         """Test that WAL mode is enabled (or memory for in-memory DBs)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA journal_mode")
-        mode = cursor.fetchone()[0].lower()
-        # In-memory databases use "memory" mode, file-based use "wal"
-        assert mode in ("wal", "memory")
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA journal_mode")
+            mode = cursor.fetchone()[0].lower()
+            # In-memory databases use "memory" mode, file-based use "wal"
+            assert mode in ("wal", "memory")
+        finally:
+            store.close()
 
     def test_synchronous_normal_enabled(self) -> None:
         """Test that synchronous=NORMAL is enforced (value 1 per FR-2.2)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA synchronous")
-        synchronous = cursor.fetchone()[0]
-        assert synchronous == 1
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA synchronous")
+            synchronous = cursor.fetchone()[0]
+            assert synchronous == 1
+        finally:
+            store.close()
 
     def test_foreign_keys_enabled(self) -> None:
         """Test that foreign key enforcement is enabled."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA foreign_keys")
-        enabled = cursor.fetchone()[0]
-        assert enabled == 1
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA foreign_keys")
+            enabled = cursor.fetchone()[0]
+            assert enabled == 1
+        finally:
+            store.close()
 
 
 class TestAdapterRegistration:
