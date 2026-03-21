@@ -51,7 +51,6 @@ More content."""
 def document_store():
     """Create an in-memory document store."""
     # Use file-based DB to support multi-threaded access
-    import os
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
     temp_path = temp_file.name
     temp_file.close()
