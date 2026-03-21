@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { useParams } from '@tanstack/react-router';
+import { useParams, useNavigate } from '@tanstack/react-router';
 import { useSourceChunks } from '../hooks/useChunks';
 import { useSource } from '../hooks/useSources';
 import { getDomainView } from '../views/registry';
@@ -12,6 +12,7 @@ import { getDomainView } from '../views/registry';
  */
 export default function DomainViewPage() {
   const params = useParams({ from: '/browser/view/$domain/$sourceId' });
+  const navigate = useNavigate();
 
   const { domain, sourceId } = params;
 
@@ -73,12 +74,12 @@ export default function DomainViewPage() {
 
       {/* Navigation back to chunks */}
       <div className="mt-8 pt-6 border-t border-gray-200">
-        <a
-          href={`/browser?table=chunks&source_id=${sourceId}`}
-          className="text-blue-600 hover:underline text-sm"
+        <button
+          onClick={() => navigate({ to: '/browser', search: { table: 'chunks', source_id: sourceId } })}
+          className="text-blue-600 hover:underline text-sm bg-none border-none cursor-pointer p-0"
         >
           ← Back to chunk view
-        </a>
+        </button>
       </div>
     </div>
   );

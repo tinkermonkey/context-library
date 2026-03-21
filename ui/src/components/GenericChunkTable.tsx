@@ -1,8 +1,14 @@
 import { useMemo, useState } from 'react';
-import type { ChunkResponse } from '../types/api';
+import type { ChunkResponse, SourceDetailResponse } from '../types/api';
 
+/**
+ * Props for GenericChunkTable component.
+ * Accepts all DomainViewProps for registry compatibility.
+ */
 interface GenericChunkTableProps {
   chunks: ChunkResponse[];
+  sourceId: string;
+  source: SourceDetailResponse;
 }
 
 /**
@@ -11,9 +17,14 @@ interface GenericChunkTableProps {
  *
  * This component displays chunks in a table format with basic metadata display
  * and an expanded detail panel for the selected chunk.
+ *
+ * @note sourceId and source are required by the DomainViewProps contract
+ * and may be used for future enhancements (e.g., deep linking, export functionality).
  */
 export function GenericChunkTable({
   chunks,
+  sourceId: _sourceId,
+  source: _source,
 }: GenericChunkTableProps) {
   const [selectedChunkHash, setSelectedChunkHash] = useState<string | null>(null);
 

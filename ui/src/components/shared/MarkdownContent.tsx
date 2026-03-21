@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
 interface MarkdownContentProps {
   /** Markdown text content */
@@ -19,10 +19,22 @@ interface MarkdownContentProps {
  * <MarkdownContent content={markdownText} />
  */
 export function MarkdownContent({ content }: MarkdownContentProps): ReactNode {
-  if (!content) {
-    return <div className="text-gray-500">No content</div>;
-  }
+  const parsed = useMemo(() => {
+    if (!content) {
+      return <div className="text-gray-500">No content</div>;
+    }
 
+    return parseMarkdownContent(content);
+  }, [content]);
+
+  return parsed;
+}
+
+/**
+ * Parse markdown content into React elements.
+ * Extracted as a pure function to enable memoization.
+ */
+function parseMarkdownContent(content: string): ReactNode {
   // Parse markdown and convert to HTML-like structure
   const lines = content.split('\n');
   const elements: ReactNode[] = [];
@@ -58,9 +70,9 @@ export function MarkdownContent({ content }: MarkdownContentProps): ReactNode {
     // Code block (```)
     if (trimmed.startsWith('```')) {
       const codeBlockLines: string[] = [];
-      // Note: language identifier is parsed but not currently used for syntax highlighting
+      // Language identifier is parsed but not currently used for syntax highlighting
       // To add syntax highlighting, integrate a library like highlight.js or prism
-      void trimmed.slice(3).trim(); // Extract language, kept for future enhancement
+      trimmed.slice(3).trim(); // Language identifier available but unused
       i++;
 
       while (i < lines.length && !lines[i].trim().startsWith('```')) {
@@ -98,8 +110,9 @@ export function MarkdownContent({ content }: MarkdownContentProps): ReactNode {
 
       while (i < lines.length) {
         const itemLine = lines[i].trimStart();
-        if (!itemLine.match(/^[-*]\s+/)) break;
-        listItems.push(itemLine.slice(2));
+        const markerMatch = itemLine.match(/^[-*]\s+/);
+        if (!markerMatch) break;
+        listItems.push(itemLine.slice(markerMatch[0].length));
         i++;
       }
 

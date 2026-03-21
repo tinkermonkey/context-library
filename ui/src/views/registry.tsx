@@ -27,12 +27,36 @@ export interface RegistryEntry {
 /**
  * Placeholder components - to be replaced with actual implementations in Phase 2-5.
  */
-const ThreadView: ComponentType<DomainViewProps> = () => null;
-const DocumentView: ComponentType<DomainViewProps> = () => null;
-const TimeSeriesView: ComponentType<DomainViewProps> = () => null;
-const TaskListView: ComponentType<DomainViewProps> = () => null;
-const HealthMetricsView: ComponentType<DomainViewProps> = () => null;
-const DocumentCatalogView: ComponentType<DomainViewProps> = () => null;
+const ThreadView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Thread view coming in Phase 2</p>
+  </div>
+);
+const DocumentView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Document view coming in Phase 2</p>
+  </div>
+);
+const TimeSeriesView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Timeline view coming in Phase 3</p>
+  </div>
+);
+const TaskListView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Task list view coming in Phase 4</p>
+  </div>
+);
+const HealthMetricsView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Health metrics view coming in Phase 5</p>
+  </div>
+);
+const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
+  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+    <p className="text-sm text-blue-900">Document catalog view coming in Phase 5</p>
+  </div>
+);
 
 /**
  * Domain view registry.
