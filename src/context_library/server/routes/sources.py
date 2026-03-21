@@ -196,8 +196,7 @@ async def get_source_chunks(
         if lineage is None:
             continue
         chunk_responses.append(_chunk_response(chunk, lineage, source_id))
-    # Return actual count of returnable chunks (some may be skipped due to missing lineage)
-    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=len(chunk_responses), limit=limit, offset=offset)
+    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{source_id:path}/diff", response_model=VersionDiffResponse)

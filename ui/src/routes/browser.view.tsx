@@ -74,10 +74,12 @@ export default function DomainViewPage() {
       {/* Pagination controls */}
       <div className="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between">
         <div className="text-sm text-gray-600">
-          {chunksData ? (
+          {chunksData && chunksData.total > 0 ? (
             <>
               Showing {offset + 1}-{Math.min(offset + pageSize, chunksData.total)} of {chunksData.total} chunks
             </>
+          ) : chunksData ? (
+            <>No chunks</>
           ) : null}
         </div>
         <div className="flex gap-2">
