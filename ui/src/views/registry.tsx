@@ -1,6 +1,15 @@
 import type { ComponentType } from 'react';
 import type { ChunkResponse, SourceDetailResponse } from '../types/api';
 import { GenericChunkTable as GenericChunkTableComponent } from '../components/GenericChunkTable';
+import {
+  ThreadView,
+  DocumentView,
+  TimeSeriesView,
+  TaskListView,
+  HealthMetricsView,
+  DocumentCatalogView,
+} from './placeholders'
+;
 
 /**
  * Props passed to all domain view components.
@@ -23,40 +32,6 @@ export interface RegistryEntry {
   /** Optional: domain_metadata field key for sub-type dispatch (e.g., "health_type") */
   subtypeKey?: string;
 }
-
-/**
- * Placeholder components - to be replaced with actual implementations in Phase 2-5.
- */
-const ThreadView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Thread view not yet available</p>
-  </div>
-);
-const DocumentView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Document view not yet available</p>
-  </div>
-);
-const TimeSeriesView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Timeline view not yet available</p>
-  </div>
-);
-const TaskListView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Task list view not yet available</p>
-  </div>
-);
-const HealthMetricsView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Health metrics view not yet available</p>
-  </div>
-);
-const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Document catalog view not yet available</p>
-  </div>
-);
 
 /**
  * Domain view registry.

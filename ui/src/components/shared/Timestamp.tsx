@@ -14,20 +14,27 @@ interface TimestampProps {
  * <Timestamp value={isoString} granularity="date" />
  */
 export function Timestamp({ value, granularity = 'datetime' }: TimestampProps): ReactNode {
+  let dateString: string | null = null;
+  let isInvalid = false;
+
   try {
     const date = new Date(value);
     if (isNaN(date.getTime())) {
-      return <span className="text-gray-500">Invalid date</span>;
-    }
-
-    if (granularity === 'date') {
+      isInvalid = true;
+    } else if (granularity === 'date') {
       // YYYY-MM-DD format
-      return <span className="text-sm">{date.toISOString().split('T')[0]}</span>;
+      dateString = date.toISOString().split('T')[0];
+    } else {
+      // 'datetime' - full ISO 8601 with time, but displayed in local format
+      dateString = date.toLocaleString();
     }
-
-    // 'datetime' - full ISO 8601 with time, but displayed in local format
-    return <span className="text-sm">{date.toLocaleString()}</span>;
   } catch {
+    isInvalid = true;
+  }
+
+  if (isInvalid) {
     return <span className="text-gray-500">Invalid date</span>;
   }
+
+  return <span className="text-sm">{dateString}</span>;
 }

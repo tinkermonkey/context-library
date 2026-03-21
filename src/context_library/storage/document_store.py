@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
@@ -130,7 +130,7 @@ class DocumentStore:
         """Return the SQLite connection for the current thread, creating one if needed."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = self._make_connection()
-        return self._local.conn
+        return cast(sqlite3.Connection, self._local.conn)
 
     def _migrate_v1_to_v2(self) -> None:
         """Migrate schema from v1 to v2: add 'health' to domain CHECK constraints.
