@@ -37,16 +37,64 @@ export const browserSearchSchema = z
 export type BrowserPageSearch = z.infer<typeof browserSearchSchema>;
 
 export const domainViewSearchSchema = z.object({
+  thread_id: z.string().optional(), // Messages domain: filter to specific thread
   healthType: z.string().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   status: z.string().optional(),
   priority: z.number().optional(),
-  section: z.string().optional(), // TOC anchor for document views
+  section: z.string().optional(), // TOC anchor for document/notes views
   documentType: z.string().optional(), // Document type filter for documents domain catalog
 });
 
 export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>;
+
+// Domain-specific search schemas
+export const messagesViewSearchSchema = z.object({
+  thread_id: z.string().optional(),
+});
+
+export type MessagesViewPageSearch = z.infer<typeof messagesViewSearchSchema>;
+
+export const healthViewSearchSchema = z.object({
+  healthType: z.string().optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+export type HealthViewPageSearch = z.infer<typeof healthViewSearchSchema>;
+
+export const eventsViewSearchSchema = z.object({
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+export type EventsViewPageSearch = z.infer<typeof eventsViewSearchSchema>;
+
+export const tasksViewSearchSchema = z.object({
+  status: z.string().optional(),
+  priority: z.number().optional(),
+});
+
+export type TasksViewPageSearch = z.infer<typeof tasksViewSearchSchema>;
+
+export const notesViewSearchSchema = z.object({
+  section: z.string().optional(), // TOC anchor for note views
+});
+
+export type NotesViewPageSearch = z.infer<typeof notesViewSearchSchema>;
+
+export const documentsViewSearchSchema = z.object({
+  section: z.string().optional(), // TOC anchor for document views
+});
+
+export type DocumentsViewPageSearch = z.infer<typeof documentsViewSearchSchema>;
+
+export const documentCatalogSearchSchema = z.object({
+  documentType: z.string().optional(), // Document type filter for documents domain catalog
+});
+
+export type DocumentCatalogPageSearch = z.infer<typeof documentCatalogSearchSchema>;
 
 export const searchSearchSchema = z.object({
   q: z.string().optional(),

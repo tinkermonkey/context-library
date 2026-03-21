@@ -14,6 +14,7 @@ import {
   indexSearchSchema,
   browserSearchSchema,
   domainViewSearchSchema,
+  documentCatalogSearchSchema,
   searchSearchSchema,
 } from './routes-config'
 
@@ -52,13 +53,15 @@ const domainViewRoute = createRoute({
   path: '/browser/view/$domain/$sourceId',
   component: DomainViewPage,
   validateSearch: (search: unknown) => domainViewSearchSchema.parse(search),
+  // Note: domainViewSearchSchema is a superset that includes all possible parameters.
+  // Individual domain views will extract only the parameters they need via domain-specific schemas.
 })
 
 const documentCatalogRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/browser/catalog/documents',
   component: DocumentCatalogPage,
-  validateSearch: (search: unknown) => domainViewSearchSchema.parse(search),
+  validateSearch: (search: unknown) => documentCatalogSearchSchema.parse(search),
 })
 
 const searchRoute = createRoute({

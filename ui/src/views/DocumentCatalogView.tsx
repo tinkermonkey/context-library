@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { SourceSummary } from '../types/api';
 import type { DomainViewProps } from './registry';
+import type { DocumentCatalogPageSearch } from '../routes-config';
 import { useSources } from '../hooks/useSources';
 import { Timestamp } from '../components/shared/Timestamp';
 
@@ -179,10 +180,10 @@ function CatalogEntryCard({
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/catalog/documents' });
-  const search = useSearch({ from: '/browser/catalog/documents' });
+  const search = useSearch({ from: '/browser/catalog/documents' }) as DocumentCatalogPageSearch;
 
   // Extract filter value from URL search params
-  const documentTypeFilter = (search as { documentType?: string }).documentType || '';
+  const documentTypeFilter = search.documentType || '';
 
   // Local state for filter control (UI-only, not source of truth)
   const [pendingDocumentType, setPendingDocumentType] = useState<string>(documentTypeFilter);

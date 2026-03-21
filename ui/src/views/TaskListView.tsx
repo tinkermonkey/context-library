@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
+import type { TasksViewPageSearch } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { StatusBadge } from '../components/shared/StatusBadge';
 
@@ -261,11 +262,11 @@ function TaskGroup({
  */
 export function TaskListView({ chunks }: DomainViewProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
-  const search = useSearch({ from: '/browser/view/$domain/$sourceId' });
+  const search = useSearch({ from: '/browser/view/$domain/$sourceId' }) as TasksViewPageSearch;
 
   // Extract filter values from URL search params
-  const statusFilter = (search as { status?: string }).status;
-  const priorityFilter = (search as { priority?: number }).priority;
+  const statusFilter = search.status;
+  const priorityFilter = search.priority;
 
   // Local state for filter controls (UI-only, not source of truth)
   const [pendingStatus, setPendingStatus] = useState<string>(statusFilter || '');

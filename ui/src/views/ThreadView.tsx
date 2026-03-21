@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
+import type { MessagesViewPageSearch } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { MarkdownContent } from '../components/shared/MarkdownContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
@@ -243,8 +244,20 @@ function MessageCard({
  */
 export function ThreadView({ sourceId, chunks }: DomainViewProps): ReactNode {
   const navigate = useNavigate();
+  const search = useSearch({ from: '/browser/view/$domain/$sourceId' }) as MessagesViewPageSearch;
 
-  const rootNode = useMemo(() => buildReplyTree(chunks), [chunks]);
+  // Filter chunks by thread_id if specified in URL params
+  const filteredChunks = useMemo(() => {
+    if (!search.thread_id) {
+      return chunks;
+    }
+    return chunks.filter((chunk) => {
+      const metadata = chunk.domain_metadata as Record<string, unknown> | undefined;
+      return metadata?.thread_id === search.thread_id;
+    });
+  }, [chunks, search.thread_id]);
+
+  const rootNode = useMemo(() => buildReplyTree(filteredChunks), [filteredChunks]);
 
   return (
     <div className="max-w-4xl mx-auto">
