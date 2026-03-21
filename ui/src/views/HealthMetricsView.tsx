@@ -196,10 +196,24 @@ function formatCalories(calories: number | null): string | null {
 }
 
 /**
+ * Humanize a health type string by converting snake_case to Title Case
+ * and removing _summary/_series suffixes.
+ */
+function humanizeHealthType(healthType: string): string {
+  let label = healthType
+    .replace(/_summary$|_series$/, '') // Remove suffixes
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  return label;
+}
+
+/**
  * Human-readable label for health types.
  */
 function getHealthTypeLabel(healthType: string): string {
   const labels: Record<string, string> = {
+    // Current backend types
     sleep_summary: 'Sleep',
     readiness_summary: 'Readiness',
     activity_summary: 'Activity',
@@ -208,8 +222,14 @@ function getHealthTypeLabel(healthType: string): string {
     spo2_summary: 'SpO₂',
     mindfulness_session: 'Mindfulness',
     user_health_tag: 'Health Tag',
+    // BA spec types
+    steps_summary: 'Steps',
+    weight_measurement: 'Weight',
+    blood_oxygen_series: 'Blood Oxygen',
+    hrv_measurement: 'Heart Rate Variability',
+    respiratory_rate_series: 'Respiratory Rate',
   };
-  return labels[healthType] || healthType;
+  return labels[healthType] || humanizeHealthType(healthType);
 }
 
 /**
@@ -540,10 +560,189 @@ function HealthTagCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
 }
 
 /**
+ * Render a steps summary card.
+ */
+function StepsSummaryCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-2 gap-4">
+        {metadata.steps !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Steps</div>
+            <div className="text-lg font-semibold text-gray-900">{metadata.steps.toLocaleString()}</div>
+          </div>
+        )}
+        {metadata.distance_meters !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Distance</div>
+            <div className="text-lg font-semibold text-gray-900">{formatDistance(metadata.distance_meters)}</div>
+          </div>
+        )}
+        {metadata.active_calories !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Active Calories</div>
+            <div className="text-lg font-semibold text-gray-900">{formatCalories(metadata.active_calories)}</div>
+          </div>
+        )}
+        {metadata.sedentary_minutes !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Sedentary Time</div>
+            <div className="text-lg font-semibold text-gray-900">{formatDuration(metadata.sedentary_minutes)}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Render a weight measurement card.
+ */
+function WeightMeasurementCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
+      <div className="text-center">
+        {metadata.body_temperature_deviation !== null ? (
+          <>
+            <div className="text-sm text-gray-600 mb-2">Weight/Measurement</div>
+            <div className="text-lg text-gray-900">{metadata.body_temperature_deviation.toFixed(1)}</div>
+          </>
+        ) : (
+          <div className="text-sm text-gray-600">Weight measurement data</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Render a blood oxygen series card.
+ */
+function BloodOxygenSeriesCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
+      {metadata.avg_spo2 !== null && (
+        <div className="text-center">
+          <div className="text-sm text-gray-600 mb-2">Blood Oxygen Saturation</div>
+          <div className="text-5xl font-bold text-green-600">{Math.round(metadata.avg_spo2)}%</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Render an HRV measurement card.
+ */
+function HRVMeasurementCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-2 gap-4">
+        {metadata.avg_hrv !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Heart Rate Variability</div>
+            <div className="text-lg font-semibold text-gray-900">{metadata.avg_hrv.toFixed(1)}</div>
+          </div>
+        )}
+        {metadata.avg_heart_rate_bpm !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Average Heart Rate</div>
+            <div className="text-lg font-semibold text-gray-900">{Math.round(metadata.avg_heart_rate_bpm)} bpm</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Render a respiratory rate series card.
+ */
+function RespiratoryRateSeriesCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 mb-4 bg-white hover:shadow-md transition-shadow">
+      <div className="grid grid-cols-2 gap-4">
+        {metadata.sample_count !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Sample Count</div>
+            <div className="text-lg font-semibold text-gray-900">{metadata.sample_count}</div>
+          </div>
+        )}
+        {metadata.hour !== null && (
+          <div>
+            <div className="text-sm text-gray-600">Hour</div>
+            <div className="text-lg font-semibold text-gray-900">{metadata.hour}:00</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Render a card for unknown health types with available metadata.
+ */
+function UnknownHealthTypeCard({ chunk, healthType }: { chunk: ChunkResponse; healthType: string }): ReactNode {
+  const metadata = extractHealthMetadata(chunk);
+  if (!metadata) return null;
+
+  return (
+    <div className="border border-amber-200 rounded-lg p-4 mb-4 bg-amber-50 hover:shadow-md transition-shadow">
+      <div className="mb-3 pb-3 border-b border-amber-200">
+        <div className="flex items-start gap-2">
+          <div className="flex-shrink-0">
+            <div className="text-amber-600 font-semibold">ℹ</div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-amber-900">{getHealthTypeLabel(healthType)}</h4>
+            <p className="text-xs text-amber-800">Unrecognized health metric type</p>
+          </div>
+        </div>
+      </div>
+      <div className="text-sm text-amber-900">
+        {metadata.record_id && (
+          <div className="mb-2">
+            <span className="text-amber-700">ID:</span> {metadata.record_id}
+          </div>
+        )}
+        {metadata.date && (
+          <div className="mb-2">
+            <span className="text-amber-700">Date:</span> {metadata.date}
+          </div>
+        )}
+        {metadata.source_type && (
+          <div>
+            <span className="text-amber-700">Source:</span> {metadata.source_type}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Render the appropriate card component based on health type.
+ * Supports both current backend types and BA specification types,
+ * with a fallback card for unknown types.
  */
 function HealthMetricCard({ chunk, healthType }: { chunk: ChunkResponse; healthType: string }): ReactNode {
   switch (healthType) {
+    // Current backend types
     case 'sleep_summary':
       return <SleepSummaryCard chunk={chunk} />;
     case 'activity_summary':
@@ -560,8 +759,20 @@ function HealthMetricCard({ chunk, healthType }: { chunk: ChunkResponse; healthT
       return <MindfulnessSessionCard chunk={chunk} />;
     case 'user_health_tag':
       return <HealthTagCard chunk={chunk} />;
+    // BA specification types
+    case 'steps_summary':
+      return <StepsSummaryCard chunk={chunk} />;
+    case 'weight_measurement':
+      return <WeightMeasurementCard chunk={chunk} />;
+    case 'blood_oxygen_series':
+      return <BloodOxygenSeriesCard chunk={chunk} />;
+    case 'hrv_measurement':
+      return <HRVMeasurementCard chunk={chunk} />;
+    case 'respiratory_rate_series':
+      return <RespiratoryRateSeriesCard chunk={chunk} />;
+    // Fallback for unknown types
     default:
-      return null;
+      return <UnknownHealthTypeCard chunk={chunk} healthType={healthType} />;
   }
 }
 
@@ -607,21 +818,45 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
     }
   }, [search.dateFrom, search.dateTo]);
 
-  // Group metrics by health type and date (with optional single-type filter)
-  const groupedMetrics = useMemo(
-    () => groupByHealthType(chunks, search.dateFrom, search.dateTo, search.healthType),
-    [chunks, search.dateFrom, search.dateTo, search.healthType]
-  );
-
-  // Get all available health types (for navigation tabs) from unfiltered data
-  // This ensures tabs remain visible even when filtering to a single health type
-  const allAvailableHealthTypes = useMemo(
-    () => Array.from(groupByHealthType(chunks, search.dateFrom, search.dateTo).keys()).sort(),
+  // Group metrics by health type and date (without type filter)
+  // This single call provides data for both tabs and content display
+  const allGroupedMetrics = useMemo(
+    () => groupByHealthType(chunks, search.dateFrom, search.dateTo),
     [chunks, search.dateFrom, search.dateTo]
   );
 
-  // Get filtered health types (for content display)
-  const displayedHealthTypes = Array.from(groupedMetrics.keys()).sort();
+  // Get all available health types (for navigation tabs)
+  const allAvailableHealthTypes = useMemo(
+    () => Array.from(allGroupedMetrics.keys()).sort(),
+    [allGroupedMetrics]
+  );
+
+  // Get health types for display, filtered by search.healthType if specified
+  const displayedHealthTypes = useMemo(
+    () => {
+      const types = Array.from(allGroupedMetrics.keys());
+      if (search.healthType) {
+        return types.filter(ht => ht === search.healthType).sort();
+      }
+      return types.sort();
+    },
+    [allGroupedMetrics, search.healthType]
+  );
+
+  // Get grouped metrics for display (filtered by displayed health types)
+  const groupedMetrics = useMemo(
+    () => {
+      const filtered = new Map<string, Map<string, ChunkResponse[]>>();
+      for (const healthType of displayedHealthTypes) {
+        const dateGroups = allGroupedMetrics.get(healthType);
+        if (dateGroups) {
+          filtered.set(healthType, dateGroups);
+        }
+      }
+      return filtered;
+    },
+    [allGroupedMetrics, displayedHealthTypes]
+  );
 
   // Handle date range filter application
   const handleApplyFilter = () => {
