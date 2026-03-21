@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
-import type { MessagesViewPageSearch } from '../routes-config';
+import { messagesViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { MarkdownContent } from '../components/shared/MarkdownContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
@@ -244,7 +244,8 @@ function MessageCard({
  */
 export function ThreadView({ sourceId, chunks }: DomainViewProps): ReactNode {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/browser/view/$domain/$sourceId' }) as MessagesViewPageSearch;
+  const rawSearch = useSearch({ from: '/browser/view/$domain/$sourceId' });
+  const search = messagesViewSearchSchema.parse(rawSearch);
 
   // Filter chunks by thread_id if specified in URL params
   const filteredChunks = useMemo(() => {
@@ -252,7 +253,7 @@ export function ThreadView({ sourceId, chunks }: DomainViewProps): ReactNode {
       return chunks;
     }
     return chunks.filter((chunk) => {
-      const metadata = chunk.domain_metadata as Record<string, unknown> | undefined;
+      const metadata = extractMessageMetadata(chunk);
       return metadata?.thread_id === search.thread_id;
     });
   }, [chunks, search.thread_id]);

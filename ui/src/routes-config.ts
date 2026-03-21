@@ -49,7 +49,7 @@ export const domainViewSearchSchema = z.object({
 
 export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>;
 
-// Domain-specific search schemas
+// Domain-specific search schemas for runtime parsing and parameter stripping
 export const messagesViewSearchSchema = z.object({
   thread_id: z.string().optional(),
 });
@@ -77,18 +77,6 @@ export const tasksViewSearchSchema = z.object({
 });
 
 export type TasksViewPageSearch = z.infer<typeof tasksViewSearchSchema>;
-
-export const notesViewSearchSchema = z.object({
-  section: z.string().optional(), // TOC anchor for note views
-});
-
-export type NotesViewPageSearch = z.infer<typeof notesViewSearchSchema>;
-
-export const documentsViewSearchSchema = z.object({
-  section: z.string().optional(), // TOC anchor for document views
-});
-
-export type DocumentsViewPageSearch = z.infer<typeof documentsViewSearchSchema>;
 
 export const documentCatalogSearchSchema = z.object({
   documentType: z.string().optional(), // Document type filter for documents domain catalog

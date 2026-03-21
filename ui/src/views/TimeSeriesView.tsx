@@ -3,7 +3,7 @@ import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
-import type { EventsViewPageSearch } from '../routes-config';
+import { eventsViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { formatDuration, formatDayHeader } from '../utils/formatters';
 
@@ -227,7 +227,8 @@ function EventCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
  */
 export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/browser/view/$domain/$sourceId' }) as EventsViewPageSearch;
+  const rawSearch = useSearch({ from: '/browser/view/$domain/$sourceId' });
+  const search = eventsViewSearchSchema.parse(rawSearch);
 
   // Local state for inputs during editing (before "Apply Filter" is clicked)
   // Derived from URL params, but can be edited before applying

@@ -3,7 +3,7 @@ import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registry';
-import type { HealthViewPageSearch } from '../routes-config';
+import { healthViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { formatDuration, formatDayHeader } from '../utils/formatters';
 
@@ -606,7 +606,8 @@ function HealthMetricCard({ chunk, healthType }: { chunk: ChunkResponse; healthT
  */
 export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactNode {
   const navigate = useNavigate();
-  const search = useSearch({ from: '/browser/view/$domain/$sourceId' }) as HealthViewPageSearch;
+  const rawSearch = useSearch({ from: '/browser/view/$domain/$sourceId' });
+  const search = healthViewSearchSchema.parse(rawSearch);
 
   // Local state for inputs during editing
   const [pendingDateFrom, setPendingDateFrom] = useState<string>(search.dateFrom || '');
