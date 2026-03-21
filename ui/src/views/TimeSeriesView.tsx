@@ -58,7 +58,6 @@ function isAllDay(isoString: string | null): boolean {
   return isoString.length === 10 && !isoString.includes('T');
 }
 
-
 /**
  * Compute duration in minutes from start_date and end_date ISO strings.
  * Returns null if either date is missing or invalid.

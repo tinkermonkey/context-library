@@ -17,8 +17,8 @@ interface ContentPreviewProps {
  * Shows truncated content with a "Read More" button if content exceeds maxLength.
  *
  * Features:
- * - Automatically truncates long content
- * - Renders markdown formatting
+ * - Automatically truncates long content (displays as plain text when truncated to avoid breaking markdown)
+ * - Renders markdown formatting when fully expanded
  * - Smooth expand/collapse toggle
  * - Customizable character limit and button labels
  *
@@ -38,12 +38,16 @@ export function ContentPreview({
   }
 
   const shouldTruncate = content.length > maxLength;
-  const displayContent = isExpanded ? content : content.substring(0, maxLength);
+  const truncatedContent = content.substring(0, maxLength);
 
   return (
     <div>
       <div className="text-sm text-gray-700">
-        <MarkdownContent content={displayContent} />
+        {isExpanded ? (
+          <MarkdownContent content={content} />
+        ) : (
+          <div className="whitespace-pre-wrap">{truncatedContent}</div>
+        )}
       </div>
 
       {shouldTruncate && (

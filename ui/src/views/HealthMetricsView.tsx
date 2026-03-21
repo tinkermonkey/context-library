@@ -126,7 +126,6 @@ function extractHealthMetadata(chunk: ChunkResponse): HealthMetadata | null {
   };
 }
 
-
 /**
  * Format efficiency as a percentage (0-1 -> 0-100%).
  */
