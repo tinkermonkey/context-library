@@ -7,6 +7,22 @@ import { useSources } from '../hooks/useSources';
 import { Timestamp } from '../components/shared/Timestamp';
 
 /**
+ * Infer document type from a source.
+ * Since document_type lives in chunk metadata (not source metadata),
+ * we infer it from the adapter_id pattern.
+ */
+function inferDocumentType(source: SourceSummary): string {
+  if (source.adapter_id.includes('music') || source.adapter_id.includes('apple_music')) {
+    return 'audio/mpeg';
+  }
+  if (source.adapter_id.includes('filesystem')) {
+    return 'text/markdown';
+  }
+  // Default fallback
+  return 'text/markdown';
+}
+
+/**
  * Get display label for a document type.
  */
 function getDocumentTypeLabel(documentType: string): string {
@@ -23,13 +39,10 @@ function getDocumentTypeLabel(documentType: string): string {
 
 /**
  * Determine if a source is a music library entry.
+ * Music sources are identified exclusively by adapter_id pattern.
  */
 function isMusicSource(source: SourceSummary): boolean {
-  return (
-    source.adapter_id.includes('music') ||
-    source.adapter_id.includes('apple_music') ||
-    source.origin_ref.includes('music')
-  );
+  return source.adapter_id.includes('music') || source.adapter_id.includes('apple_music');
 }
 
 /**
@@ -47,30 +60,23 @@ function getDocumentTypeColor(documentType: string): string {
 
 /**
  * Extract all unique document types from sources.
+ * Only includes types actually present in the data.
  * Used to populate filter options.
  */
 function extractDocumentTypes(sources: SourceSummary[]): string[] {
   const types = new Set<string>();
 
   for (const source of sources) {
-    // Try to infer document_type from adapter_id
-    if (source.adapter_id.includes('music') || source.adapter_id.includes('apple_music')) {
-      types.add('audio/mpeg');
-    } else if (source.adapter_id.includes('filesystem')) {
-      types.add('text/markdown');
-    }
+    const documentType = inferDocumentType(source);
+    types.add(documentType);
   }
-
-  // Always include common types even if not present in current data
-  types.add('text/markdown');
-  types.add('audio/mpeg');
 
   return Array.from(types).sort();
 }
 
 /**
  * Filter sources by document type.
- * Since document_type is in chunk metadata, we infer it from adapter_id or origin_ref.
+ * Since document_type is in chunk metadata, we infer it from adapter_id.
  */
 function filterSourcesByType(sources: SourceSummary[], documentTypeFilter: string): SourceSummary[] {
   if (!documentTypeFilter) {
@@ -78,15 +84,7 @@ function filterSourcesByType(sources: SourceSummary[], documentTypeFilter: strin
   }
 
   return sources.filter((source) => {
-    // Infer document_type from adapter_id and origin_ref
-    let sourceType = '';
-
-    if (source.adapter_id.includes('music') || source.adapter_id.includes('apple_music')) {
-      sourceType = 'audio/mpeg';
-    } else if (source.adapter_id.includes('filesystem')) {
-      sourceType = 'text/markdown';
-    }
-
+    const sourceType = inferDocumentType(source);
     return sourceType === documentTypeFilter;
   });
 }
@@ -101,11 +99,8 @@ function CatalogEntryCard({
   source: SourceSummary;
   onSelect: (source: SourceSummary) => void;
 }): ReactNode {
-  // Infer document type from adapter_id
-  let documentType = 'text/markdown';
-  if (source.adapter_id.includes('music') || source.adapter_id.includes('apple_music')) {
-    documentType = 'audio/mpeg';
-  }
+  // Infer document type using centralized function
+  const documentType = inferDocumentType(source);
 
   const isMusicEntry = isMusicSource(source);
   const displayName = source.display_name || source.origin_ref;
@@ -154,7 +149,7 @@ function CatalogEntryCard({
         <div>
           <span className="font-semibold text-gray-700">Source:</span>
           <div className="mt-1 text-gray-600">
-            {isMusicEntry ? '🎵 Music Library' : '📄 Filesystem'}
+            {isMusicEntry ? 'Music Library' : 'Filesystem'}
           </div>
         </div>
 
@@ -192,8 +187,8 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   // Local state for filter control (UI-only, not source of truth)
   const [pendingDocumentType, setPendingDocumentType] = useState<string>(documentTypeFilter);
 
-  // Pagination state
-  const [limit, setLimit] = useState(50);
+  // Pagination state: use offset for proper cursor-based pagination
+  const [offset, setOffset] = useState(0);
 
   // Sync pending state with URL params on external navigation
   useEffect(() => {
@@ -203,7 +198,8 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   // Fetch sources with current pagination
   const { data: sourcesData, isLoading, isError } = useSources({
     domain: 'documents',
-    limit,
+    limit: 50,
+    offset,
   });
 
   // Memoize allSources to prevent dependency array issues
@@ -253,10 +249,10 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   };
 
   /**
-   * Load more sources.
+   * Load more sources (next page of results).
    */
   const loadMore = (): void => {
-    setLimit((prevLimit) => prevLimit + 50);
+    setOffset((prevOffset) => prevOffset + 50);
   };
 
   /**
@@ -353,7 +349,7 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
       {filteredSources.length === 0 ? (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
           <p className="text-sm text-yellow-800">
-            {filteredSources.length === 0 && totalSources > 0
+            {totalSources > 0
               ? 'No documents match the selected filter.'
               : 'No documents found.'}
           </p>
@@ -368,7 +364,7 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
           </div>
 
           {/* Load More Button */}
-          {limit < totalSources && (
+          {offset + 50 < totalSources && (
             <div className="flex justify-center pt-4">
               <button
                 onClick={loadMore}

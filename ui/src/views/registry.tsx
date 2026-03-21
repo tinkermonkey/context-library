@@ -5,8 +5,8 @@ import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
+import { DocumentDetailView } from './DocumentDetailView';
 import { DocumentView } from './placeholders';
-import { DocumentCatalogView } from './DocumentCatalogView';
 
 /**
  * Props passed to all domain view components.
@@ -57,8 +57,8 @@ const registry: Record<string, RegistryEntry> = {
     subtypeKey: 'health_type',
   },
   documents: {
-    component: DocumentCatalogView,
-    label: 'Catalog',
+    component: DocumentDetailView,
+    label: 'Document',
   },
 };
 
