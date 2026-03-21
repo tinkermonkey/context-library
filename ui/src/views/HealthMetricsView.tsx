@@ -595,12 +595,12 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
   // Sync pending state when URL params change
   // Intentionally sync state from URL on route changes (e.g., browser back/forward).
   // This is safe because we guard with prevSearchRef to avoid cascading renders.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (
       prevSearchRef.current.dateFrom !== search.dateFrom ||
       prevSearchRef.current.dateTo !== search.dateTo
     ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPendingDateFrom(search.dateFrom || '');
       setPendingDateTo(search.dateTo || '');
       prevSearchRef.current = { dateFrom: search.dateFrom, dateTo: search.dateTo };
