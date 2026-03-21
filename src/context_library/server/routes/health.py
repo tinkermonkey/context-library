@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from context_library.server.helper_health import CollectorHealth, HelperHealthSnapshot
+from context_library.server.helper_health import HelperHealthSnapshot
 from context_library.server.schemas import CollectorStatus, HelperHealth, HealthResponse
 
 logger = logging.getLogger(__name__)

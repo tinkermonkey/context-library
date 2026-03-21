@@ -77,7 +77,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.base import BaseAdapter, EndpointFetchError, AllEndpointsFailedError
 from context_library.storage.models import (
     Domain,
     HealthMetadata,
