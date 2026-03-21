@@ -74,8 +74,8 @@ function extractHealthMetadata(chunk: ChunkResponse): HealthMetadata | null {
   }
 
   return {
-    record_id: typeof meta.record_id === 'string' ? meta.record_id : '',
-    health_type: typeof meta.health_type === 'string' ? meta.health_type : '',
+    record_id: meta.record_id as string,
+    health_type: meta.health_type as string,
     date: typeof meta.date === 'string' ? meta.date : '',
     source_type: typeof meta.source_type === 'string' ? meta.source_type : '',
     date_first_observed: typeof meta.date_first_observed === 'string' ? meta.date_first_observed : '',
@@ -156,16 +156,16 @@ function formatEfficiency(efficiency: number | null): string | null {
 }
 
 /**
- * Format distance in meters to km or miles with appropriate precision.
+ * Format distance in meters consistently using metric units.
+ * Shows meters for distances < 1 km, kilometers otherwise.
  */
 function formatDistance(distanceMeters: number | null): string | null {
   if (distanceMeters === null) return null;
-  const km = distanceMeters / 1000;
-  if (km >= 1) {
-    return `${km.toFixed(1)} km`;
+  if (distanceMeters < 1000) {
+    return `${Math.round(distanceMeters)} m`;
   }
-  const miles = km * 0.621371;
-  return `${miles.toFixed(2)} mi`;
+  const km = distanceMeters / 1000;
+  return `${km.toFixed(1)} km`;
 }
 
 /**
@@ -593,6 +593,9 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
   const prevSearchRef = useRef({ dateFrom: search.dateFrom, dateTo: search.dateTo });
 
   // Sync pending state when URL params change
+  // Intentionally sync state from URL on route changes (e.g., browser back/forward).
+  // This is safe because we guard with prevSearchRef to avoid cascading renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (
       prevSearchRef.current.dateFrom !== search.dateFrom ||
@@ -604,14 +607,21 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
     }
   }, [search.dateFrom, search.dateTo]);
 
-  // Group metrics by health type and date
+  // Group metrics by health type and date (with optional single-type filter)
   const groupedMetrics = useMemo(
     () => groupByHealthType(chunks, search.dateFrom, search.dateTo, search.healthType),
     [chunks, search.dateFrom, search.dateTo, search.healthType]
   );
 
-  // Get all available health types (for navigation tabs)
-  const availableHealthTypes = Array.from(groupedMetrics.keys()).sort();
+  // Get all available health types (for navigation tabs) from unfiltered data
+  // This ensures tabs remain visible even when filtering to a single health type
+  const allAvailableHealthTypes = useMemo(
+    () => Array.from(groupByHealthType(chunks, search.dateFrom, search.dateTo).keys()).sort(),
+    [chunks, search.dateFrom, search.dateTo]
+  );
+
+  // Get filtered health types (for content display)
+  const displayedHealthTypes = Array.from(groupedMetrics.keys()).sort();
 
   // Handle date range filter application
   const handleApplyFilter = () => {
@@ -694,7 +704,7 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
       </div>
 
       {/* Health type navigation tabs */}
-      {availableHealthTypes.length > 1 && (
+      {allAvailableHealthTypes.length > 1 && (
         <div className="mb-8 flex flex-wrap gap-2">
           {search.healthType && (
             <button
@@ -704,7 +714,7 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
               All Types
             </button>
           )}
-          {availableHealthTypes.map((healthType) => (
+          {allAvailableHealthTypes.map((healthType) => (
             <button
               key={healthType}
               onClick={() => handleHealthTypeClick(healthType)}
@@ -723,7 +733,7 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
       {/* Health metrics grouped by type */}
       {groupedMetrics.size > 0 ? (
         <div>
-          {availableHealthTypes.map((healthType) => {
+          {displayedHealthTypes.map((healthType) => {
             const dateGroups = groupedMetrics.get(healthType)!;
             const sortedDates = Array.from(dateGroups.keys()).sort().reverse(); // Reverse for newest first
 
@@ -740,7 +750,7 @@ export function HealthMetricsView({ sourceId, chunks }: DomainViewProps): ReactN
                   return (
                     <div key={dateKey} className="mb-6">
                       {/* Date subheader */}
-                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 text-gray-600">
+                      <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">
                         {formatDayHeader(dateKey)}
                       </h3>
 

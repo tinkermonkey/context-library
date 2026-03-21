@@ -273,7 +273,7 @@ export function TimeSeriesView({ sourceId, chunks }: DomainViewProps): ReactNode
   const prevSearchRef = useRef({ dateFrom: search.dateFrom, dateTo: search.dateTo });
 
   // Sync pending state when URL params change (e.g., browser back/forward)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     // Only update if the URL params actually changed (not on initial mount)
     if (

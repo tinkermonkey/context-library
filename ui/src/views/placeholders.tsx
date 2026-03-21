@@ -24,14 +24,6 @@ export const TaskListView: ComponentType<DomainViewProps> = () => (
   </div>
 );
 
-// Note: HealthMetricsView has been moved to its own file (HealthMetricsView.tsx)
-// This placeholder is kept for backwards compatibility but should not be used
-export const HealthMetricsView: ComponentType<DomainViewProps> = () => (
-  <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-    <p className="text-sm text-blue-900">Health metrics view - component moved to HealthMetricsView.tsx</p>
-  </div>
-);
-
 export const DocumentCatalogView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">
     <p className="text-sm text-blue-900">Document catalog view not yet available</p>
