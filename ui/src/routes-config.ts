@@ -67,6 +67,7 @@ export type HealthViewPageSearch = z.infer<typeof healthViewSearchSchema>;
 export const eventsViewSearchSchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
+  groupBy: z.enum(['day', 'week']).optional(),
 });
 
 export type EventsViewPageSearch = z.infer<typeof eventsViewSearchSchema>;
