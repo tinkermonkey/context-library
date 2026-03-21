@@ -140,6 +140,30 @@ function parseMarkdownContent(content: string): ReactNode {
 }
 
 /**
+ * Validate URL to allow only safe protocols (https, http, mailto).
+ * Prevents XSS attacks via javascript: and data: URIs.
+ */
+function isValidUrl(url: string): boolean {
+  try {
+    const trimmed = url.trim();
+
+    // Allow mailto: links - validate the email part
+    if (trimmed.startsWith('mailto:')) {
+      // Basic validation: must have an @ sign for email
+      const emailPart = trimmed.substring('mailto:'.length);
+      return emailPart.length > 0 && !emailPart.includes(':');
+    }
+
+    // Parse as URL and check protocol
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    // Invalid URL format - reject
+    return false;
+  }
+}
+
+/**
  * Format inline markdown patterns (bold, italic, links, code).
  */
 function formatInlineMarkdown(text: string): ReactNode {
@@ -181,18 +205,23 @@ function formatInlineMarkdown(text: string): ReactNode {
         </code>
       );
     } else if (match[4] && match[5]) {
-      // [text](url)
-      parts.push(
-        <a
-          key={`link${match.index}`}
-          href={match[5]}
-          className="text-blue-600 hover:underline"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {match[4]}
-        </a>
-      );
+      // [text](url) - validate URL before rendering
+      if (isValidUrl(match[5])) {
+        parts.push(
+          <a
+            key={`link${match.index}`}
+            href={match[5]}
+            className="text-blue-600 hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {match[4]}
+          </a>
+        );
+      } else {
+        // Invalid URL - render as plain text
+        parts.push(`[${match[4]}](${match[5]})`);
+      }
     }
 
     lastIdx = pattern.lastIndex;
