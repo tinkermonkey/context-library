@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { createElement, useMemo, type ReactNode } from 'react';
 
 interface MarkdownContentProps {
   /** Markdown text content */
@@ -58,10 +58,13 @@ function parseMarkdownContent(content: string): ReactNode {
         6: 'text-xs font-bold',
       }[level] || 'text-base font-bold';
 
+      const HeadingTag = `h${level}` as const;
       elements.push(
-        <div key={`h${i}`} className={`mt-3 mb-2 ${className}`}>
-          {text}
-        </div>
+        createElement(HeadingTag, {
+          key: `h${i}`,
+          className: `mt-3 mb-2 ${className}`,
+          children: formatInlineMarkdown(text),
+        })
       );
       i++;
       continue;
@@ -119,7 +122,7 @@ function parseMarkdownContent(content: string): ReactNode {
         <ul key={`list${i}`} className="list-disc list-inside my-2 space-y-1">
           {listItems.map((item, idx) => (
             <li key={idx} className="text-sm text-gray-700">
-              {item}
+              {formatInlineMarkdown(item)}
             </li>
           ))}
         </ul>

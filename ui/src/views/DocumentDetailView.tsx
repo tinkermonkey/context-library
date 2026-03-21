@@ -23,10 +23,18 @@ interface DocumentMetadata {
  * Cast domain_metadata to DocumentMetadata with safety checks.
  */
 function extractDocumentMetadata(domainMetadata: Record<string, unknown>): DocumentMetadata {
+  // Validate tags array: must be array with all string elements
+  let tags: string[] = [];
+  if (Array.isArray(domainMetadata.tags)) {
+    tags = domainMetadata.tags.every((item) => typeof item === 'string')
+      ? (domainMetadata.tags as string[])
+      : [];
+  }
+
   return {
     document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
     author: typeof domainMetadata.author === 'string' ? domainMetadata.author : null,
-    tags: Array.isArray(domainMetadata.tags) ? (domainMetadata.tags as string[]) : [],
+    tags,
     file_size: typeof domainMetadata.file_size === 'number' ? domainMetadata.file_size : null,
     modified_date: typeof domainMetadata.modified_date === 'string' ? domainMetadata.modified_date : null,
   };
