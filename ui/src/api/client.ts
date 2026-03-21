@@ -73,8 +73,12 @@ export const fetchSources = (params: SourceQueryParams) => {
 export const fetchSource = (sourceId: string) =>
   apiFetch<SourceDetailResponse>(`/sources/${encodeURIComponent(sourceId)}`);
 
-export const fetchSourceChunks = (sourceId: string, version?: number) => {
-  const qs = version != null ? `?${new URLSearchParams({ version: String(version) })}` : '';
+export const fetchSourceChunks = (sourceId: string, version?: number, limit?: number, offset?: number) => {
+  const params: Record<string, string> = {};
+  if (version != null) params.version = String(version);
+  if (limit != null) params.limit = String(limit);
+  if (offset != null) params.offset = String(offset);
+  const qs = Object.keys(params).length > 0 ? `?${new URLSearchParams(params)}` : '';
   return apiFetch<ChunkListResponse>(`/sources/${encodeURIComponent(sourceId)}/chunks${qs}`);
 };
 
@@ -95,7 +99,21 @@ export const fetchVersionDiff = (sourceId: string, fromVersion: number, toVersio
 // ── Chunks ───────────────────────────────────────────────────────
 
 export const fetchChunks = (params: ChunkQueryParams) => {
-  const qs = new URLSearchParams(filterDefined(params as Record<string, unknown>));
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) {
+      if (key === "metadata_filter" && typeof value === "object") {
+        // Handle metadata_filter as special case: add as repeating params
+        for (const [mkey, mvalue] of Object.entries(value)) {
+          if (mvalue !== undefined && mvalue !== null) {
+            qs.append("metadata_filter", `${mkey}:${mvalue}`);
+          }
+        }
+      } else {
+        qs.append(key, String(value));
+      }
+    }
+  }
   return apiFetch<TopLevelChunkListResponse>(`/chunks?${qs}`);
 };
 

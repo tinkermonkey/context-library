@@ -1013,9 +1013,10 @@ class TestChunkRetirement:
         store.retire_chunks({_make_hash("a")}, source_id="source-1", source_version=1)
 
         # Get chunks should only return non-retired
-        retrieved = store.get_chunks_by_source("source-1", version=1)
+        retrieved, total = store.get_chunks_by_source("source-1", version=1)
 
         assert len(retrieved) == 1
+        assert total == 1
         assert retrieved[0].chunk_hash == _make_hash("1")
 
     def test_is_chunk_retired_returns_true_for_retired(
@@ -1161,9 +1162,10 @@ class TestChunksBySource:
         store.write_chunks([chunk], [lineage])
 
         # Get chunks without specifying version (should get latest)
-        chunks = store.get_chunks_by_source("source-1")
+        chunks, total = store.get_chunks_by_source("source-1")
 
         assert len(chunks) == 1
+        assert total == 1
         assert chunks[0].chunk_hash == _make_hash("2")
 
     def test_get_chunks_by_source_specific_version(
@@ -1242,19 +1244,22 @@ class TestChunksBySource:
         store.write_chunks(chunks, lineage)
 
         # Get chunks for version 1
-        v1_chunks = store.get_chunks_by_source("source-1", version=1)
+        v1_chunks, v1_total = store.get_chunks_by_source("source-1", version=1)
         assert len(v1_chunks) == 1
+        assert v1_total == 1
         assert v1_chunks[0].chunk_hash == _make_hash("3")
 
         # Get chunks for version 2
-        v2_chunks = store.get_chunks_by_source("source-1", version=2)
+        v2_chunks, v2_total = store.get_chunks_by_source("source-1", version=2)
         assert len(v2_chunks) == 1
+        assert v2_total == 1
         assert v2_chunks[0].chunk_hash == _make_hash("4")
 
     def test_get_chunks_by_source_non_existent(self, store: DocumentStore) -> None:
         """Test retrieving chunks for non-existent source."""
-        chunks = store.get_chunks_by_source("non-existent")
+        chunks, total = store.get_chunks_by_source("non-existent")
         assert chunks == []
+        assert total == 0
 
 
 class TestSyncLog:

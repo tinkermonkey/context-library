@@ -29,10 +29,10 @@ export const useChunkProvenance = (hash: string, sourceId?: string) =>
     staleTime: 10_000,
   });
 
-export const useSourceChunks = (sourceId: string, version?: number) =>
+export const useSourceChunks = (sourceId: string, version?: number, limit?: number, offset?: number) =>
   useQuery({
-    queryKey: ['source-chunks', sourceId, version],
-    queryFn: () => fetchSourceChunks(sourceId, version),
+    queryKey: ['source-chunks', sourceId, version, limit, offset],
+    queryFn: () => fetchSourceChunks(sourceId, version, limit, offset),
     staleTime: 10_000,
   });
 

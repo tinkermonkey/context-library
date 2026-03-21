@@ -179,6 +179,8 @@ async def get_source_chunks(
     source_id: str,
     request: Request,
     version: int | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> ChunkListResponse:
     ds = request.app.state.document_store
     # Resolve the actual version from source metadata before fetching chunks
@@ -187,14 +189,14 @@ async def get_source_chunks(
         actual_version = source_row["current_version"] if source_row else None
     else:
         actual_version = version
-    chunks = await asyncio.to_thread(ds.get_chunks_by_source, source_id, version)
+    chunks, total = await asyncio.to_thread(ds.get_chunks_by_source, source_id, version, limit, offset)
     chunk_responses = []
     for chunk in chunks:
         lineage = await asyncio.to_thread(ds.get_lineage, chunk.chunk_hash, source_id)
         if lineage is None:
             continue
         chunk_responses.append(_chunk_response(chunk, lineage, source_id))
-    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses)
+    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total, limit=limit, offset=offset)
 
 
 @router.get("/{source_id:path}/diff", response_model=VersionDiffResponse)

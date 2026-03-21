@@ -118,7 +118,7 @@ class TestHealthDomainIntegration:
         assert len(version.chunk_hashes) > 0
 
         # Verify chunks contain health metadata
-        chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
         assert len(chunks) > 0
         chunk = chunks[0]
         assert chunk.domain_metadata is not None
@@ -165,8 +165,8 @@ class TestHealthDomainIntegration:
         assert result["chunks_added"] >= 2
 
         # Verify both workouts in document store
-        running_chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
-        cycling_chunks = pipeline.document_store.get_chunks_by_source("cycling/workout-002")
+        running_chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        cycling_chunks, _ = pipeline.document_store.get_chunks_by_source("cycling/workout-002")
 
         assert len(running_chunks) > 0
         assert len(cycling_chunks) > 0
@@ -207,7 +207,7 @@ class TestHealthDomainIntegration:
         assert len(versions) >= 1
 
         # Verify chunks contain correct metadata
-        chunks = pipeline.document_store.get_chunks_by_source("oura/sleep/sleep-oura-001")
+        chunks, _ = pipeline.document_store.get_chunks_by_source("oura/sleep/sleep-oura-001")
         assert len(chunks) > 0
         chunk = chunks[0]
         assert chunk.domain_metadata["health_type"] == "sleep_summary"

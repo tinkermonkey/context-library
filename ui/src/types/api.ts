@@ -257,4 +257,5 @@ export interface ChunkQueryParams {
   domain?: string;
   limit?: number;
   offset?: number;
+  metadata_filter?: Record<string, string>;
 }

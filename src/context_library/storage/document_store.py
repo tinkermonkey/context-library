@@ -1190,8 +1190,10 @@ class DocumentStore:
         self,
         source_id: str,
         version: Optional[int] = None,
-    ) -> list[Chunk]:
-        """Get active chunks for a source.
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[list[Chunk], int]:
+        """Get active chunks for a source with optional pagination.
 
         Returns chunks for the specified version, or the latest version
         if no version is specified. Only returns non-retired chunks.
@@ -1199,9 +1201,11 @@ class DocumentStore:
         Args:
             source_id: ID of the source.
             version: Specific version number, or None for latest.
+            limit: Maximum number of chunks to return, or None for all.
+            offset: Number of chunks to skip (default 0).
 
         Returns:
-            List of Chunk objects, or empty list if no chunks exist.
+            Tuple of (list of Chunk objects, total count of matching chunks)
         """
         if version is None:
             # Get latest version
@@ -1212,22 +1216,38 @@ class DocumentStore:
             )
             row = cursor.fetchone()
             if not row:
-                return []
+                return [], 0
             version = row["current_version"]
 
         cursor = self.conn.cursor()
+        # Get total count
         cursor.execute(
             """
+            SELECT COUNT(*) as count
+            FROM chunks
+            WHERE source_id = ? AND source_version = ? AND retired_at IS NULL
+            """,
+            (source_id, version),
+        )
+        total = cursor.fetchone()["count"]
+
+        # Get paginated results
+        query = """
             SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
                    domain_metadata
             FROM chunks
             WHERE source_id = ? AND source_version = ? AND retired_at IS NULL
             ORDER BY chunk_index ASC
-            """,
-            (source_id, version),
-        )
+        """
+        params: list = [source_id, version]
+
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+        cursor.execute(query, params)
         rows = cursor.fetchall()
-        return [self._build_chunk_from_row(row) for row in rows]
+        return [self._build_chunk_from_row(row) for row in rows], total
 
     def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
         """Get a chunk by its hash.
@@ -1811,12 +1831,13 @@ class DocumentStore:
         source_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        metadata_filter: Optional[dict[str, str]] = None,
     ) -> tuple[list[ChunkWithLineageContext], int]:
         """List active chunks with optional filtering and pagination.
 
         Returns paginated chunks from the current (latest) version of each source,
-        filtered by domain, adapter_id, and/or source_id if specified. Only returns
-        non-retired chunks. Deduplicates by constraining to current_version.
+        filtered by domain, adapter_id, source_id, and/or domain_metadata if specified.
+        Only returns non-retired chunks. Deduplicates by constraining to current_version.
 
         Corrupt chunks (with malformed domain_metadata JSON) are skipped with warnings
         logged, but do not cause the entire list operation to fail. This ensures one
@@ -1828,6 +1849,9 @@ class DocumentStore:
             source_id: Optional source_id filter (returns only chunks from this source).
             limit: Maximum number of results to return.
             offset: Number of results to skip.
+            metadata_filter: Optional dict of domain_metadata key-value pairs to filter by.
+                For example: {"health_type": "workout_session"} returns only chunks where
+                domain_metadata["health_type"] == "workout_session".
 
         Returns:
             Tuple of (page chunks, total_count). Each chunk is a ChunkWithLineageContext
@@ -1874,6 +1898,13 @@ class DocumentStore:
         for row in all_rows:
             try:
                 chunk = self._build_chunk_from_row(row)
+
+                # Apply metadata filter if specified
+                if metadata_filter:
+                    metadata = chunk.domain_metadata or {}
+                    if not all(metadata.get(k) == v for k, v in metadata_filter.items()):
+                        continue
+
                 all_results.append(ChunkWithLineageContext(
                     chunk=chunk,
                     source_id=row["source_id"],

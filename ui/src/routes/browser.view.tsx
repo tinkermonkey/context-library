@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useSourceChunks } from '../hooks/useChunks';
-import { useSource } from '../hooks/useSources';
 import { getDomainView } from '../views/registry';
 
 /**
@@ -16,15 +15,14 @@ export default function DomainViewPage() {
 
   const { domain, sourceId } = params;
 
-  // Fetch chunks and source metadata
+  // Fetch chunks
   const { data: chunksData, isLoading: chunksLoading, isError: chunksError, error: chunksErrorObj } = useSourceChunks(sourceId);
-  const { data: sourceData, isLoading: sourceLoading, isError: sourceError, error: sourceErrorObj } = useSource(sourceId);
 
   // Get the domain view component
   const viewEntry = getDomainView(domain);
   const ViewComponent = viewEntry.component;
 
-  if (chunksLoading || sourceLoading) {
+  if (chunksLoading) {
     return (
       <div className="p-8">
         <div className="text-gray-600">Loading {viewEntry.label}…</div>
@@ -32,21 +30,20 @@ export default function DomainViewPage() {
     );
   }
 
-  if (chunksError || sourceError) {
-    const error = chunksErrorObj || sourceErrorObj;
+  if (chunksError) {
     return (
       <div className="p-8">
         <div className="bg-red-50 p-4 rounded border border-red-200">
           <p className="text-red-900 font-semibold">Failed to load data</p>
           <p className="text-red-800 text-sm mt-1">
-            {error instanceof Error ? error.message : 'An unexpected error occurred'}
+            {chunksErrorObj instanceof Error ? chunksErrorObj.message : 'An unexpected error occurred'}
           </p>
         </div>
       </div>
     );
   }
 
-  if (!chunksData || !sourceData) {
+  if (!chunksData) {
     return (
       <div className="p-8">
         <div className="text-gray-600">No data available</div>
@@ -69,7 +66,7 @@ export default function DomainViewPage() {
       </div>
 
       <Suspense fallback={<div className="text-gray-600">Loading view…</div>}>
-        <ViewComponent sourceId={sourceId} chunks={chunks} source={sourceData} />
+        <ViewComponent sourceId={sourceId} chunks={chunks} />
       </Suspense>
 
       {/* Navigation back to chunks */}

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { ChunkResponse, SourceDetailResponse } from '../types/api';
+import type { ChunkResponse } from '../types/api';
 import { GenericChunkTable as GenericChunkTableComponent } from '../components/GenericChunkTable';
 import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
@@ -14,7 +14,6 @@ import { NotesView } from './NotesView';
 export interface DomainViewProps {
   sourceId: string;
   chunks: ChunkResponse[];
-  source: SourceDetailResponse;
 }
 
 /**

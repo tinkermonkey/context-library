@@ -153,8 +153,9 @@ class TestIngestionPipelineFirstIngest:
         pipeline.ingest(adapter, domain_chunker)
 
         # Get chunks for file1.md
-        chunks = pipeline.document_store.get_chunks_by_source("file1.md")
+        chunks, total = pipeline.document_store.get_chunks_by_source("file1.md")
         assert len(chunks) > 0
+        assert total > 0
 
         # Verify chunk structure
         for chunk in chunks:
@@ -272,7 +273,7 @@ Some different text here."""
         assert result_first["chunks_added"] > 0
 
         # Get chunks from file1.md before modification
-        chunks_before = pipeline.document_store.get_chunks_by_source("file1.md")
+        chunks_before, _ = pipeline.document_store.get_chunks_by_source("file1.md")
         num_chunks_before = len(chunks_before)
         assert num_chunks_before > 0
 
@@ -331,7 +332,7 @@ Completely new content."""
         assert result_first["sources_processed"] == 2
 
         # Get active chunks for file1.md before deletion
-        chunks_before = pipeline.document_store.get_chunks_by_source("file1.md")
+        chunks_before, _ = pipeline.document_store.get_chunks_by_source("file1.md")
         assert len(chunks_before) > 0
 
         # Delete file1.md
@@ -831,7 +832,7 @@ class TestChunkVersioningFixes:
         assert result_first["chunks_added"] > 0
 
         # Get first version chunks for file1.md
-        chunks_v1 = pipeline.document_store.get_chunks_by_source("file1.md", version=1)
+        chunks_v1, _ = pipeline.document_store.get_chunks_by_source("file1.md", version=1)
         assert len(chunks_v1) > 0
         chunk_hashes_v1 = {c.chunk_hash for c in chunks_v1}
 
@@ -853,7 +854,7 @@ class TestChunkVersioningFixes:
 
         # CRITICAL TEST: Get chunks for file1.md version 2
         # Should include both unchanged chunks (from version 1) and new chunks
-        chunks_v2 = pipeline.document_store.get_chunks_by_source("file1.md", version=2)
+        chunks_v2, _ = pipeline.document_store.get_chunks_by_source("file1.md", version=2)
         assert len(chunks_v2) > 0, "Version 2 should have chunks (including unchanged ones)"
 
         # Verify that some unchanged chunks are present in version 2
@@ -868,7 +869,7 @@ class TestChunkVersioningFixes:
             "Version 2 should contain new chunks due to modification"
 
         # Verify using the latest version (should also work)
-        chunks_latest = pipeline.document_store.get_chunks_by_source("file1.md")
+        chunks_latest, _ = pipeline.document_store.get_chunks_by_source("file1.md")
         assert len(chunks_latest) > 0, "Latest version should have chunks"
         assert chunks_latest == chunks_v2, "Latest version should match version 2"
 
@@ -905,12 +906,12 @@ Some shared text here."""
             assert result1["chunks_added"] > 0
 
             # Get chunks from first source
-            chunks_source1 = pipeline.document_store.get_chunks_by_source("shared.md")
+            chunks_source1, _ = pipeline.document_store.get_chunks_by_source("shared.md")
             source1_chunk_hashes = {c.chunk_hash for c in chunks_source1}
             assert len(source1_chunk_hashes) > 0
 
             # Both files have identical content, so they should have same chunk hashes
-            chunks_source2 = pipeline.document_store.get_chunks_by_source("shared_copy.md")
+            chunks_source2, _ = pipeline.document_store.get_chunks_by_source("shared_copy.md")
             assert len(chunks_source2) > 0, \
                 "Second source with identical content should have queryable chunks"
 

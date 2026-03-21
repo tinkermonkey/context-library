@@ -1,4 +1,3 @@
-import type { SourceDetailResponse } from '../types/api';
 import { DocumentCatalogView } from '../views/DocumentCatalogView';
 
 /**
@@ -7,26 +6,6 @@ import { DocumentCatalogView } from '../views/DocumentCatalogView';
  * Distinct from the detail view at /browser/view/documents/$sourceId.
  */
 export default function DocumentCatalogPage() {
-  // Create a minimal SourceDetailResponse for catalog view
-  // The catalog view fetches its own source list and doesn't use these props
-  const dummySource: SourceDetailResponse = {
-    source_id: '',
-    adapter_id: '',
-    adapter_type: '',
-    domain: 'documents',
-    origin_ref: '',
-    display_name: null,
-    current_version: 0,
-    chunk_count: 0,
-    poll_strategy: '',
-    last_fetched_at: null,
-    created_at: '',
-    updated_at: '',
-    poll_interval_sec: null,
-    normalizer_version: '',
-    _links: {},
-  };
-
   return (
     <div className="p-8">
       <div className="mb-6">
@@ -34,7 +13,7 @@ export default function DocumentCatalogPage() {
         <p className="text-gray-600">Browse all documents in your catalog</p>
       </div>
 
-      <DocumentCatalogView sourceId="" chunks={[]} source={dummySource} />
+      <DocumentCatalogView sourceId="" chunks={[]} />
     </div>
   );
 }

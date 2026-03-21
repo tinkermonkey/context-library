@@ -81,8 +81,26 @@ async def list_chunks(
     ordered by created_at DESC. Only returns non-retired chunks from current
     source versions. Corrupt chunks are skipped with warnings, ensuring partial
     data availability.
+
+    Query parameters for metadata filtering can be passed as repeating parameters
+    in the form `?metadata_filter=key:value&metadata_filter=key2:value2`.
+    For example: `GET /chunks?domain=health&metadata_filter=health_type:workout_session`
     """
     ds = request.app.state.document_store
+
+    # Parse optional metadata filters from query string
+    # Format: ?metadata_filter=key:value&metadata_filter=key2:value2
+    metadata_filter: dict[str, str] | None = None
+    filter_params = request.query_params.getlist("metadata_filter") if hasattr(request.query_params, "getlist") else request.query_params.get("metadata_filter", [])
+    if isinstance(filter_params, str):
+        filter_params = [filter_params]
+    if filter_params:
+        metadata_filter = {}
+        for param in filter_params:
+            if ":" in param:
+                key, value = param.split(":", 1)
+                metadata_filter[key] = value
+
     chunk_tuples, total = await asyncio.to_thread(
         ds.list_chunks,
         domain.value if domain else None,
@@ -90,6 +108,7 @@ async def list_chunks(
         source_id,
         limit,
         offset,
+        metadata_filter,
     )
 
     chunk_responses = []
