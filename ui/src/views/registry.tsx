@@ -6,7 +6,7 @@ import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
 import { DocumentDetailView } from './DocumentDetailView';
-import { DocumentView } from './placeholders';
+import { NotesView } from './NotesView';
 
 /**
  * Props passed to all domain view components.
@@ -40,8 +40,8 @@ const registry: Record<string, RegistryEntry> = {
     label: 'Thread',
   },
   notes: {
-    component: DocumentView,
-    label: 'Document',
+    component: NotesView,
+    label: 'Note',
   },
   events: {
     component: TimeSeriesView,
