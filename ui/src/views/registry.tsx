@@ -5,8 +5,7 @@ import { ThreadView } from './ThreadView';
 import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
-import { DocumentDetailView } from './DocumentDetailView';
-import { NotesView } from './NotesView';
+import { DocumentView } from './DocumentView';
 
 /**
  * All supported domains as the source of truth.
@@ -64,7 +63,7 @@ const registry: Record<DomainType, RegistryEntry> = {
     label: 'Thread',
   },
   notes: {
-    component: NotesView,
+    component: DocumentView,
     label: 'Note',
   },
   events: {
@@ -81,7 +80,7 @@ const registry: Record<DomainType, RegistryEntry> = {
     subtypeKey: 'health_type',
   },
   documents: {
-    component: DocumentDetailView,
+    component: DocumentView,
     label: 'Document',
   },
 };
