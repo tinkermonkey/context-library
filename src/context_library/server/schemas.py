@@ -272,6 +272,9 @@ class ChunkListResponse(BaseModel):
     source_id: str
     version: int | None
     chunks: list[ChunkResponse]
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
 
 
 class ChunkVersionChainItem(BaseModel):

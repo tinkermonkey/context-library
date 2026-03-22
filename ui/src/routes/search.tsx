@@ -4,8 +4,9 @@ import { Button, Card, TextInput, Select, ToggleSwitch, Spinner, Badge, Progress
 import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
+import { ALL_DOMAINS } from '../views/registry';
 
-const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
+const DOMAINS = ALL_DOMAINS;
 
 function SearchResultCard({ result }: { result: QueryResultItem }) {
   const navigate = useNavigate();

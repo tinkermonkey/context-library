@@ -24,9 +24,25 @@ from context_library.storage.document_store import DocumentStore
 @pytest.fixture
 def document_store():
     """Create an in-memory document store for testing."""
-    store = DocumentStore(":memory:")
+    # Use a temporary file instead of :memory: to support multi-threaded access.
+    # SQLite :memory: databases are per-connection, so each thread gets its own
+    # isolated empty database. File-based databases work correctly across threads.
+    import tempfile
+    import os
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+
+    store = DocumentStore(temp_path)
     yield store
     store.close()
+
+    # Cleanup: delete temporary file
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass  # File might already be deleted
 
 
 @pytest.fixture
@@ -102,7 +118,7 @@ class TestHealthDomainIntegration:
         assert len(version.chunk_hashes) > 0
 
         # Verify chunks contain health metadata
-        chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
         assert len(chunks) > 0
         chunk = chunks[0]
         assert chunk.domain_metadata is not None
@@ -118,10 +134,12 @@ class TestHealthDomainIntegration:
     def test_apple_health_multiple_endpoint_types(
         self, pipeline, health_domain, mock_all_health_endpoints_integration
     ):
-        """Test pipeline handles multiple health endpoint types (workouts + sleep)."""
+        """Test pipeline handles multiple workout types from Apple Health."""
+        # Note: Apple Health adapter only exposes workouts; sleep and other metrics
+        # are served by the Oura collector (separate adapter).
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        # Configure workout record
+        # Configure multiple workout records
         mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
             {
                 "id": "workout-001",
@@ -129,39 +147,33 @@ class TestHealthDomainIntegration:
                 "startDate": "2026-03-07T08:00:00+00:00",
                 "endDate": "2026-03-07T08:30:00+00:00",
                 "durationSeconds": 1800,
-            }
-        ])
-
-        # Configure sleep record
-        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/sleep", [
+            },
             {
-                "id": "sleep-001",
-                "date": "2026-03-06",
-                "totalSleepMinutes": 540,
-                "deepSleepMinutes": 120,
-                "remSleepMinutes": 150,
-                "lightSleepMinutes": 270,
-                "sleepScore": 92,
+                "id": "workout-002",
+                "activityType": "cycling",
+                "startDate": "2026-03-07T17:00:00+00:00",
+                "endDate": "2026-03-07T17:45:00+00:00",
+                "durationSeconds": 2700,
             }
         ])
 
         # Run pipeline
         result = pipeline.ingest(adapter, health_domain)
 
-        # Should process both endpoint types
-        assert result["sources_processed"] >= 2  # workout + sleep
+        # Should process both workouts
+        assert result["sources_processed"] >= 2  # two workouts
         assert result["chunks_added"] >= 2
 
-        # Verify both types in document store (source_id formats)
-        sleep_chunks = pipeline.document_store.get_chunks_by_source("sleep/sleep-001")
-        workout_chunks = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        # Verify both workouts in document store
+        running_chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        cycling_chunks, _ = pipeline.document_store.get_chunks_by_source("cycling/workout-002")
 
-        assert len(sleep_chunks) > 0
-        assert len(workout_chunks) > 0
+        assert len(running_chunks) > 0
+        assert len(cycling_chunks) > 0
 
         # Verify health types are correct
-        assert sleep_chunks[0].domain_metadata["health_type"] == "sleep_summary"
-        assert workout_chunks[0].domain_metadata["health_type"] == "workout_session"
+        assert running_chunks[0].domain_metadata["health_type"] == "workout_session"
+        assert cycling_chunks[0].domain_metadata["health_type"] == "workout_session"
 
     def test_oura_full_pipeline_single_record(
         self, pipeline, health_domain, mock_all_oura_endpoints_integration
@@ -195,7 +207,7 @@ class TestHealthDomainIntegration:
         assert len(versions) >= 1
 
         # Verify chunks contain correct metadata
-        chunks = pipeline.document_store.get_chunks_by_source("oura/sleep/sleep-oura-001")
+        chunks, _ = pipeline.document_store.get_chunks_by_source("oura/sleep/sleep-oura-001")
         assert len(chunks) > 0
         chunk = chunks[0]
         assert chunk.domain_metadata["health_type"] == "sleep_summary"

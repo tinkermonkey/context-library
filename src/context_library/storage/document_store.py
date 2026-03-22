@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
@@ -130,7 +130,7 @@ class DocumentStore:
         """Return the SQLite connection for the current thread, creating one if needed."""
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = self._make_connection()
-        return self._local.conn
+        return cast(sqlite3.Connection, self._local.conn)
 
     def _migrate_v1_to_v2(self) -> None:
         """Migrate schema from v1 to v2: add 'health' to domain CHECK constraints.
@@ -1190,8 +1190,10 @@ class DocumentStore:
         self,
         source_id: str,
         version: Optional[int] = None,
-    ) -> list[Chunk]:
-        """Get active chunks for a source.
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> tuple[list[Chunk], int]:
+        """Get active chunks for a source with optional pagination.
 
         Returns chunks for the specified version, or the latest version
         if no version is specified. Only returns non-retired chunks.
@@ -1199,9 +1201,11 @@ class DocumentStore:
         Args:
             source_id: ID of the source.
             version: Specific version number, or None for latest.
+            limit: Maximum number of chunks to return, or None for all.
+            offset: Number of chunks to skip (default 0).
 
         Returns:
-            List of Chunk objects, or empty list if no chunks exist.
+            Tuple of (list of Chunk objects, total count of matching chunks)
         """
         if version is None:
             # Get latest version
@@ -1212,22 +1216,38 @@ class DocumentStore:
             )
             row = cursor.fetchone()
             if not row:
-                return []
+                return [], 0
             version = row["current_version"]
 
         cursor = self.conn.cursor()
+        # Get total count
         cursor.execute(
             """
+            SELECT COUNT(*) as count
+            FROM chunks
+            WHERE source_id = ? AND source_version = ? AND retired_at IS NULL
+            """,
+            (source_id, version),
+        )
+        total = cursor.fetchone()["count"]
+
+        # Get paginated results
+        query = """
             SELECT chunk_hash, chunk_index, content, context_header, chunk_type,
                    domain_metadata
             FROM chunks
             WHERE source_id = ? AND source_version = ? AND retired_at IS NULL
             ORDER BY chunk_index ASC
-            """,
-            (source_id, version),
-        )
+        """
+        params: list = [source_id, version]
+
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+        cursor.execute(query, params)
         rows = cursor.fetchall()
-        return [self._build_chunk_from_row(row) for row in rows]
+        return [self._build_chunk_from_row(row) for row in rows], total
 
     def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
         """Get a chunk by its hash.
@@ -1811,12 +1831,13 @@ class DocumentStore:
         source_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        metadata_filter: Optional[dict[str, str]] = None,
     ) -> tuple[list[ChunkWithLineageContext], int]:
         """List active chunks with optional filtering and pagination.
 
         Returns paginated chunks from the current (latest) version of each source,
-        filtered by domain, adapter_id, and/or source_id if specified. Only returns
-        non-retired chunks. Deduplicates by constraining to current_version.
+        filtered by domain, adapter_id, source_id, and/or domain_metadata if specified.
+        Only returns non-retired chunks. Deduplicates by constraining to current_version.
 
         Corrupt chunks (with malformed domain_metadata JSON) are skipped with warnings
         logged, but do not cause the entire list operation to fail. This ensures one
@@ -1828,6 +1849,9 @@ class DocumentStore:
             source_id: Optional source_id filter (returns only chunks from this source).
             limit: Maximum number of results to return.
             offset: Number of results to skip.
+            metadata_filter: Optional dict of domain_metadata key-value pairs to filter by.
+                For example: {"health_type": "workout_session"} returns only chunks where
+                domain_metadata["health_type"] == "workout_session".
 
         Returns:
             Tuple of (page chunks, total_count). Each chunk is a ChunkWithLineageContext
@@ -1848,13 +1872,29 @@ class DocumentStore:
             where_clauses.append("c.source_id = ?")
             filter_params.append(source_id)
 
+        # Add metadata filters to WHERE clause (server-side filtering via SQL)
+        if metadata_filter:
+            for key, value in metadata_filter.items():
+                where_clauses.append("json_extract(c.domain_metadata, ?) = ?")
+                filter_params.append(f"$.{key}")
+                filter_params.append(value)
+
         where_sql = " AND ".join(where_clauses)
 
-        # Fetch all matching rows (without limit/offset) to count returnable items
-        # and build the full result set, then slice for pagination
-        all_params = filter_params
+        # Get total count of matching items (after metadata filters)
         cursor.execute(
             f"""
+            SELECT COUNT(*) as count
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            """,
+            filter_params,
+        )
+        total = cursor.fetchone()["count"]
+
+        # Fetch paginated results
+        query = f"""
             SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
                    c.content, c.context_header, c.chunk_type, c.domain_metadata,
                    c.normalizer_version, c.embedding_model_id, c.created_at,
@@ -1863,18 +1903,18 @@ class DocumentStore:
             JOIN sources s ON c.source_id = s.source_id
             WHERE {where_sql}
             ORDER BY c.created_at DESC
-            """,
-            all_params,
-        )
+            LIMIT ? OFFSET ?
+            """
+        all_params = filter_params + [limit, offset]
+        cursor.execute(query, all_params)
         all_rows = cursor.fetchall()
 
         # Build chunks, skipping corrupt ones with logged warnings
-        # Process all rows to get accurate total count of returnable items
-        all_results = []
+        paginated_results = []
         for row in all_rows:
             try:
                 chunk = self._build_chunk_from_row(row)
-                all_results.append(ChunkWithLineageContext(
+                paginated_results.append(ChunkWithLineageContext(
                     chunk=chunk,
                     source_id=row["source_id"],
                     source_version_id=row["source_version_id"],
@@ -1885,11 +1925,9 @@ class DocumentStore:
                 ))
             except ValueError as e:
                 logger.warning("Skipping corrupt chunk during list: %s", e)
+                # Note: Corrupt chunks reduce the actual returned count below total.
+                # This is acceptable as corrupt chunks are not returnable.
                 continue
-
-        # Apply pagination to the filtered results
-        total = len(all_results)
-        paginated_results = all_results[offset : offset + limit]
 
         return paginated_results, total
 

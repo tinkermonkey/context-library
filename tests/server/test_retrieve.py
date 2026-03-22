@@ -1,5 +1,6 @@
 """Tests for POST /query endpoint (semantic search)."""
 
+from typing import Any
 from fastapi.testclient import TestClient
 
 
@@ -8,7 +9,7 @@ class TestSemanticSearch:
 
     def test_query_returns_200(self, client: TestClient) -> None:
         """Verify query endpoint returns 200."""
-        payload = {"query": "hello"}
+        payload: dict[str, str] = {"query": "hello"}
         resp = client.post("/query", json=payload)
         assert resp.status_code == 200
 
@@ -139,7 +140,7 @@ class TestSemanticSearch:
 
     def test_query_missing_query_field_returns_422(self, client: TestClient) -> None:
         """Verify query endpoint rejects missing query field."""
-        payload = {}  # Missing query
+        payload: dict[str, Any] = {}  # Missing query
         resp = client.post("/query", json=payload)
         assert resp.status_code == 422
 

@@ -15,9 +15,12 @@ Covers:
   - get_chunks_pending_deletion: retrieves chunks needing deletion from LanceDB
 """
 
-import pytest
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from typing import cast, Generator
+
+import pytest
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
@@ -32,9 +35,19 @@ from context_library.storage.models import (
 
 
 @pytest.fixture
-def store() -> DocumentStore:
+def store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
-    return DocumentStore(":memory:")
+    # Use file-based DB to support multi-threaded access
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+    store_obj = DocumentStore(temp_path)
+    yield store_obj
+    store_obj.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass
 
 
 def _make_hash(char: str) -> str:
@@ -55,40 +68,55 @@ class TestDocumentStoreInit:
     def test_init_memory_database(self) -> None:
         """Test that DocumentStore can initialize with in-memory SQLite."""
         store = DocumentStore(":memory:")
-        assert store.conn is not None
+        try:
+            assert store.conn is not None
+        finally:
+            store.close()
 
     def test_schema_version_verification(self) -> None:
         """Test that user_version is verified to be 3 (documents domain support)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA user_version")
-        version = cursor.fetchone()[0]
-        assert version == 3
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 3
+        finally:
+            store.close()
 
     def test_wal_mode_enabled(self) -> None:
         """Test that WAL mode is enabled (or memory for in-memory DBs)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA journal_mode")
-        mode = cursor.fetchone()[0].lower()
-        # In-memory databases use "memory" mode, file-based use "wal"
-        assert mode in ("wal", "memory")
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA journal_mode")
+            mode = cursor.fetchone()[0].lower()
+            # In-memory databases use "memory" mode, file-based use "wal"
+            assert mode in ("wal", "memory")
+        finally:
+            store.close()
 
     def test_synchronous_normal_enabled(self) -> None:
         """Test that synchronous=NORMAL is enforced (value 1 per FR-2.2)."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA synchronous")
-        synchronous = cursor.fetchone()[0]
-        assert synchronous == 1
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA synchronous")
+            synchronous = cursor.fetchone()[0]
+            assert synchronous == 1
+        finally:
+            store.close()
 
     def test_foreign_keys_enabled(self) -> None:
         """Test that foreign key enforcement is enabled."""
         store = DocumentStore(":memory:")
-        cursor = store.conn.cursor()
-        cursor.execute("PRAGMA foreign_keys")
-        enabled = cursor.fetchone()[0]
-        assert enabled == 1
+        try:
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA foreign_keys")
+            enabled = cursor.fetchone()[0]
+            assert enabled == 1
+        finally:
+            store.close()
 
 
 class TestAdapterRegistration:
@@ -996,9 +1024,10 @@ class TestChunkRetirement:
         store.retire_chunks({_make_hash("a")}, source_id="source-1", source_version=1)
 
         # Get chunks should only return non-retired
-        retrieved = store.get_chunks_by_source("source-1", version=1)
+        retrieved, total = store.get_chunks_by_source("source-1", version=1)
 
         assert len(retrieved) == 1
+        assert total == 1
         assert retrieved[0].chunk_hash == _make_hash("1")
 
     def test_is_chunk_retired_returns_true_for_retired(
@@ -1144,9 +1173,10 @@ class TestChunksBySource:
         store.write_chunks([chunk], [lineage])
 
         # Get chunks without specifying version (should get latest)
-        chunks = store.get_chunks_by_source("source-1")
+        chunks, total = store.get_chunks_by_source("source-1")
 
         assert len(chunks) == 1
+        assert total == 1
         assert chunks[0].chunk_hash == _make_hash("2")
 
     def test_get_chunks_by_source_specific_version(
@@ -1225,19 +1255,22 @@ class TestChunksBySource:
         store.write_chunks(chunks, lineage)
 
         # Get chunks for version 1
-        v1_chunks = store.get_chunks_by_source("source-1", version=1)
+        v1_chunks, v1_total = store.get_chunks_by_source("source-1", version=1)
         assert len(v1_chunks) == 1
+        assert v1_total == 1
         assert v1_chunks[0].chunk_hash == _make_hash("3")
 
         # Get chunks for version 2
-        v2_chunks = store.get_chunks_by_source("source-1", version=2)
+        v2_chunks, v2_total = store.get_chunks_by_source("source-1", version=2)
         assert len(v2_chunks) == 1
+        assert v2_total == 1
         assert v2_chunks[0].chunk_hash == _make_hash("4")
 
     def test_get_chunks_by_source_non_existent(self, store: DocumentStore) -> None:
         """Test retrieving chunks for non-existent source."""
-        chunks = store.get_chunks_by_source("non-existent")
+        chunks, total = store.get_chunks_by_source("non-existent")
         assert chunks == []
+        assert total == 0
 
 
 class TestSyncLog:

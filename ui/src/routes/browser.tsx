@@ -11,8 +11,9 @@ import { useChunkProvenance } from '../hooks/useChunks';
 import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
 import { fetchSources, fetchChunks, fetchVersionHistory } from '../api/client';
 import type { BrowserPageSearch } from '../router';
+import { ALL_DOMAINS } from '../views/registry';
 
-const DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
+const DOMAINS = ALL_DOMAINS;
 
 // ── Sources Table ──────────────────────────────────────────────
 const sourceColumnHelper = createColumnHelper<SourceSummary>();
@@ -152,6 +153,18 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
         </div>
       </div>
       <div className="flex gap-2 pt-2 border-t">
+        <Button
+          size="sm"
+          color="success"
+          onClick={() => {
+            navigate({
+              to: '/browser/view/$domain/$sourceId',
+              params: { domain: source.domain, sourceId: source.source_id },
+            });
+          }}
+        >
+          View
+        </Button>
         <Button
           size="sm"
           onClick={() => {

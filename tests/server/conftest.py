@@ -1,6 +1,9 @@
 """Shared fixtures for server tests."""
 
 import pytest
+import tempfile
+import os
+from typing import Generator, AsyncGenerator, Any
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 from contextlib import asynccontextmanager
@@ -24,10 +27,10 @@ def _make_hash(char: str) -> str:
 
 def _create_app_with_store(
     ds: DocumentStore,
-    mock_embedder=None,
-    mock_vector_store=None,
-    mock_reranker=None,
-) -> "TestClient":
+    mock_embedder: Any = None,
+    mock_vector_store: Any = None,
+    mock_reranker: Any = None,
+) -> Generator[TestClient, None, None]:
     """Helper to create a FastAPI TestClient with mocked lifespan state."""
     if mock_embedder is None:
         mock_embedder = MagicMock()
@@ -42,7 +45,7 @@ def _create_app_with_store(
         mock_vector_store.search.return_value = []
 
     @asynccontextmanager
-    async def noop_lifespan(app):
+    async def noop_lifespan(app: Any) -> AsyncGenerator[None, None]:
         mock_config = MagicMock()
         mock_config.webhook_secret = None
         app.state.document_store = ds
@@ -52,6 +55,7 @@ def _create_app_with_store(
         app.state.reranker = mock_reranker or None
         app.state.config = mock_config
         app.state.helper_adapters = []
+        app.state.helper_health_cache = None
         yield
 
     app = create_app()
@@ -62,9 +66,16 @@ def _create_app_with_store(
 
 
 @pytest.fixture()
-def ds() -> DocumentStore:
+def ds() -> Generator[DocumentStore, None, None]:
     """In-memory DocumentStore pre-populated with test data."""
-    store = DocumentStore(":memory:", check_same_thread=False)
+    # Use a temporary file instead of :memory: to support multi-threaded access.
+    # SQLite :memory: databases are per-connection, so each thread gets its own
+    # isolated empty database. File-based databases work correctly across threads.
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    temp_path = temp_file.name
+    temp_file.close()
+
+    store = DocumentStore(temp_path, check_same_thread=False)
 
     # Register adapter
     config = AdapterConfig(
@@ -120,23 +131,30 @@ def ds() -> DocumentStore:
         lineage_records=[lineage],
     )
 
-    return store
+    yield store
+
+    # Cleanup: close connections and delete temporary file
+    store.close()
+    try:
+        os.unlink(temp_path)
+    except OSError:
+        pass  # File might already be deleted
 
 
 @pytest.fixture()
-def client(ds: DocumentStore) -> TestClient:
+def client(ds: DocumentStore) -> Generator[TestClient, None, None]:
     """FastAPI TestClient with mocked app state (lifespan bypassed)."""
     yield from _create_app_with_store(ds)
 
 
 @pytest.fixture()
-def chunk_hash(ds: DocumentStore) -> str:
+def chunk_hash(ds: DocumentStore) -> Generator[str, None, None]:
     """Return the hash of the test chunk."""
-    return compute_chunk_hash("Hello world")
+    yield compute_chunk_hash("Hello world")
 
 
 @pytest.fixture()
-def ds_with_metadata(ds: DocumentStore) -> DocumentStore:
+def ds_with_metadata(ds: DocumentStore) -> Generator[DocumentStore, None, None]:
     """DocumentStore with a chunk containing domain_metadata and cross_refs."""
     # Create a chunk with domain_metadata and cross_refs
     content_with_meta = "Content with metadata"
@@ -177,11 +195,11 @@ def ds_with_metadata(ds: DocumentStore) -> DocumentStore:
         lineage_records=[lineage],
     )
 
-    return ds
+    yield ds
 
 
 @pytest.fixture()
-def client_with_metadata(ds_with_metadata: DocumentStore) -> TestClient:
+def client_with_metadata(ds_with_metadata: DocumentStore) -> Generator[TestClient, None, None]:
     """FastAPI TestClient with mocked app state using ds_with_metadata fixture."""
     yield from _create_app_with_store(ds_with_metadata)
 
@@ -190,7 +208,7 @@ def client_with_metadata(ds_with_metadata: DocumentStore) -> TestClient:
 
 
 @pytest.fixture()
-def ds_multi_source(ds: DocumentStore) -> DocumentStore:
+def ds_multi_source(ds: DocumentStore) -> Generator[DocumentStore, None, None]:
     """DocumentStore with multiple sources from a single adapter."""
     store = ds
 
@@ -240,11 +258,11 @@ def ds_multi_source(ds: DocumentStore) -> DocumentStore:
             lineage_records=[lineage],
         )
 
-    return store
+    yield store
 
 
 @pytest.fixture()
-def ds_multi_adapter_same_domain(ds: DocumentStore) -> DocumentStore:
+def ds_multi_adapter_same_domain(ds: DocumentStore) -> Generator[DocumentStore, None, None]:
     """DocumentStore with multiple adapters managing the same domain (NOTES)."""
     store = ds
 
@@ -301,11 +319,11 @@ def ds_multi_adapter_same_domain(ds: DocumentStore) -> DocumentStore:
         lineage_records=[lineage],
     )
 
-    return store
+    yield store
 
 
 @pytest.fixture()
-def ds_multi_domain(ds: DocumentStore) -> DocumentStore:
+def ds_multi_domain(ds: DocumentStore) -> Generator[DocumentStore, None, None]:
     """DocumentStore with multiple adapters across multiple domains."""
     store = ds
 
@@ -366,11 +384,11 @@ def ds_multi_domain(ds: DocumentStore) -> DocumentStore:
             lineage_records=[lineage],
         )
 
-    return store
+    yield store
 
 
 @pytest.fixture()
-def ds_comprehensive(ds: DocumentStore) -> DocumentStore:
+def ds_comprehensive(ds: DocumentStore) -> Generator[DocumentStore, None, None]:
     """DocumentStore with realistic multi-adapter × multi-domain scenario."""
     store = ds
 
@@ -453,31 +471,31 @@ def ds_comprehensive(ds: DocumentStore) -> DocumentStore:
             lineage_records=[lineage],
         )
 
-    return store
+    yield store
 
 
 # Client fixtures for multi-entity stores
 
 
 @pytest.fixture()
-def client_multi_source(ds_multi_source: DocumentStore) -> TestClient:
+def client_multi_source(ds_multi_source: DocumentStore) -> Generator[TestClient, None, None]:
     """TestClient with multi-source fixture."""
     yield from _create_app_with_store(ds_multi_source)
 
 
 @pytest.fixture()
-def client_multi_adapter_same_domain(ds_multi_adapter_same_domain: DocumentStore) -> TestClient:
+def client_multi_adapter_same_domain(ds_multi_adapter_same_domain: DocumentStore) -> Generator[TestClient, None, None]:
     """TestClient with multi-adapter same-domain fixture."""
     yield from _create_app_with_store(ds_multi_adapter_same_domain)
 
 
 @pytest.fixture()
-def client_multi_domain(ds_multi_domain: DocumentStore) -> TestClient:
+def client_multi_domain(ds_multi_domain: DocumentStore) -> Generator[TestClient, None, None]:
     """TestClient with multi-domain fixture."""
     yield from _create_app_with_store(ds_multi_domain)
 
 
 @pytest.fixture()
-def client_comprehensive(ds_comprehensive: DocumentStore) -> TestClient:
+def client_comprehensive(ds_comprehensive: DocumentStore) -> Generator[TestClient, None, None]:
     """TestClient with comprehensive multi-adapter × multi-domain fixture."""
     yield from _create_app_with_store(ds_comprehensive)

@@ -29,7 +29,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class HelperHealthCache:
             if stale:
                 self._snapshot = self._probe()
                 self._last_probe = datetime.now(timezone.utc)
-            return self._snapshot
+            return cast(HelperHealthSnapshot, self._snapshot)
 
     # ------------------------------------------------------------------
     # Internal probe
