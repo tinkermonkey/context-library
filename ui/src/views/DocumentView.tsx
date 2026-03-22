@@ -6,6 +6,7 @@ import type { DomainViewProps } from './registry';
 import { MarkdownContent } from '../components/shared/MarkdownContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
 import { Timestamp } from '../components/shared/Timestamp';
+import { MetadataField } from '../components/shared/MetadataField';
 import { useChunk } from '../hooks/useChunks';
 
 /**
@@ -137,23 +138,24 @@ function createAnchor(text: string): string {
 
 /**
  * Extract headings from chunks to build a table of contents.
+ * Deduplicates only consecutive identical headings (not global duplicates).
  */
 function buildTableOfContents(chunks: ChunkResponse[]): HeadingNode[] {
   const headings: HeadingNode[] = [];
-  const seenTexts = new Set<string>();
+  let lastHeadingText: string | null = null;
 
   chunks.forEach((chunk) => {
     const parsed = parseContextHeaderBreadcrumb(chunk.context_header);
     if (parsed) {
       // Deduplicate consecutive identical headings
-      if (!seenTexts.has(parsed.text)) {
+      if (parsed.text !== lastHeadingText) {
         headings.push({
           label: parsed.text,
           level: parsed.level,
           chunkIndex: chunk.chunk_index,
           anchor: createAnchor(parsed.text),
         });
-        seenTexts.add(parsed.text);
+        lastHeadingText = parsed.text;
       }
     }
   });
@@ -257,14 +259,14 @@ function renderChunkContent(chunk: ChunkResponse): ReactNode {
  * Render table of contents as a hierarchical list.
  */
 function TableOfContents({ headings }: { headings: HeadingNode[] }): ReactNode {
-  if (headings.length === 0) return null;
-
   const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
 
+  if (headings.length === 0) return null;
+
   const handleTocClick = (anchor: string, chunkIndex: number): void => {
-    // Update URL with section parameter
+    // Update URL with section parameter, preserving other search params
     void navigate({
-      search: { section: anchor },
+      search: (prev) => ({ ...prev, section: anchor }),
       replace: false,
     });
 
@@ -389,50 +391,30 @@ function DocumentMetadataHeader({
 }): ReactNode {
   if (!metadata) return null;
 
+  const formattedSize = metadata.file_size !== null ? formatFileSize(metadata.file_size) : null;
+  const formattedDate = metadata.modified_date ? (
+    <Timestamp value={metadata.modified_date} granularity="date" />
+  ) : null;
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+      <MetadataField label="Type" value={metadata.document_type} />
+      <MetadataField label="Author" value={metadata.author} />
+      <MetadataField label="Size" value={formattedSize} />
+      <MetadataField label="Modified" value={formattedDate} />
+
+      {metadata.tags.length > 0 && (
         <div>
-          <span className="text-xs font-semibold text-gray-600 uppercase">Type</span>
-          <p className="mt-1 text-sm text-gray-900">{metadata.document_type}</p>
+          <span className="text-xs font-semibold text-gray-600 uppercase block mb-2">Tags</span>
+          <div className="flex flex-wrap gap-2">
+            {metadata.tags.map((tag) => (
+              <span key={tag} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded">
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
-
-        {metadata.author && (
-          <div>
-            <span className="text-xs font-semibold text-gray-600 uppercase">Author</span>
-            <p className="mt-1 text-sm text-gray-900">{metadata.author}</p>
-          </div>
-        )}
-
-        {metadata.file_size !== null && (
-          <div>
-            <span className="text-xs font-semibold text-gray-600 uppercase">Size</span>
-            <p className="mt-1 text-sm text-gray-900">{formatFileSize(metadata.file_size)}</p>
-          </div>
-        )}
-
-        {metadata.modified_date && (
-          <div>
-            <span className="text-xs font-semibold text-gray-600 uppercase">Modified</span>
-            <p className="mt-1 text-sm text-gray-900">
-              <Timestamp value={metadata.modified_date} granularity="date" />
-            </p>
-          </div>
-        )}
-
-        {metadata.tags.length > 0 && (
-          <div className="md:col-span-2">
-            <span className="text-xs font-semibold text-gray-600 uppercase">Tags</span>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {metadata.tags.map((tag) => (
-                <span key={tag} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -442,17 +424,16 @@ function DocumentMetadataHeader({
  */
 function CrossRefLink({
   chunkHash,
-  currentSourceId,
 }: {
   chunkHash: string;
-  currentSourceId: string;
 }): ReactNode {
   const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(false);
 
   // Fetch chunk data to get its source_id and domain
-  const { data: refChunk } = useChunk(chunkHash, currentSourceId);
+  // No source_id filter allows cross-source references to be resolved
+  const { data: refChunk } = useChunk(chunkHash);
 
   const handleClick = (): void => {
     if (!refChunk) {
@@ -509,14 +490,12 @@ function CrossRefLink({
 
 /**
  * Render cross-reference links for a chunk.
- * Cross-refs are chunk hashes that reference other chunks.
+ * Cross-refs are chunk hashes that reference other chunks (possibly in other sources).
  */
 function CrossReferences({
   crossRefs,
-  sourceId,
 }: {
   crossRefs: string[];
-  sourceId: string;
 }): ReactNode {
   if (!crossRefs || crossRefs.length === 0) return null;
 
@@ -525,7 +504,7 @@ function CrossReferences({
       <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Content</h4>
       <div className="flex flex-wrap gap-2">
         {crossRefs.map((chunkHash, idx) => (
-          <CrossRefLink key={idx} chunkHash={chunkHash} currentSourceId={sourceId} />
+          <CrossRefLink key={idx} chunkHash={chunkHash} />
         ))}
       </div>
     </div>
@@ -535,7 +514,7 @@ function CrossReferences({
 /**
  * Render a single chunk with heading hierarchy and context.
  */
-function DocumentChunk({ chunk, sourceId }: { chunk: ChunkResponse; sourceId: string }): ReactNode {
+function DocumentChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
   return (
     <div key={chunk.chunk_hash} id={`chunk-${chunk.chunk_index}`} className="bg-white rounded-lg border border-gray-200 p-4">
       {/* Breadcrumb context header */}
@@ -549,7 +528,7 @@ function DocumentChunk({ chunk, sourceId }: { chunk: ChunkResponse; sourceId: st
       {renderChunkContent(chunk)}
 
       {/* Cross-references */}
-      <CrossReferences crossRefs={chunk.cross_refs} sourceId={sourceId} />
+      <CrossReferences crossRefs={chunk.cross_refs} />
     </div>
   );
 }
@@ -576,7 +555,7 @@ function DocumentChunk({ chunk, sourceId }: { chunk: ChunkResponse; sourceId: st
  * - Code blocks render with syntax highlighting support
  * - Tables render as formatted HTML, not raw markdown
  */
-export function DocumentView({ chunks, sourceId }: DomainViewProps): ReactNode {
+export function DocumentView({ chunks }: DomainViewProps): ReactNode {
   const domain = detectDomain(chunks);
 
   // Get current section from URL
@@ -647,7 +626,7 @@ export function DocumentView({ chunks, sourceId }: DomainViewProps): ReactNode {
             ) : (
               sortedChunks.map((chunk, index) => (
                 <div key={chunk.chunk_hash}>
-                  <DocumentChunk chunk={chunk} sourceId={sourceId} />
+                  <DocumentChunk chunk={chunk} />
                   {index < sortedChunks.length - 1 && <ChunkBoundary />}
                 </div>
               ))
