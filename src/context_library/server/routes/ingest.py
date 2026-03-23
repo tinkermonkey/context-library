@@ -6,6 +6,7 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from context_library.core.entity_linker import EntityLinker
 from context_library.core.exceptions import AllSourcesFailedError
 from context_library.domains.registry import get_domain_chunker
 from context_library.server.schemas import (
@@ -16,7 +17,7 @@ from context_library.server.schemas import (
     WebhookIngestResponse,
 )
 from context_library.server.webhook_adapter import WebhookAdapter
-from context_library.storage.models import NormalizedContent
+from context_library.storage.models import Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,16 @@ async def webhook_ingest(
     except Exception as e:
         logger.error("Unexpected error during webhook ingestion: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {type(e).__name__}: {e}")
+
+    # Run entity linking pass if People domain ingestion completed successfully
+    if payload.domain == Domain.PEOPLE and result["sources_failed"] == 0:
+        try:
+            linker = EntityLinker(document_store=request.app.state.document_store)
+            new_links = await asyncio.to_thread(linker.run)
+            logger.info("Entity linking pass created %d new links", new_links)
+        except Exception as e:
+            logger.error("Entity linking pass failed: %s", e, exc_info=True)
+            # Entity linking is not critical to ingestion success, so we log but don't fail
 
     return WebhookIngestResponse(
         status="ok" if result["sources_failed"] == 0 else "partial",
@@ -127,6 +138,16 @@ async def helper_ingest(
                 chunks_unchanged=result["chunks_unchanged"],
                 errors=[IngestError(**e) for e in result["errors"]],
             ))
+
+            # Run entity linking pass if People domain ingestion completed successfully
+            if adapter.domain == Domain.PEOPLE and result["sources_failed"] == 0:
+                try:
+                    linker = EntityLinker(document_store=request.app.state.document_store)
+                    new_links = await asyncio.to_thread(linker.run)
+                    logger.info("Entity linking pass for %s created %d new links", adapter.adapter_id, new_links)
+                except Exception as e:
+                    logger.error("Entity linking pass for %s failed: %s", adapter.adapter_id, e, exc_info=True)
+                    # Entity linking is not critical to ingestion success, so we log but don't fail
         except Exception as e:
             logger.error("Apple adapter %s failed: %s", adapter.adapter_id, e, exc_info=True)
             results.append(AppleAdapterResult(
