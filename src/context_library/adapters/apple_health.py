@@ -1,7 +1,7 @@
 """Apple HealthKit adapter for a macOS-native helper process.
 
 This adapter consumes a local HTTP REST API served by a macOS helper process that exposes
-Apple HealthKit workout data via a local HTTP API.
+Apple HealthKit data via a local HTTP API.
 
 Architecture
 ============
@@ -20,24 +20,100 @@ The adapter uses a layered architecture for security:
 Expected local service API contract
 ===================================
 
-The helper process exposes the following HTTP endpoint:
+The helper process exposes the following HTTP endpoints:
 
-GET /workouts
+GET /health/workouts
   Query parameters:
     - since (optional): ISO 8601 timestamp; return only workouts starting after this time
 
-  Response: JSON array of workout objects with the following schema:
+  Response: JSON array of workout objects:
     [
       {
         "id": "<uuid>",
         "activityType": "<string>",           // e.g., "running", "cycling", "yoga"
-        "startDate": "<ISO 8601>",            // e.g., "2025-03-07T10:00:00+00:00"
-        "endDate": "<ISO 8601>",              // e.g., "2025-03-07T10:30:00+00:00"
-        "durationSeconds": <int>,             // seconds
+        "startDate": "<ISO 8601>",
+        "endDate": "<ISO 8601>",
+        "durationSeconds": <int>,
         "totalEnergyBurned": <float | null>,  // kilocalories
         "totalDistance": <float | null>,      // meters
-        "averageHeartRate": <float | null>,   // beats per minute (bpm)
-        "notes": "<string | null>"            // optional notes
+        "averageHeartRate": <float | null>,   // bpm
+        "notes": "<string | null>"
+      }
+    ]
+
+GET /health/activity
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only days after this date
+
+  Response: JSON array of daily activity summaries:
+    [
+      {
+        "id": "<YYYY-MM-DD>",
+        "date": "<YYYY-MM-DD>",
+        "steps": <int | null>,
+        "activeCalories": <float | null>,     // kcal
+        "totalCalories": <float | null>,      // kcal (null for Apple Health)
+        "exerciseMinutes": <int | null>,
+        "standHours": <int | null>,
+        "distanceMeters": <float | null>
+      }
+    ]
+
+GET /health/sleep
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only nights after this date
+
+  Response: JSON array of daily sleep summaries:
+    [
+      {
+        "id": "<YYYY-MM-DD>",
+        "date": "<YYYY-MM-DD>",
+        "totalSleepMinutes": <int>,
+        "deepSleepMinutes": <int | null>,
+        "remSleepMinutes": <int | null>,
+        "lightSleepMinutes": <int | null>,
+        "inBedMinutes": <int | null>
+      }
+    ]
+
+GET /health/heart-rate
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only samples after this date
+
+  Response: JSON array of heart rate samples (grouped into hourly windows by adapter):
+    [
+      {
+        "timestamp": "<ISO 8601>",
+        "bpm": <float>,
+        "source": "<string | null>"
+      }
+    ]
+
+GET /health/spo2
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only days after this date
+
+  Response: JSON array of daily SpO2 summaries:
+    [
+      {
+        "id": "<YYYY-MM-DD>",
+        "date": "<YYYY-MM-DD>",
+        "avgSpo2": <float>   // percentage (e.g. 97.2)
+      }
+    ]
+
+GET /health/mindfulness
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only sessions after this date
+
+  Response: JSON array of mindfulness sessions:
+    [
+      {
+        "id": "<string>",
+        "startDate": "<ISO 8601>",
+        "endDate": "<ISO 8601>",
+        "durationSeconds": <int>,
+        "sessionType": "<string>"
       }
     ]
 
@@ -58,26 +134,23 @@ Example usage:
     # Incremental fetch (only records starting after given timestamp)
     for normalized_content in adapter.fetch("2025-03-07T10:00:00+00:00"):
         print(normalized_content.markdown)
-
-Example usage (remote via serve_adapter):
-    adapter = AppleHealthAdapter(
-        api_url="http://127.0.0.1:7124",
-        api_key="your-api-token",
-        device_id="macbook-pro"
-    )
-    serve_adapter(adapter, host="0.0.0.0", port=8000)
-    # Now remote clients can access via http://<mac-ip>:8000/fetch
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, AllEndpointsFailedError
+from context_library.adapters.base import (
+    BaseAdapter,
+    EndpointFetchError,
+    AllEndpointsFailedError,
+    PartialFetchError,
+)
 from context_library.storage.models import (
     Domain,
     HealthMetadata,
@@ -99,35 +172,32 @@ except ImportError:
 
 
 class AppleHealthAdapter(BaseAdapter):
-    """Adapter for consuming Apple HealthKit workout data via local or remote HTTP REST API.
+    """Adapter for consuming Apple HealthKit data via local or remote HTTP REST API.
 
-    Fetches workout data from a macOS helper process that wraps Apple HealthKit APIs.
-    The helper service exposes GET /workouts and can run on the local machine or be
-    accessible from a remote machine via serve_adapter for cross-machine deployments.
+    Fetches all available health record types from a macOS helper process that reads
+    Apple Health exports: workouts, daily activity, sleep analysis, heart rate series,
+    SpO2 summaries, and mindfulness sessions.
 
-    Each workout is mapped to a HealthMetadata with:
-    - record_id: Unique identifier for the workout
-    - health_type: "workout_session"
-    - date: ISO 8601 date (YYYY-MM-DD) for the workout
-    - source_type: "apple_health"
-    - date_first_observed: ISO 8601 timestamp when record was processed
-    - Additional fields: calories_kcal, distance_meters, avg_heart_rate_bpm, activity_type
+    Each record is mapped to a vendor-neutral HealthMetadata type:
+      - workout_session:      /health/workouts
+      - activity_summary:    /health/activity
+      - sleep_summary:       /health/sleep
+      - heart_rate_series:   /health/heart-rate  (windowed hourly by this adapter)
+      - spo2_summary:        /health/spo2
+      - mindfulness_session: /health/mindfulness
     """
 
     @property
     def domain(self) -> Domain:
-        """Return the domain this adapter handles."""
         return Domain.HEALTH
 
     @property
     def poll_strategy(self) -> PollStrategy:
-        """Return the polling strategy for this adapter."""
         return PollStrategy.PULL
 
     @property
     def normalizer_version(self) -> str:
-        """Return the normalizer version."""
-        return "2.0.0"
+        return "3.0.0"
 
     def __init__(
         self,
@@ -160,42 +230,67 @@ class AppleHealthAdapter(BaseAdapter):
 
     @property
     def adapter_id(self) -> str:
-        """Return a deterministic, unique identifier for this adapter instance."""
         return f"apple_health:{self._device_id}"
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
-        """Fetch and normalize workout data from Apple HealthKit via local API.
+        """Fetch and normalize all health data types from Apple Health export via helper API.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental fetch, or empty string for full fetch
 
         Yields:
-            NormalizedContent: Normalized workout records with HealthMetadata in extra_metadata
+            NormalizedContent: Normalized health records with HealthMetadata in extra_metadata
 
         Raises:
-            AllEndpointsFailedError: If the /workouts endpoint fails
+            AllEndpointsFailedError: If all endpoints fail
+            PartialFetchError: If some endpoints fail but others succeed
             httpx.HTTPStatusError: Auth errors (401/403) propagate immediately
-
-        Note:
-            Errors in individual record processing are caught and logged. Malformed records
-            are skipped gracefully. Auth errors (401/403) are immediately re-raised.
         """
         since = source_ref if source_ref else None
         params = {"since": since} if since else {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        # Apple Health helper only exposes workouts. Sleep, activity, HRV, SpO2,
-        # mindfulness, and heart rate are served by the Oura collector (oura.py adapter).
+        endpoints_config = [
+            ("/health/workouts", self._process_workout, "workout"),
+            ("/health/activity", self._process_activity, "activity record"),
+            ("/health/sleep", self._process_sleep, "sleep record"),
+            ("/health/spo2", self._process_spo2, "SpO2 record"),
+            ("/health/mindfulness", self._process_mindfulness, "mindfulness session"),
+        ]
+
+        failed_endpoints = []
+
+        for endpoint, handler, item_label in endpoints_config:
+            try:
+                yield from self._fetch_endpoint(endpoint, handler, item_label, params, headers)
+            except httpx.HTTPStatusError:
+                raise
+            except EndpointFetchError:
+                failed_endpoints.append(endpoint)
+
+        # Heart rate requires hourly windowing — handled separately
         try:
-            yield from self._fetch_endpoint("/workouts", self._process_workout, "workout", params, headers)
+            yield from self._fetch_heart_rate(since, headers)
         except httpx.HTTPStatusError:
             raise
         except EndpointFetchError:
-            raise AllEndpointsFailedError(
-                1,
-                "Failed to fetch from /workouts. "
-                "Check API connectivity, credentials, and service status.",
-            )
+            failed_endpoints.append("/health/heart-rate")
+
+        total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
+        if failed_endpoints:
+            if len(failed_endpoints) == total_endpoints:
+                raise AllEndpointsFailedError(
+                    total_endpoints,
+                    f"All {total_endpoints} Apple Health endpoints failed. "
+                    "Check API connectivity, credentials, and service status.",
+                )
+            else:
+                raise PartialFetchError(
+                    failed_endpoints,
+                    total_endpoints,
+                    f"Partial fetch from Apple Health: {len(failed_endpoints)}/{total_endpoints} "
+                    "endpoint(s) failed. Successful endpoints provided partial data.",
+                )
 
     def _fetch_endpoint(
         self,
@@ -207,24 +302,9 @@ class AppleHealthAdapter(BaseAdapter):
     ) -> Iterator[NormalizedContent]:
         """Fetch and process records from a single endpoint.
 
-        Args:
-            endpoint: API endpoint path (e.g., "/workouts")
-            handler: Handler method to process each record
-            item_label: Label for logging (e.g., "sleep record")
-            params: Query parameters (including "since" if incremental)
-            headers: HTTP headers (including Authorization)
-
-        Yields:
-            NormalizedContent: Processed records from the endpoint
-
         Raises:
             httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
-            EndpointFetchError: If endpoint fails (non-auth errors)
-
-        Note:
-            Logs and skips individual malformed records without raising.
-            Logs and raises EndpointFetchError for endpoint-level failures (HTTP, request, invalid response schema).
-            Auth errors (401/403) are immediately re-raised to signal credential issues.
+            EndpointFetchError: If the endpoint fails for any other reason
         """
         try:
             response = httpx.get(
@@ -237,9 +317,8 @@ class AppleHealthAdapter(BaseAdapter):
 
             records = response.json()
             if not isinstance(records, list):
-                raise ValueError(f"Expected list of records from {endpoint}, got {type(records)}")
+                raise ValueError(f"Expected list from {endpoint}, got {type(records)}")
 
-            # Process each record
             for idx, record in enumerate(records):
                 try:
                     yield from handler(record)
@@ -249,39 +328,99 @@ class AppleHealthAdapter(BaseAdapter):
                     continue
 
         except httpx.HTTPStatusError as e:
-            # Re-raise auth errors immediately
             if e.response.status_code in (401, 403):
                 logger.error(
                     f"Authentication error from Apple Health API {endpoint}: "
                     f"{e.response.status_code} {e.response.text}"
                 )
                 raise
-            logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code} {e.response.text}")
+            logger.error(f"HTTP error from Apple Health API {endpoint}: {e.response.status_code}")
             raise EndpointFetchError(f"HTTP {e.response.status_code} from {endpoint}")
         except httpx.RequestError as e:
             logger.error(f"Request error connecting to Apple Health API at {self._api_url}{endpoint}: {e}")
             raise EndpointFetchError(f"Network error at {endpoint}: {e}")
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON response from {endpoint} (possible proxy/HTML response): {e}")
+            logger.error(f"Invalid JSON response from {endpoint}: {e}")
             raise EndpointFetchError(f"JSON decode error at {endpoint}: {e}")
         except ValueError as e:
             logger.error(f"Invalid response schema from {endpoint}: {e}")
             raise EndpointFetchError(f"Invalid schema at {endpoint}: {e}")
 
-    def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
-        """Process a single workout and yield NormalizedContent.
-
-        Args:
-            workout: Workout dict from API response
-
-        Yields:
-            NormalizedContent: Normalized workout with HealthMetadata
+    def _fetch_heart_rate(
+        self,
+        since: str | None,
+        headers: dict[str, str],
+    ) -> Iterator[NormalizedContent]:
+        """Fetch heart rate samples and group into hourly windows.
 
         Raises:
-            ValueError: If required field values are empty or invalid
-            KeyError: If required fields are missing from the record
+            httpx.HTTPStatusError: Auth errors (401/403) are immediately re-raised
+            EndpointFetchError: If the endpoint fails
         """
-        # Extract required fields
+        params = {"since": since} if since else {}
+
+        try:
+            response = httpx.get(
+                f"{self._api_url}/health/heart-rate",
+                params=params,
+                headers=headers,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+
+            samples = response.json()
+            if not isinstance(samples, list):
+                raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
+
+            # Group samples by date + hour
+            windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+            for sample in samples:
+                try:
+                    timestamp = sample["timestamp"]
+                    # Apple Health timestamps: "2026-01-15 09:30:00 -0500"
+                    # fromisoformat requires no space before the timezone sign,
+                    # so collapse "T09:30:00 -0500" → "T09:30:00-0500".
+                    ts_iso = timestamp.replace(" ", "T", 1).replace(" -", "-").replace(" +", "+")
+                    dt = datetime.fromisoformat(ts_iso)
+                    date = dt.date().isoformat()
+                    hour = dt.hour
+                    windows[(date, hour)].append(sample)
+                except (ValueError, KeyError) as e:
+                    logger.error(f"Skipping malformed heart rate sample: {e}")
+                    continue
+
+            for (date, hour), window_samples in sorted(windows.items()):
+                try:
+                    yield from self._process_heart_rate_window(window_samples, date, hour)
+                except (ValueError, KeyError) as e:
+                    logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
+                    continue
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (401, 403):
+                logger.error(
+                    f"Authentication error from Apple Health API /health/heart-rate: "
+                    f"{e.response.status_code} {e.response.text}"
+                )
+                raise
+            logger.error(f"HTTP error from Apple Health API /health/heart-rate: {e.response.status_code}")
+            raise EndpointFetchError(f"HTTP {e.response.status_code} from /health/heart-rate")
+        except httpx.RequestError as e:
+            logger.error(f"Request error connecting to Apple Health API /health/heart-rate: {e}")
+            raise EndpointFetchError(f"Network error at /health/heart-rate: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from /health/heart-rate: {e}")
+            raise EndpointFetchError(f"JSON decode error at /health/heart-rate: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid heart rate response schema: {e}")
+            raise EndpointFetchError(f"Invalid schema at /health/heart-rate: {e}")
+
+    # ------------------------------------------------------------------
+    # Record processors
+    # ------------------------------------------------------------------
+
+    def _process_workout(self, workout: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single workout record."""
         workout_id = workout["id"]
         if not workout_id:
             raise ValueError("Workout 'id' must not be empty")
@@ -302,19 +441,10 @@ class AppleHealthAdapter(BaseAdapter):
         if not isinstance(duration_seconds, (int, float)):
             raise ValueError(f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}")
 
-        # Extract optional fields
-        total_energy_burned = workout.get("totalEnergyBurned")
-        total_distance = workout.get("totalDistance")
-        average_heart_rate = workout.get("averageHeartRate")
-
-        # Compute duration in minutes
         duration_minutes = int(duration_seconds // 60)
-
-        # Get current timestamp and extract date from start_date
         now = datetime.now(timezone.utc).isoformat()
-        date = start_date[:10]  # Extract YYYY-MM-DD
+        date = start_date[:10]
 
-        # Create HealthMetadata with health-specific extra fields
         health_metadata_dict = {
             "record_id": workout_id,
             "health_type": "workout_session",
@@ -322,60 +452,304 @@ class AppleHealthAdapter(BaseAdapter):
             "source_type": "apple_health",
             "date_first_observed": now,
             "duration_minutes": duration_minutes,
-            "calories_kcal": total_energy_burned,
-            "distance_meters": total_distance,
-            "avg_heart_rate_bpm": average_heart_rate,
+            "calories_kcal": workout.get("totalEnergyBurned"),
+            "distance_meters": workout.get("totalDistance"),
+            "avg_heart_rate_bpm": workout.get("averageHeartRate"),
             "activity_type": activity_type,
         }
 
-        # Validate using HealthMetadata model (validates required fields only)
         try:
             HealthMetadata.model_validate(health_metadata_dict)
         except ValueError as e:
             logger.error(f"HealthMetadata validation failed for workout {workout_id}: {e}")
             raise
 
-        # Create source_id
-        source_id = f"{activity_type}/{workout_id}"
+        source_id = f"apple_health/workout/{activity_type}/{workout_id}"
+        markdown = self._build_workout_summary(workout, activity_type, duration_minutes)
 
-        # Build markdown summary
-        markdown = self._build_summary(workout, activity_type, duration_minutes)
-
-        # Create structural hints with extra_metadata to preserve all fields
-        structural_hints = StructuralHints(
-            has_headings=False,
-            has_lists=True,
-            has_tables=False,
-            natural_boundaries=(),
-            extra_metadata=health_metadata_dict,
-        )
-
-        # Create NormalizedContent
-        normalized_content = NormalizedContent(
+        yield NormalizedContent(
             markdown=markdown,
             source_id=source_id,
-            structural_hints=structural_hints,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
             normalizer_version=self.normalizer_version,
         )
 
-        yield normalized_content
+    def _process_activity(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single daily activity summary record."""
+        record_id = record["id"]
+        if not record_id:
+            raise ValueError("Activity record 'id' must not be empty")
 
-    def _build_summary(self, workout: dict[str, Any], activity_type: str, duration_minutes: int) -> str:
-        """Build a human-readable markdown summary of a workout.
+        date = record["date"]
+        if not date:
+            raise ValueError("Activity record 'date' must not be empty")
 
-        Generates markdown with bold title and bulleted metrics (no heading-level markers).
+        now = datetime.now(timezone.utc).isoformat()
 
-        Args:
-            workout: Workout dict from API response
-            activity_type: Activity type (e.g., "running", "cycling")
-            duration_minutes: Duration in minutes
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "activity_summary",
+            "date": date,
+            "source_type": "apple_health",
+            "date_first_observed": now,
+            "steps": record.get("steps"),
+            "active_calories": record.get("activeCalories"),
+            "total_calories": record.get("totalCalories"),
+            "duration_minutes": record.get("exerciseMinutes"),
+            "distance_meters": record.get("distanceMeters"),
+        }
 
-        Returns:
-            Markdown string with bold title and bulleted activity summary
-        """
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for activity record {record_id}: {e}")
+            raise
+
+        source_id = f"apple_health/activity/{record_id}"
+        markdown = self._build_activity_summary(record)
+
+        yield NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
+            normalizer_version=self.normalizer_version,
+        )
+
+    def _process_sleep(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single daily sleep summary record."""
+        record_id = record["id"]
+        if not record_id:
+            raise ValueError("Sleep record 'id' must not be empty")
+
+        date = record["date"]
+        if not date:
+            raise ValueError("Sleep record 'date' must not be empty")
+
+        total_sleep_minutes = record["totalSleepMinutes"]
+        if not isinstance(total_sleep_minutes, (int, float)):
+            raise ValueError(f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}")
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "sleep_summary",
+            "date": date,
+            "source_type": "apple_health",
+            "date_first_observed": now,
+            "duration_minutes": int(total_sleep_minutes),
+            "deep_sleep_minutes": record.get("deepSleepMinutes"),
+            "rem_sleep_minutes": record.get("remSleepMinutes"),
+            "light_sleep_minutes": record.get("lightSleepMinutes"),
+        }
+
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for sleep record {record_id}: {e}")
+            raise
+
+        source_id = f"apple_health/sleep/{record_id}"
+        markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
+
+        yield NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
+            normalizer_version=self.normalizer_version,
+        )
+
+    def _process_heart_rate_window(
+        self,
+        window: list[dict[str, Any]],
+        window_date: str,
+        window_hour: int,
+    ) -> Iterator[NormalizedContent]:
+        """Process an hourly window of heart rate samples."""
+        if not window:
+            raise ValueError("Heart rate window must not be empty")
+
+        heart_rates = []
+        for sample in window:
+            bpm = sample["bpm"]
+            if not isinstance(bpm, (int, float)):
+                raise ValueError("Heart rate sample 'bpm' must be numeric")
+            heart_rates.append(float(bpm))
+
+        if not heart_rates:
+            raise ValueError("No valid heart rates in window")
+
+        avg_bpm = sum(heart_rates) / len(heart_rates)
+        min_bpm = min(heart_rates)
+        max_bpm = max(heart_rates)
+
+        now = datetime.now(timezone.utc).isoformat()
+        record_id = f"hr:apple_health:{self._device_id}:{window_date}T{window_hour:02d}"
+
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "heart_rate_series",
+            "date": window_date,
+            "source_type": "apple_health",
+            "date_first_observed": now,
+            "avg_bpm": avg_bpm,
+            "min_bpm": min_bpm,
+            "max_bpm": max_bpm,
+            "sample_count": len(heart_rates),
+            "hour": window_hour,
+        }
+
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for heart rate window {record_id}: {e}")
+            raise
+
+        source_id = f"apple_health/heart_rate/{window_date}T{window_hour:02d}"
+        markdown = self._build_heart_rate_summary(window, avg_bpm, min_bpm, max_bpm)
+
+        yield NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
+            normalizer_version=self.normalizer_version,
+        )
+
+    def _process_spo2(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single daily SpO2 summary record."""
+        record_id = record["id"]
+        if not record_id:
+            raise ValueError("SpO2 record 'id' must not be empty")
+
+        date = record["date"]
+        if not date:
+            raise ValueError("SpO2 record 'date' must not be empty")
+
+        avg_spo2 = record["avgSpo2"]
+        if not isinstance(avg_spo2, (int, float)):
+            raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "spo2_summary",
+            "date": date,
+            "source_type": "apple_health",
+            "date_first_observed": now,
+            "avg_spo2": avg_spo2,
+        }
+
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for SpO2 record {record_id}: {e}")
+            raise
+
+        source_id = f"apple_health/spo2/{record_id}"
+        markdown = self._build_spo2_summary(record, avg_spo2)
+
+        yield NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
+            normalizer_version=self.normalizer_version,
+        )
+
+    def _process_mindfulness(self, record: dict[str, Any]) -> Iterator[NormalizedContent]:
+        """Process a single mindfulness session record."""
+        record_id = record["id"]
+        if not record_id:
+            raise ValueError("Mindfulness record 'id' must not be empty")
+
+        start_date = record["startDate"]
+        if not start_date:
+            raise ValueError("Mindfulness record 'startDate' must not be empty")
+
+        end_date = record["endDate"]
+        if not end_date:
+            raise ValueError("Mindfulness record 'endDate' must not be empty")
+
+        duration_seconds = record["durationSeconds"]
+        if not isinstance(duration_seconds, (int, float)):
+            raise ValueError(f"Mindfulness record 'durationSeconds' must be numeric, got {type(duration_seconds)}")
+
+        duration_minutes = int(duration_seconds // 60)
+        date = start_date[:10]
+        session_type = record.get("sessionType", "mindful")
+        now = datetime.now(timezone.utc).isoformat()
+
+        health_metadata_dict = {
+            "record_id": record_id,
+            "health_type": "mindfulness_session",
+            "date": date,
+            "source_type": "apple_health",
+            "date_first_observed": now,
+            "duration_minutes": duration_minutes,
+            "session_type": session_type,
+        }
+
+        try:
+            HealthMetadata.model_validate(health_metadata_dict)
+        except ValueError as e:
+            logger.error(f"HealthMetadata validation failed for mindfulness record {record_id}: {e}")
+            raise
+
+        source_id = f"apple_health/mindfulness/{record_id}"
+        markdown = self._build_mindfulness_summary(record, duration_minutes, session_type)
+
+        yield NormalizedContent(
+            markdown=markdown,
+            source_id=source_id,
+            structural_hints=StructuralHints(
+                has_headings=False,
+                has_lists=True,
+                has_tables=False,
+                natural_boundaries=(),
+                extra_metadata=health_metadata_dict,
+            ),
+            normalizer_version=self.normalizer_version,
+        )
+
+    # ------------------------------------------------------------------
+    # Markdown summary builders
+    # ------------------------------------------------------------------
+
+    def _build_workout_summary(
+        self, workout: dict[str, Any], activity_type: str, duration_minutes: int
+    ) -> str:
         lines = [f"**{activity_type.title()}**"]
 
-        # Add key metrics
         total_energy_burned = workout.get("totalEnergyBurned")
         if total_energy_burned is not None:
             lines.append(f"- Calories: {total_energy_burned:.0f} kcal")
@@ -389,13 +763,89 @@ class AppleHealthAdapter(BaseAdapter):
         if average_heart_rate is not None:
             lines.append(f"- Avg heart rate: {average_heart_rate:.0f} bpm")
 
-        # Add duration
         lines.append(f"- Duration: {duration_minutes} minutes")
 
-        # Add notes if present
         notes = workout.get("notes")
         if notes:
             lines.append(f"\n{notes}")
 
         return "\n".join(lines)
 
+    def _build_activity_summary(self, record: dict[str, Any]) -> str:
+        date = record.get("date", "")
+        lines = [f"**Activity — {date}**"]
+
+        steps = record.get("steps")
+        if steps is not None:
+            lines.append(f"- Steps: {steps:,}")
+
+        active_calories = record.get("activeCalories")
+        if active_calories is not None:
+            lines.append(f"- Active calories: {active_calories:.0f} kcal")
+
+        exercise_minutes = record.get("exerciseMinutes")
+        if exercise_minutes is not None:
+            lines.append(f"- Exercise: {exercise_minutes} minutes")
+
+        stand_hours = record.get("standHours")
+        if stand_hours is not None:
+            lines.append(f"- Stand hours: {stand_hours}")
+
+        distance_meters = record.get("distanceMeters")
+        if distance_meters is not None:
+            km = distance_meters / 1000
+            lines.append(f"- Distance: {km:.2f} km")
+
+        return "\n".join(lines)
+
+    def _build_sleep_summary(self, record: dict[str, Any], total_minutes: int) -> str:
+        date = record.get("date", "")
+        hours = total_minutes // 60
+        mins = total_minutes % 60
+        lines = [f"**Sleep — {date}**"]
+        lines.append(f"- Total sleep: {hours}h {mins}m")
+
+        deep = record.get("deepSleepMinutes")
+        if deep is not None:
+            lines.append(f"- Deep sleep: {deep} minutes")
+
+        rem = record.get("remSleepMinutes")
+        if rem is not None:
+            lines.append(f"- REM sleep: {rem} minutes")
+
+        light = record.get("lightSleepMinutes")
+        if light is not None:
+            lines.append(f"- Light sleep: {light} minutes")
+
+        in_bed = record.get("inBedMinutes")
+        if in_bed is not None:
+            lines.append(f"- In bed: {in_bed} minutes")
+
+        return "\n".join(lines)
+
+    def _build_heart_rate_summary(
+        self,
+        window: list[dict[str, Any]],
+        avg_bpm: float,
+        min_bpm: float,
+        max_bpm: float,
+    ) -> str:
+        lines = ["**Heart Rate**"]
+        lines.append(f"- Avg: {avg_bpm:.0f} bpm")
+        lines.append(f"- Min: {min_bpm:.0f} bpm")
+        lines.append(f"- Max: {max_bpm:.0f} bpm")
+        lines.append(f"- Samples: {len(window)}")
+        return "\n".join(lines)
+
+    def _build_spo2_summary(self, record: dict[str, Any], avg_spo2: float) -> str:
+        date = record.get("date", "")
+        lines = [f"**Blood Oxygen (SpO2) — {date}**"]
+        lines.append(f"- Avg SpO2: {avg_spo2:.1f}%")
+        return "\n".join(lines)
+
+    def _build_mindfulness_summary(
+        self, record: dict[str, Any], duration_minutes: int, session_type: str
+    ) -> str:
+        lines = [f"**{session_type.replace('_', ' ').title()} Session**"]
+        lines.append(f"- Duration: {duration_minutes} minutes")
+        return "\n".join(lines)

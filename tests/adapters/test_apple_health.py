@@ -80,9 +80,9 @@ class TestAppleHealthAdapterProperties:
         assert adapter.poll_strategy == PollStrategy.PULL
 
     def test_normalizer_version_property(self):
-        """normalizer_version property returns '2.0.0'."""
+        """normalizer_version property returns '3.0.0'."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
-        assert adapter.normalizer_version == "2.0.0"
+        assert adapter.normalizer_version == "3.0.0"
 
 
 class TestAppleHealthAdapterFetch:
@@ -92,7 +92,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() yields NormalizedContent for a single workout."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -109,7 +109,7 @@ class TestAppleHealthAdapterFetch:
         results = list(adapter.fetch(""))
         assert len(results) == 1
         assert isinstance(results[0], NormalizedContent)
-        assert results[0].source_id == "running/workout-1"
+        assert results[0].source_id == "apple_health/workout/running/workout-1"
         assert "Running" in results[0].markdown
         assert "250" in results[0].markdown  # Calories
 
@@ -117,7 +117,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() yields NormalizedContent for multiple workouts."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -144,8 +144,8 @@ class TestAppleHealthAdapterFetch:
 
         results = list(adapter.fetch(""))
         assert len(results) == 2
-        assert results[0].source_id == "running/workout-1"
-        assert results[1].source_id == "cycling/workout-2"
+        assert results[0].source_id == "apple_health/workout/running/workout-1"
+        assert results[1].source_id == "apple_health/workout/cycling/workout-2"
 
     def test_fetch_incremental_with_since(self, mock_all_health_endpoints):
         """fetch() passes 'since' query parameter for incremental fetch."""
@@ -175,7 +175,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() produces HealthMetadata that passes model_validate."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -204,7 +204,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() includes health-specific fields in extra_metadata."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -230,7 +230,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() handles null values for optional health fields."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "mindfulness",
@@ -254,32 +254,32 @@ class TestAppleHealthAdapterFetch:
         assert metadata_dict["distance_meters"] is None
         assert metadata_dict["avg_heart_rate_bpm"] is None
 
-    def test_fetch_http_error_raises_all_endpoints_failed(self, mock_all_health_endpoints):
-        """fetch() raises AllEndpointsFailedError when /workouts returns HTTP error."""
-        from context_library.adapters.base import AllEndpointsFailedError
+    def test_fetch_http_error_one_endpoint_raises_partial_fetch_error(self, mock_all_health_endpoints):
+        """fetch() raises PartialFetchError when only /health/workouts returns HTTP error."""
+        from context_library.adapters.base import PartialFetchError
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {}, status_code=500)
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", {}, status_code=500)
 
-        with pytest.raises(AllEndpointsFailedError):
+        with pytest.raises(PartialFetchError):
             list(adapter.fetch(""))
 
-    def test_fetch_invalid_response_schema_raises_all_endpoints_failed(self, mock_all_health_endpoints):
-        """fetch() raises AllEndpointsFailedError when /workouts returns invalid schema."""
-        from context_library.adapters.base import AllEndpointsFailedError
+    def test_fetch_invalid_response_schema_raises_partial_fetch_error(self, mock_all_health_endpoints):
+        """fetch() raises PartialFetchError when /health/workouts returns invalid schema."""
+        from context_library.adapters.base import PartialFetchError
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Return dict instead of list (invalid schema)
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", {"workouts": []})
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", {"workouts": []})
 
-        with pytest.raises(AllEndpointsFailedError):
+        with pytest.raises(PartialFetchError):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_skips_workout(self, mock_all_health_endpoints):
         """fetch() skips and logs workouts with missing required fields."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 # Missing 'activityType'
@@ -301,7 +301,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() skips and logs workouts with missing 'id' field."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 # Missing 'id'
                 "activityType": "running",
@@ -323,7 +323,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() skips and logs workouts with invalid durationSeconds type."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -345,7 +345,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() skips and logs workouts with empty 'id'."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "",  # Empty
                 "activityType": "running",
@@ -367,7 +367,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() skips and logs workouts with empty activityType."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "",  # Empty
@@ -389,7 +389,7 @@ class TestAppleHealthAdapterFetch:
         """fetch() skips malformed workouts and continues to next."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -428,8 +428,8 @@ class TestAppleHealthAdapterFetch:
         results = list(adapter.fetch(""))
         # Should have 2 results, skipping the malformed one in the middle
         assert len(results) == 2
-        assert results[0].source_id == "running/workout-1"
-        assert results[1].source_id == "yoga/workout-3"
+        assert results[0].source_id == "apple_health/workout/running/workout-1"
+        assert results[1].source_id == "apple_health/workout/yoga/workout-3"
 
 
 class TestAppleHealthAdapterImportGuard:
@@ -453,7 +453,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes activity type capitalized."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -474,7 +474,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes calories when available."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -495,7 +495,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown excludes calories when null."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "mindfulness",
@@ -516,7 +516,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes distance in kilometers."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -537,7 +537,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes average heart rate."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -558,7 +558,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes duration in minutes."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -579,7 +579,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown includes notes when present."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -600,7 +600,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """Generated markdown excludes notes when null."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -623,7 +623,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """StructuralHints.has_headings is False (no heading-level markers in markdown)."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-1",
                 "activityType": "running",
@@ -656,7 +656,7 @@ class TestAppleHealthAdapterMarkdownGeneration:
         """StructuralHints.extra_metadata preserves health-specific fields."""
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
-        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-123",
                 "activityType": "running",
@@ -691,6 +691,84 @@ class TestAppleHealthAdapterMarkdownGeneration:
         assert extra["health_type"] == "workout_session"
         assert extra["source_type"] == "apple_health"
 
+
+class TestAppleHealthAdapterHeartRate:
+    """Tests for heart rate windowing and timestamp parsing."""
+
+    def test_fetch_heart_rate_samples_windowed_by_hour(self, mock_all_health_endpoints):
+        """fetch() groups heart rate samples from the same hour into one NormalizedContent."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/heart-rate", [
+            {"timestamp": "2026-03-07 09:10:00 -0500", "bpm": 70.0, "source": "Apple Watch"},
+            {"timestamp": "2026-03-07 09:45:00 -0500", "bpm": 72.0, "source": "Apple Watch"},
+            {"timestamp": "2026-03-07 10:05:00 -0500", "bpm": 80.0, "source": "Apple Watch"},
+        ])
+
+        results = list(adapter.fetch(""))
+        hr_results = [
+            r for r in results
+            if r.structural_hints.extra_metadata.get("health_type") == "heart_rate_series"
+        ]
+        assert len(hr_results) == 2
+
+    def test_fetch_heart_rate_computes_avg_min_max(self, mock_all_health_endpoints):
+        """fetch() computes avg/min/max bpm within each hourly window."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/heart-rate", [
+            {"timestamp": "2026-03-07 09:00:00 -0500", "bpm": 60.0, "source": "Apple Watch"},
+            {"timestamp": "2026-03-07 09:30:00 -0500", "bpm": 80.0, "source": "Apple Watch"},
+            {"timestamp": "2026-03-07 09:50:00 -0500", "bpm": 100.0, "source": "Apple Watch"},
+        ])
+
+        results = list(adapter.fetch(""))
+        hr_results = [
+            r for r in results
+            if r.structural_hints.extra_metadata.get("health_type") == "heart_rate_series"
+        ]
+        assert len(hr_results) == 1
+        meta = hr_results[0].structural_hints.extra_metadata
+        assert meta["avg_bpm"] == pytest.approx(80.0)
+        assert meta["min_bpm"] == pytest.approx(60.0)
+        assert meta["max_bpm"] == pytest.approx(100.0)
+        assert meta["sample_count"] == 3
+
+    def test_fetch_heart_rate_timestamp_with_positive_offset(self, mock_all_health_endpoints):
+        """fetch() parses Apple Health timestamps with positive timezone offset."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/heart-rate", [
+            {"timestamp": "2026-03-07 14:00:00 +0100", "bpm": 65.0, "source": "Apple Watch"},
+        ])
+
+        # Should not raise; positive offset must parse correctly
+        results = list(adapter.fetch(""))
+        hr_results = [
+            r for r in results
+            if r.structural_hints.extra_metadata.get("health_type") == "heart_rate_series"
+        ]
+        assert len(hr_results) == 1
+
+    def test_fetch_heart_rate_metadata_health_type(self, mock_all_health_endpoints):
+        """fetch() produces heart_rate_series HealthMetadata for heart rate windows."""
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        mock_all_health_endpoints.set_response("http://127.0.0.1:7124/health/heart-rate", [
+            {"timestamp": "2026-03-07 09:00:00 -0500", "bpm": 72.0, "source": "Apple Watch"},
+        ])
+
+        results = list(adapter.fetch(""))
+        hr_results = [
+            r for r in results
+            if r.structural_hints.extra_metadata.get("health_type") == "heart_rate_series"
+        ]
+        assert len(hr_results) == 1
+        meta = hr_results[0].structural_hints.extra_metadata
+        assert meta["health_type"] == "heart_rate_series"
+        assert meta["source_type"] == "apple_health"
+        assert meta["date"] == "2026-03-07"
+        assert meta["hour"] == 9
 
 
 class TestAppleHealthAdapterNetworkErrors:

@@ -173,7 +173,14 @@ def mock_all_health_endpoints(mock_httpx_get):
     and only override the ones they care about.
     """
     base_url = "http://127.0.0.1:7124"
-    endpoints = ["/workouts", "/sleep", "/activity", "/hrv", "/spo2", "/mindfulness", "/heart_rate"]
+    endpoints = [
+        "/health/workouts",
+        "/health/activity",
+        "/health/sleep",
+        "/health/spo2",
+        "/health/mindfulness",
+        "/health/heart-rate",
+    ]
 
     for endpoint in endpoints:
         mock_httpx_get.set_response(f"{base_url}{endpoint}", [])
