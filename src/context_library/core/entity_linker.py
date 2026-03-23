@@ -72,7 +72,6 @@ class EntityLinker:
 
         # Step 3-5: For each person chunk, find matching chunks and write links
         total_links_created = 0
-        # (includes cleanup count, not returned separately)
         for chunk_with_context in person_chunks:
             chunk = chunk_with_context.chunk
             try:
