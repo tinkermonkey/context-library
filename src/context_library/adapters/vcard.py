@@ -147,8 +147,8 @@ class VCardAdapter(BaseAdapter):
                 # Build markdown representation of contact
                 markdown = self._build_contact_markdown(metadata)
 
-                # Derive stable contact_id
-                contact_id = self._derive_contact_id(vcard)
+                # Use contact_id from metadata (already derived above)
+                contact_id = metadata.contact_id
 
                 # Yield normalized content
                 yield NormalizedContent(
@@ -188,7 +188,7 @@ class VCardAdapter(BaseAdapter):
         if not isinstance(display_name, str) or not display_name.strip():
             raise ValueError(f"vCard FN must be non-empty string, got: {display_name!r}")
 
-        # Derive contact_id (used later but needed for logging)
+        # Derive contact_id for PeopleMetadata
         contact_id = self._derive_contact_id(vcard)
 
         # Extract optional structured name (N field)
