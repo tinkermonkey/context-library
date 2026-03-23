@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from context_library.core.exceptions import EntityLinkingError
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Domain
 
@@ -99,9 +100,12 @@ class EntityLinker:
                         new_links,
                         len(identifiers),
                     )
+            except EntityLinkingError:
+                raise
             except Exception as e:
-                logger.error("Error linking person chunk %s: %s", chunk.chunk_hash, e, exc_info=True)
-                continue
+                raise EntityLinkingError(
+                    f"Failed to link person chunk {chunk.chunk_hash}: {e}"
+                ) from e
 
         logger.info("Entity linking pass complete: created %d new links", total_links_created)
         return total_links_created
@@ -173,6 +177,9 @@ class EntityLinker:
 
         Returns:
             Number of rows deleted.
+
+        Raises:
+            EntityLinkingError: If cleanup fails for any reason.
         """
         try:
             # Find source_chunk_hashes in entity_links that don't exist as active
@@ -186,6 +193,7 @@ class EntityLinker:
                 total_deleted += deleted
 
             return total_deleted
+        except EntityLinkingError:
+            raise
         except Exception as e:
-            logger.error("Error cleaning up retired person links: %s", e)
-            return 0
+            raise EntityLinkingError(f"Failed to clean up retired person links: {e}") from e

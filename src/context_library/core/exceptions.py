@@ -99,3 +99,13 @@ class AllSourcesFailedError(PipelineError):
     """
 
     pass
+
+
+class EntityLinkingError(PipelineError):
+    """Error during entity linking pass.
+
+    Raised when entity linking fails to complete successfully, including failures
+    during cleanup of retired person links, identifier extraction, or link creation.
+    """
+
+    pass
