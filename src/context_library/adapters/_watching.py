@@ -174,6 +174,8 @@ class FileSystemWatcher:
 
         self._observer.stop()
         self._observer.join(timeout=2)
+        # Clear observer reference to ensure garbage collection can fully release inotify watches
+        self._observer = None
         self._observer_started = False
 
         # Cancel the debounce timer and set stopped flag atomically, BEFORE flushing.
