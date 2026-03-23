@@ -42,12 +42,18 @@ class EntityLinker:
 
         Returns:
             Number of new entity_links rows created.
+
+        Raises:
+            EntityLinkingError: If cleanup fails or any uncaught error occurs.
         """
         # Step 1: Clean up entity_links for retired person chunks BEFORE fetching active chunks
         # This ensures cleanup runs even if all person chunks are retired
-        retired_links_cleaned = self._cleanup_retired_person_links()
-        if retired_links_cleaned > 0:
-            logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
+        try:
+            retired_links_cleaned = self._cleanup_retired_person_links()
+            if retired_links_cleaned > 0:
+                logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
+        except EntityLinkingError:
+            raise
 
         # Step 2: Fetch all active person chunks
         person_chunks, total = self._store.list_chunks(
@@ -70,6 +76,7 @@ class EntityLinker:
             )
 
         # Step 3-5: For each person chunk, find matching chunks and write links
+        # Errors are logged but don't abort the pass for other chunks (per-chunk error isolation)
         total_links_created = 0
         for chunk_with_context in person_chunks:
             chunk = chunk_with_context.chunk
@@ -100,12 +107,14 @@ class EntityLinker:
                         new_links,
                         len(identifiers),
                     )
-            except EntityLinkingError:
-                raise
             except Exception as e:
-                raise EntityLinkingError(
-                    f"Failed to link person chunk {chunk.chunk_hash}: {e}"
-                ) from e
+                logger.warning(
+                    "Failed to link person chunk %s: %s",
+                    chunk.chunk_hash,
+                    e,
+                    exc_info=True,
+                )
+                continue
 
         logger.info("Entity linking pass complete: created %d new links", total_links_created)
         return total_links_created
@@ -193,7 +202,5 @@ class EntityLinker:
                 total_deleted += deleted
 
             return total_deleted
-        except EntityLinkingError:
-            raise
         except Exception as e:
             raise EntityLinkingError(f"Failed to clean up retired person links: {e}") from e

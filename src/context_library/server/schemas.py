@@ -1,5 +1,7 @@
 """Request and response models for the server API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from context_library.storage.models import Domain, StructuralHints
@@ -57,7 +59,7 @@ class WebhookIngestResponse(BaseModel):
     chunks_removed: int
     chunks_unchanged: int
     errors: list[IngestError]
-    entity_linking_status: str | None = None
+    entity_linking_status: Literal["ok", "failed"] | None = None
     entity_linking_error: str | None = None
 
 
@@ -104,7 +106,7 @@ class AppleAdapterResult(BaseModel):
     chunks_removed: int
     chunks_unchanged: int
     errors: list[IngestError]
-    entity_linking_status: str | None = None
+    entity_linking_status: Literal["ok", "failed"] | None = None
     entity_linking_error: str | None = None
 
 
