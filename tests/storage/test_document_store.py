@@ -5008,4 +5008,277 @@ class TestEntityLinks:
             linked = store.get_linked_chunks("source-hash-1")
             assert linked == []
 
-            store.conn.close()
+
+class TestSchemaMigrationV3toV4:
+    """Tests for schema migration from v3 to v4 (people domain and entity_links support)."""
+
+    def _create_v3_database(self, db_path: Path) -> None:
+        """Create a v3 database with some seed data for migration testing."""
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
+        # Set schema version to 3
+        cursor.execute("PRAGMA user_version=3")
+
+        # Create minimal v3 schema (without people domain and entity_links)
+        cursor.execute("""
+            CREATE TABLE adapters (
+                adapter_id          TEXT PRIMARY KEY,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                adapter_type        TEXT NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                config              TEXT,
+                enabled             BOOLEAN NOT NULL DEFAULT 1,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE sources (
+                source_id           TEXT PRIMARY KEY,
+                adapter_id          TEXT NOT NULL,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                origin_ref          TEXT NOT NULL,
+                display_name        TEXT,
+                current_version     INTEGER NOT NULL DEFAULT 0,
+                last_fetched_at     DATETIME,
+                poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                poll_interval_sec   INTEGER,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE source_versions (
+                source_id           TEXT NOT NULL,
+                version             INTEGER NOT NULL,
+                markdown            TEXT NOT NULL,
+                chunk_hashes        TEXT NOT NULL,
+                adapter_id          TEXT NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                fetch_timestamp     DATETIME NOT NULL,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source_id, version),
+                FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE chunks (
+                chunk_hash          TEXT NOT NULL,
+                source_id           TEXT NOT NULL,
+                source_version      INTEGER NOT NULL,
+                chunk_index         INTEGER NOT NULL,
+                content             TEXT NOT NULL,
+                context_header      TEXT,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                adapter_id          TEXT NOT NULL,
+                fetch_timestamp     DATETIME NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                parent_chunk_hash   TEXT,
+                domain_metadata     TEXT,
+                chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                retired_at          DATETIME,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chunk_hash, source_id, source_version),
+                FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                UNIQUE (source_id, source_version, chunk_index)
+            )
+        """)
+
+        # Insert seed data
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES ('test-adapter', 'messages', 'EmailAdapter', '1.0.0')
+        """)
+
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES ('test-source', 'test-adapter', 'messages', 'test://ref', 'pull')
+        """)
+
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES ('test-source', 1, 'Test content', '["abc123"]', 'test-adapter', '1.0.0', CURRENT_TIMESTAMP)
+        """)
+
+        cursor.execute("""
+            INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id,
+                                fetch_timestamp, normalizer_version)
+            VALUES ('abc123', 'test-source', 1, 0, 'Test chunk content', 'messages', 'test-adapter',
+                    CURRENT_TIMESTAMP, '1.0.0')
+        """)
+
+        conn.commit()
+        conn.close()
+
+    def test_migrate_v3_to_v4_creates_entity_links_table(self) -> None:
+        """Test that migration from v3 to v4 creates entity_links table."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database
+            self._create_v3_database(db_path)
+
+            # Trigger migration by opening DocumentStore
+            store = DocumentStore(str(db_path))
+
+            # Verify schema version is now 4
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 4
+
+            # Verify entity_links table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='entity_links'
+            """)
+            assert cursor.fetchone() is not None
+
+            store.close()
+
+    def test_migrate_v3_to_v4_adds_people_domain(self) -> None:
+        """Test that migration adds 'people' to domain CHECK constraints."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database
+            self._create_v3_database(db_path)
+
+            # Trigger migration
+            store = DocumentStore(str(db_path))
+
+            # Verify we can insert a people domain adapter
+            store.register_adapter(
+                AdapterConfig(
+                    adapter_id="people-adapter",
+                    adapter_type="AppleContactsAdapter",
+                    domain=Domain.PEOPLE,
+                    normalizer_version="1.0.0",
+                )
+            )
+
+            # Verify it was inserted
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT domain FROM adapters WHERE adapter_id = ?", ("people-adapter",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "people"
+
+            store.close()
+
+    def test_migrate_v3_to_v4_preserves_existing_data(self) -> None:
+        """Test that migration preserves all existing data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database with seed data
+            self._create_v3_database(db_path)
+
+            # Trigger migration
+            store = DocumentStore(str(db_path))
+
+            # Verify seed data is intact
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT adapter_id, domain FROM adapters WHERE adapter_id = ?", ("test-adapter",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "test-adapter"
+            assert result[1] == "messages"
+
+            cursor.execute("SELECT source_id FROM sources WHERE source_id = ?", ("test-source",))
+            result = cursor.fetchone()
+            assert result is not None
+
+            cursor.execute("SELECT chunk_hash, content FROM chunks WHERE chunk_hash = ?", ("abc123",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[1] == "Test chunk content"
+
+            store.close()
+
+    def test_migrate_v3_to_v4_idempotent(self) -> None:
+        """Test that migration is idempotent (v4 DB not re-migrated)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store1 = DocumentStore(str(db_path))
+            store1.close()
+
+            # Open again - should not attempt re-migration
+            store2 = DocumentStore(str(db_path))
+
+            cursor = store2.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 4
+
+            # Verify entity_links table still exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='entity_links'
+            """)
+            assert cursor.fetchone() is not None
+
+            store2.close()
+
+    def test_migrate_v3_to_v4_entity_links_schema(self) -> None:
+        """Test that entity_links table has correct schema after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store = DocumentStore(str(db_path))
+
+            # Get entity_links table info
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA table_info(entity_links)")
+            columns = cursor.fetchall()
+
+            # Verify columns exist
+            column_names = [col[1] for col in columns]
+            assert "source_chunk_hash" in column_names
+            assert "target_chunk_hash" in column_names
+            assert "link_type" in column_names
+            assert "confidence" in column_names
+            assert "created_at" in column_names
+
+            store.close()
+
+    def test_migrate_v3_to_v4_entity_links_has_indices(self) -> None:
+        """Test that after migration, entity_links table has proper indices."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store = DocumentStore(str(db_path))
+
+            # Get indices on entity_links table
+            cursor = store.conn.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='index' AND tbl_name='entity_links'
+            """)
+            indices = [row[0] for row in cursor.fetchall()]
+
+            # Verify indices exist for efficient querying
+            assert len(indices) > 0
+            # Should have indices on source and target for efficient lookups
+            index_names = [idx.lower() for idx in indices]
+            assert any('source' in idx for idx in index_names)
+            assert any('target' in idx for idx in index_names)
+
+            store.close()
