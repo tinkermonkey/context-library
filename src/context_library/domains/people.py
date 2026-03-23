@@ -31,6 +31,45 @@ class PeopleDomain(BaseDomain):
         """
         super().__init__(hard_limit)
 
+    @staticmethod
+    def build_contact_markdown(metadata: PeopleMetadata) -> str:
+        """Build markdown representation of a contact.
+
+        Generates human-readable prose markdown from contact metadata.
+        This is the canonical formatter for all people domain adapters.
+
+        Args:
+            metadata: Extracted PeopleMetadata
+
+        Returns:
+            Markdown string representation
+        """
+        parts = []
+
+        # Build professional title/organization summary
+        if metadata.organization and metadata.job_title:
+            parts.append(f"{metadata.display_name} is a {metadata.job_title} at {metadata.organization}.")
+        elif metadata.organization:
+            parts.append(f"{metadata.display_name} works at {metadata.organization}.")
+        elif metadata.job_title:
+            parts.append(f"{metadata.display_name} is a {metadata.job_title}.")
+        else:
+            parts.append(f"{metadata.display_name}.")
+
+        # Add email addresses if present
+        if metadata.emails:
+            parts.append(f"Email addresses: {', '.join(metadata.emails)}.")
+
+        # Add phone numbers if present
+        if metadata.phones:
+            parts.append(f"Phone numbers: {', '.join(metadata.phones)}.")
+
+        # Add notes if present
+        if metadata.notes:
+            parts.append(f"Notes: {metadata.notes}")
+
+        return "\n".join(parts)
+
     def chunk(self, content: NormalizedContent) -> list[Chunk]:
         """Split contact content into semantically coherent chunks.
 
