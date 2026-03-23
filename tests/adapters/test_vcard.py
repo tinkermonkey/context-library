@@ -267,7 +267,7 @@ END:VCARD"""
         assert results[0].source_id == "unique-id-12345"
 
     def test_fetch_without_uid_uses_hash(self, tmp_path):
-        """fetch() uses deterministic hash when UID is missing."""
+        """fetch() uses deterministic UUID when UID is missing."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
         vcard_content = """BEGIN:VCARD
@@ -281,13 +281,14 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         source_id = results[0].source_id
 
-        # Verify it's a SHA-256 hash (64 hex chars)
-        assert len(source_id) == 64
-        assert all(c in "0123456789abcdef" for c in source_id)
+        # Verify it's a UUID (36 chars: 8-4-4-4-12 with hyphens)
+        assert len(source_id) == 36
+        # UUID format check: 8 hex, dash, 4 hex, dash, 4 hex, dash, 4 hex, dash, 12 hex
+        assert source_id.count("-") == 4
 
-        # Verify it's deterministic
-        expected_hash = hashlib.sha256("Jane Smith:jane@example.com".encode()).hexdigest()
-        assert source_id == expected_hash
+        # Verify it's deterministic by rescanning
+        results_rescan = list(adapter.fetch(""))
+        assert results_rescan[0].source_id == source_id
 
     def test_fetch_without_uid_without_email_still_stable(self, tmp_path):
         """fetch() generates stable ID even without email."""
@@ -303,9 +304,9 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         source_id = results[0].source_id
 
-        # Should be a valid hash
-        assert len(source_id) == 64
-        assert all(c in "0123456789abcdef" for c in source_id)
+        # Should be a valid UUID
+        assert len(source_id) == 36
+        assert source_id.count("-") == 4
 
     def test_fetch_directory_not_found(self):
         """fetch() raises FileNotFoundError if vcf_directory doesn't exist."""
@@ -537,3 +538,134 @@ END:VCARD"""
         source_id_2 = results2[0].source_id
 
         assert source_id_1 == source_id_2
+
+    def test_name_change_preserves_contact_id(self, tmp_path):
+        """Contact ID remains stable even if display name or email changes.
+
+        This tests the core fix for identity instability: if a contact's name
+        or first email changes, the ID should remain constant to preserve entity
+        links and prevent duplicate person chunks.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Initial vCard
+        vcard_content_v1 = """BEGIN:VCARD
+VERSION:3.0
+FN:John Smith
+EMAIL:john@example.com
+END:VCARD"""
+
+        vcard_file = self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content_v1)
+
+        # First scan
+        results1 = list(adapter.fetch(""))
+        original_id = results1[0].source_id
+
+        # Simulate contact name change (updating the vCard)
+        vcard_content_v2 = """BEGIN:VCARD
+VERSION:3.0
+FN:John Q Smith
+EMAIL:john@example.com
+END:VCARD"""
+
+        vcard_file.write_text(vcard_content_v2, encoding="utf-8")
+
+        # Rescan after name change
+        results2 = list(adapter.fetch(""))
+        new_id = results2[0].source_id
+
+        # ID should remain stable across name change
+        assert original_id == new_id
+
+    def test_email_change_preserves_contact_id(self, tmp_path):
+        """Contact ID remains stable even if email changes.
+
+        Tests that email changes don't invalidate the contact identity, preserving
+        entity links from old email addresses.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Initial vCard with email
+        vcard_content_v1 = """BEGIN:VCARD
+VERSION:3.0
+FN:Jane Doe
+EMAIL:jane.old@example.com
+END:VCARD"""
+
+        vcard_file = self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content_v1)
+
+        # First scan
+        results1 = list(adapter.fetch(""))
+        original_id = results1[0].source_id
+
+        # Simulate email change
+        vcard_content_v2 = """BEGIN:VCARD
+VERSION:3.0
+FN:Jane Doe
+EMAIL:jane.new@example.com
+END:VCARD"""
+
+        vcard_file.write_text(vcard_content_v2, encoding="utf-8")
+
+        # Rescan after email change
+        results2 = list(adapter.fetch(""))
+        new_id = results2[0].source_id
+
+        # ID should remain stable across email change
+        assert original_id == new_id
+
+    def test_no_collision_for_same_name_without_email(self, tmp_path):
+        """Two contacts with same name and no email get different IDs.
+
+        Tests the collision problem: previously, contacts with same name
+        and no email would collide to the same identity.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Two contacts with same name, no email
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Common Name
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Common Name
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 2
+
+        # IDs should be different despite having same name
+        id1 = results[0].source_id
+        id2 = results[1].source_id
+
+        assert id1 != id2
+
+    def test_separate_files_prevent_collision(self, tmp_path):
+        """Same contact name in different files gets different IDs.
+
+        Tests that using file path + index for ID generation prevents
+        collisions between identical contact names in different files.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Same Name
+EMAIL:same@example.com
+END:VCARD"""
+
+        # Create same contact in two different files
+        self._create_vcard_file(tmp_path, "file1.vcf", vcard_content)
+        self._create_vcard_file(tmp_path, "file2.vcf", vcard_content)
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 2
+
+        # IDs should be different due to different file paths
+        id1 = results[0].source_id
+        id2 = results[1].source_id
+
+        assert id1 != id2

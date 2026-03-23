@@ -18,6 +18,7 @@ This adapter uses the vobject library for RFC 6350-compliant parsing.
 
 import hashlib
 import logging
+import uuid
 from pathlib import Path
 from typing import Iterator
 
@@ -131,10 +132,10 @@ class VCardAdapter(BaseAdapter):
 
             # Parse vCard components from file
             # vobject.readComponents returns an iterator of vCard component objects
-            for vcard in vobject.readComponents(content):
+            for contact_index, vcard in enumerate(vobject.readComponents(content)):
                 # Extract contact metadata and build normalized content
-                # Errors propagate to caller for visibility
-                metadata = self._extract_people_metadata(vcard)
+                # Pass file path and index for deterministic UID generation
+                metadata = self._extract_people_metadata(vcard, vcf_file, contact_index)
 
                 # Build structural hints with metadata
                 hints = StructuralHints(
@@ -159,7 +160,7 @@ class VCardAdapter(BaseAdapter):
                     normalizer_version=self.normalizer_version,
                 )
 
-    def _extract_people_metadata(self, vcard) -> PeopleMetadata:
+    def _extract_people_metadata(self, vcard, vcf_file: Path = None, contact_index: int = 0) -> PeopleMetadata:
         """Extract PeopleMetadata from a vCard component.
 
         Parses vCard fields per RFC 6350:
@@ -173,6 +174,8 @@ class VCardAdapter(BaseAdapter):
 
         Args:
             vcard: vobject component representing a vCard
+            vcf_file: Path to the vCard file (for deterministic UID generation)
+            contact_index: Index of contact in file (for deterministic UID generation)
 
         Returns:
             PeopleMetadata object with extracted fields
@@ -190,7 +193,7 @@ class VCardAdapter(BaseAdapter):
             raise ValueError(f"vCard FN must be non-empty string, got: {display_name!r}")
 
         # Derive contact_id for PeopleMetadata
-        contact_id = self._derive_contact_id(vcard)
+        contact_id = self._derive_contact_id(vcard, vcf_file, contact_index)
 
         # Extract optional structured name (N field)
         given_name = None
@@ -255,38 +258,53 @@ class VCardAdapter(BaseAdapter):
             source_type="vcard",
         )
 
-    def _derive_contact_id(self, vcard) -> str:
+    def _derive_contact_id(self, vcard, vcf_file: Path = None, contact_index: int = 0) -> str:
         """Derive a stable contact identifier from vCard.
 
-        Uses UID if present, otherwise generates deterministic hash from
-        FN + first EMAIL for stable re-ingestion identity.
+        Uses UID if present. For vCards without UID, generates a deterministic
+        UUID5 based on file location and contact position, independent of
+        mutable contact data (name, email).
+
+        This approach prevents identity instability: if a contact's name or
+        email changes, the contact_id remains constant, preserving entity links
+        and preventing duplicate person chunks. Additionally, it prevents
+        collisions between different contacts that have the same name.
 
         Args:
             vcard: vobject component representing a vCard
+            vcf_file: Path to the vCard file (for deterministic UUID generation)
+            contact_index: Index of contact in file (for deterministic UUID generation)
 
         Returns:
-            Stable contact identifier (UUID or SHA-256 hash)
+            Stable contact identifier (UUID string)
 
         Raises:
-            ValueError: If FN field is missing (needed for fallback)
+            ValueError: If UID derivation fails due to missing required fields
         """
-        # Prefer UID if present
+        # Prefer UID if present (most stable, from vCard itself)
         if hasattr(vcard, "uid"):
             uid_value = vcard.uid.value
             if isinstance(uid_value, str):
                 return uid_value
             return str(uid_value)
 
-        # Fallback: deterministic hash of FN + first EMAIL
-        if not hasattr(vcard, "fn"):
-            raise ValueError("vCard missing FN field for identity derivation")
+        # Fallback: Generate deterministic UUID from file path + contact index
+        # This ensures stable identity across re-ingests without depending on
+        # mutable fields like name or email, and avoids collisions between
+        # different contacts with the same name.
+        if vcf_file is None:
+            # If file info not provided, use a generated UUID for backward compatibility
+            # This should rarely happen in normal operation
+            return str(uuid.uuid4())
 
-        fn = vcard.fn.value
-        emails = vcard.contents.get("email", [])
-        first_email = emails[0].value if emails else ""
+        # Create a deterministic namespace identifier from:
+        # 1. Absolute file path (immutable across re-ingests)
+        # 2. Contact index in file (immutable once file is written)
+        namespace_key = f"file://{vcf_file.resolve()}#{contact_index}"
 
-        raw = f"{fn}:{first_email}"
-        return hashlib.sha256(raw.encode()).hexdigest()
+        # Use UUID5 (deterministic SHA-1 based UUID) with URL namespace
+        # This ensures the same file + position always generates the same UUID
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, namespace_key))
 
     def _build_contact_markdown(self, metadata: PeopleMetadata) -> str:
         """Build markdown representation of a contact.
