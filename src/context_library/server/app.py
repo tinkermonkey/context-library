@@ -110,6 +110,19 @@ async def lifespan(app: FastAPI):
                 e
             )
 
+        # AppleContactsAdapter
+        try:
+            from context_library.adapters.apple_contacts import AppleContactsAdapter
+            helper_adapters.append(AppleContactsAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleContactsAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleContactsAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
         if config.helper_filesystem_enabled:
             try:
                 from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
