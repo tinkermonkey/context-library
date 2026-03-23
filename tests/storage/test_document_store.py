@@ -18,6 +18,7 @@ Covers:
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import cast, Generator
 
 import pytest
@@ -4681,3 +4682,330 @@ class TestGetAdapterStats:
         # Should now have 1 active chunk
         stats = store.get_adapter_stats()
         assert stats[0]["active_chunk_count"] == 1
+
+
+class TestEntityLinks:
+    """Tests for entity_links table and DocumentStore methods."""
+
+    def _setup_with_chunks(self, store: DocumentStore, chunk_hashes: list[str]) -> None:
+        """Helper to set up test database with chunks for entity link FK constraints.
+
+        Note: Disables FK constraints because chunk_hash is part of a composite PK in chunks
+        table, and we need to insert test data without meeting all PK requirements.
+        """
+        cursor = store.conn.cursor()
+
+        # Disable FK constraints for test data setup
+        # (entity_links has FK to chunks which has composite PK: (chunk_hash, source_id, source_version))
+        cursor.execute("PRAGMA foreign_keys=OFF")
+
+        # Create adapter
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES (?, ?, ?, ?)
+        """, ("test-adapter", "people", "test_adapter", "1.0"))
+
+        # Create source
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("test-source", "test-adapter", "people", "test-origin", "push"))
+
+        # Create source version
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("test-source", 1, "test", ",".join(chunk_hashes), "test-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+        # Create chunks
+        for idx, hash_val in enumerate(chunk_hashes):
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (hash_val, "test-source", 1, idx, f"Content {idx}", "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+        store.conn.commit()
+        # Keep FK constraints OFF for entity link tests since they have circular or composite FK refs
+
+    def test_write_entity_links_single_link(self) -> None:
+        """Test writing a single entity link."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+
+            # Write a single link
+            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            count = store.write_entity_links(links)
+            assert count == 1
+
+            # Verify it was written
+            cursor = store.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM entity_links
+                WHERE source_chunk_hash = 'source-hash-1' AND target_chunk_hash = 'target-hash-1'
+            """)
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["link_type"] == "person_appearance"
+            assert row["confidence"] == 1.0
+
+            store.conn.close()
+
+    def test_write_entity_links_multiple_links(self) -> None:
+        """Test writing multiple entity links at once."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "source-hash-2", "target-hash-1", "target-hash-2"])
+
+            # Write multiple links
+            links = [
+                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                ("source-hash-1", "target-hash-2", "person_appearance", 0.95),
+                ("source-hash-2", "target-hash-1", "mention", 0.8),
+            ]
+            count = store.write_entity_links(links)
+            assert count == 3
+
+            # Verify all were written
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 3
+
+            store.conn.close()
+
+    def test_write_entity_links_idempotency(self) -> None:
+        """Test that writing the same link twice via INSERT OR IGNORE enforces idempotency."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+
+            # Write a link
+            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            count1 = store.write_entity_links(links)
+            assert count1 == 1
+
+            # Write the same link again (idempotency)
+            count2 = store.write_entity_links(links)
+            assert count2 == 0  # No new rows inserted
+
+            # Verify only one row exists
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 1
+
+            store.conn.close()
+
+    def test_write_entity_links_empty_list(self) -> None:
+        """Test that writing an empty list of links succeeds with count 0."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Write empty list
+            count = store.write_entity_links([])
+            assert count == 0
+
+            # Verify no rows written
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 0
+
+            store.conn.close()
+
+    def test_get_linked_chunks_single_direction(self) -> None:
+        """Test getting linked chunks in a single direction."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+
+            # Write links
+            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            store.write_entity_links(links)
+
+            # Get linked chunks from source
+            linked = store.get_linked_chunks("source-hash-1")
+            assert "target-hash-1" in linked
+
+            # Get linked chunks from target (bidirectional)
+            linked = store.get_linked_chunks("target-hash-1")
+            assert "source-hash-1" in linked
+
+            store.conn.close()
+
+    def test_get_linked_chunks_with_link_type_filter(self) -> None:
+        """Test getting linked chunks with link_type filter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1", "target-hash-2"])
+
+            # Write links with different types
+            links = [
+                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                ("source-hash-1", "target-hash-2", "mention", 0.95),
+            ]
+            store.write_entity_links(links)
+
+            # Filter by link_type
+            linked = store.get_linked_chunks("source-hash-1", link_type="person_appearance")
+            assert "target-hash-1" in linked
+            assert "target-hash-2" not in linked
+
+            linked = store.get_linked_chunks("source-hash-1", link_type="mention")
+            assert "target-hash-2" in linked
+            assert "target-hash-1" not in linked
+
+            store.conn.close()
+
+    def test_get_linked_chunks_no_results(self) -> None:
+        """Test getting linked chunks when no links exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Query non-existent chunk
+            linked = store.get_linked_chunks("nonexistent-hash")
+            assert linked == []
+
+            # Query with link_type filter on non-existent chunk
+            linked = store.get_linked_chunks("nonexistent-hash", link_type="person_appearance")
+            assert linked == []
+
+            store.conn.close()
+
+    def test_get_linked_chunks_bidirectional(self) -> None:
+        """Test that get_linked_chunks returns links in both directions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["hash-a", "hash-b", "hash-c"])
+
+            # Write bidirectional links
+            links = [
+                ("hash-a", "hash-b", "coappearance", 1.0),
+                ("hash-b", "hash-c", "coappearance", 1.0),
+            ]
+            store.write_entity_links(links)
+
+            # hash-b should be linked to both hash-a (as target) and hash-c (as source)
+            linked = store.get_linked_chunks("hash-b")
+            assert "hash-a" in linked
+            assert "hash-c" in linked
+            assert len(linked) == 2
+
+            store.conn.close()
+
+    def test_delete_entity_links_for_chunk(self) -> None:
+        """Test deleting entity links for a given chunk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "source-hash-2", "target-hash-1", "target-hash-2"])
+
+            # Write links
+            links = [
+                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                ("source-hash-1", "target-hash-2", "mention", 0.95),
+                ("source-hash-2", "target-hash-1", "mention", 0.8),
+            ]
+            store.write_entity_links(links)
+
+            # Delete links for source-hash-1
+            deleted_count = store.delete_entity_links_for_chunk("source-hash-1")
+            assert deleted_count == 2
+
+            # Verify source-hash-1 has no linked chunks
+            linked = store.get_linked_chunks("source-hash-1")
+            assert linked == []
+
+            # Verify other links still exist
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 1
+
+            store.conn.close()
+
+    def test_delete_entity_links_bidirectional(self) -> None:
+        """Test that delete_entity_links_for_chunk removes links in both directions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["hash-a", "hash-b", "hash-c"])
+
+            # Write links
+            links = [
+                ("hash-a", "hash-b", "coappearance", 1.0),
+                ("hash-b", "hash-c", "coappearance", 1.0),
+            ]
+            store.write_entity_links(links)
+
+            # Delete links for hash-b (both as source and target)
+            deleted_count = store.delete_entity_links_for_chunk("hash-b")
+            assert deleted_count == 2
+
+            # Verify hash-b has no linked chunks
+            linked = store.get_linked_chunks("hash-b")
+            assert linked == []
+
+            # Verify hash-a and hash-c are no longer linked
+            linked_a = store.get_linked_chunks("hash-a")
+            assert linked_a == []
+            linked_c = store.get_linked_chunks("hash-c")
+            assert linked_c == []
+
+            store.conn.close()
+
+    def test_delete_entity_links_nonexistent_chunk(self) -> None:
+        """Test deleting entity links for a non-existent chunk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up minimal chunks (needed to avoid FK mismatch errors)
+            self._setup_with_chunks(store, [])
+
+            # Delete links for non-existent chunk should return 0
+            deleted_count = store.delete_entity_links_for_chunk("nonexistent-hash")
+            assert deleted_count == 0
+
+            store.conn.close()
+
+    def test_get_linked_chunks_after_delete(self) -> None:
+        """Test that get_linked_chunks returns empty after delete_entity_links_for_chunk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+
+            # Write and delete links
+            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            store.write_entity_links(links)
+            store.delete_entity_links_for_chunk("source-hash-1")
+
+            # Verify get_linked_chunks returns empty
+            linked = store.get_linked_chunks("source-hash-1")
+            assert linked == []
+
+            store.conn.close()
