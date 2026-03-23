@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -68,7 +69,7 @@ async def webhook_ingest(
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {type(e).__name__}: {e}")
 
     # Run entity linking pass if People domain ingestion completed successfully
-    entity_linking_status = None
+    entity_linking_status: Literal["ok", "failed"] | None = None
     entity_linking_error = None
     if payload.domain == Domain.PEOPLE and result["sources_failed"] == 0:
         try:
@@ -140,7 +141,7 @@ async def helper_ingest(
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
             # Run entity linking pass if People domain ingestion completed successfully
-            entity_linking_status = None
+            entity_linking_status: Literal["ok", "failed"] | None = None
             entity_linking_error = None
             if adapter.domain == Domain.PEOPLE and result["sources_failed"] == 0:
                 try:
