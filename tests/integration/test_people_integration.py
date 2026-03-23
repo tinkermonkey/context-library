@@ -3,10 +3,8 @@
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, AsyncMock
-import pytest
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.apple_contacts import AppleContactsAdapter
-from context_library.core.entity_linker import EntityLinker
 
 
 class TestPeopleDomainIntegration:
@@ -89,40 +87,31 @@ class TestPeopleDomainIntegration:
 
     def test_people_adapter_creates_people_domain_chunks(self) -> None:
         """Test that AppleContactsAdapter properly creates people domain chunks."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = str(Path(tmpdir) / "test.db")
-            store = DocumentStore(db_path)
+        # Mock AppleContactsAdapter fetch to return contact data
+        mock_contacts = [
+            {
+                "id": "contact1",
+                "display_name": "Alice Smith",
+                "emails": ["alice@example.com"],
+                "phones": ["+15551234567"],
+                "organization": "Acme Corp",
+                "source_type": "apple_contacts"
+            }
+        ]
 
-            try:
-                # Mock AppleContactsAdapter fetch to return contact data
-                mock_contacts = [
-                    {
-                        "id": "contact1",
-                        "display_name": "Alice Smith",
-                        "emails": ["alice@example.com"],
-                        "phones": ["+15551234567"],
-                        "organization": "Acme Corp",
-                        "source_type": "apple_contacts"
-                    }
-                ]
+        # Create mock adapter and verify it's configured for people domain
+        with patch.object(AppleContactsAdapter, 'fetch', new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_contacts
 
-                # Create mock adapter and verify it's configured for people domain
-                with patch.object(AppleContactsAdapter, 'fetch', new_callable=AsyncMock) as mock_fetch:
-                    mock_fetch.return_value = mock_contacts
+            adapter = AppleContactsAdapter(
+                api_url="http://localhost:7123",
+                api_key="test-key",
+                account_id="test-account"
+            )
 
-                    adapter = AppleContactsAdapter(
-                        api_url="http://localhost:7123",
-                        api_key="test-key",
-                        account_id="test-account"
-                    )
-
-                    # Verify adapter domain is 'people'
-                    assert adapter.domain == "people"
-                    assert adapter.adapter_id is not None
-                    assert adapter.domain == "people"
-
-            finally:
-                store.close()
+            # Verify adapter domain is 'people'
+            assert adapter.domain == "people"
+            assert adapter.adapter_id is not None
 
     def test_domain_filter_returns_only_people_chunks(self) -> None:
         """Test that domain filter correctly returns only people chunks."""
