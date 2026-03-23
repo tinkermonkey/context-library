@@ -280,7 +280,7 @@ class FileSystemWatcher:
                 # Thread died, mark as failed
                 self._watchfiles_failed = True
                 logger.warning(
-                    f"watchfiles thread exited unexpectedly, resource exhaustion likely"
+                    "watchfiles thread exited unexpectedly, resource exhaustion likely"
                 )
                 return
             # Give thread time to initialize
