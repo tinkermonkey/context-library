@@ -612,8 +612,8 @@ class DocumentStore:
             cursor.execute("""
                 CREATE TABLE entity_links (
                     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
-                    target_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
+                    source_chunk_hash   TEXT NOT NULL,
+                    target_chunk_hash   TEXT NOT NULL,
                     link_type           TEXT NOT NULL,
                     confidence          REAL NOT NULL DEFAULT 1.0,
                     created_at          TEXT NOT NULL,
