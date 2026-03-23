@@ -48,12 +48,9 @@ class EntityLinker:
         """
         # Step 1: Clean up entity_links for retired person chunks BEFORE fetching active chunks
         # This ensures cleanup runs even if all person chunks are retired
-        try:
-            retired_links_cleaned = self._cleanup_retired_person_links()
-            if retired_links_cleaned > 0:
-                logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
-        except EntityLinkingError:
-            raise
+        retired_links_cleaned = self._cleanup_retired_person_links()
+        if retired_links_cleaned > 0:
+            logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
 
         # Step 2: Fetch all active person chunks
         person_chunks, total = self._store.list_chunks(
