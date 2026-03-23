@@ -5007,6 +5007,7 @@ class TestEntityLinks:
             # Verify get_linked_chunks returns empty
             linked = store.get_linked_chunks("source-hash-1")
             assert linked == []
+            store.conn.close()
 
 
 class TestSchemaMigrationV3toV4:
@@ -5203,6 +5204,12 @@ class TestSchemaMigrationV3toV4:
             result = cursor.fetchone()
             assert result is not None
             assert result[1] == "Test chunk content"
+
+            cursor.execute("SELECT source_id, version FROM source_versions WHERE source_id = ?", ("test-source",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "test-source"
+            assert result[1] == 1
 
             store.close()
 
