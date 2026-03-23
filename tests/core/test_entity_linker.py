@@ -4,18 +4,13 @@ import pytest
 import sys
 from pathlib import Path
 
-# Import from root conftest
-conftest_path = Path(__file__).parent.parent / "conftest.py"
-sys.path.insert(0, str(conftest_path.parent))
-
 from context_library.core.entity_linker import EntityLinker
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain
 
-# Import shared test helpers from root conftest
-import conftest
-make_sha256_hash = conftest.make_sha256_hash
-setup_chunk_in_store = conftest.setup_chunk_in_store
+# Add parent directory to sys.path to allow importing helpers module
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from helpers import make_sha256_hash, setup_chunk_in_store
 
 
 @pytest.fixture

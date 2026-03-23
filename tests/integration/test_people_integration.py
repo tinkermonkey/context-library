@@ -15,12 +15,9 @@ from context_library.storage.models import Domain, Chunk
 from context_library.adapters.apple_contacts import AppleContactsAdapter
 from context_library.domains.people import PeopleDomain
 
-# Import shared test helpers from root conftest
-conftest_path = Path(__file__).parent.parent / "conftest.py"
-sys.path.insert(0, str(conftest_path.parent))
-import conftest
-make_sha256_hash = conftest.make_sha256_hash
-setup_chunk_in_store = conftest.setup_chunk_in_store
+# Add parent directory to sys.path to allow importing helpers module
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from helpers import make_sha256_hash, setup_chunk_in_store
 
 # Guard heavy imports that pull in sentence_transformers (ML stack)
 pytest.importorskip("sentence_transformers")
