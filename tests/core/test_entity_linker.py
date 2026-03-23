@@ -31,7 +31,11 @@ def setup_chunk_in_store(
     domain: Domain,
     version: int = 1,
 ) -> None:
-    """Helper to set up chunks in the store with all required metadata."""
+    """Helper to set up chunks in the store with all required metadata.
+
+    Note: Chunks passed in a list must have distinct chunk_index values due to
+    the UNIQUE constraint on (source_id, source_version, chunk_index).
+    """
     # Normalize input to list
     chunks = chunk_or_chunks if isinstance(chunk_or_chunks, list) else [chunk_or_chunks]
 
@@ -48,8 +52,12 @@ def setup_chunk_in_store(
         # Already registered
         pass
 
-    # Register source
-    store.register_source(source_id, adapter_id, domain, "")
+    # Register source if not already registered
+    try:
+        store.register_source(source_id, adapter_id, domain, "")
+    except Exception:
+        # Already registered
+        pass
 
     # Create source version
     chunk_hashes = [ch.chunk_hash for ch in chunks]
@@ -263,19 +271,19 @@ class TestEntityLinkerFindMatchingChunks:
         chunk_sender = Chunk(
             chunk_hash=chunk_sender_hash,
             content="From sender",
-            chunk_index=0,
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "alice@example.com"},
         )
         chunk_host = Chunk(
             chunk_hash=chunk_host_hash,
             content="Host alice",
-            chunk_index=1,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={"host": "alice@example.com"},
         )
         chunk_author = Chunk(
             chunk_hash=chunk_author_hash,
             content="Author alice",
-            chunk_index=2,
+            chunk_index=2,  # Distinct index required for UNIQUE constraint
             domain_metadata={"author": "alice@example.com"},
         )
 
@@ -325,29 +333,8 @@ class TestEntityLinkerRun:
             domain_metadata={"sender": "alice@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version("people_source", 1, "people markdown", list({person_chunk.chunk_hash}), "people_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-        doc_store.create_source_version("msg_source", 1, "msg markdown", list({msg_chunk.chunk_hash}), "msg_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-
-        doc_store.write_chunks([person_chunk, msg_chunk], [])
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
         new_links = linker.run()
@@ -381,29 +368,8 @@ class TestEntityLinkerRun:
             domain_metadata={"sender": "bob@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version("people_source", 1, "people markdown", list({person_chunk.chunk_hash}), "people_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-        doc_store.create_source_version("msg_source", 1, "msg markdown", list({msg_chunk.chunk_hash}), "msg_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-
-        doc_store.write_chunks([person_chunk, msg_chunk], [])
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
         first_run = linker.run()
@@ -441,57 +407,33 @@ class TestEntityLinkerRun:
         msg_chunk1 = Chunk(
             chunk_hash=msg_work_hash,
             content="Work email from Charlie",
-            chunk_index=0,
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "charlie.work@company.com"},
         )
 
         msg_chunk2 = Chunk(
             chunk_hash=msg_personal_hash,
             content="Personal email from Charlie",
-            chunk_index=0,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "charlie.personal@example.com"},
         )
 
         msg_chunk3 = Chunk(
             chunk_hash=msg_phone_hash,
             content="Phone call from Charlie",
-            chunk_index=0,
+            chunk_index=2,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "+1-555-1234"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version(
-            people_source,
-            "people markdown",
-            {person_chunk.chunk_hash},
-            "people_adapter",
-        )
-        doc_store.create_source_version(
-            msg_source,
-            "msg markdown",
-            {msg_chunk1.chunk_hash, msg_chunk2.chunk_hash, msg_chunk3.chunk_hash},
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(
+            doc_store,
+            [msg_chunk1, msg_chunk2, msg_chunk3],
             "msg_adapter",
+            "test",
+            "msg_source",
+            Domain.MESSAGES,
         )
-
-        doc_store.write_chunks([person_chunk, msg_chunk1, msg_chunk2, msg_chunk3], [])
 
         linker = EntityLinker(doc_store)
         new_links = linker.run()
@@ -527,29 +469,8 @@ class TestEntityLinkerRun:
             domain_metadata={"sender": "dave@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version("people_source", 1, "people markdown", list({person_chunk.chunk_hash}), "people_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-        doc_store.create_source_version("msg_source", 1, "msg markdown", list({msg_chunk.chunk_hash}), "msg_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-
-        doc_store.write_chunks([person_chunk, msg_chunk], [])
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
         linker.run()
@@ -595,29 +516,8 @@ class TestEntityLinkerRun:
             domain_metadata={"sender": "eve@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version("people_source", 1, "people markdown", list({person_chunk.chunk_hash}), "people_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-        doc_store.create_source_version("msg_source", 1, "msg markdown", list({msg_chunk.chunk_hash}), "msg_adapter", "1.0.0", "2024-01-01T00:00:00Z")
-
-        doc_store.write_chunks([person_chunk, msg_chunk], [])
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
         linker.run()
@@ -625,7 +525,7 @@ class TestEntityLinkerRun:
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash)
         assert msg_chunk.chunk_hash in linked
 
-        doc_store.retire_chunks([person_chunk.chunk_hash], "people_source", 1)
+        doc_store.retire_chunks({person_chunk.chunk_hash}, "people_source", 1)
         linker.run()
 
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash)
@@ -642,7 +542,7 @@ class TestEntityLinkerRun:
             chunk_hash=person_frank_hash,
             content="Contact Frank",
             context_header="Contact",
-            chunk_index=0,
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
             domain_metadata={
                 "contact_id": "contact_frank",
                 "display_name": "Frank",
@@ -655,7 +555,7 @@ class TestEntityLinkerRun:
             chunk_hash=person_grace_hash,
             content="Contact Grace",
             context_header="Contact",
-            chunk_index=0,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={
                 "contact_id": "contact_grace",
                 "display_name": "Grace",
@@ -667,50 +567,33 @@ class TestEntityLinkerRun:
         msg_chunk_frank = Chunk(
             chunk_hash=msg_frank_hash,
             content="Message from Frank",
-            chunk_index=0,
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "frank@example.com"},
         )
 
         msg_chunk_grace = Chunk(
             chunk_hash=msg_grace_hash,
             content="Message from Grace",
-            chunk_index=0,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "grace@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version(
-            people_source,
-            "people markdown",
-            {person_chunk1.chunk_hash, person_chunk2.chunk_hash},
+        setup_chunk_in_store(
+            doc_store,
+            [person_chunk1, person_chunk2],
             "people_adapter",
+            "test",
+            "people_source",
+            Domain.PEOPLE,
         )
-        doc_store.create_source_version(
-            msg_source,
-            "msg markdown",
-            {msg_chunk_frank.chunk_hash, msg_chunk_grace.chunk_hash},
+        setup_chunk_in_store(
+            doc_store,
+            [msg_chunk_frank, msg_chunk_grace],
             "msg_adapter",
+            "test",
+            "msg_source",
+            Domain.MESSAGES,
         )
-
-        doc_store.write_chunks([person_chunk1, person_chunk2, msg_chunk_frank, msg_chunk_grace], [])
 
         linker = EntityLinker(doc_store)
         new_links = linker.run()
@@ -741,7 +624,7 @@ class TestEntityLinkerIntegration:
             chunk_hash=alice_hash,
             content="Alice contact",
             context_header="Contact",
-            chunk_index=0,
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
             domain_metadata={
                 "contact_id": "alice_id",
                 "display_name": "Alice Smith",
@@ -754,7 +637,7 @@ class TestEntityLinkerIntegration:
             chunk_hash=bob_hash,
             content="Bob contact",
             context_header="Contact",
-            chunk_index=0,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={
                 "contact_id": "bob_id",
                 "display_name": "Bob Jones",
@@ -766,77 +649,64 @@ class TestEntityLinkerIntegration:
         msg1 = Chunk(
             chunk_hash=msg1_hash,
             content="Hi from work",
-            chunk_index=0,
-            domain_metadata={"sender": "alice@work.com", "recipients": ["bob@work.com"]},
+            chunk_index=0,  # Distinct index required for UNIQUE constraint
+            domain_metadata={"sender": "alice@work.com", "recipients": ["bob@work.com"]},  # Matches alice (sender) and bob (recipients)
         )
 
         msg2 = Chunk(
             chunk_hash=msg2_hash,
             content="Hi from home",
-            chunk_index=0,
+            chunk_index=1,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "alice@home.com"},
         )
 
         msg3 = Chunk(
             chunk_hash=msg3_hash,
             content="Scheduled call",
-            chunk_index=0,
+            chunk_index=2,  # Distinct index required for UNIQUE constraint
             domain_metadata={"invitees": ["alice@home.com", "charlie@example.com"]},
         )
 
         msg4 = Chunk(
             chunk_hash=msg4_hash,
             content="Update from Bob",
-            chunk_index=0,
+            chunk_index=3,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "bob@work.com"},
         )
 
         msg5 = Chunk(
             chunk_hash=msg5_hash,
             content="From unknown person",
-            chunk_index=0,
+            chunk_index=4,  # Distinct index required for UNIQUE constraint
             domain_metadata={"sender": "unknown@example.com"},
         )
 
-        people_config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
-        )
-        msg_config = AdapterConfig(
-            adapter_id="msg_adapter",
-            adapter_type="test",
-            domain=Domain.MESSAGES,
-            normalizer_version="1.0.0",
-        )
-
-        doc_store.register_adapter(people_config)
-        doc_store.register_adapter(msg_config)
-
-        people_source = doc_store.register_source("people_adapter", "people_source", Domain.PEOPLE, "")
-        msg_source = doc_store.register_source("msg_adapter", "msg_source", Domain.MESSAGES, "")
-
-        doc_store.create_source_version(
-            people_source,
-            "people markdown",
-            {alice.chunk_hash, bob.chunk_hash},
+        setup_chunk_in_store(
+            doc_store,
+            [alice, bob],
             "people_adapter",
+            "test",
+            "people_source",
+            Domain.PEOPLE,
         )
-        doc_store.create_source_version(
-            msg_source,
-            "msg markdown",
-            {msg1.chunk_hash, msg2.chunk_hash, msg3.chunk_hash, msg4.chunk_hash, msg5.chunk_hash},
+        setup_chunk_in_store(
+            doc_store,
+            [msg1, msg2, msg3, msg4, msg5],
             "msg_adapter",
+            "test",
+            "msg_source",
+            Domain.MESSAGES,
         )
-
-        all_chunks = [alice, bob, msg1, msg2, msg3, msg4, msg5]
-        doc_store.write_chunks(all_chunks, [])
 
         linker = EntityLinker(doc_store)
         new_links = linker.run()
 
-        assert new_links == 4
+        # msg1 matches alice (sender) and bob (recipients) = 2 links
+        # msg2 matches alice (sender) = 1 link
+        # msg3 matches alice (invitees) = 1 link
+        # msg4 matches bob (sender) = 1 link
+        # Total = 5 links
+        assert new_links == 5
 
         alice_links = doc_store.get_linked_chunks(alice.chunk_hash, link_type="person_appearance")
         assert msg1.chunk_hash in alice_links
@@ -846,7 +716,7 @@ class TestEntityLinkerIntegration:
 
         bob_links = doc_store.get_linked_chunks(bob.chunk_hash, link_type="person_appearance")
         assert msg4.chunk_hash in bob_links
-        assert msg1.chunk_hash not in bob_links
+        assert msg1.chunk_hash in bob_links  # msg1 has bob in recipients
         assert msg2.chunk_hash not in bob_links
         assert msg3.chunk_hash not in bob_links
 

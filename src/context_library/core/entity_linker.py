@@ -1,6 +1,5 @@
 """Post-pipeline pass that links person chunks to chunks in other domains."""
 
-import json
 import logging
 from typing import Optional
 
@@ -36,8 +35,8 @@ class EntityLinker:
         """Execute the full entity linking pass.
 
         Performs these steps:
-        1. Fetch all active (non-retired) person chunks
-        2. Clean up entity_links for retired person chunks
+        1. Clean up entity_links for retired person chunks
+        2. Fetch all active (non-retired) person chunks
         3. For each person chunk, extract emails/phones from domain_metadata
         4. For each identifier, query chunks in other domains for matches
         5. Write matched links to entity_links
@@ -45,8 +44,14 @@ class EntityLinker:
         Returns:
             Number of new entity_links rows created.
         """
-        # Step 1: Fetch all active person chunks
-        person_chunks, _total = self._store.list_chunks(
+        # Step 1: Clean up entity_links for retired person chunks BEFORE fetching active chunks
+        # This ensures cleanup runs even if all person chunks are retired
+        retired_links_cleaned = self._cleanup_retired_person_links()
+        if retired_links_cleaned > 0:
+            logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
+
+        # Step 2: Fetch all active person chunks
+        person_chunks, total = self._store.list_chunks(
             domain=Domain.PEOPLE,
             limit=10000,  # Reasonable limit for typical contact volumes
         )
@@ -55,16 +60,19 @@ class EntityLinker:
             logger.info("No person chunks found; entity linking pass is complete")
             return 0
 
-        logger.info(f"Entity linking pass: found {len(person_chunks)} person chunks")
+        logger.info("Entity linking pass: found %d person chunks", len(person_chunks))
 
-        # Step 2: Clean up entity_links for retired person chunks
-        # Query all entity_links where source_chunk_hash refers to a retired person chunk
-        retired_links_cleaned = self._cleanup_retired_person_links()
-        if retired_links_cleaned > 0:
-            logger.info(f"Cleaned up {retired_links_cleaned} entity_links for retired person chunks")
+        # Warn if more person chunks exist beyond the limit
+        if total > 10000:
+            logger.warning(
+                "Person chunks exceed limit (found %d total, fetched 10000); "
+                "consider paginating or increasing limit",
+                total,
+            )
 
         # Step 3-5: For each person chunk, find matching chunks and write links
         total_links_created = 0
+        # (includes cleanup count, not returned separately)
         for chunk_with_context in person_chunks:
             chunk = chunk_with_context.chunk
             try:
@@ -89,14 +97,16 @@ class EntityLinker:
                 total_links_created += new_links
                 if new_links > 0:
                     logger.debug(
-                        f"Person chunk {chunk.chunk_hash}: found {new_links} new links "
-                        f"for {len(identifiers)} identifier(s)"
+                        "Person chunk %s: found %d new links for %d identifier(s)",
+                        chunk.chunk_hash,
+                        new_links,
+                        len(identifiers),
                     )
             except Exception as e:
-                logger.error(f"Error linking person chunk {chunk.chunk_hash}: {e}", exc_info=True)
+                logger.error("Error linking person chunk %s: %s", chunk.chunk_hash, e, exc_info=True)
                 continue
 
-        logger.info(f"Entity linking pass complete: created {total_links_created} new links")
+        logger.info("Entity linking pass complete: created %d new links", total_links_created)
         return total_links_created
 
     def _extract_identifiers(self, domain_metadata: Optional[dict]) -> list[str]:
@@ -184,7 +194,7 @@ class EntityLinker:
                 for row in rows:
                     found_hashes.add(row[0])
             except Exception as e:
-                logger.error(f"Error querying chunks for identifier {identifier}: {e}")
+                logger.error("Error querying chunks for identifier %s: %s", identifier, e)
                 continue
 
         return sorted(list(found_hashes))
@@ -192,24 +202,26 @@ class EntityLinker:
     def _cleanup_retired_person_links(self) -> int:
         """Clean up entity_links for retired person chunks.
 
-        Queries entity_links where source_chunk_hash refers to a retired person chunk,
-        then deletes those rows.
+        Queries entity_links for source_chunk_hashes that are no longer active in the
+        people domain (i.e., person contacts that were deleted). Deletes those rows.
 
         Returns:
             Number of rows deleted.
         """
         cursor = self._store.conn.cursor()
         try:
-            # Find retired person chunk hashes that have entity_links
+            # Find source_chunk_hashes in entity_links that don't exist as active
+            # (non-retired) chunks in the people domain
             cursor.execute(
                 """
                 SELECT DISTINCT el.source_chunk_hash
                 FROM entity_links el
-                WHERE el.source_chunk_hash NOT IN (
-                    SELECT DISTINCT c.chunk_hash
+                WHERE NOT EXISTS (
+                    SELECT 1
                     FROM chunks c
                     JOIN sources s ON c.source_id = s.source_id
-                    WHERE s.domain = ?
+                    WHERE c.chunk_hash = el.source_chunk_hash
+                    AND s.domain = ?
                     AND c.retired_at IS NULL
                 )
                 """,
@@ -225,5 +237,5 @@ class EntityLinker:
 
             return total_deleted
         except Exception as e:
-            logger.error(f"Error cleaning up retired person links: {e}")
+            logger.error("Error cleaning up retired person links: %s", e)
             return 0
