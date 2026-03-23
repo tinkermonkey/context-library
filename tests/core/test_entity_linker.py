@@ -1,17 +1,21 @@
 """Tests for the EntityLinker post-pipeline linking pass."""
 
-import hashlib
-
 import pytest
+import sys
+from pathlib import Path
+
+# Import from root conftest
+conftest_path = Path(__file__).parent.parent / "conftest.py"
+sys.path.insert(0, str(conftest_path.parent))
 
 from context_library.core.entity_linker import EntityLinker
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import AdapterConfig, Chunk, Domain, LineageRecord
+from context_library.storage.models import Chunk, Domain
 
-
-def make_sha256_hash(text: str) -> str:
-    """Create a valid SHA-256 hash from text."""
-    return hashlib.sha256(text.encode()).hexdigest()
+# Import shared test helpers from root conftest
+import conftest
+make_sha256_hash = conftest.make_sha256_hash
+setup_chunk_in_store = conftest.setup_chunk_in_store
 
 
 @pytest.fixture
@@ -20,73 +24,6 @@ def doc_store():
     store = DocumentStore(":memory:")
     yield store
     store.close()
-
-
-def setup_chunk_in_store(
-    store: DocumentStore,
-    chunk_or_chunks,  # Chunk or list of Chunks
-    adapter_id: str,
-    adapter_type: str,
-    source_id: str,
-    domain: Domain,
-    version: int = 1,
-) -> None:
-    """Helper to set up chunks in the store with all required metadata.
-
-    Note: Chunks passed in a list must have distinct chunk_index values due to
-    the UNIQUE constraint on (source_id, source_version, chunk_index).
-    """
-    # Normalize input to list
-    chunks = chunk_or_chunks if isinstance(chunk_or_chunks, list) else [chunk_or_chunks]
-
-    # Register adapter if not already registered
-    try:
-        config = AdapterConfig(
-            adapter_id=adapter_id,
-            adapter_type=adapter_type,
-            domain=domain,
-            normalizer_version="1.0.0",
-        )
-        store.register_adapter(config)
-    except Exception:
-        # Already registered
-        pass
-
-    # Register source if not already registered
-    try:
-        store.register_source(source_id, adapter_id, domain, "")
-    except Exception:
-        # Already registered
-        pass
-
-    # Create source version
-    chunk_hashes = [ch.chunk_hash for ch in chunks]
-    store.create_source_version(
-        source_id,
-        version,
-        "markdown content",
-        chunk_hashes,
-        adapter_id,
-        "1.0.0",
-        "2024-01-01T00:00:00Z",
-    )
-
-    # Create lineage records
-    lineages = [
-        LineageRecord(
-            chunk_hash=chunk.chunk_hash,
-            source_id=source_id,
-            source_version_id=version,
-            adapter_id=adapter_id,
-            domain=domain,
-            normalizer_version="1.0.0",
-            embedding_model_id="test-model",
-        )
-        for chunk in chunks
-    ]
-
-    # Write chunks with lineage
-    store.write_chunks(chunks, lineages)
 
 
 class TestEntityLinkerExtractIdentifiers:

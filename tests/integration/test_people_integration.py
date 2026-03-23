@@ -4,97 +4,30 @@ These tests verify the end-to-end integration of the people domain adapter with 
 ingestion pipeline and entity linker, using real SHA-256 hashing and the full pipeline flow.
 """
 
-import hashlib
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+import pytest
+import sys
+
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import (
-    Domain,
-    NormalizedContent,
-    StructuralHints,
-    AdapterConfig,
-    Chunk,
-    LineageRecord,
-)
+from context_library.storage.models import Domain, Chunk
 from context_library.adapters.apple_contacts import AppleContactsAdapter
 from context_library.domains.people import PeopleDomain
+
+# Import shared test helpers from root conftest
+conftest_path = Path(__file__).parent.parent / "conftest.py"
+sys.path.insert(0, str(conftest_path.parent))
+import conftest
+make_sha256_hash = conftest.make_sha256_hash
+setup_chunk_in_store = conftest.setup_chunk_in_store
+
+# Guard heavy imports that pull in sentence_transformers (ML stack)
+pytest.importorskip("sentence_transformers")
 from context_library.core.pipeline import IngestionPipeline
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.storage.vector_store import VectorStore
-
-
-def make_sha256_hash(text: str) -> str:
-    """Create a valid SHA-256 hash from text."""
-    return hashlib.sha256(text.encode()).hexdigest()
-
-
-def setup_chunk_in_store(
-    store: DocumentStore,
-    chunk_or_chunks,  # Chunk or list of Chunks
-    adapter_id: str,
-    adapter_type: str,
-    source_id: str,
-    domain: Domain,
-    version: int = 1,
-) -> None:
-    """Helper to set up chunks in the store with all required metadata.
-
-    Note: Chunks passed in a list must have distinct chunk_index values due to
-    the UNIQUE constraint on (source_id, source_version, chunk_index).
-    """
-    # Normalize input to list
-    chunks = chunk_or_chunks if isinstance(chunk_or_chunks, list) else [chunk_or_chunks]
-
-    # Register adapter if not already registered
-    try:
-        config = AdapterConfig(
-            adapter_id=adapter_id,
-            adapter_type=adapter_type,
-            domain=domain,
-            normalizer_version="1.0.0",
-        )
-        store.register_adapter(config)
-    except Exception:
-        # Already registered
-        pass
-
-    # Register source if not already registered
-    try:
-        store.register_source(source_id, adapter_id, domain, "")
-    except Exception:
-        # Already registered
-        pass
-
-    # Create source version
-    chunk_hashes = [ch.chunk_hash for ch in chunks]
-    store.create_source_version(
-        source_id,
-        version,
-        "markdown content",
-        chunk_hashes,
-        adapter_id,
-        "1.0.0",
-        "2024-01-01T00:00:00Z",
-    )
-
-    # Create lineage records
-    lineages = [
-        LineageRecord(
-            chunk_hash=chunk.chunk_hash,
-            source_id=source_id,
-            source_version_id=version,
-            adapter_id=adapter_id,
-            domain=domain,
-            normalizer_version="1.0.0",
-            embedding_model_id="test-model",
-        )
-        for chunk in chunks
-    ]
-
-    # Write chunks with lineage
-    store.write_chunks(chunks, lineages)
 
 
 class MockVectorStore(VectorStore):
@@ -264,61 +197,45 @@ class TestPeopleDomainIntegration:
     def test_people_chunks_excluded_from_entity_linking(self) -> None:
         """Test that people domain chunks are excluded from entity linking.
 
-        This verifies the core entity linking rule: people chunks should link to
-        chunks in OTHER domains (messages, notes, etc.) but NOT to other people chunks.
+        This verifies the core entity linking rule: people chunks should NOT link to
+        other people chunks, only to chunks in other domains (messages, notes, etc.).
+        The entity linker should return no matches when searching for identifiers
+        that only exist in people domain chunks.
         """
+        from context_library.core.entity_linker import EntityLinker
+
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.db")
             store = DocumentStore(db_path)
 
             try:
-                # Create two people contacts with overlapping identifiers
+                # Create a people chunk with Alice's email
                 alice_hash = make_sha256_hash("alice_smith_contact")
-                bob_hash = make_sha256_hash("bob_johnson_contact")
-
-                # Register people adapter and source
-                config = {
-                    "adapter_id": "people_adapter",
-                    "adapter_type": "AppleContactsAdapter",
-                    "domain": Domain.PEOPLE.value,
-                    "normalizer_version": "1.0.0",
-                }
-                store.conn.execute(
-                    "INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version) VALUES (?, ?, ?, ?)",
-                    (config["adapter_id"], config["domain"], config["adapter_type"], config["normalizer_version"])
+                alice_chunk = Chunk(
+                    chunk_hash=alice_hash,
+                    content="Alice Smith",
+                    chunk_index=0,
+                    domain_metadata={"emails": ["alice@example.com"], "phones": []},
                 )
 
-                store.conn.execute(
-                    "INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy) VALUES (?, ?, ?, ?, ?)",
-                    ("people_src", "people_adapter", Domain.PEOPLE.value, "Apple Contacts", "push")
+                # Set up the chunk with proper metadata and lineage
+                setup_chunk_in_store(
+                    store,
+                    alice_chunk,
+                    "people_adapter",
+                    "AppleContactsAdapter",
+                    "people_src",
+                    Domain.PEOPLE,
+                    version=1,
                 )
 
-                store.conn.execute(
-                    """INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
-                       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
-                    ("people_src", 1, "Contacts", f"{alice_hash},{bob_hash}", "people_adapter", "1.0.0")
-                )
+                # Create entity linker and search for chunks matching alice@example.com
+                linker = EntityLinker(store)
+                matching = linker._find_matching_chunks(["alice@example.com"])
 
-                # Insert two people chunks
-                store.conn.execute(
-                    """INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version, domain_metadata)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)""",
-                    (alice_hash, "people_src", 1, 0, "Alice Smith", Domain.PEOPLE.value, "people_adapter", "1.0.0",
-                     '{"emails": ["alice@example.com"], "phones": []}')
-                )
-
-                store.conn.execute(
-                    """INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version, domain_metadata)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?)""",
-                    (bob_hash, "people_src", 1, 1, "Bob Johnson", Domain.PEOPLE.value, "people_adapter", "1.0.0",
-                     '{"emails": ["bob@example.com"], "phones": []}')
-                )
-
-                store.conn.commit()
-
-                # Verify people chunks are stored
-                cursor = store.conn.execute("SELECT COUNT(*) FROM chunks WHERE domain = ?", (Domain.PEOPLE.value,))
-                assert cursor.fetchone()[0] == 2
+                # Key assertion: people domain chunks should NOT be in matching results
+                # (i.e., people chunks do not link to other people chunks)
+                assert alice_chunk.chunk_hash not in matching
 
             finally:
                 store.close()
