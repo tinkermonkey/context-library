@@ -137,10 +137,6 @@ def mock_httpx_client(monkeypatch):
         "context_library.adapters.remote.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
-    monkeypatch.setattr(
-        "context_library.adapters.apple_contacts.httpx.Client",
-        lambda *args, **kwargs: mock_client
-    )
 
     return mock_client
 

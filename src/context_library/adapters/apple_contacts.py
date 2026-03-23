@@ -193,7 +193,7 @@ class AppleContactsAdapter(BaseAdapter):
             )
 
             # Build markdown representation of contact
-            markdown = self._build_contact_markdown(contact, metadata)
+            markdown = self._build_contact_markdown(metadata)
 
             # Yield normalized content
             yield NormalizedContent(
@@ -273,7 +273,6 @@ class AppleContactsAdapter(BaseAdapter):
 
         if "modifiedAt" not in contact:
             raise KeyError("Contact missing required 'modifiedAt' field")
-        modified_at = contact["modifiedAt"]
 
         # Extract optional fields
         given_name = contact.get("givenName")
@@ -322,11 +321,10 @@ class AppleContactsAdapter(BaseAdapter):
             source_type="apple_contacts",
         )
 
-    def _build_contact_markdown(self, contact: dict, metadata: PeopleMetadata) -> str:
+    def _build_contact_markdown(self, metadata: PeopleMetadata) -> str:
         """Build markdown representation of a contact.
 
         Args:
-            contact: Raw contact dictionary from API
             metadata: Extracted PeopleMetadata
 
         Returns:
