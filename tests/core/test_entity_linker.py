@@ -304,6 +304,96 @@ class TestEntityLinkerFindMatchingChunks:
         assert chunk_host.chunk_hash in matching
         assert chunk_author.chunk_hash in matching
 
+    def test_find_matching_chunks_with_missing_array_fields(self, doc_store):
+        """Match scalar fields even when array fields are missing or NULL.
+
+        This tests the fix for json_each() SQL errors when chunks lack array
+        fields like recipients, invitees, or collaborators. Previously, a single
+        missing array field would cause the entire query to fail via exception,
+        silently discarding all valid scalar field matches.
+        """
+        # Chunk with only scalar fields, no array fields
+        msg_hash = make_sha256_hash("message_minimal_fields")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Minimal message",
+            chunk_index=0,
+            domain_metadata={"sender": "alice@example.com"},
+            # Note: no recipients, invitees, collaborators fields
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        # Should find the chunk via scalar field match despite missing array fields
+        assert msg_chunk.chunk_hash in matching
+
+    def test_find_matching_chunks_with_null_domain_metadata(self, doc_store):
+        """Match chunks with NULL domain_metadata in scalar field comparisons.
+
+        When a chunk has domain_metadata=NULL, json_extract() for scalar fields
+        returns NULL, which does not match. Array field checks should also not
+        error (thanks to COALESCE default to '[]'). This ensures the query doesn't
+        crash on NULL metadata.
+        """
+        # Chunk with NULL domain_metadata (edge case but possible)
+        msg_hash = make_sha256_hash("message_null_metadata")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Message with null metadata",
+            chunk_index=0,
+            domain_metadata=None,  # NULL metadata
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        # Should not crash; NULL metadata won't match any identifier
+        matching = linker._find_matching_chunks(["alice@example.com"])
+        assert msg_chunk.chunk_hash not in matching
+
+    def test_find_matching_chunks_filters_by_current_version(self, doc_store):
+        """Only match chunks from the current version of a source.
+
+        When a source has multiple versions, only chunks belonging to
+        source_version = current_version should be returned. This prevents
+        entity links pointing to stale/superseded chunks.
+        """
+        # Create a source with v1 chunks
+        msg_hash_v1 = make_sha256_hash("message_v1_old_version")
+        msg_chunk_v1 = Chunk(
+            chunk_hash=msg_hash_v1,
+            content="Old message v1",
+            chunk_index=0,
+            domain_metadata={"sender": "alice@example.com"},
+        )
+
+        setup_chunk_in_store(
+            doc_store, msg_chunk_v1, "msg_adapter", "test", "msg_source", Domain.MESSAGES, version=1
+        )
+
+        # Create v2 of the same source with different content
+        msg_hash_v2 = make_sha256_hash("message_v2_new_version")
+        msg_chunk_v2 = Chunk(
+            chunk_hash=msg_hash_v2,
+            content="New message v2",
+            chunk_index=0,
+            domain_metadata={"sender": "alice@example.com"},
+        )
+
+        setup_chunk_in_store(
+            doc_store, msg_chunk_v2, "msg_adapter", "test", "msg_source", Domain.MESSAGES, version=2
+        )
+
+        linker = EntityLinker(doc_store)
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        # Should only match v2 (current version), not v1 (superseded)
+        assert msg_chunk_v2.chunk_hash in matching
+        assert msg_chunk_v1.chunk_hash not in matching
+
 
 class TestEntityLinkerRun:
     """Test the full entity linking pass."""

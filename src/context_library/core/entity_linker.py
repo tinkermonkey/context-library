@@ -162,13 +162,14 @@ class EntityLinker:
             # Build OR conditions for all LINKED_FIELDS
             # Scalar fields: sender, host, author
             # Array fields: recipients, invitees, collaborators
+            # Use COALESCE to default NULL/missing arrays to '[]' to avoid json_each() SQL errors
             where_parts = [
                 "json_extract(c.domain_metadata, '$.sender') = ?",
                 "json_extract(c.domain_metadata, '$.host') = ?",
                 "json_extract(c.domain_metadata, '$.author') = ?",
-                "EXISTS (SELECT 1 FROM json_each(c.domain_metadata, '$.recipients') WHERE value = ?)",
-                "EXISTS (SELECT 1 FROM json_each(c.domain_metadata, '$.invitees') WHERE value = ?)",
-                "EXISTS (SELECT 1 FROM json_each(c.domain_metadata, '$.collaborators') WHERE value = ?)",
+                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.recipients'), '[]')) WHERE value = ?)",
+                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.invitees'), '[]')) WHERE value = ?)",
+                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.collaborators'), '[]')) WHERE value = ?)",
             ]
             where_clause = " OR ".join(where_parts)
 
@@ -186,6 +187,7 @@ class EntityLinker:
                     )
                     AND s.domain != ?
                     AND c.retired_at IS NULL
+                    AND c.source_version = s.current_version
                     """,
                     params,
                 )
@@ -210,7 +212,7 @@ class EntityLinker:
         cursor = self._store.conn.cursor()
         try:
             # Find source_chunk_hashes in entity_links that don't exist as active
-            # (non-retired) chunks in the people domain
+            # (non-retired) chunks in the people domain at the current version
             cursor.execute(
                 """
                 SELECT DISTINCT el.source_chunk_hash
@@ -222,6 +224,7 @@ class EntityLinker:
                     WHERE c.chunk_hash = el.source_chunk_hash
                     AND s.domain = ?
                     AND c.retired_at IS NULL
+                    AND c.source_version = s.current_version
                 )
                 """,
                 (Domain.PEOPLE,),
