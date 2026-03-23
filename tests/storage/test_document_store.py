@@ -74,13 +74,13 @@ class TestDocumentStoreInit:
             store.close()
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 3 (documents domain support)."""
+        """Test that user_version is verified to be 4 (people domain support)."""
         store = DocumentStore(":memory:")
         try:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 3
+            assert version == 4
         finally:
             store.close()
 
@@ -2101,10 +2101,14 @@ class TestRecoveryMechanisms:
 
         # Manually delete the chunk from chunks table (simulating orphaned sync log)
         cursor = store.conn.cursor()
-        cursor.execute(
-            "DELETE FROM chunks WHERE chunk_hash = ?",
-            (_make_hash("a"),),
-        )
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        try:
+            cursor.execute(
+                "DELETE FROM chunks WHERE chunk_hash = ?",
+                (_make_hash("a"),),
+            )
+        finally:
+            cursor.execute("PRAGMA foreign_keys=ON")
 
         # get_chunks_pending_sync should NOT return it due to INNER JOIN
         pending = store.get_chunks_pending_sync()

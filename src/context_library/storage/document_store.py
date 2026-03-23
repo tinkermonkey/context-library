@@ -82,7 +82,14 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=3)
+        if version == 3:
+            # Migrate from v3 to v4 BEFORE executing new schema
+            self._migrate_v3_to_v4()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=4)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -111,9 +118,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 3:
+        if final_version != 4:
             raise RuntimeError(
-                f"Schema version mismatch: expected 3, got {final_version}"
+                f"Schema version mismatch: expected 4, got {final_version}"
             )
 
     def _make_connection(self) -> sqlite3.Connection:
@@ -451,6 +458,194 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v2 to v3: {e}"
+            ) from e
+
+    def _migrate_v3_to_v4(self) -> None:
+        """Migrate schema from v3 to v4: add 'people' to domain CHECK constraints and create entity_links table.
+
+        SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so we must
+        use the rename-recreate-copy pattern for each affected table (adapters,
+        sources, chunks). All operations are wrapped in a transaction and foreign
+        key enforcement is temporarily disabled.
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v3 to v4 (adding people domain support and entity_links table)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            # Disable foreign key enforcement temporarily
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Start transaction
+            cursor.execute("BEGIN")
+
+            # Migrate adapters table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
+            cursor.execute("""
+                CREATE TABLE adapters (
+                    adapter_id          TEXT PRIMARY KEY,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    adapter_type        TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    config              TEXT,
+                    enabled             BOOLEAN NOT NULL DEFAULT 1,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("INSERT INTO adapters SELECT * FROM _adapters_old")
+            cursor.execute("DROP TABLE _adapters_old")
+
+            # Migrate sources table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE sources RENAME TO _sources_old")
+            cursor.execute("""
+                CREATE TABLE sources (
+                    source_id           TEXT PRIMARY KEY,
+                    adapter_id          TEXT NOT NULL,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    origin_ref          TEXT NOT NULL,
+                    display_name        TEXT,
+                    current_version     INTEGER NOT NULL DEFAULT 0,
+                    last_fetched_at     DATETIME,
+                    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                    poll_interval_sec   INTEGER,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO sources SELECT * FROM _sources_old")
+            cursor.execute("DROP TABLE _sources_old")
+
+            # Recreate indices for sources
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+            # Recreate sources_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS sources_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER sources_update_timestamp
+                AFTER UPDATE ON sources
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+                END
+            """)
+
+            # Migrate source_versions table: rename old, create new with correct foreign keys, copy data
+            # This is necessary because the old source_versions has foreign keys pointing to _sources_old and _adapters_old
+            cursor.execute("ALTER TABLE source_versions RENAME TO _source_versions_old")
+            cursor.execute("""
+                CREATE TABLE source_versions (
+                    source_id           TEXT NOT NULL,
+                    version             INTEGER NOT NULL,
+                    markdown            TEXT NOT NULL,
+                    chunk_hashes        TEXT NOT NULL,
+                    adapter_id          TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (source_id, version),
+                    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO source_versions SELECT * FROM _source_versions_old")
+            cursor.execute("DROP TABLE _source_versions_old")
+
+            # Create index for source_versions
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+            # Migrate chunks table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    chunk_hash          TEXT NOT NULL,
+                    source_id           TEXT NOT NULL,
+                    source_version      INTEGER NOT NULL,
+                    chunk_index         INTEGER NOT NULL,
+                    content             TEXT NOT NULL,
+                    context_header      TEXT,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    adapter_id          TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                    parent_chunk_hash   TEXT,
+                    domain_metadata     TEXT,
+                    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                    retired_at          DATETIME,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (chunk_hash, source_id, source_version),
+                    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                    UNIQUE (source_id, source_version, chunk_index)
+                )
+            """)
+            cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
+            cursor.execute("DROP TABLE _chunks_old")
+
+            # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+            # Recreate adapters_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS adapters_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER adapters_update_timestamp
+                AFTER UPDATE ON adapters
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+                END
+            """)
+
+            # Create entity_links table
+            cursor.execute("""
+                CREATE TABLE entity_links (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
+                    target_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
+                    link_type           TEXT NOT NULL,
+                    confidence          REAL NOT NULL DEFAULT 1.0,
+                    created_at          TEXT NOT NULL,
+                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_target ON entity_links(target_chunk_hash)")
+
+            # Update schema version to 4
+            cursor.execute("PRAGMA user_version=4")
+
+            # Commit transaction using connection object
+            self.conn.commit()
+
+            # Re-enable foreign key enforcement
+            cursor.execute("PRAGMA foreign_keys=ON")
+
+            logger.info("Successfully migrated schema from v3 to v4")
+
+        except Exception as e:
+            # Rollback transaction using connection object, catching any rollback errors
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as pragma_error:
+                logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v3 to v4: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
@@ -2045,6 +2240,124 @@ class DocumentStore:
             }
             for row in rows
         ]
+
+    def write_entity_links(
+        self,
+        links: list[tuple[str, str, str, float]],
+    ) -> int:
+        """Write entity links to the entity_links table.
+
+        Inserts rows into entity_links with idempotency enforced by the UNIQUE constraint
+        (source_chunk_hash, target_chunk_hash, link_type). Duplicate inserts are silently
+        ignored via INSERT OR IGNORE.
+
+        Args:
+            links: List of tuples (source_chunk_hash, target_chunk_hash, link_type, confidence).
+                   Each tuple represents a link between two chunks with an optional confidence score.
+
+        Returns:
+            The number of new rows inserted (duplicates are not counted).
+        """
+        if not links:
+            return 0
+
+        cursor = self.conn.cursor()
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        try:
+            with self._write_lock, self.conn:
+                inserted_count = 0
+                for source_hash, target_hash, link_type, confidence in links:
+                    cursor.execute(
+                        """
+                        INSERT OR IGNORE INTO entity_links
+                        (source_chunk_hash, target_chunk_hash, link_type, confidence, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (source_hash, target_hash, link_type, confidence, created_at),
+                    )
+                    # Check if row was actually inserted (not ignored)
+                    if cursor.rowcount > 0:
+                        inserted_count += 1
+
+                return inserted_count
+        except Exception as e:
+            logger.error(f"Failed to write entity links: {e}")
+            raise
+
+    def get_linked_chunks(
+        self,
+        chunk_hash: str,
+        link_type: str | None = None,
+    ) -> list[str]:
+        """Query all chunks linked to a given chunk.
+
+        Bidirectional traversal: returns chunks where the given chunk is the source OR the target.
+        Optionally filters by link_type.
+
+        Args:
+            chunk_hash: The chunk hash to find links for.
+            link_type: Optional link type to filter by (e.g., 'person_appearance').
+
+        Returns:
+            A list of linked chunk hashes (deduplicated).
+        """
+        cursor = self.conn.cursor()
+
+        if link_type:
+            # Query where chunk_hash is source or target, with link_type filter
+            cursor.execute(
+                """
+                SELECT DISTINCT target_chunk_hash FROM entity_links
+                WHERE source_chunk_hash = ? AND link_type = ?
+                UNION
+                SELECT DISTINCT source_chunk_hash FROM entity_links
+                WHERE target_chunk_hash = ? AND link_type = ?
+                """,
+                (chunk_hash, link_type, chunk_hash, link_type),
+            )
+        else:
+            # Query where chunk_hash is source or target, no filter
+            cursor.execute(
+                """
+                SELECT DISTINCT target_chunk_hash FROM entity_links
+                WHERE source_chunk_hash = ?
+                UNION
+                SELECT DISTINCT source_chunk_hash FROM entity_links
+                WHERE target_chunk_hash = ?
+                """,
+                (chunk_hash, chunk_hash),
+            )
+
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
+
+    def delete_entity_links_for_chunk(self, chunk_hash: str) -> int:
+        """Delete all entity links associated with a chunk.
+
+        Removes rows where the chunk_hash is either the source or target.
+        Called when a chunk is retired to clean up orphaned links.
+
+        Args:
+            chunk_hash: The chunk hash to delete links for.
+
+        Returns:
+            The number of rows deleted.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE source_chunk_hash = ? OR target_chunk_hash = ?
+                    """,
+                    (chunk_hash, chunk_hash),
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete entity links for chunk {chunk_hash}: {e}")
+            raise
 
     def close(self) -> None:
         """Close the current thread's database connection.

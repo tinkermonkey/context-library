@@ -41,6 +41,7 @@ class Domain(str, Enum):
     TASKS = "tasks"
     HEALTH = "health"
     DOCUMENTS = "documents"
+    PEOPLE = "people"
 
 
 class ChunkType(str, Enum):
@@ -700,6 +701,56 @@ class DocumentMetadata(BaseModel):
         """Validate that duration_minutes is non-negative if provided."""
         if value is not None and value < 0:
             raise ValueError(f"duration_minutes must be non-negative, got: {value}")
+        return value
+
+
+class PeopleMetadata(BaseModel):
+    """Contact metadata extracted by people/contacts adapters.
+
+    Captures contact identification, communication channels, and organizational context
+    for people-based chunking and cross-domain entity linking.
+
+    Invariants:
+    - contact_id, display_name, and source_type must be non-empty strings
+    - emails and phones are tuples of strings (empty tuple by default)
+    - given_name, family_name, organization, job_title, and notes are optional strings
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    contact_id: str
+    display_name: str
+    given_name: str | None = None
+    family_name: str | None = None
+    emails: tuple[str, ...] = ()
+    phones: tuple[str, ...] = ()
+    organization: str | None = None
+    job_title: str | None = None
+    notes: str | None = None
+    source_type: str
+
+    @field_validator("contact_id")
+    @classmethod
+    def validate_contact_id(cls, value: str) -> str:
+        """Validate that contact_id is not empty."""
+        if not value:
+            raise ValueError("contact_id must be a non-empty string")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        """Validate that display_name is not empty."""
+        if not value:
+            raise ValueError("display_name must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
         return value
 
 

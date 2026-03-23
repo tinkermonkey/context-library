@@ -627,16 +627,17 @@ class TestSchemaMigrationV1ToV2:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 3 (v1→v2 then v2→v3)
+            # Verify it's now version 4 (v1→v2 then v2→v3 then v3→v4)
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 3
+            assert cursor.fetchone()[0] == 4
 
-            # Verify the actual CHECK constraint includes 'documents' (not just version number)
-            # This ensures the migration actually updated the table constraints
+            # Verify the actual CHECK constraint includes 'documents' and 'people' (not just version number)
+            # This ensures the migrations actually updated the table constraints
             cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
             ddl = cursor.fetchone()[0]
             assert "'documents'" in ddl, "adapters table CHECK constraint missing 'documents' domain"
+            assert "'people'" in ddl, "adapters table CHECK constraint missing 'people' domain"
 
             store.conn.close()
 
@@ -645,15 +646,15 @@ class TestSchemaMigrationV1ToV2:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create fresh database (DocumentStore should create v3 schema directly)
+            # Create fresh database (DocumentStore should create v4 schema directly)
             store = DocumentStore(str(db_path))
 
-            # Verify it's version 3
+            # Verify it's version 4
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 3
+            assert cursor.fetchone()[0] == 4
 
-            # Verify 'health' and 'documents' domains are in CHECK constraints
+            # Verify 'health', 'documents', and 'people' domains are in CHECK constraints
             cursor.execute("""
                 SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'
             """)
@@ -886,12 +887,12 @@ class TestSchemaPragmasAndConfiguration:
         assert mode in ("wal", "memory")
         store.conn.close()
 
-    def test_schema_user_version_is_3(self) -> None:
-        """Test that user_version is set to 3."""
+    def test_schema_user_version_is_4(self) -> None:
+        """Test that user_version is set to 4."""
         store = DocumentStore(":memory:")
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA user_version")
-        assert cursor.fetchone()[0] == 3
+        assert cursor.fetchone()[0] == 4
         store.conn.close()
 
 
@@ -927,15 +928,16 @@ class TestSchemaMigrationV2ToV3:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 3
+            # Verify it's now version 4
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 3
+            assert cursor.fetchone()[0] == 4
 
-            # Verify the actual CHECK constraint includes 'documents'
+            # Verify the actual CHECK constraint includes 'documents' and 'people'
             cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
             ddl = cursor.fetchone()[0]
             assert "'documents'" in ddl, "adapters table CHECK constraint missing 'documents' domain"
+            assert "'people'" in ddl, "adapters table CHECK constraint missing 'people' domain"
 
             store.conn.close()
 
@@ -1105,9 +1107,9 @@ class TestSchemaMigrationV2ToV3:
             ddl2 = cursor.fetchone()[0]
             store2.conn.close()
 
-            # Verify both are v3 and DDL is identical
-            assert version1 == 3
-            assert version2 == 3
+            # Verify both are v4 and DDL is identical
+            assert version1 == 4
+            assert version2 == 4
             assert ddl1 == ddl2
 
     def test_migrate_v2_to_v3_migration_failure_raises_runtime_error(self) -> None:
