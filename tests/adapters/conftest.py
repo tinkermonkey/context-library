@@ -1,6 +1,8 @@
 """Fixtures and configuration for adapter tests."""
 
 import sys
+import gc
+import time
 from unittest.mock import MagicMock
 
 import httpx
@@ -34,6 +36,19 @@ class MockHTML2Text:
         text = text.strip()
 
         return text
+
+
+def pytest_runtest_teardown(item):
+    """Hook that runs after each test to clean up system resources.
+
+    Aggressively cleans up inotify resources used by watchdog/watchfiles
+    to prevent exhausting the system inotify instance limit (max_user_instances=128).
+    """
+    gc.collect()
+    time.sleep(0.2)
+    gc.collect()
+    time.sleep(0.2)
+    gc.collect()
 
 
 @pytest.fixture(scope="session", autouse=True)

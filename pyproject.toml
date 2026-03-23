@@ -93,6 +93,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "requires_fs_watch: marks tests that require active filesystem watching (may be skipped if inotify resources are exhausted)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/context_library"]

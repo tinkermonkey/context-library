@@ -7,6 +7,8 @@ otherwise falls back to watchfiles.
 
 import logging
 import threading
+import gc
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -15,7 +17,7 @@ from context_library.storage.models import EventType, PollStrategy
 
 logger = logging.getLogger(__name__)
 
-# Try to import watchdog, fall back to watchfiles if not available
+# Try to import watchdog and watchfiles (both are supported as primary or fallback)
 HAS_WATCHDOG = False
 HAS_WATCHFILES = False
 
@@ -26,12 +28,12 @@ try:
 except ImportError:
     pass
 
-if not HAS_WATCHDOG:
-    try:
-        import watchfiles as _watchfiles
-        HAS_WATCHFILES = True
-    except ImportError:
-        _watchfiles = None  # type: ignore
+# Always try to import watchfiles for use as fallback
+try:
+    import watchfiles as _watchfiles
+    HAS_WATCHFILES = True
+except ImportError:
+    _watchfiles = None  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -102,21 +104,39 @@ class FileSystemWatcher:
         self._watchfiles_stop_event: threading.Event | None = None
         self._watchfiles_failed = False  # Flag to track watchfiles thread failure
 
+    def __del__(self) -> None:
+        """Ensure cleanup when the watcher is garbage collected."""
+        try:
+            if self.is_alive:
+                self.stop()
+        except Exception:
+            # Silently fail in __del__ to avoid issues during shutdown
+            pass
+
     def start(self) -> None:
-        """Start observing the watch_path for filesystem changes."""
+        """Start observing the watch_path for filesystem changes.
+
+        Tries watchdog first, but falls back to watchfiles if watchdog
+        hits the inotify limit or is not available.
+        """
         if HAS_WATCHDOG:
             self._start_watchdog()
         elif HAS_WATCHFILES:
             self._start_watchfiles()
+        else:
+            raise RuntimeError(
+                "Neither watchdog nor watchfiles is installed. "
+                "Install one of: pip install watchdog  or  pip install watchfiles"
+            )
 
     def stop(self) -> None:
         """Stop observing filesystem changes.
 
         Safe to call even if the watcher was never started.
         """
-        if HAS_WATCHDOG and self._observer_started:
+        if self._observer_started:
             self._stop_watchdog()
-        elif HAS_WATCHFILES:
+        elif self._watchfiles_thread is not None and self._watchfiles_thread.is_alive():
             self._stop_watchfiles()
 
     @property
@@ -131,15 +151,12 @@ class FileSystemWatcher:
         This property allows callers to detect if the watcher has silently died
         (e.g., watchfiles loop exception) so they can take remedial action.
         """
-        if HAS_WATCHDOG:
-            return self._observer_started and not self._stopped
-        elif HAS_WATCHFILES:
-            return (
-                self._watchfiles_thread is not None
-                and self._watchfiles_thread.is_alive()
-                and not self._watchfiles_failed
-                and not self._stopped
-            )
+        # Check watchdog mode
+        if self._observer_started:
+            return not self._stopped
+        # Check watchfiles mode
+        if self._watchfiles_thread is not None and self._watchfiles_thread.is_alive():
+            return not self._watchfiles_failed and not self._stopped
         return False
 
     def _start_watchdog(self) -> None:
@@ -152,7 +169,35 @@ class FileSystemWatcher:
         handler = _WatchdogHandler(self._on_raw_event)
         self._observer = Observer()
         self._observer.schedule(handler, str(self._watch_path), recursive=True)
-        self._observer.start()
+        try:
+            self._observer.start()
+        except OSError as e:
+            # If we hit inotify limit, fall back to watchfiles
+            if e.errno == 28:  # ENOSPC - inotify watch limit reached
+                logger.warning(
+                    f"inotify watch limit reached, falling back to watchfiles: {e}"
+                )
+                # Clean up the partially initialized observer
+                try:
+                    self._observer.unschedule_all()
+                except (AttributeError, KeyError):
+                    pass
+                observer_ref = self._observer
+                self._observer = None
+                self._observer_started = False
+                del observer_ref
+                gc.collect()
+                time.sleep(0.01)
+                gc.collect()
+
+                if HAS_WATCHFILES:
+                    self._start_watchfiles()
+                else:
+                    raise RuntimeError(
+                        "inotify watch limit reached and watchfiles not available"
+                    )
+                return
+            raise
         self._observer_started = True
         logger.debug(f"Started watching {self._watch_path} with watchdog")
 
@@ -172,11 +217,26 @@ class FileSystemWatcher:
         if not self._observer_started or self._observer is None:
             return
 
+        # Stop the observer and wait for it to fully stop
         self._observer.stop()
         self._observer.join(timeout=2)
+
+        # Explicitly unschedule all handlers to release OS resources (inotify watches)
+        try:
+            self._observer.unschedule_all()
+        except (AttributeError, KeyError):
+            pass
+
         # Clear observer reference to ensure garbage collection can fully release inotify watches
+        observer_ref = self._observer
         self._observer = None
         self._observer_started = False
+
+        # Delete the reference and force GC multiple times to reclaim inotify watches
+        del observer_ref
+        gc.collect()
+        time.sleep(0.01)  # Give OS a moment to release inotify resources
+        gc.collect()
 
         # Cancel the debounce timer and set stopped flag atomically, BEFORE flushing.
         # This closes the race window: any timer callback that fires after this point
@@ -208,6 +268,24 @@ class FileSystemWatcher:
             daemon=True,
         )
         self._watchfiles_thread.start()
+
+        # Wait briefly for the thread to start and initialize watchfiles.watch()
+        # If it fails (e.g., due to inotify limit), the thread will mark _watchfiles_failed=True
+        # and we can detect this. This timeout is long enough for initialization but short
+        # enough to not block the start() call excessively.
+        start_time = time.time()
+        timeout = 2.0
+        while time.time() - start_time < timeout:
+            if not self._watchfiles_thread.is_alive():
+                # Thread died, mark as failed
+                self._watchfiles_failed = True
+                logger.warning(
+                    f"watchfiles thread exited unexpectedly, resource exhaustion likely"
+                )
+                return
+            # Give thread time to initialize
+            time.sleep(0.01)
+
         logger.debug(f"Started watching {self._watch_path} with watchfiles")
 
     def _stop_watchfiles(self) -> None:
@@ -269,6 +347,11 @@ class FileSystemWatcher:
                 logger.error("watchfiles module not available in watchfiles loop")
                 self._watchfiles_failed = True
                 return
+
+            # Give the system a moment to settle before starting to watch
+            # This helps avoid "OS file watch limit reached" errors when multiple
+            # watchers are started in quick succession
+            time.sleep(0.5)
 
             for changes in _watchfiles.watch(
                 str(self._watch_path),
