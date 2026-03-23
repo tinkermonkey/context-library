@@ -1,7 +1,6 @@
 """Tests for the VCardAdapter."""
 
 import pytest
-import hashlib
 from pathlib import Path
 
 from context_library.adapters.vcard import VCardAdapter

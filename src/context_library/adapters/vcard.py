@@ -16,11 +16,10 @@ vCard Format (RFC 6350):
 This adapter uses the vobject library for RFC 6350-compliant parsing.
 """
 
-import hashlib
 import logging
 import uuid
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.people import PeopleDomain
@@ -160,7 +159,7 @@ class VCardAdapter(BaseAdapter):
                     normalizer_version=self.normalizer_version,
                 )
 
-    def _extract_people_metadata(self, vcard, vcf_file: Path = None, contact_index: int = 0) -> PeopleMetadata:
+    def _extract_people_metadata(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> PeopleMetadata:
         """Extract PeopleMetadata from a vCard component.
 
         Parses vCard fields per RFC 6350:
@@ -258,7 +257,7 @@ class VCardAdapter(BaseAdapter):
             source_type="vcard",
         )
 
-    def _derive_contact_id(self, vcard, vcf_file: Path = None, contact_index: int = 0) -> str:
+    def _derive_contact_id(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> str:
         """Derive a stable contact identifier from vCard.
 
         Uses UID if present. For vCards without UID, generates a deterministic
@@ -270,6 +269,13 @@ class VCardAdapter(BaseAdapter):
         and preventing duplicate person chunks. Additionally, it prevents
         collisions between different contacts that have the same name.
 
+        **Limitation**: Contact index is used as part of the identifier. If a
+        contact is deleted or inserted before another contact in the same .vcf
+        file, subsequent contacts will shift indices and be assigned new IDs.
+        This is an inherent limitation of file-based indexing. Mitigation: ensure
+        vCard files include explicit UID fields for stable identity across
+        structural changes.
+
         Args:
             vcard: vobject component representing a vCard
             vcf_file: Path to the vCard file (for deterministic UUID generation)
@@ -279,7 +285,7 @@ class VCardAdapter(BaseAdapter):
             Stable contact identifier (UUID string)
 
         Raises:
-            ValueError: If UID derivation fails due to missing required fields
+            ValueError: If vcf_file is None (required for deterministic derivation)
         """
         # Prefer UID if present (most stable, from vCard itself)
         if hasattr(vcard, "uid"):
@@ -293,9 +299,7 @@ class VCardAdapter(BaseAdapter):
         # mutable fields like name or email, and avoids collisions between
         # different contacts with the same name.
         if vcf_file is None:
-            # If file info not provided, use a generated UUID for backward compatibility
-            # This should rarely happen in normal operation
-            return str(uuid.uuid4())
+            raise ValueError("vcf_file is required for deterministic identity derivation")
 
         # Create a deterministic namespace identifier from:
         # 1. Absolute file path (immutable across re-ingests)
