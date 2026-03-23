@@ -24,7 +24,8 @@ class TestListAdapters:
         assert "adapter_id=test-adapter" in links["sources"]
 
     def test_empty_when_no_adapters(self, client: TestClient, ds) -> None:
-        # Remove in FK order: chunks → source_versions → sources → adapters
+        # Remove in FK order: entity_links → chunks → source_versions → sources → adapters
+        ds.conn.execute("DELETE FROM entity_links")
         ds.conn.execute("DELETE FROM chunks")
         ds.conn.execute("DELETE FROM source_versions")
         ds.conn.execute("DELETE FROM sources")
