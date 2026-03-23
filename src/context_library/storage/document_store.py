@@ -2285,6 +2285,110 @@ class DocumentStore:
             logger.error(f"Failed to write entity links: {e}")
             raise
 
+    def query_chunks_by_identifiers(
+        self,
+        identifiers: list[str],
+        exclude_domain: Optional[str] = None,
+    ) -> list[str]:
+        """Query chunks where domain_metadata contains any of the given identifiers.
+
+        Uses per-identifier SQL scans with json_extract() for scalar fields
+        and json_each() for array fields (recipients, invitees, collaborators).
+        This method safely handles concurrency via the connection pool and respects
+        DocumentStore's encapsulation.
+
+        Args:
+            identifiers: List of email/phone strings to search for.
+            exclude_domain: Optional domain to exclude from results (e.g., 'people').
+
+        Returns:
+            List of chunk_hashes from chunks where a match was found.
+        """
+        if not identifiers:
+            return []
+
+        cursor = self.conn.cursor()
+        found_hashes: set[str] = set()
+
+        # Scalar fields: sender, host, author
+        # Array fields: recipients, invitees, collaborators
+        scalar_fields = ["sender", "host", "author"]
+        array_fields = ["recipients", "invitees", "collaborators"]
+
+        for identifier in identifiers:
+            # Build WHERE clauses for scalar fields
+            scalar_where = " OR ".join(
+                f"json_extract(c.domain_metadata, '$.{field}') = ?" for field in scalar_fields
+            )
+
+            # Build WHERE clauses for array fields (use COALESCE to default NULL/missing arrays to '[]')
+            array_where = " OR ".join(
+                f"EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.{field}'), '[]')) WHERE value = ?)"
+                for field in array_fields
+            )
+
+            where_clause = f"({scalar_where} OR {array_where})"
+
+            # Build parameters: identifier repeated for each field check, then domain if excluding
+            params = [identifier] * len(scalar_fields) + [identifier] * len(array_fields)
+            if exclude_domain:
+                params.append(exclude_domain)
+
+            # Build the query
+            query = f"""
+                SELECT DISTINCT c.chunk_hash
+                FROM chunks c
+                JOIN sources s ON c.source_id = s.source_id
+                WHERE {where_clause}
+                AND c.retired_at IS NULL
+                AND c.source_version = s.current_version
+            """
+            if exclude_domain:
+                query += " AND s.domain != ?"
+
+            try:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                for row in rows:
+                    found_hashes.add(row[0])
+            except Exception as e:
+                logger.error("Error querying chunks for identifier %s: %s", identifier, e)
+                continue
+
+        return sorted(list(found_hashes))
+
+    def query_retired_person_links(self) -> list[str]:
+        """Query source_chunk_hashes in entity_links that are no longer active in people domain.
+
+        Finds person contacts that were deleted (retired) so their entity links can be cleaned up.
+        This method safely handles concurrency via the connection pool.
+
+        Returns:
+            List of source_chunk_hashes for retired person chunks.
+        """
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT DISTINCT el.source_chunk_hash
+                FROM entity_links el
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM chunks c
+                    JOIN sources s ON c.source_id = s.source_id
+                    WHERE c.chunk_hash = el.source_chunk_hash
+                    AND s.domain = ?
+                    AND c.retired_at IS NULL
+                    AND c.source_version = s.current_version
+                )
+                """,
+                (Domain.PEOPLE,),
+            )
+            return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error("Error querying retired person links: %s", e)
+            return []
+
     def get_linked_chunks(
         self,
         chunk_hash: str,

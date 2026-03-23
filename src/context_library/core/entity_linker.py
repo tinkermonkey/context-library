@@ -142,8 +142,8 @@ class EntityLinker:
     def _find_matching_chunks(self, identifiers: list[str]) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.
 
-        Uses Strategy A: per-identifier SQL scan with json_extract() for scalar fields
-        and EXISTS for array fields (recipients, invitees, collaborators).
+        Delegates to DocumentStore.query_chunks_by_identifiers() for safe, concurrent access.
+        Returns chunks from non-people domains matching the identifiers.
 
         Args:
             identifiers: List of email/phone strings to search for.
@@ -154,82 +154,22 @@ class EntityLinker:
         if not identifiers:
             return []
 
-        cursor = self._store.conn.cursor()
-        found_hashes: set[str] = set()
-
-        # Build WHERE clauses for each field type
-        for identifier in identifiers:
-            # Build OR conditions for all LINKED_FIELDS
-            # Scalar fields: sender, host, author
-            # Array fields: recipients, invitees, collaborators
-            # Use COALESCE to default NULL/missing arrays to '[]' to avoid json_each() SQL errors
-            where_parts = [
-                "json_extract(c.domain_metadata, '$.sender') = ?",
-                "json_extract(c.domain_metadata, '$.host') = ?",
-                "json_extract(c.domain_metadata, '$.author') = ?",
-                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.recipients'), '[]')) WHERE value = ?)",
-                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.invitees'), '[]')) WHERE value = ?)",
-                "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.collaborators'), '[]')) WHERE value = ?)",
-            ]
-            where_clause = " OR ".join(where_parts)
-
-            # Build parameter list: identifier repeated for each field check
-            params = [identifier] * len(where_parts) + [Domain.PEOPLE]
-
-            try:
-                cursor.execute(
-                    f"""
-                    SELECT DISTINCT c.chunk_hash
-                    FROM chunks c
-                    JOIN sources s ON c.source_id = s.source_id
-                    WHERE (
-                        {where_clause}
-                    )
-                    AND s.domain != ?
-                    AND c.retired_at IS NULL
-                    AND c.source_version = s.current_version
-                    """,
-                    params,
-                )
-                rows = cursor.fetchall()
-                for row in rows:
-                    found_hashes.add(row[0])
-            except Exception as e:
-                logger.error("Error querying chunks for identifier %s: %s", identifier, e)
-                continue
-
-        return sorted(list(found_hashes))
+        return self._store.query_chunks_by_identifiers(identifiers, exclude_domain=Domain.PEOPLE)
 
     def _cleanup_retired_person_links(self) -> int:
         """Clean up entity_links for retired person chunks.
 
         Queries entity_links for source_chunk_hashes that are no longer active in the
         people domain (i.e., person contacts that were deleted). Deletes those rows.
+        Delegates to DocumentStore.query_retired_person_links() for safe, concurrent access.
 
         Returns:
             Number of rows deleted.
         """
-        cursor = self._store.conn.cursor()
         try:
             # Find source_chunk_hashes in entity_links that don't exist as active
             # (non-retired) chunks in the people domain at the current version
-            cursor.execute(
-                """
-                SELECT DISTINCT el.source_chunk_hash
-                FROM entity_links el
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM chunks c
-                    JOIN sources s ON c.source_id = s.source_id
-                    WHERE c.chunk_hash = el.source_chunk_hash
-                    AND s.domain = ?
-                    AND c.retired_at IS NULL
-                    AND c.source_version = s.current_version
-                )
-                """,
-                (Domain.PEOPLE,),
-            )
-            retired_chunk_hashes = [row[0] for row in cursor.fetchall()]
+            retired_chunk_hashes = self._store.query_retired_person_links()
 
             # Delete entity_links for each retired person chunk
             total_deleted = 0
