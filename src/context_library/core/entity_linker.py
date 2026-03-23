@@ -21,8 +21,6 @@ class EntityLinker:
     thousands of contacts, tens of thousands of chunks).
     """
 
-    LINKED_FIELDS = ["sender", "recipients", "host", "invitees", "collaborators", "author"]
-
     def __init__(self, document_store: DocumentStore) -> None:
         """Initialize the EntityLinker with a DocumentStore.
 
@@ -154,7 +152,17 @@ class EntityLinker:
         if not identifiers:
             return []
 
-        return self._store.query_chunks_by_identifiers(identifiers, exclude_domain=Domain.PEOPLE)
+        # Define fields to search: scalar fields (sender, host, author) and
+        # array fields (recipients, invitees, collaborators) in domain_metadata
+        scalar_fields = ["sender", "host", "author"]
+        array_fields = ["recipients", "invitees", "collaborators"]
+
+        return self._store.query_chunks_by_identifiers(
+            identifiers,
+            scalar_fields=scalar_fields,
+            array_fields=array_fields,
+            exclude_domain=Domain.PEOPLE,
+        )
 
     def _cleanup_retired_person_links(self) -> int:
         """Clean up entity_links for retired person chunks.

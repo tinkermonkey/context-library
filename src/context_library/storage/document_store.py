@@ -2288,17 +2288,20 @@ class DocumentStore:
     def query_chunks_by_identifiers(
         self,
         identifiers: list[str],
+        scalar_fields: list[str],
+        array_fields: list[str],
         exclude_domain: Optional[str] = None,
     ) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.
 
         Uses per-identifier SQL scans with json_extract() for scalar fields
-        and json_each() for array fields (recipients, invitees, collaborators).
-        This method safely handles concurrency via the connection pool and respects
-        DocumentStore's encapsulation.
+        and json_each() for array fields. This method safely handles concurrency
+        via the connection pool and respects DocumentStore's encapsulation.
 
         Args:
             identifiers: List of email/phone strings to search for.
+            scalar_fields: List of scalar field names to search (e.g., ['sender', 'host', 'author']).
+            array_fields: List of array field names to search (e.g., ['recipients', 'invitees', 'collaborators']).
             exclude_domain: Optional domain to exclude from results (e.g., 'people').
 
         Returns:
@@ -2309,11 +2312,6 @@ class DocumentStore:
 
         cursor = self.conn.cursor()
         found_hashes: set[str] = set()
-
-        # Scalar fields: sender, host, author
-        # Array fields: recipients, invitees, collaborators
-        scalar_fields = ["sender", "host", "author"]
-        array_fields = ["recipients", "invitees", "collaborators"]
 
         for identifier in identifiers:
             # Build WHERE clauses for scalar fields
