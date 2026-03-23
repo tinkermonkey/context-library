@@ -2,7 +2,6 @@
 
 import pytest
 import hashlib
-import tempfile
 from pathlib import Path
 
 from context_library.adapters.vcard import VCardAdapter
@@ -527,7 +526,7 @@ FN:Alice Smith
 EMAIL:alice@example.com
 END:VCARD"""
 
-        vcard_file = self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
+        self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
 
         # First scan
         results1 = list(adapter.fetch(""))
