@@ -46,7 +46,7 @@ def detect_cross_references(chunk: "Chunk", all_chunks: list["Chunk"]) -> tuple[
     if not chunk.content:
         return ()
 
-    referenced_hashes = set()
+    referenced_hashes: set["Sha256Hash"] = set()
     content_lower = chunk.content.lower()
 
     # Detect references to relative positions ("above", "below", etc.)

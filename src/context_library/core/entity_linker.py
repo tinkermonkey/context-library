@@ -120,7 +120,7 @@ class EntityLinker:
         if not domain_metadata:
             return []
 
-        identifiers = set()
+        identifiers: set[str] = set()
 
         # Extract emails and phones from PeopleMetadata
         if "emails" in domain_metadata:
@@ -155,7 +155,7 @@ class EntityLinker:
             return []
 
         cursor = self._store.conn.cursor()
-        found_hashes = set()
+        found_hashes: set[str] = set()
 
         # Build WHERE clauses for each field type
         for identifier in identifiers:
