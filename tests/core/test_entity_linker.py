@@ -217,28 +217,36 @@ class TestEntityLinkerFindMatchingChunks:
         assert msg_chunk.chunk_hash not in matching
 
     def test_find_matching_chunks_excludes_people_domain(self, doc_store):
-        """Exclude chunks from people domain (no self-links)."""
+        """Exclude chunks from people domain (no self-links).
+
+        Verifies that when searching for matching chunks, the entity linker
+        properly excludes chunks from the people domain even if they contain
+        matching identifiers. This prevents people chunks from linking to each
+        other, which would create spurious "person of person" links.
+        """
         people_hash = make_sha256_hash("contact_alice")
         people_chunk = Chunk(
             chunk_hash=people_hash,
             content="Contact Alice",
             context_header="Contact",
             chunk_index=0,
-            domain_metadata={"sender": "alice@example.com"},
+            domain_metadata={"emails": ["alice@example.com"], "phones": []},
         )
 
-        config = AdapterConfig(
-            adapter_id="people_adapter",
-            adapter_type="test",
-            domain=Domain.PEOPLE,
-            normalizer_version="1.0.0",
+        # CRITICAL: Actually set up the chunk in the store with proper lineage
+        setup_chunk_in_store(
+            doc_store,
+            people_chunk,
+            "people_adapter",
+            "AppleContactsAdapter",
+            "people_source",
+            Domain.PEOPLE,
         )
-        doc_store.register_adapter(config)
-        doc_store.register_source("source_1", "people_adapter", Domain.PEOPLE, "")
 
         linker = EntityLinker(doc_store)
         matching = linker._find_matching_chunks(["alice@example.com"])
 
+        # The key assertion: people domain chunks should NOT be in matching results
         assert people_chunk.chunk_hash not in matching
 
     def test_find_matching_chunks_excludes_retired_chunks(self, doc_store):
