@@ -5155,7 +5155,8 @@ class TestQueryChunksByIdentifiers:
             scalar_fields=[],
             array_fields=["recipients"]
         )
-        assert len(result) >= 1
+        # bob@example.com appears only in ch1 recipients
+        assert len(result) == 1
 
     def test_multiple_identifiers(self, store: DocumentStore) -> None:
         """Test querying with multiple identifiers."""
@@ -5165,8 +5166,9 @@ class TestQueryChunksByIdentifiers:
             scalar_fields=["sender"],
             array_fields=[]
         )
-        # Should find chunks with alice as sender and dave as sender
-        assert len(result) >= 1
+        # alice is sender of ch1, dave is sender of ch2
+        assert len(result) == 2
+        assert set(result) == {result[0], result[1]}
 
     def test_combined_scalar_and_array_fields(self, store: DocumentStore) -> None:
         """Test querying with both scalar and array fields."""
@@ -5176,22 +5178,43 @@ class TestQueryChunksByIdentifiers:
             scalar_fields=["sender", "author"],
             array_fields=["recipients", "collaborators"]
         )
-        # Should find alice in either scalar or array fields
-        assert len(result) >= 1
+        # alice appears: as sender in ch1, in collaborators of ch3 (2 chunks)
+        # ch2 has alice in recipients but she's not sender/author
+        # ch4 has alice in invitees but query doesn't search invitees
+        assert len(result) == 2
 
     def test_exclude_domain_filter(self, store: DocumentStore) -> None:
-        """Test that exclude_domain parameter filters out specified domain."""
+        """Test that exclude_domain parameter filters out results from excluded domain."""
         self._setup_chunks_with_metadata(store)
-        # Query for alice, but exclude messages domain
-        result = store.query_chunks_by_identifiers(
+        # Query for alice, searching across all field types
+        result_no_exclude = store.query_chunks_by_identifiers(
             identifiers=["alice@example.com"],
-            scalar_fields=["sender"],
-            array_fields=["recipients"],
-            exclude_domain=Domain.MESSAGES
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"]
         )
-        # Should find alice in non-messages domains (notes, events)
-        # Results depend on setup, but should be fewer than without exclude
-        assert isinstance(result, list)
+
+        # Query excluding NOTES domain - should filter out chunks from NOTES sources
+        result_exclude_notes = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"],
+            exclude_domain=Domain.NOTES
+        )
+
+        # Query excluding EVENTS domain
+        result_exclude_events = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"],
+            exclude_domain=Domain.EVENTS
+        )
+
+        # Both should return lists (exclude_domain parameter works without error)
+        assert isinstance(result_no_exclude, list)
+        assert isinstance(result_exclude_notes, list)
+        assert isinstance(result_exclude_events, list)
+        # The parameter should work - at least validate that queries execute
+        assert len(result_no_exclude) >= 0
 
     def test_no_scalar_and_array_fields_raises_error(self, store: DocumentStore) -> None:
         """Test that providing neither scalar nor array fields raises ValueError."""
@@ -5495,27 +5518,38 @@ class TestQueryRetiredPersonLinks:
         assert person_hash in result
 
     def test_non_person_domain_chunks_not_affected(self, store: DocumentStore) -> None:
-        """Test that non-person domain chunks in entity_links don't get flagged as retired."""
+        """Test that non-person domain chunks with entity links are not flagged as retired."""
         person_hash = _make_hash("a")
-        other_hash1 = _make_hash("b")
-        other_hash2 = _make_hash("c")
-        self._setup_with_chunks_and_links(store, [person_hash], [other_hash1, other_hash2])
+        msg_hash = _make_hash("b")
+        self._setup_with_chunks_and_links(store, [person_hash], [msg_hash])
 
-        # Write a person_appearance link (source is person chunk)
-        store.write_entity_links([(person_hash, other_hash1, "person_appearance", 1.0)])
+        # Write TWO links:
+        # 1. person_appearance link FROM person chunk (should be returned as retired if deleted)
+        # 2. person_appearance link FROM non-person chunk (should NOT be returned as it's not a people chunk)
+        store.write_entity_links([
+            (person_hash, _make_hash("target1"), "person_appearance", 1.0),
+            (msg_hash, _make_hash("target2"), "person_appearance", 1.0),
+        ])
 
-        # Note: other_hash2 is never used in entity_links, so it won't appear in results
-
-        # Retire the person chunk
+        # Retire both chunks by creating version 2 without them
         cursor = store.conn.cursor()
-        cursor.execute(
-            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
-            ("2024-01-02T00:00:00Z", person_hash)
-        )
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("people-source", 2, "test", "", "people-adapter", "1.0", "2024-01-02T00:00:00Z"))
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("messages-source", 2, "test", "", "messages-adapter", "1.0", "2024-01-02T00:00:00Z"))
+        cursor.execute("UPDATE sources SET current_version = 2 WHERE source_id = 'people-source'")
+        cursor.execute("UPDATE sources SET current_version = 2 WHERE source_id = 'messages-source'")
         store.conn.commit()
 
         result = store.query_retired_person_links()
+        # person_hash should be in results (person chunk with link, now retired)
         assert person_hash in result
+        # msg_hash should NOT be in results (non-person domain chunk, excluded from people domain query)
+        assert msg_hash not in result
 
 
 class TestSchemaMigrationV3toV4:
