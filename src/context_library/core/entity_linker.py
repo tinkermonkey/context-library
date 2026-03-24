@@ -5,7 +5,7 @@ from typing import Optional
 
 from context_library.core.exceptions import EntityLinkingError
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Domain
+from context_library.storage.models import Domain, EntityLink
 
 logger = logging.getLogger(__name__)
 
@@ -124,9 +124,9 @@ class EntityLinker:
                 if not matching_chunk_hashes:
                     continue
 
-                # Build link tuples: (person_chunk_hash, matching_chunk_hash, link_type, confidence)
+                # Build EntityLink objects: (person_chunk_hash, matching_chunk_hash, link_type, confidence)
                 links = [
-                    (chunk.chunk_hash, matching_hash, "person_appearance", 1.0)
+                    EntityLink(chunk.chunk_hash, matching_hash, "person_appearance", 1.0)
                     for matching_hash in matching_chunk_hashes
                 ]
 

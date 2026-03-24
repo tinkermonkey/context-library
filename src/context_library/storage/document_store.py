@@ -2335,10 +2335,10 @@ class DocumentStore:
             scalar_where = " OR ".join(scalar_where_parts) if scalar_where_parts else ""
 
             # Build WHERE clauses for array fields
-            # Use json_type() to check if the field is a JSON array before passing to json_each()
+            # Use CASE WHEN to guard json_each() — ensures it only receives valid JSON arrays
             # This prevents crashes when domain_metadata stores a field as a bare string instead of an array
             array_where_parts = [
-                f"EXISTS (SELECT 1 FROM json_each(json_extract(c.domain_metadata, '$.{field}')) WHERE json_type(c.domain_metadata, '$.{field}') = 'array' AND value = ?)"
+                f"EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(c.domain_metadata, '$.{field}') = 'array' THEN json_extract(c.domain_metadata, '$.{field}') ELSE '[]' END) WHERE value = ?)"
                 for field in array_fields
             ]
             array_where = " OR ".join(array_where_parts) if array_where_parts else ""
