@@ -660,6 +660,83 @@ class DocumentStore:
 
             return source_version_id
 
+    def create_next_source_version(
+        self,
+        source_id: str,
+        markdown: str,
+        chunk_hashes: list[Sha256Hash],
+        adapter_id: str,
+        normalizer_version: str,
+        fetch_timestamp: str,
+    ) -> tuple[int, int]:
+        """Create a new source version with atomically assigned version number.
+
+        Unlike create_source_version, the version number is computed inside the
+        write lock as MAX(version) + 1 for this source. This prevents UNIQUE
+        constraint violations when concurrent requests race to create the next
+        version for the same source.
+
+        Args:
+            source_id: ID of the source.
+            markdown: Full normalized content as markdown.
+            chunk_hashes: List of validated SHA-256 chunk hashes in this version.
+            adapter_id: ID of the adapter that fetched this version.
+            normalizer_version: Version of the normalizer used.
+            fetch_timestamp: ISO 8601 timestamp when content was fetched.
+
+        Returns:
+            Tuple of (rowid, version) for the newly created source_version row.
+
+        Raises:
+            ValueError: If any chunk_hash is not a valid SHA-256 hex string.
+            sqlite3.IntegrityError: If source_id or adapter_id don't exist.
+        """
+        for chunk_hash in chunk_hashes:
+            _validate_sha256_hex(chunk_hash)
+
+        chunk_hashes_json = json.dumps(chunk_hashes)
+
+        with self._write_lock, self.conn:
+            cursor = self.conn.cursor()
+
+            # Compute the next version atomically inside the lock
+            cursor.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM source_versions WHERE source_id = ?",
+                (source_id,),
+            )
+            version = cursor.fetchone()[0] + 1
+
+            cursor.execute(
+                """
+                INSERT INTO source_versions
+                (source_id, version, markdown, chunk_hashes, adapter_id,
+                 normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    version,
+                    markdown,
+                    chunk_hashes_json,
+                    adapter_id,
+                    normalizer_version,
+                    fetch_timestamp,
+                ),
+            )
+
+            source_version_id = cursor.lastrowid
+            if source_version_id is None:
+                raise RuntimeError(
+                    "Failed to insert source_version: cursor.lastrowid is None"
+                )
+
+            self.conn.execute(
+                "UPDATE sources SET current_version = ? WHERE source_id = ?",
+                (version, source_id),
+            )
+
+            return source_version_id, version
+
     def write_chunks(
         self,
         chunks: list[Chunk],

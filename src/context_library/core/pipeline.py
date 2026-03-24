@@ -185,14 +185,13 @@ class IngestionPipeline:
                             poll_strategy=poll_strategy,
                         )
 
-                    # Determine version number
-                    new_version = (prev_version.version + 1) if prev_version else 1
-
-                    # Create source version
+                    # Create source version with atomically assigned version number.
+                    # create_next_source_version computes MAX(version)+1 inside the
+                    # write lock, preventing UNIQUE constraint violations when
+                    # concurrent requests race to create the next version.
                     fetch_timestamp = datetime.now(timezone.utc).isoformat()
-                    self.document_store.create_source_version(
+                    _rowid, new_version = self.document_store.create_next_source_version(
                         source_id=content.source_id,
-                        version=new_version,
                         markdown=content.markdown,
                         chunk_hashes=[chunk.chunk_hash for chunk in chunks],
                         adapter_id=adapter.adapter_id,
