@@ -16,6 +16,7 @@ vCard Format (RFC 6350):
 This adapter uses the vobject library for RFC 6350-compliant parsing.
 """
 
+import hashlib
 import logging
 import uuid
 from pathlib import Path
@@ -75,6 +76,18 @@ class VCardAdapter(BaseAdapter):
 
         self._vcf_directory = Path(vcf_directory)
         self._account_id = account_id
+
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit: clean up resources."""
+        return False
+
+    def __del__(self) -> None:
+        """Clean up resources when adapter is destroyed (safety net)."""
+        pass
 
     @property
     def adapter_id(self) -> str:
@@ -258,34 +271,29 @@ class VCardAdapter(BaseAdapter):
         )
 
     def _derive_contact_id(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> str:
-        """Derive a stable contact identifier from vCard.
+        """Derive a stable contact identifier from vCard per RFC 6350 spec.
 
         Uses UID if present. For vCards without UID, generates a deterministic
-        UUID5 based on file location and contact position, independent of
-        mutable contact data (name, email).
+        SHA-256 hash of FN (full name) + first EMAIL address, per spec FR-5.4.
+        This approach ensures stable identity that persists across structural
+        changes (insertions/deletions) while remaining deterministic.
 
-        This approach prevents identity instability: if a contact's name or
-        email changes, the contact_id remains constant, preserving entity links
-        and preventing duplicate person chunks. Additionally, it prevents
-        collisions between different contacts that have the same name.
-
-        **Limitation**: Contact index is used as part of the identifier. If a
-        contact is deleted or inserted before another contact in the same .vcf
-        file, subsequent contacts will shift indices and be assigned new IDs.
-        This is an inherent limitation of file-based indexing. Mitigation: ensure
-        vCard files include explicit UID fields for stable identity across
-        structural changes.
+        The SHA-256 hash of "FN + first EMAIL" is deterministic and independent
+        of file location or index, preventing identity instability when contacts
+        are reordered. If a contact's name or email changes, entity links should
+        be updated by the upstream system. Contacts without email use FN alone
+        for hashing.
 
         Args:
             vcard: vobject component representing a vCard
-            vcf_file: Path to the vCard file (for deterministic UUID generation)
-            contact_index: Index of contact in file (for deterministic UUID generation)
+            vcf_file: Path to the vCard file (unused, kept for backward compatibility)
+            contact_index: Index of contact in file (unused, kept for backward compatibility)
 
         Returns:
-            Stable contact identifier (UUID string)
+            Stable contact identifier (hex-encoded SHA-256 hash or UID)
 
         Raises:
-            ValueError: If vcf_file is None (required for deterministic derivation)
+            ValueError: If vCard has no FN (required field per RFC 6350)
         """
         # Prefer UID if present (most stable, from vCard itself)
         if hasattr(vcard, "uid"):
@@ -294,21 +302,32 @@ class VCardAdapter(BaseAdapter):
                 return uid_value
             return str(uid_value)
 
-        # Fallback: Generate deterministic UUID from file path + contact index
-        # This ensures stable identity across re-ingests without depending on
-        # mutable fields like name or email, and avoids collisions between
-        # different contacts with the same name.
-        if vcf_file is None:
-            raise ValueError("vcf_file is required for deterministic identity derivation")
+        # Fallback: Generate deterministic SHA-256 hash from FN + first EMAIL
+        # per spec requirement FR-5.4. This ensures stable identity across
+        # structural changes (insertions/deletions) in source files.
+        if not hasattr(vcard, "fn"):
+            raise ValueError("vCard missing required FN (full name) field")
 
-        # Create a deterministic namespace identifier from:
-        # 1. Absolute file path (immutable across re-ingests)
-        # 2. Contact index in file (immutable once file is written)
-        namespace_key = f"file://{vcf_file.resolve()}#{contact_index}"
+        fn_value = vcard.fn.value
+        if not isinstance(fn_value, str) or not fn_value.strip():
+            raise ValueError(f"vCard FN must be non-empty string, got: {fn_value!r}")
 
-        # Use UUID5 (deterministic SHA-1 based UUID) with URL namespace
-        # This ensures the same file + position always generates the same UUID
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, namespace_key))
+        # Get first email if available
+        emails_raw = vcard.contents.get("email", [])
+        first_email = None
+        if emails_raw and isinstance(emails_raw[0].value, str):
+            first_email = emails_raw[0].value
+
+        # Create deterministic hash from FN + first EMAIL
+        # Use FN alone if no email is present
+        if first_email:
+            hash_input = f"{fn_value}:{first_email}"
+        else:
+            hash_input = fn_value
+
+        # Generate SHA-256 hash for deterministic, stable identity
+        hash_digest = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+        return hash_digest
 
     def _build_contact_markdown(self, metadata: PeopleMetadata) -> str:
         """Build markdown representation of a contact.

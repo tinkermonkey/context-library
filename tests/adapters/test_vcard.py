@@ -266,7 +266,7 @@ END:VCARD"""
         assert results[0].source_id == "unique-id-12345"
 
     def test_fetch_without_uid_uses_hash(self, tmp_path):
-        """fetch() uses deterministic UUID when UID is missing."""
+        """fetch() uses deterministic SHA-256 hash of FN + first EMAIL when UID is missing."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
         vcard_content = """BEGIN:VCARD
@@ -280,17 +280,17 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         source_id = results[0].source_id
 
-        # Verify it's a UUID (36 chars: 8-4-4-4-12 with hyphens)
-        assert len(source_id) == 36
-        # UUID format check: 8 hex, dash, 4 hex, dash, 4 hex, dash, 4 hex, dash, 12 hex
-        assert source_id.count("-") == 4
+        # Verify it's a SHA-256 hash (64 hex characters)
+        assert len(source_id) == 64
+        # SHA-256 hex format check: all hexadecimal characters
+        assert all(c in "0123456789abcdef" for c in source_id)
 
         # Verify it's deterministic by rescanning
         results_rescan = list(adapter.fetch(""))
         assert results_rescan[0].source_id == source_id
 
     def test_fetch_without_uid_without_email_still_stable(self, tmp_path):
-        """fetch() generates stable ID even without email."""
+        """fetch() generates stable SHA-256 hash ID even without email (hashing FN only)."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
         vcard_content = """BEGIN:VCARD
@@ -303,9 +303,9 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         source_id = results[0].source_id
 
-        # Should be a valid UUID
-        assert len(source_id) == 36
-        assert source_id.count("-") == 4
+        # Should be a valid SHA-256 hash (64 hex characters)
+        assert len(source_id) == 64
+        assert all(c in "0123456789abcdef" for c in source_id)
 
     def test_fetch_directory_not_found(self):
         """fetch() raises FileNotFoundError if vcf_directory doesn't exist."""
@@ -538,12 +538,13 @@ END:VCARD"""
 
         assert source_id_1 == source_id_2
 
-    def test_name_change_preserves_contact_id(self, tmp_path):
-        """Contact ID remains stable even if display name or email changes.
+    def test_name_change_changes_contact_id(self, tmp_path):
+        """Contact ID changes when display name changes (spec-compliant FN + EMAIL hash).
 
-        This tests the core fix for identity instability: if a contact's name
-        or first email changes, the ID should remain constant to preserve entity
-        links and prevent duplicate person chunks.
+        Per spec FR-5.4, the fallback contact ID is a deterministic hash of
+        FN + first EMAIL. When the name changes, the hash changes, reflecting
+        that this is semantically a different person identity per RFC 6350.
+        Upstream systems should handle entity resolution via UID or other means.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -573,14 +574,16 @@ END:VCARD"""
         results2 = list(adapter.fetch(""))
         new_id = results2[0].source_id
 
-        # ID should remain stable across name change
-        assert original_id == new_id
+        # ID should change because the hash of FN changed
+        assert original_id != new_id
 
-    def test_email_change_preserves_contact_id(self, tmp_path):
-        """Contact ID remains stable even if email changes.
+    def test_email_change_changes_contact_id(self, tmp_path):
+        """Contact ID changes when first email changes (spec-compliant FN + EMAIL hash).
 
-        Tests that email changes don't invalidate the contact identity, preserving
-        entity links from old email addresses.
+        Per spec FR-5.4, the fallback contact ID is a deterministic hash of
+        FN + first EMAIL. When the first email address changes, the hash
+        changes, reflecting a change in the contact's identity. Upstream
+        systems should handle entity resolution via UID or other means.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -610,14 +613,16 @@ END:VCARD"""
         results2 = list(adapter.fetch(""))
         new_id = results2[0].source_id
 
-        # ID should remain stable across email change
-        assert original_id == new_id
+        # ID should change because the hash of first EMAIL changed
+        assert original_id != new_id
 
-    def test_no_collision_for_same_name_without_email(self, tmp_path):
-        """Two contacts with same name and no email get different IDs.
+    def test_collision_for_same_name_without_email(self, tmp_path):
+        """Two contacts with identical name and no email get the SAME ID (as expected per spec).
 
-        Tests the collision problem: previously, contacts with same name
-        and no email would collide to the same identity.
+        Per spec FR-5.4, the fallback ID is hash(FN + first_email).
+        Since both contacts have identical FN and no email, they hash to the same ID.
+        This is expected behavior: the spec indicates upstream systems must use
+        explicit UIDs to distinguish between contacts with identical names and emails.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -636,17 +641,19 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         assert len(results) == 2
 
-        # IDs should be different despite having same name
+        # IDs will be identical because they have identical FN and no email (per spec)
         id1 = results[0].source_id
         id2 = results[1].source_id
 
-        assert id1 != id2
+        assert id1 == id2
 
-    def test_separate_files_prevent_collision(self, tmp_path):
-        """Same contact name in different files gets different IDs.
+    def test_identical_contacts_same_id_across_files(self, tmp_path):
+        """Identical contacts in different files get the SAME ID (per spec FN + EMAIL hash).
 
-        Tests that using file path + index for ID generation prevents
-        collisions between identical contact names in different files.
+        Tests that using FN + EMAIL hash for ID generation produces identical
+        IDs for contacts with identical name and email, regardless of file
+        location. This is spec-compliant behavior (FR-5.4). Upstream systems
+        should use explicit UIDs to distinguish logically separate contacts.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -663,8 +670,8 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         assert len(results) == 2
 
-        # IDs should be different due to different file paths
+        # IDs should be identical due to identical FN + EMAIL (per spec)
         id1 = results[0].source_id
         id2 = results[1].source_id
 
-        assert id1 != id2
+        assert id1 == id2
