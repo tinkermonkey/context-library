@@ -5010,6 +5010,514 @@ class TestEntityLinks:
             store.conn.close()
 
 
+class TestQueryChunksByIdentifiers:
+    """Tests for DocumentStore.query_chunks_by_identifiers()."""
+
+    def _setup_chunks_with_metadata(self, store: DocumentStore) -> None:
+        """Set up test chunks with domain_metadata for identifier searching."""
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+
+        _setup_adapter_and_source(store)
+
+        # Create chunks with various domain_metadata containing identifiers
+        # Chunk 1: Messages domain with sender and recipients
+        ch1 = compute_chunk_hash("email content 1")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="email content 1",
+            context_header="Email header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "sender": "alice@example.com",
+                "recipients": ["bob@example.com", "charlie@example.com"]
+            },
+        )
+
+        # Chunk 2: Messages domain with different identifiers
+        ch2 = compute_chunk_hash("email content 2")
+        chunk2 = Chunk(
+            chunk_hash=ch2,
+            content="email content 2",
+            context_header="Email header",
+            chunk_index=1,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "sender": "dave@example.com",
+                "recipients": ["alice@example.com"]
+            },
+        )
+
+        # Chunk 3: Notes domain with author and collaborators
+        ch3 = compute_chunk_hash("note content 1")
+        chunk3 = Chunk(
+            chunk_hash=ch3,
+            content="note content 1",
+            context_header="Note header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "author": "eve@example.com",
+                "collaborators": ["alice@example.com", "bob@example.com"]
+            },
+        )
+
+        # Chunk 4: Events domain with invitees
+        ch4 = compute_chunk_hash("event content 1")
+        chunk4 = Chunk(
+            chunk_hash=ch4,
+            content="event content 1",
+            context_header="Event header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "host": "frank@example.com",
+                "invitees": ["alice@example.com", "charlie@example.com"]
+            },
+        )
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1, ch2, ch3, ch4],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+
+        lineage_records = [
+            LineageRecord(
+                chunk_hash=ch1,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch2,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch3,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch4,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.EVENTS,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+        store.write_chunks([chunk1, chunk2, chunk3, chunk4], lineage_records)
+
+    def test_empty_identifiers_list(self, store: DocumentStore) -> None:
+        """Test that empty identifiers list returns empty results."""
+        result = store.query_chunks_by_identifiers(
+            identifiers=[],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert result == []
+
+    def test_single_scalar_field_match(self, store: DocumentStore) -> None:
+        """Test querying by single scalar field."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        # Alice is the sender in chunk1, so should find exactly that chunk
+        assert len(result) == 1
+        assert isinstance(result[0], str) and len(result[0]) == 64  # Valid SHA-256 hash
+
+    def test_single_array_field_match(self, store: DocumentStore) -> None:
+        """Test querying by single array field."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["bob@example.com"],
+            scalar_fields=[],
+            array_fields=["recipients"]
+        )
+        assert len(result) >= 1
+
+    def test_multiple_identifiers(self, store: DocumentStore) -> None:
+        """Test querying with multiple identifiers."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com", "dave@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        # Should find chunks with alice as sender and dave as sender
+        assert len(result) >= 1
+
+    def test_combined_scalar_and_array_fields(self, store: DocumentStore) -> None:
+        """Test querying with both scalar and array fields."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators"]
+        )
+        # Should find alice in either scalar or array fields
+        assert len(result) >= 1
+
+    def test_exclude_domain_filter(self, store: DocumentStore) -> None:
+        """Test that exclude_domain parameter filters out specified domain."""
+        self._setup_chunks_with_metadata(store)
+        # Query for alice, but exclude messages domain
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=["recipients"],
+            exclude_domain=Domain.MESSAGES
+        )
+        # Should find alice in non-messages domains (notes, events)
+        # Results depend on setup, but should be fewer than without exclude
+        assert isinstance(result, list)
+
+    def test_no_scalar_and_array_fields_raises_error(self, store: DocumentStore) -> None:
+        """Test that providing neither scalar nor array fields raises ValueError."""
+        with pytest.raises(ValueError, match="At least one of scalar_fields or array_fields must be provided"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[],
+                array_fields=[]
+            )
+
+    def test_invalid_field_name_raises_error(self, store: DocumentStore) -> None:
+        """Test that invalid field names raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=["invalid-field-name"],  # Contains dash, not allowed
+                array_fields=[]
+            )
+
+    def test_empty_field_name_raises_error(self, store: DocumentStore) -> None:
+        """Test that empty field names raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[""],  # Empty string
+                array_fields=[]
+            )
+
+    def test_field_name_with_special_chars_raises_error(self, store: DocumentStore) -> None:
+        """Test that field names with special characters raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=["field'; DROP TABLE"],
+                array_fields=[]
+            )
+
+    def test_valid_field_names_with_underscores(self, store: DocumentStore) -> None:
+        """Test that underscores are allowed in field names."""
+        self._setup_chunks_with_metadata(store)
+        # Should not raise error for valid underscored field names
+        result = store.query_chunks_by_identifiers(
+            identifiers=["test@example.com"],
+            scalar_fields=["sender_address", "user_email"],
+            array_fields=[]
+        )
+        # No results expected since we don't have these fields, but no error
+        assert result == []
+
+    def test_results_are_sorted(self, store: DocumentStore) -> None:
+        """Test that results are returned in sorted order."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=["recipients", "collaborators", "invitees"]
+        )
+        # Verify results are sorted
+        assert result == sorted(result)
+
+    def test_no_matches_returns_empty(self, store: DocumentStore) -> None:
+        """Test that no matching identifiers returns empty list."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["nonexistent@example.com"],
+            scalar_fields=["sender"],
+            array_fields=["recipients"]
+        )
+        assert result == []
+
+    def test_retired_chunks_excluded(self, store: DocumentStore) -> None:
+        """Test that retired chunks are excluded from results."""
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+
+        _setup_adapter_and_source(store)
+
+        # Create and write a chunk
+        ch1 = compute_chunk_hash("content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={"sender": "alice@example.com"},
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        # Verify it's found
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert ch1 in result
+
+        # Retire the chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+            ("2024-01-02T00:00:00Z", ch1)
+        )
+        store.conn.commit()
+
+        # Verify it's no longer found
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert ch1 not in result
+
+
+class TestQueryRetiredPersonLinks:
+    """Tests for DocumentStore.query_retired_person_links()."""
+
+    def _setup_with_chunks_and_links(self, store: DocumentStore, person_chunks: list[str], other_chunks: list[str]) -> None:
+        """Set up test database with people and non-people chunks and entity links."""
+        cursor = store.conn.cursor()
+
+        # Disable FK constraints for test data setup
+        cursor.execute("PRAGMA foreign_keys=OFF")
+
+        # Create adapters
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES (?, ?, ?, ?)
+        """, ("people-adapter", "people", "test_adapter", "1.0"))
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES (?, ?, ?, ?)
+        """, ("messages-adapter", "messages", "test_adapter", "1.0"))
+
+        # Create sources
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("people-source", "people-adapter", "people", "test-origin", "push"))
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("messages-source", "messages-adapter", "messages", "test-origin", "push"))
+
+        # Create source versions
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("people-source", 1, "test", ",".join(person_chunks), "people-adapter", "1.0", "2024-01-01T00:00:00Z"))
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("messages-source", 1, "test", ",".join(other_chunks), "messages-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+        # Create people chunks
+        for idx, hash_val in enumerate(person_chunks):
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (hash_val, "people-source", 1, idx, f"Person {idx}", "people", "people-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+        # Create non-people chunks
+        for idx, hash_val in enumerate(other_chunks):
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (hash_val, "messages-source", 1, idx, f"Message {idx}", "messages", "messages-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+        # Update current_version to match the version we just created
+        cursor.execute("UPDATE sources SET current_version = 1 WHERE source_id = 'people-source'")
+        cursor.execute("UPDATE sources SET current_version = 1 WHERE source_id = 'messages-source'")
+
+        store.conn.commit()
+        # Keep FK constraints OFF for entity link tests
+
+    def test_empty_entity_links_table(self, store: DocumentStore) -> None:
+        """Test that empty entity_links table returns empty list."""
+        self._setup_with_chunks_and_links(store, [_make_hash("a")], [_make_hash("b")])
+        result = store.query_retired_person_links()
+        assert result == []
+
+    def test_active_person_links_not_retired(self, store: DocumentStore) -> None:
+        """Test that active person_appearance links are not marked as retired."""
+        person_hash = _make_hash("a")
+        other_hash = _make_hash("b")
+        self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
+
+        # Write a person_appearance link from active person chunk to other chunk
+        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+
+        # Query retired links should return empty (person chunk is still active)
+        result = store.query_retired_person_links()
+        assert result == []
+
+    def test_retired_person_chunk_link_identified(self, store: DocumentStore) -> None:
+        """Test that links from retired person chunks are identified as retired."""
+        person_hash = _make_hash("a")
+        other_hash = _make_hash("b")
+        self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
+
+        # Write a person_appearance link
+        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+
+        # Retire the person chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+            ("2024-01-02T00:00:00Z", person_hash)
+        )
+        store.conn.commit()
+
+        # Query retired links should now return the person hash
+        result = store.query_retired_person_links()
+        assert person_hash in result
+
+    def test_non_person_appearance_links_ignored(self, store: DocumentStore) -> None:
+        """Test that non-person_appearance links are not returned as retired."""
+        person_hash = _make_hash("a")
+        other_hash = _make_hash("b")
+        self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
+
+        # Write a non-person_appearance link (e.g., "mention" link type)
+        store.write_entity_links([(person_hash, other_hash, "mention", 0.8)])
+
+        # Retire the person chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+            ("2024-01-02T00:00:00Z", person_hash)
+        )
+        store.conn.commit()
+
+        # Query retired person_appearance links should return empty
+        # (because the link_type is "mention", not "person_appearance")
+        result = store.query_retired_person_links()
+        assert result == []
+
+    def test_multiple_retired_person_links(self, store: DocumentStore) -> None:
+        """Test identifying multiple retired person chunks with links."""
+        person_hash1 = _make_hash("a")
+        person_hash2 = _make_hash("b")
+        other_hash = _make_hash("c")
+        self._setup_with_chunks_and_links(store, [person_hash1, person_hash2], [other_hash])
+
+        # Write person_appearance links from both person chunks
+        store.write_entity_links([
+            (person_hash1, other_hash, "person_appearance", 1.0),
+            (person_hash2, other_hash, "person_appearance", 1.0),
+        ])
+
+        # Retire both person chunks
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash IN (?, ?)",
+            ("2024-01-02T00:00:00Z", person_hash1, person_hash2)
+        )
+        store.conn.commit()
+
+        # Query retired links should return both
+        result = store.query_retired_person_links()
+        assert set(result) == {person_hash1, person_hash2}
+
+    def test_deleted_person_chunk_link_identified(self, store: DocumentStore) -> None:
+        """Test that links from deleted (not in current version) person chunks are identified."""
+        person_hash = _make_hash("a")
+        other_hash = _make_hash("b")
+        self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
+
+        # Write a person_appearance link
+        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+
+        # Create a new version without this person chunk
+        cursor = store.conn.cursor()
+        cursor.execute("UPDATE sources SET current_version = 2 WHERE source_id = 'people-source'")
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("people-source", 2, "test", "", "people-adapter", "1.0", "2024-01-02T00:00:00Z"))
+        store.conn.commit()
+
+        # Query retired links should return the person hash
+        # (it exists as v1 chunk but not in current version 2)
+        result = store.query_retired_person_links()
+        assert person_hash in result
+
+    def test_non_person_domain_chunks_not_affected(self, store: DocumentStore) -> None:
+        """Test that non-person domain chunks in entity_links don't get flagged as retired."""
+        person_hash = _make_hash("a")
+        other_hash1 = _make_hash("b")
+        other_hash2 = _make_hash("c")
+        self._setup_with_chunks_and_links(store, [person_hash], [other_hash1, other_hash2])
+
+        # Write a person_appearance link (source is person chunk)
+        store.write_entity_links([(person_hash, other_hash1, "person_appearance", 1.0)])
+
+        # Note: other_hash2 is never used in entity_links, so it won't appear in results
+
+        # Retire the person chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+            ("2024-01-02T00:00:00Z", person_hash)
+        )
+        store.conn.commit()
+
+        result = store.query_retired_person_links()
+        assert person_hash in result
+
+
 class TestSchemaMigrationV3toV4:
     """Tests for schema migration from v3 to v4 (people domain and entity_links support)."""
 

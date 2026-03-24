@@ -2398,7 +2398,8 @@ class DocumentStore:
             """
             SELECT DISTINCT el.source_chunk_hash
             FROM entity_links el
-            WHERE NOT EXISTS (
+            WHERE el.link_type = ?
+            AND NOT EXISTS (
                 SELECT 1
                 FROM chunks c
                 JOIN sources s ON c.source_id = s.source_id
@@ -2408,7 +2409,7 @@ class DocumentStore:
                 AND c.source_version = s.current_version
             )
             """,
-            (Domain.PEOPLE,),
+            ("person_appearance", Domain.PEOPLE),
         )
         return [row[0] for row in cursor.fetchall()]
 
