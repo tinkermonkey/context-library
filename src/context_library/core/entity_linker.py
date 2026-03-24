@@ -35,10 +35,12 @@ class EntityLinker:
 
         Performs these steps:
         1. Clean up entity_links for retired person chunks
-        2. Fetch all active (non-retired) person chunks via pagination
+        2. Fetch active (non-retired) person chunks via pagination
         3. For each person chunk, extract emails/phones from domain_metadata
         4. For each identifier, query chunks in other domains for matches
         5. Write matched links to entity_links
+
+        Pages are processed and discarded immediately to minimize memory usage.
 
         Returns:
             Number of new entity_links rows created.
@@ -52,10 +54,13 @@ class EntityLinker:
         if retired_links_cleaned > 0:
             logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
 
-        # Step 2: Fetch all active person chunks with pagination
+        # Step 2-5: Fetch and process person chunks page by page
+        # Each page is processed and discarded immediately to minimize memory usage
         page_size = 10000
-        all_person_chunks = []
         offset = 0
+        total_links_created = 0
+        chunks_processed = 0
+        has_chunks = False
 
         while True:
             person_chunks, total = self._store.list_chunks(
@@ -67,30 +72,46 @@ class EntityLinker:
             if not person_chunks:
                 break
 
-            all_person_chunks.extend(person_chunks)
-            offset += len(person_chunks)
+            has_chunks = True
+            page_links = self._process_person_chunks_page(person_chunks)
+            total_links_created += page_links
+            chunks_processed += len(person_chunks)
 
             logger.debug(
-                "Entity linking: fetched %d person chunks (total: %d, fetched so far: %d)",
+                "Entity linking: processed %d chunks from page (total processed: %d / %d, created %d links)",
                 len(person_chunks),
+                chunks_processed,
                 total,
-                offset,
+                page_links,
             )
+
+            offset += len(person_chunks)
 
             # Break if we've fetched all chunks
             if offset >= total:
                 break
 
-        if not all_person_chunks:
+        if not has_chunks:
             logger.info("No person chunks found; entity linking pass is complete")
             return 0
 
-        logger.info("Entity linking pass: found %d person chunks", len(all_person_chunks))
+        logger.info("Entity linking pass complete: processed %d person chunks, created %d new links", chunks_processed, total_links_created)
+        return total_links_created
 
-        # Step 3-5: For each person chunk, find matching chunks and write links
-        # Errors are logged but don't abort the pass for other chunks (per-chunk error isolation)
-        total_links_created = 0
-        for chunk_with_context in all_person_chunks:
+    def _process_person_chunks_page(self, person_chunks: list) -> int:
+        """Process a single page of person chunks.
+
+        For each chunk, extracts identifiers, finds matching chunks in other domains,
+        and writes entity links. Errors are logged but don't abort processing.
+
+        Args:
+            person_chunks: List of ChunkWithContext objects to process.
+
+        Returns:
+            Number of new entity_links rows created for this page.
+        """
+        page_links_created = 0
+        for chunk_with_context in person_chunks:
             chunk = chunk_with_context.chunk
             try:
                 # Extract emails and phones from domain_metadata
@@ -111,7 +132,7 @@ class EntityLinker:
 
                 # Write links (idempotent via UNIQUE constraint)
                 new_links = self._store.write_entity_links(links)
-                total_links_created += new_links
+                page_links_created += new_links
                 if new_links > 0:
                     logger.debug(
                         "Person chunk %s: found %d new links for %d identifier(s)",
@@ -128,8 +149,7 @@ class EntityLinker:
                 )
                 continue
 
-        logger.info("Entity linking pass complete: created %d new links", total_links_created)
-        return total_links_created
+        return page_links_created
 
     def _extract_identifiers(self, domain_metadata: Optional[dict]) -> list[str]:
         """Extract email and phone identifiers from PeopleMetadata.
