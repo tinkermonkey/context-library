@@ -1,0 +1,29 @@
+
+You are a Senior Software Engineer.
+
+I implement clean, well thought out code with proper error handling and maintainable architecture.
+
+**Issue Title**: [PR Feedback] Retrieval Layer Spec Gap
+
+**Description**:
+Based on consolidated PR review, address the following in **Retrieval Layer Spec Gap**:
+
+- **`RetrievalResult.to_dict()` exclusion of people `domain_metadata` not implemented**: The spec (FR-6.3) requires that contact `domain_metadata` (containing emails, phones) must not be included in `RetrievalResult.to_dict()` output. No `to_dict()` method exists in the codebase (on main or in this PR), so the people-specific exclusion cannot be enforced. This is a missing implementation required by the spec.
+
+---
+_Created by PR Review Stage - Consolidation Phase_
+
+---
+
+## Concurrent Fix Issues (Same Review Cycle)
+
+The following issues are being fixed simultaneously in this review cycle. Check these issues for any files they modify before making your own changes to avoid introducing conflicts:
+
+- #324: [PR Feedback] DocumentStore SQL Query Methods
+- #325: [PR Feedback] Server Ingest Routes
+- #326: [PR Feedback] VCardAdapter Spec Compliance
+- #327: [PR Feedback] Entity Linker Scalability
+- #328: [PR Feedback] Schema / Data Integrity
+
+
+

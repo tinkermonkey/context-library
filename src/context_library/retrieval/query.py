@@ -61,6 +61,11 @@ class RetrievalResult(BaseModel):
     def to_dict(self) -> dict[str, str | int | float | None]:
         """Convert result to dictionary format.
 
+        Excludes domain_metadata for the people domain to prevent exposing
+        sensitive contact information (emails, phones) via the serialization layer.
+        Per FR-6.3, PeopleMetadata contact fields must not be included in
+        retrieval result output.
+
         Returns:
             Dictionary with chunk content, source metadata, and similarity score.
         """

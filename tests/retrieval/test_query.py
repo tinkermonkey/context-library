@@ -118,6 +118,60 @@ class TestRetrievalResult:
         assert result_dict["embedding_model"] == "all-MiniLM-L6-v2"
         assert result_dict["similarity_score"] == 0.9
 
+    def test_to_dict_excludes_domain_metadata(self) -> None:
+        """Test that to_dict() never includes domain_metadata (especially for people domain).
+
+        Per FR-6.3 spec, contact domain_metadata containing sensitive information
+        (emails, phones) must not be exposed in retrieval result output.
+        """
+        # Create a chunk with sensitive people domain metadata (emails, phones)
+        people_metadata = {
+            "contact_id": "contact_123",
+            "display_name": "John Doe",
+            "emails": ("john@example.com", "johndoe@work.com"),
+            "phones": ("+1-555-0100", "+1-555-0200"),
+            "organization": "ACME Corp",
+            "job_title": "Engineer",
+            "source_type": "contacts",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("0"),
+            content="Contact description",
+            context_header="Contact: John Doe",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=people_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("0"),
+            source_id="people_source",
+            source_version_id=1,
+            adapter_id="people-adapter",
+            domain=Domain.PEOPLE,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.85)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata is NOT in the output
+        assert "domain_metadata" not in result_dict, (
+            "domain_metadata must not be included in to_dict() output for security reasons"
+        )
+
+        # Verify sensitive contact information is not exposed
+        for key in result_dict:
+            value = result_dict[key]
+            if isinstance(value, (str, tuple, list)):
+                assert "john@example.com" not in str(value), "Email addresses must not be exposed"
+                assert "+1-555-0100" not in str(value), "Phone numbers must not be exposed"
+
+        # Verify expected fields are still present
+        assert result_dict["chunk_text"] == "Contact description"
+        assert result_dict["domain"] == "people"
+        assert result_dict["context_header"] == "Contact: John Doe"
+
 
 class TestRetrieve:
     """Tests for the retrieve() function."""
