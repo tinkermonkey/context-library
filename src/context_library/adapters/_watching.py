@@ -103,6 +103,7 @@ class FileSystemWatcher:
         self._watchfiles_thread: threading.Thread | None = None
         self._watchfiles_stop_event: threading.Event | None = None
         self._watchfiles_failed = False  # Flag to track watchfiles thread failure
+        self._watchfiles_initialized = threading.Event()  # Signals successful initialization
 
     def __del__(self) -> None:
         """Ensure cleanup when the watcher is garbage collected."""
@@ -268,6 +269,7 @@ class FileSystemWatcher:
         # Reset stopped flag to allow new watch cycle
         self._stopped = False
         self._watchfiles_failed = False
+        self._watchfiles_initialized.clear()
         self._watchfiles_stop_event = threading.Event()
         self._watchfiles_thread = threading.Thread(
             target=self._watchfiles_loop,
@@ -275,30 +277,23 @@ class FileSystemWatcher:
         )
         self._watchfiles_thread.start()
 
-        # Wait briefly for the thread to start and initialize watchfiles.watch()
-        # If it fails (e.g., due to inotify limit), the thread will mark _watchfiles_failed=True
-        # and we can detect this. This timeout is long enough for initialization but short
-        # enough to not block the start() call excessively.
-        start_time = time.time()
-        timeout = 2.0
-        while time.time() - start_time < timeout:
+        # Wait for the watchfiles thread to signal initialization or detect failure.
+        # The thread sets _watchfiles_initialized after successfully entering watchfiles.watch().
+        # This is more reliable than time-based heuristics.
+        if not self._watchfiles_initialized.wait(timeout=2.0):
             if not self._watchfiles_thread.is_alive():
-                # Thread died during initialization - initialization failed
+                # Thread died without signaling initialization - likely failed to call watchfiles.watch()
                 self._watchfiles_failed = True
                 raise RuntimeError(
                     f"watchfiles thread failed to initialize watching {self._watch_path}, "
                     "likely due to resource exhaustion (inotify limit reached)"
                 )
-            # Exit early once initialization succeeds (thread is running and didn't fail)
-            # We assume initialization is complete if:
-            # 1. Thread is still alive (hasn't crashed during startup), AND
-            # 2. Sufficient time has passed for watchfiles.watch() to initialize
-            # The 0.5s sleep in _watchfiles_loop provides initialization headroom.
-            if time.time() - start_time > 0.1:
-                # Thread survived the first 100ms without crashing, initialization likely succeeded
-                break
-            # Give thread time to initialize
-            time.sleep(0.01)
+            # Thread is still alive but hasn't signaled initialization within timeout.
+            # Log a warning but allow it to continue (may be a slow system).
+            logger.warning(
+                f"watchfiles initialization taking longer than expected for {self._watch_path}, "
+                "proceeding with caution"
+            )
 
         logger.debug(f"Started watching {self._watch_path} with watchfiles")
 
@@ -367,11 +362,18 @@ class FileSystemWatcher:
             # watchers are started in quick succession
             time.sleep(0.5)
 
-            for changes in _watchfiles.watch(
+            # Signal that initialization has begun (watchfiles.watch() is being called)
+            # The caller's wait-for-initialization check will complete once this generator
+            # is successfully created
+            changes_iter = _watchfiles.watch(
                 str(self._watch_path),
                 watch_filter=None,
                 stop_event=self._watchfiles_stop_event,
-            ):
+            )
+            # Signal successful initialization
+            self._watchfiles_initialized.set()
+
+            for changes in changes_iter:
                 # Process each change in the batch
                 for change_type_int, changed_path in changes:
                     # watchfiles returns change_type as an int (Change enum)

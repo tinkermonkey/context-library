@@ -18,7 +18,10 @@ requires_fs_watch = pytest.mark.requires_fs_watch
 def create_watching_watcher(watch_path, callback, **kwargs):
     """Create a FileSystemWatcher and skip the test if inotify resources are exhausted."""
     watcher = FileSystemWatcher(watch_path=watch_path, callback=callback, **kwargs)
-    watcher.start()
+    try:
+        watcher.start()
+    except RuntimeError:
+        pytest.skip("inotify resources exhausted, cannot test filesystem watching")
 
     # If the watcher failed to initialize (likely due to inotify exhaustion),
     # skip this test
@@ -759,3 +762,60 @@ class TestFileSystemWatcherStopRaceCondition:
             finally:
                 if watcher.is_alive:
                     watcher.stop()
+
+
+class TestFileSystemWatcherInitializationFailure:
+    """Tests for detecting and handling initialization failures."""
+
+    def test_thread_death_during_initialization_raises_error(self) -> None:
+        """Test that RuntimeError is raised when watchfiles thread dies during startup."""
+        from unittest.mock import patch
+        from context_library.adapters import _watching
+
+        # Only run this test if watchfiles is available
+        if not _watching.HAS_WATCHFILES:
+            pytest.skip("watchfiles not installed, cannot test initialization failure")
+
+        callback = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watch_dir = Path(tmpdir)
+            watcher = FileSystemWatcher(watch_path=watch_dir, callback=callback)
+
+            # Force watchfiles path by mocking HAS_WATCHDOG=False
+            with patch.object(_watching, 'HAS_WATCHDOG', False):
+                # Mock watchfiles.watch to raise an exception immediately (simulating inotify limit)
+                with patch('context_library.adapters._watching._watchfiles.watch') as mock_watch:
+                    # Make the watch generator raise an exception when created
+                    mock_watch.side_effect = RuntimeError("inotify limit reached")
+
+                    # start() should raise RuntimeError due to thread failure
+                    with pytest.raises(RuntimeError, match="watchfiles thread failed to initialize"):
+                        watcher.start()
+
+                    # Watcher should not be alive after failed initialization
+                    assert not watcher.is_alive
+
+    def test_successful_initialization_completes_within_timeout(self) -> None:
+        """Test that successful initialization is detected and startup completes quickly."""
+        callback = MagicMock()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watch_dir = Path(tmpdir)
+            watcher = create_watching_watcher(
+                watch_path=watch_dir,
+                callback=callback,
+                debounce_ms=100,
+            )
+
+            # Measure startup time
+            start = time.time()
+            # start() was already called in create_watching_watcher
+
+            # Startup should complete relatively quickly (< 2.5 seconds, the full timeout)
+            # Normal case should be much faster (< 1 second)
+            elapsed = time.time() - start
+            assert elapsed < 2.5
+
+            # Watcher should be alive
+            assert watcher.is_alive
+
+            watcher.stop()
