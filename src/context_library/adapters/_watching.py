@@ -255,7 +255,13 @@ class FileSystemWatcher:
         logger.debug(f"Stopped watching {self._watch_path}")
 
     def _start_watchfiles(self) -> None:
-        """Start watchfiles observer in a background thread."""
+        """Start watchfiles observer in a background thread.
+
+        Raises:
+            RuntimeError: If the watchfiles thread fails to initialize (e.g., due to
+                         inotify limit). The caller can distinguish between initialization
+                         failure and successful startup.
+        """
         if self._watchfiles_thread is not None and self._watchfiles_thread.is_alive():
             return
 
@@ -277,12 +283,20 @@ class FileSystemWatcher:
         timeout = 2.0
         while time.time() - start_time < timeout:
             if not self._watchfiles_thread.is_alive():
-                # Thread died, mark as failed
+                # Thread died during initialization - initialization failed
                 self._watchfiles_failed = True
-                logger.warning(
-                    "watchfiles thread exited unexpectedly, resource exhaustion likely"
+                raise RuntimeError(
+                    f"watchfiles thread failed to initialize watching {self._watch_path}, "
+                    "likely due to resource exhaustion (inotify limit reached)"
                 )
-                return
+            # Exit early once initialization succeeds (thread is running and didn't fail)
+            # We assume initialization is complete if:
+            # 1. Thread is still alive (hasn't crashed during startup), AND
+            # 2. Sufficient time has passed for watchfiles.watch() to initialize
+            # The 0.5s sleep in _watchfiles_loop provides initialization headroom.
+            if time.time() - start_time > 0.1:
+                # Thread survived the first 100ms without crashing, initialization likely succeeded
+                break
             # Give thread time to initialize
             time.sleep(0.01)
 
