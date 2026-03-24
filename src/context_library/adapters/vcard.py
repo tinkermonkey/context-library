@@ -35,9 +35,12 @@ logger = logging.getLogger(__name__)
 
 # Try to import optional dependency
 HAS_VOBJECT = False
+VOBJECT_PARSE_ERROR = None
 try:
     import vobject
+    from vobject.base import ParseError as VObjectParseError
     HAS_VOBJECT = True
+    VOBJECT_PARSE_ERROR = VObjectParseError
 except ImportError:
     pass
 
@@ -148,49 +151,82 @@ class VCardAdapter(BaseAdapter):
         seen_ids: dict[str, tuple[str, Any]] = {}  # Maps source_id -> (display_name, vcf_file Path object)
 
         for vcf_file in vcf_files:
-            with open(vcf_file, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-
-            # Parse vCard components from file
-            # vobject.readComponents returns an iterator of vCard component objects
-            for contact_index, vcard in enumerate(vobject.readComponents(content)):
-                # Extract contact metadata and build normalized content
-                # Pass file path and index for deterministic UID generation
-                metadata = self._extract_people_metadata(vcard, vcf_file, contact_index)
-
-                # Build structural hints with metadata
-                hints = StructuralHints(
-                    has_headings=False,
-                    has_lists=False,
-                    has_tables=False,
-                    natural_boundaries=(),
-                    extra_metadata=metadata.model_dump(),
+            # Read file with explicit encoding detection and error handling
+            # First try UTF-8, then fallback to latin-1 with warning
+            try:
+                with open(vcf_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except UnicodeDecodeError as e:
+                logger.warning(
+                    f"File {vcf_file.name} is not valid UTF-8. "
+                    f"Attempting to read as latin-1 (may produce garbled data). "
+                    f"Error: {e}"
                 )
+                try:
+                    with open(vcf_file, "r", encoding="latin-1") as f:
+                        content = f.read()
+                except Exception as fallback_err:
+                    logger.error(f"Failed to read {vcf_file.name} with both UTF-8 and latin-1: {fallback_err}")
+                    continue
 
-                # Build markdown representation of contact
-                markdown = self._build_contact_markdown(metadata)
+            # Parse vCard components from file with per-contact error isolation
+            # vobject.readComponents returns an iterator of vCard component objects
+            contact_index = 0
+            try:
+                for vcard in vobject.readComponents(content):
+                    try:
+                        # Extract contact metadata and build normalized content
+                        # Pass file path and index for deterministic UID generation
+                        metadata = self._extract_people_metadata(vcard, vcf_file, contact_index)
 
-                # Use contact_id from metadata (already derived above)
-                contact_id = metadata.contact_id
+                        # Build structural hints with metadata
+                        hints = StructuralHints(
+                            has_headings=False,
+                            has_lists=False,
+                            has_tables=False,
+                            natural_boundaries=(),
+                            extra_metadata=metadata.model_dump(),
+                        )
 
-                # Detect collisions: same source_id for different contacts
-                if contact_id in seen_ids:
-                    prev_name, prev_file = seen_ids[contact_id]
-                    logger.warning(
-                        f"Contact ID collision detected: '{metadata.display_name}' (from {vcf_file.name}) "
-                        f"and '{prev_name}' (from {prev_file.name}) both hash to {contact_id}. "
-                        f"This occurs when contacts have identical FN and first EMAIL. "
-                        f"Downstream systems may deduplicate incorrectly; use explicit UIDs to distinguish."
-                    )
-                else:
-                    seen_ids[contact_id] = (metadata.display_name, vcf_file)
+                        # Build markdown representation of contact
+                        markdown = self._build_contact_markdown(metadata)
 
-                # Yield normalized content
-                yield NormalizedContent(
-                    markdown=markdown,
-                    source_id=contact_id,
-                    structural_hints=hints,
-                    normalizer_version=self.normalizer_version,
+                        # Use contact_id from metadata (already derived above)
+                        contact_id = metadata.contact_id
+
+                        # Detect collisions: same source_id for different contacts
+                        if contact_id in seen_ids:
+                            prev_name, prev_file = seen_ids[contact_id]
+                            logger.warning(
+                                f"Contact ID collision detected: '{metadata.display_name}' (from {vcf_file.name}) "
+                                f"and '{prev_name}' (from {prev_file.name}) both hash to {contact_id}. "
+                                f"This occurs when contacts have identical FN and first EMAIL. "
+                                f"Downstream systems may deduplicate incorrectly; use explicit UIDs to distinguish."
+                            )
+                        else:
+                            seen_ids[contact_id] = (metadata.display_name, vcf_file)
+
+                        # Yield normalized content
+                        yield NormalizedContent(
+                            markdown=markdown,
+                            source_id=contact_id,
+                            structural_hints=hints,
+                            normalizer_version=self.normalizer_version,
+                        )
+                        contact_index += 1
+
+                    except (ValueError, KeyError, TypeError) as contact_err:
+                        logger.error(
+                            f"Error processing contact at index {contact_index} in {vcf_file.name}: {contact_err}. "
+                            f"Skipping this contact and continuing with next."
+                        )
+                        contact_index += 1
+                        continue
+
+            except VOBJECT_PARSE_ERROR as parse_err:
+                logger.error(
+                    f"Parse error while reading vCard file {vcf_file.name}: {parse_err}. "
+                    f"Processed {contact_index} contacts before error. Continuing with next file."
                 )
 
     def _extract_people_metadata(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> PeopleMetadata:
@@ -245,11 +281,29 @@ class VCardAdapter(BaseAdapter):
 
         # Extract email addresses (can be multiple)
         emails_raw = vcard.contents.get("email", [])
-        emails = tuple(e.value for e in emails_raw if isinstance(e.value, str))
+        emails_list = []
+        for e in emails_raw:
+            if isinstance(e.value, str):
+                emails_list.append(e.value)
+            else:
+                logger.warning(
+                    f"Skipping non-string email value in contact '{display_name}': "
+                    f"type={type(e.value).__name__}, value={e.value!r}"
+                )
+        emails = tuple(emails_list)
 
         # Extract phone numbers (can be multiple)
         phones_raw = vcard.contents.get("tel", [])
-        phones = tuple(t.value for t in phones_raw if isinstance(t.value, str))
+        phones_list = []
+        for t in phones_raw:
+            if isinstance(t.value, str):
+                phones_list.append(t.value)
+            else:
+                logger.warning(
+                    f"Skipping non-string phone value in contact '{display_name}': "
+                    f"type={type(t.value).__name__}, value={t.value!r}"
+                )
+        phones = tuple(phones_list)
 
         # Extract optional organization
         organization = None
