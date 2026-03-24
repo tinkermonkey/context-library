@@ -1,6 +1,12 @@
 """Tests for POST /webhooks/ingest endpoint."""
 
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
+
+from context_library.adapters.base import BaseAdapter
+from context_library.core.exceptions import EntityLinkingError
+from context_library.storage.models import Domain
 
 
 def _make_structural_hints():
@@ -303,8 +309,6 @@ class TestIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking is triggered when People domain ingestion succeeds."""
-        from unittest.mock import MagicMock, patch
-
         # Mock the pipeline to return success
         mock_pipeline = client.app.state.pipeline
         mock_pipeline.ingest.return_value = {
@@ -352,9 +356,6 @@ class TestIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify EntityLinkingError is caught and returned in response."""
-        from unittest.mock import MagicMock, patch
-        from context_library.core.exceptions import EntityLinkingError
-
         # Mock the pipeline to return success for People domain
         mock_pipeline = client.app.state.pipeline
         mock_pipeline.ingest.return_value = {
@@ -400,8 +401,6 @@ class TestIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify unexpected exceptions in entity linking are caught and reported."""
-        from unittest.mock import MagicMock, patch
-
         # Mock the pipeline to return success for People domain
         mock_pipeline = client.app.state.pipeline
         mock_pipeline.ingest.return_value = {
@@ -447,12 +446,9 @@ class TestIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking runs in thread via asyncio.to_thread."""
-        from unittest.mock import MagicMock, patch
-        import asyncio
-
         # Mock the pipeline
         mock_pipeline = client.app.state.pipeline
-        mock_pipeline.ingest.return_value = {
+        ingest_result = {
             "sources_processed": 1,
             "sources_failed": 0,
             "chunks_added": 2,
@@ -460,19 +456,17 @@ class TestIngestEntityLinking:
             "chunks_unchanged": 0,
             "errors": [],
         }
+        mock_pipeline.ingest.return_value = ingest_result
 
-        # Track whether run() was called (indirectly confirms asyncio.to_thread usage)
+        # Verify that asyncio.to_thread is called to run linker.run() in a thread
         with patch(
             "context_library.server.routes.ingest.EntityLinker"
-        ) as mock_linker_class:
+        ) as mock_linker_class, patch(
+            "context_library.server.routes.ingest.asyncio.to_thread",
+            side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)
+        ) as mock_to_thread:
             mock_linker_instance = MagicMock()
-            call_count = [0]
-
-            def track_run():
-                call_count[0] += 1
-                return 3
-
-            mock_linker_instance.run = track_run
+            mock_linker_instance.run.return_value = 3
             mock_linker_class.return_value = mock_linker_instance
 
             payload = {
@@ -492,8 +486,11 @@ class TestIngestEntityLinking:
             assert resp.status_code == 200
             data = resp.json()
             assert data["entity_linking_status"] == "ok"
-            # Verify run() was called
-            assert call_count[0] == 1
+            # Verify asyncio.to_thread was called with linker.run as the function
+            mock_to_thread.assert_called()
+            call_args = mock_to_thread.call_args[0]
+            # First argument should be the run method
+            assert call_args[0] == mock_linker_instance.run
 
 
 class TestHelperIngestEntityLinking:
@@ -503,12 +500,7 @@ class TestHelperIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking does not run for non-People helper adapters."""
-        from unittest.mock import MagicMock
-
         # Set up helper adapters
-        from context_library.adapters.base import BaseAdapter
-        from context_library.storage.models import Domain
-
         mock_adapter = MagicMock(spec=BaseAdapter)
         mock_adapter.adapter_id = "email-helper"
         mock_adapter.domain = Domain.MESSAGES
@@ -537,10 +529,6 @@ class TestHelperIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking is triggered for People helper adapters on success."""
-        from unittest.mock import MagicMock, patch
-        from context_library.adapters.base import BaseAdapter
-        from context_library.storage.models import Domain
-
         # Set up People helper adapter
         mock_adapter = MagicMock(spec=BaseAdapter)
         mock_adapter.adapter_id = "people-helper"
@@ -579,10 +567,6 @@ class TestHelperIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking does not run if People helper ingestion fails."""
-        from unittest.mock import MagicMock
-        from context_library.adapters.base import BaseAdapter
-        from context_library.storage.models import Domain
-
         # Set up People helper adapter
         mock_adapter = MagicMock(spec=BaseAdapter)
         mock_adapter.adapter_id = "people-helper"
@@ -612,11 +596,6 @@ class TestHelperIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify entity linking errors are captured in helper response."""
-        from unittest.mock import MagicMock, patch
-        from context_library.adapters.base import BaseAdapter
-        from context_library.storage.models import Domain
-        from context_library.core.exceptions import EntityLinkingError
-
         # Set up People helper adapter
         mock_adapter = MagicMock(spec=BaseAdapter)
         mock_adapter.adapter_id = "people-helper"
@@ -654,10 +633,6 @@ class TestHelperIngestEntityLinking:
         self, client: TestClient
     ) -> None:
         """Verify one helper adapter exception doesn't break others."""
-        from unittest.mock import MagicMock
-        from context_library.adapters.base import BaseAdapter
-        from context_library.storage.models import Domain
-
         # Set up two helper adapters: one succeeds, one raises an exception
         adapter1 = MagicMock(spec=BaseAdapter)
         adapter1.adapter_id = "email-helper"
