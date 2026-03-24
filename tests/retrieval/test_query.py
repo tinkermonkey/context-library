@@ -119,7 +119,7 @@ class TestRetrievalResult:
         assert result_dict["similarity_score"] == 0.9
 
     def test_to_dict_excludes_domain_metadata(self) -> None:
-        """Test that to_dict() never includes domain_metadata (especially for people domain).
+        """Test that to_dict() excludes domain_metadata for PEOPLE domain (FR-6.3).
 
         Per FR-6.3 spec, contact domain_metadata containing sensitive information
         (emails, phones) must not be exposed in retrieval result output.

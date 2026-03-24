@@ -1,6 +1,6 @@
 """Request and response models for the server API."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -87,6 +87,7 @@ class QueryResultItem(BaseModel):
     adapter_id: str
     embedding_model: str
     similarity_score: float
+    domain_metadata: dict[str, Any] | None = None
 
 
 class QueryResponse(BaseModel):
