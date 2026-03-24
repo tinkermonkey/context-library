@@ -35,7 +35,7 @@ class EntityLinker:
 
         Performs these steps:
         1. Clean up entity_links for retired person chunks
-        2. Fetch all active (non-retired) person chunks
+        2. Fetch all active (non-retired) person chunks via pagination
         3. For each person chunk, extract emails/phones from domain_metadata
         4. For each identifier, query chunks in other domains for matches
         5. Write matched links to entity_links
@@ -52,30 +52,45 @@ class EntityLinker:
         if retired_links_cleaned > 0:
             logger.info("Cleaned up %d entity_links for retired person chunks", retired_links_cleaned)
 
-        # Step 2: Fetch all active person chunks
-        person_chunks, total = self._store.list_chunks(
-            domain=Domain.PEOPLE,
-            limit=10000,  # Reasonable limit for typical contact volumes
-        )
+        # Step 2: Fetch all active person chunks with pagination
+        page_size = 10000
+        all_person_chunks = []
+        offset = 0
 
-        if not person_chunks:
+        while True:
+            person_chunks, total = self._store.list_chunks(
+                domain=Domain.PEOPLE,
+                limit=page_size,
+                offset=offset,
+            )
+
+            if not person_chunks:
+                break
+
+            all_person_chunks.extend(person_chunks)
+            offset += len(person_chunks)
+
+            logger.debug(
+                "Entity linking: fetched %d person chunks (total: %d, fetched so far: %d)",
+                len(person_chunks),
+                total,
+                offset,
+            )
+
+            # Break if we've fetched all chunks
+            if offset >= total:
+                break
+
+        if not all_person_chunks:
             logger.info("No person chunks found; entity linking pass is complete")
             return 0
 
-        logger.info("Entity linking pass: found %d person chunks", len(person_chunks))
-
-        # Warn if more person chunks exist beyond the limit
-        if total > 10000:
-            logger.warning(
-                "Person chunks exceed limit (found %d total, fetched 10000); "
-                "consider paginating or increasing limit",
-                total,
-            )
+        logger.info("Entity linking pass: found %d person chunks", len(all_person_chunks))
 
         # Step 3-5: For each person chunk, find matching chunks and write links
         # Errors are logged but don't abort the pass for other chunks (per-chunk error isolation)
         total_links_created = 0
-        for chunk_with_context in person_chunks:
+        for chunk_with_context in all_person_chunks:
             chunk = chunk_with_context.chunk
             try:
                 # Extract emails and phones from domain_metadata
