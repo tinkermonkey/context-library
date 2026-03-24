@@ -834,6 +834,20 @@ class ChunkWithLineageContext(NamedTuple):
     embedding_model_id: str
 
 
+class EntityLink(NamedTuple):
+    """A cross-domain entity link between two chunks.
+
+    Named tuple representing a directed link from a source chunk to a target chunk
+    with an optional confidence score. Using a NamedTuple prevents accidental field
+    reordering and provides explicit field names, making source/target swaps impossible.
+    """
+
+    source_chunk_hash: str
+    target_chunk_hash: str
+    link_type: str
+    confidence: float = 1.0
+
+
 class SourceVersion(BaseModel):
     """A versioned snapshot of a source's content and its chunks.
 

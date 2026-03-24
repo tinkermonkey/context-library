@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, cast
 
-from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, EntityLink, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
 
 logger = logging.getLogger(__name__)
 
@@ -608,7 +608,7 @@ class DocumentStore:
                 END
             """)
 
-            # Create entity_links table
+            # Create entity_links table with FK constraints
             cursor.execute("""
                 CREATE TABLE entity_links (
                     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -617,7 +617,9 @@ class DocumentStore:
                     link_type           TEXT NOT NULL,
                     confidence          REAL NOT NULL DEFAULT 1.0,
                     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type),
+                    FOREIGN KEY (source_chunk_hash) REFERENCES chunks(chunk_hash),
+                    FOREIGN KEY (target_chunk_hash) REFERENCES chunks(chunk_hash)
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")
@@ -2243,7 +2245,7 @@ class DocumentStore:
 
     def write_entity_links(
         self,
-        links: list[tuple[str, str, str, float]],
+        links: list[EntityLink],
     ) -> int:
         """Write entity links to the entity_links table.
 
@@ -2252,8 +2254,7 @@ class DocumentStore:
         ignored via INSERT OR IGNORE.
 
         Args:
-            links: List of tuples (source_chunk_hash, target_chunk_hash, link_type, confidence).
-                   Each tuple represents a link between two chunks with an optional confidence score.
+            links: List of EntityLink objects representing directed links between chunks.
 
         Returns:
             The number of new rows inserted (duplicates are not counted).
@@ -2265,14 +2266,14 @@ class DocumentStore:
             with self._write_lock, self.conn:
                 cursor = self.conn.cursor()
                 inserted_count = 0
-                for source_hash, target_hash, link_type, confidence in links:
+                for link in links:
                     cursor.execute(
                         """
                         INSERT OR IGNORE INTO entity_links
                         (source_chunk_hash, target_chunk_hash, link_type, confidence)
                         VALUES (?, ?, ?, ?)
                         """,
-                        (source_hash, target_hash, link_type, confidence),
+                        (link.source_chunk_hash, link.target_chunk_hash, link.link_type, link.confidence),
                     )
                     # Check if row was actually inserted (not ignored)
                     if cursor.rowcount > 0:
@@ -2333,9 +2334,11 @@ class DocumentStore:
             ]
             scalar_where = " OR ".join(scalar_where_parts) if scalar_where_parts else ""
 
-            # Build WHERE clauses for array fields (use COALESCE to default NULL/missing arrays to '[]')
+            # Build WHERE clauses for array fields
+            # Use json_type() to check if the field is a JSON array before passing to json_each()
+            # This prevents crashes when domain_metadata stores a field as a bare string instead of an array
             array_where_parts = [
-                f"EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.{field}'), '[]')) WHERE value = ?)"
+                f"EXISTS (SELECT 1 FROM json_each(json_extract(c.domain_metadata, '$.{field}')) WHERE json_type(c.domain_metadata, '$.{field}') = 'array' AND value = ?)"
                 for field in array_fields
             ]
             array_where = " OR ".join(array_where_parts) if array_where_parts else ""

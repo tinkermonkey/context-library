@@ -29,6 +29,7 @@ from context_library.storage.models import (
     Chunk,
     ChunkType,
     Domain,
+    EntityLink,
     LineageRecord,
     PollStrategy,
     VersionDiff
@@ -4737,7 +4738,7 @@ class TestEntityLinks:
             self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
 
             # Write a single link
-            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            links = [EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
             count = store.write_entity_links(links)
             assert count == 1
 
@@ -4765,9 +4766,9 @@ class TestEntityLinks:
 
             # Write multiple links
             links = [
-                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
-                ("source-hash-1", "target-hash-2", "person_appearance", 0.95),
-                ("source-hash-2", "target-hash-1", "mention", 0.8),
+                EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                EntityLink("source-hash-1", "target-hash-2", "person_appearance", 0.95),
+                EntityLink("source-hash-2", "target-hash-1", "mention", 0.8),
             ]
             count = store.write_entity_links(links)
             assert count == 3
@@ -4789,7 +4790,7 @@ class TestEntityLinks:
             self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
 
             # Write a link
-            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            links = [EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
             count1 = store.write_entity_links(links)
             assert count1 == 1
 
@@ -4831,7 +4832,7 @@ class TestEntityLinks:
             self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
 
             # Write links
-            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            links = [EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
             store.write_entity_links(links)
 
             # Get linked chunks from source
@@ -4855,8 +4856,8 @@ class TestEntityLinks:
 
             # Write links with different types
             links = [
-                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
-                ("source-hash-1", "target-hash-2", "mention", 0.95),
+                EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                EntityLink("source-hash-1", "target-hash-2", "mention", 0.95),
             ]
             store.write_entity_links(links)
 
@@ -4898,8 +4899,8 @@ class TestEntityLinks:
 
             # Write bidirectional links
             links = [
-                ("hash-a", "hash-b", "coappearance", 1.0),
-                ("hash-b", "hash-c", "coappearance", 1.0),
+                EntityLink("hash-a", "hash-b", "coappearance", 1.0),
+                EntityLink("hash-b", "hash-c", "coappearance", 1.0),
             ]
             store.write_entity_links(links)
 
@@ -4922,9 +4923,9 @@ class TestEntityLinks:
 
             # Write links
             links = [
-                ("source-hash-1", "target-hash-1", "person_appearance", 1.0),
-                ("source-hash-1", "target-hash-2", "mention", 0.95),
-                ("source-hash-2", "target-hash-1", "mention", 0.8),
+                EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0),
+                EntityLink("source-hash-1", "target-hash-2", "mention", 0.95),
+                EntityLink("source-hash-2", "target-hash-1", "mention", 0.8),
             ]
             store.write_entity_links(links)
 
@@ -4954,8 +4955,8 @@ class TestEntityLinks:
 
             # Write links
             links = [
-                ("hash-a", "hash-b", "coappearance", 1.0),
-                ("hash-b", "hash-c", "coappearance", 1.0),
+                EntityLink("hash-a", "hash-b", "coappearance", 1.0),
+                EntityLink("hash-b", "hash-c", "coappearance", 1.0),
             ]
             store.write_entity_links(links)
 
@@ -5000,7 +5001,7 @@ class TestEntityLinks:
             self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
 
             # Write and delete links
-            links = [("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
+            links = [EntityLink("source-hash-1", "target-hash-1", "person_appearance", 1.0)]
             store.write_entity_links(links)
             store.delete_entity_links_for_chunk("source-hash-1")
 
@@ -5425,7 +5426,7 @@ class TestQueryRetiredPersonLinks:
         self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
 
         # Write a person_appearance link from active person chunk to other chunk
-        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+        store.write_entity_links([EntityLink(person_hash, other_hash, "person_appearance", 1.0)])
 
         # Query retired links should return empty (person chunk is still active)
         result = store.query_retired_person_links()
@@ -5438,7 +5439,7 @@ class TestQueryRetiredPersonLinks:
         self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
 
         # Write a person_appearance link
-        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+        store.write_entity_links([EntityLink(person_hash, other_hash, "person_appearance", 1.0)])
 
         # Retire the person chunk
         cursor = store.conn.cursor()
@@ -5459,7 +5460,7 @@ class TestQueryRetiredPersonLinks:
         self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
 
         # Write a non-person_appearance link (e.g., "mention" link type)
-        store.write_entity_links([(person_hash, other_hash, "mention", 0.8)])
+        store.write_entity_links([EntityLink(person_hash, other_hash, "mention", 0.8)])
 
         # Retire the person chunk
         cursor = store.conn.cursor()
@@ -5483,8 +5484,8 @@ class TestQueryRetiredPersonLinks:
 
         # Write person_appearance links from both person chunks
         store.write_entity_links([
-            (person_hash1, other_hash, "person_appearance", 1.0),
-            (person_hash2, other_hash, "person_appearance", 1.0),
+            EntityLink(person_hash1, other_hash, "person_appearance", 1.0),
+            EntityLink(person_hash2, other_hash, "person_appearance", 1.0),
         ])
 
         # Retire both person chunks
@@ -5506,7 +5507,7 @@ class TestQueryRetiredPersonLinks:
         self._setup_with_chunks_and_links(store, [person_hash], [other_hash])
 
         # Write a person_appearance link
-        store.write_entity_links([(person_hash, other_hash, "person_appearance", 1.0)])
+        store.write_entity_links([EntityLink(person_hash, other_hash, "person_appearance", 1.0)])
 
         # Create a new version without this person chunk
         cursor = store.conn.cursor()
@@ -5532,8 +5533,8 @@ class TestQueryRetiredPersonLinks:
         # 1. person_appearance link FROM person chunk (should be returned as retired if deleted)
         # 2. person_appearance link FROM non-person chunk (should NOT be returned as it's not a people chunk)
         store.write_entity_links([
-            (person_hash, _make_hash("target1"), "person_appearance", 1.0),
-            (msg_hash, _make_hash("target2"), "person_appearance", 1.0),
+            EntityLink(person_hash, _make_hash("target1"), "person_appearance", 1.0),
+            EntityLink(msg_hash, _make_hash("target2"), "person_appearance", 1.0),
         ])
 
         # Retire both chunks by creating version 2 without them
