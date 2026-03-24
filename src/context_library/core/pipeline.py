@@ -1,6 +1,7 @@
 """Orchestrates the full ingestion pipeline: fetch → normalize → diff → chunk → embed → store."""
 
 import logging
+import threading
 from datetime import datetime, timezone
 
 from context_library.core.differ import Differ
@@ -63,6 +64,20 @@ class IngestionPipeline:
         self.differ = differ
         self.vector_store = vector_store
         self.vector_store.initialize(self.embedder.dimension)
+
+        # Per-source locks prevent two concurrent ingest() calls from processing
+        # the same source_id simultaneously. Without this, both callers can pass
+        # the get_latest_version/diff check before either commits, resulting in
+        # duplicate versions with identical content being written.
+        self._source_locks: dict[str, threading.Lock] = {}
+        self._source_locks_mutex = threading.Lock()
+
+    def _get_source_lock(self, source_id: str) -> threading.Lock:
+        """Return the per-source lock for source_id, creating it if needed."""
+        with self._source_locks_mutex:
+            if source_id not in self._source_locks:
+                self._source_locks[source_id] = threading.Lock()
+            return self._source_locks[source_id]
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
@@ -134,232 +149,236 @@ class IngestionPipeline:
                 try:
                     sources_processed += 1
 
-                    # Resolve domain: per-content override takes precedence over adapter domain.
-                    # This allows adapters to yield content destined for multiple domains
-                    # (e.g. AppleMusicLibraryAdapter produces both DOCUMENTS and EVENTS).
-                    effective_domain = content.domain if content.domain is not None else adapter.domain
+                    # Acquire the per-source lock before reading the latest version.
+                    # This prevents two concurrent ingest() calls from both passing the
+                    # diff check for the same source and creating duplicate versions.
+                    with self._get_source_lock(content.source_id):
+                        # Resolve domain: per-content override takes precedence over adapter domain.
+                        # This allows adapters to yield content destined for multiple domains
+                        # (e.g. AppleMusicLibraryAdapter produces both DOCUMENTS and EVENTS).
+                        effective_domain = content.domain if content.domain is not None else adapter.domain
 
-                    # Resolve domain chunker: reuse the caller-supplied chunker when the
-                    # content's domain matches the adapter's primary domain (avoids a
-                    # registry lookup on the common path); resolve from registry otherwise.
-                    if effective_domain == adapter.domain:
-                        effective_chunker = domain_chunker
-                    else:
-                        effective_chunker = _get_domain_chunker(effective_domain)
+                        # Resolve domain chunker: reuse the caller-supplied chunker when the
+                        # content's domain matches the adapter's primary domain (avoids a
+                        # registry lookup on the common path); resolve from registry otherwise.
+                        if effective_domain == adapter.domain:
+                            effective_chunker = domain_chunker
+                        else:
+                            effective_chunker = _get_domain_chunker(effective_domain)
 
-                    # Look up latest version for this source
-                    prev_version = self.document_store.get_latest_version(content.source_id)
+                        # Look up latest version for this source
+                        prev_version = self.document_store.get_latest_version(content.source_id)
 
-                    # Chunk the current content
-                    chunks = effective_chunker.chunk(content)
+                        # Chunk the current content
+                        chunks = effective_chunker.chunk(content)
 
-                    # Compute current chunk hashes
-                    curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
+                        # Compute current chunk hashes
+                        curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
 
-                    # Get previous version data (if exists)
-                    prev_markdown = prev_version.markdown if prev_version else None
-                    prev_chunk_hashes = set(prev_version.chunk_hashes) if prev_version else None
+                        # Get previous version data (if exists)
+                        prev_markdown = prev_version.markdown if prev_version else None
+                        prev_chunk_hashes = set(prev_version.chunk_hashes) if prev_version else None
 
-                    # Run the differ
-                    diff_result = self.differ.diff(
-                        prev_markdown, content.markdown, prev_chunk_hashes, curr_chunk_hashes
-                    )
-
-                    # Case 1: Content unchanged - just update last_fetched_at, skip writes
-                    if not diff_result.changed:
-                        # Update last_fetched_at to track when we last checked this source
-                        self.document_store.update_last_fetched_at(content.source_id)
-                        chunks_unchanged_total += len(chunks)
-                        continue
-
-                    # Case 2: Content changed - process added/removed/unchanged chunks
-                    # Register source if new
-                    if prev_version is None:
-                        poll_strategy = getattr(adapter, 'poll_strategy', PollStrategy.PULL)
-
-                        self.document_store.register_source(
-                            source_id=content.source_id,
-                            adapter_id=adapter.adapter_id,
-                            domain=effective_domain,
-                            origin_ref=content.structural_hints.file_path or content.source_id,
-                            poll_strategy=poll_strategy,
+                        # Run the differ
+                        diff_result = self.differ.diff(
+                            prev_markdown, content.markdown, prev_chunk_hashes, curr_chunk_hashes
                         )
 
-                    # Create source version with atomically assigned version number.
-                    # create_next_source_version computes MAX(version)+1 inside the
-                    # write lock, preventing UNIQUE constraint violations when
-                    # concurrent requests race to create the next version.
-                    fetch_timestamp = datetime.now(timezone.utc).isoformat()
-                    _rowid, new_version = self.document_store.create_next_source_version(
-                        source_id=content.source_id,
-                        markdown=content.markdown,
-                        chunk_hashes=[chunk.chunk_hash for chunk in chunks],
-                        adapter_id=adapter.adapter_id,
-                        normalizer_version=content.normalizer_version,
-                        fetch_timestamp=fetch_timestamp,
-                    )
+                        # Case 1: Content unchanged - just update last_fetched_at, skip writes
+                        if not diff_result.changed:
+                            # Update last_fetched_at to track when we last checked this source
+                            self.document_store.update_last_fetched_at(content.source_id)
+                            chunks_unchanged_total += len(chunks)
+                            continue
 
-                    # Separate added and unchanged chunks
-                    added_chunks = [
-                        c for c in chunks if c.chunk_hash in diff_result.added_hashes
-                    ]
-                    unchanged_chunks = [
-                        c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
-                    ]
+                        # Case 2: Content changed - process added/removed/unchanged chunks
+                        # Register source if new
+                        if prev_version is None:
+                            poll_strategy = getattr(adapter, 'poll_strategy', PollStrategy.PULL)
 
-                    # Embed added chunks with context headers for semantic enrichment
-                    # Context header is prepended only for embedding, not stored in content field
-                    chunk_contents_for_embedding = []
-                    for c in added_chunks:
-                        text = c.content
-                        if c.context_header:
-                            text = f"{c.context_header}\n\n{text}"
-                        chunk_contents_for_embedding.append(text)
-
-                    vectors = self.embedder.embed(chunk_contents_for_embedding) if chunk_contents_for_embedding else []
-
-                    # Validate all embeddings for correct dimension and finite values
-                    expected_dim = self.embedder.dimension
-                    for i, vector in enumerate(vectors):
-                        try:
-                            validate_embedding_dimension(vector, expected_dim)
-                        except ValueError as e:
-                            raise EmbeddingError(
-                                f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}",
-                                chunk_hash=added_chunks[i].chunk_hash,
-                                chunk_index=i,
-                            ) from e
-
-                    # Build LineageRecord for each added chunk
-                    added_lineage_records: list[LineageRecord] = []
-                    for added_chunk in added_chunks:
-                        lineage = LineageRecord(
-                            chunk_hash=added_chunk.chunk_hash,
-                            source_id=content.source_id,
-                            source_version_id=new_version,  # Use version number (not rowid), for FK to source_versions.version
-                            adapter_id=adapter.adapter_id,
-                            domain=effective_domain,
-                            normalizer_version=content.normalizer_version,
-                            embedding_model_id=self.embedder.model_id,
-                        )
-                        added_lineage_records.append(lineage)
-
-                    # Build LineageRecord for each unchanged chunk
-                    # Unchanged chunks are re-written to the new version to be queryable via get_chunks_by_source()
-                    unchanged_lineage_records: list[LineageRecord] = []
-                    for unchanged_chunk in unchanged_chunks:
-                        # Fetch original lineage to preserve the embedding model that created the vectors
-                        # (not the current embedder's model, which may have changed since the chunk was created)
-                        # Pass source_id to scope lookup correctly in case of cross-source dedup
-                        original_lineage = self.document_store.get_lineage(
-                            unchanged_chunk.chunk_hash, source_id=content.source_id
-                        )
-                        original_embedding_model = (
-                            original_lineage.embedding_model_id
-                            if original_lineage
-                            else self.embedder.model_id
-                        )
-
-                        lineage = LineageRecord(
-                            chunk_hash=unchanged_chunk.chunk_hash,
-                            source_id=content.source_id,
-                            source_version_id=new_version,  # Same version as added chunks
-                            adapter_id=adapter.adapter_id,
-                            domain=effective_domain,
-                            normalizer_version=content.normalizer_version,
-                            embedding_model_id=original_embedding_model,  # Use original embedding model
-                        )
-                        unchanged_lineage_records.append(lineage)
-
-                    # Write all chunks (both added and unchanged) + lineage to SQLite
-                    all_chunks_to_write = added_chunks + unchanged_chunks
-                    all_lineage_records = added_lineage_records + unchanged_lineage_records
-
-                    sqlite_write_succeeded = False
-                    if all_chunks_to_write:
-                        try:
-                            self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
-                            sqlite_write_succeeded = True
-                            # Record pending sync operations before attempting LanceDB writes
-                            # Only for added chunks (unchanged ones already have vectors)
-                            added_hashes = [c.chunk_hash for c in added_chunks]
-                            if added_hashes:
-                                self.document_store.write_sync_log(added_hashes)
-                        except Exception as e:
-                            raise StorageError(
-                                f"Failed to write chunks to SQLite for source '{content.source_id}': {e}",
-                                store_type="sqlite",
-                                inconsistent=False,
-                            ) from e
-
-                    # Retire removed chunks from SQLite first
-                    # Note: retire chunks from the old version (prev_version), not the new one
-                    if diff_result.removed_hashes:
-                        old_version = prev_version.version if prev_version else 1
-                        self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
-                        removed_list = list(diff_result.removed_hashes)
-                        # Record pending delete operations before attempting LanceDB deletes
-                        self.document_store.delete_sync_log(removed_list)
-
-                    # Write vectors to vector store
-                    # If this fails and SQLite write succeeded, mark as inconsistent
-                    if vectors:
-                        try:
-                            # Build chunk vector data as dicts (enum -> string)
-                            chunk_vector_dicts = []
-                            for added_chunk, vector in zip(added_chunks, vectors):
-                                # Validate using ChunkVectorData schema to ensure field validators run
-                                chunk_vector = ChunkVectorData(
-                                    chunk_hash=added_chunk.chunk_hash,
-                                    content=added_chunk.content,
-                                    vector=vector,
-                                    domain=effective_domain,
-                                    source_id=content.source_id,
-                                    source_version=new_version,
-                                    created_at=fetch_timestamp,
-                                )
-                                chunk_vector_dicts.append({
-                                    "chunk_hash": chunk_vector.chunk_hash,
-                                    "content": chunk_vector.content,
-                                    "vector": chunk_vector.vector,
-                                    "domain": chunk_vector.domain.value,
-                                    "source_id": chunk_vector.source_id,
-                                    "source_version": chunk_vector.source_version,
-                                    "created_at": chunk_vector.created_at,
-                                })
-
-                            self.vector_store.add_vectors(chunk_vector_dicts)
-                        except Exception as e:
-                            inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
-                            if inconsistency_detected:
-                                logger.warning(
-                                    f"CRITICAL: SQLite write succeeded but vector store write failed for source "
-                                    f"'{content.source_id}'. Stores may be inconsistent. "
-                                    f"Recovery: Use sync logs to rebuild vector store. Error: {e}"
-                                )
-                            raise StorageError(
-                                f"Failed to write vectors for source '{content.source_id}': {e}",
-                                store_type="vector_store",
-                                inconsistent=inconsistency_detected,
-                            ) from e
-
-                    # Remove vectors for deleted chunks
-                    if diff_result.removed_hashes:
-                        try:
-                            self.vector_store.delete_vectors(set(diff_result.removed_hashes))
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"
+                            self.document_store.register_source(
+                                source_id=content.source_id,
+                                adapter_id=adapter.adapter_id,
+                                domain=effective_domain,
+                                origin_ref=content.structural_hints.file_path or content.source_id,
+                                poll_strategy=poll_strategy,
                             )
-                            # Don't raise here, as the sync log already has the delete operation recorded
 
-                    # Update statistics
-                    chunks_added_total += len(added_chunks)
-                    chunks_removed_total += len(diff_result.removed_hashes)
-                    chunks_unchanged_total += len(diff_result.unchanged_hashes)
+                        # Create source version with atomically assigned version number.
+                        # create_next_source_version computes MAX(version)+1 inside the
+                        # write lock, preventing UNIQUE constraint violations when
+                        # concurrent requests race to create the next version.
+                        fetch_timestamp = datetime.now(timezone.utc).isoformat()
+                        _rowid, new_version = self.document_store.create_next_source_version(
+                            source_id=content.source_id,
+                            markdown=content.markdown,
+                            chunk_hashes=[chunk.chunk_hash for chunk in chunks],
+                            adapter_id=adapter.adapter_id,
+                            normalizer_version=content.normalizer_version,
+                            fetch_timestamp=fetch_timestamp,
+                        )
 
-                    # Mark store consistency as successful for this source
-                    store_consistency[content.source_id] = "success"
+                        # Separate added and unchanged chunks
+                        added_chunks = [
+                            c for c in chunks if c.chunk_hash in diff_result.added_hashes
+                        ]
+                        unchanged_chunks = [
+                            c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
+                        ]
+
+                        # Embed added chunks with context headers for semantic enrichment
+                        # Context header is prepended only for embedding, not stored in content field
+                        chunk_contents_for_embedding = []
+                        for c in added_chunks:
+                            text = c.content
+                            if c.context_header:
+                                text = f"{c.context_header}\n\n{text}"
+                            chunk_contents_for_embedding.append(text)
+
+                        vectors = self.embedder.embed(chunk_contents_for_embedding) if chunk_contents_for_embedding else []
+
+                        # Validate all embeddings for correct dimension and finite values
+                        expected_dim = self.embedder.dimension
+                        for i, vector in enumerate(vectors):
+                            try:
+                                validate_embedding_dimension(vector, expected_dim)
+                            except ValueError as e:
+                                raise EmbeddingError(
+                                    f"Embedding validation failed for chunk {i} (hash: {added_chunks[i].chunk_hash}): {e}",
+                                    chunk_hash=added_chunks[i].chunk_hash,
+                                    chunk_index=i,
+                                ) from e
+
+                        # Build LineageRecord for each added chunk
+                        added_lineage_records: list[LineageRecord] = []
+                        for added_chunk in added_chunks:
+                            lineage = LineageRecord(
+                                chunk_hash=added_chunk.chunk_hash,
+                                source_id=content.source_id,
+                                source_version_id=new_version,  # Use version number (not rowid), for FK to source_versions.version
+                                adapter_id=adapter.adapter_id,
+                                domain=effective_domain,
+                                normalizer_version=content.normalizer_version,
+                                embedding_model_id=self.embedder.model_id,
+                            )
+                            added_lineage_records.append(lineage)
+
+                        # Build LineageRecord for each unchanged chunk
+                        # Unchanged chunks are re-written to the new version to be queryable via get_chunks_by_source()
+                        unchanged_lineage_records: list[LineageRecord] = []
+                        for unchanged_chunk in unchanged_chunks:
+                            # Fetch original lineage to preserve the embedding model that created the vectors
+                            # (not the current embedder's model, which may have changed since the chunk was created)
+                            # Pass source_id to scope lookup correctly in case of cross-source dedup
+                            original_lineage = self.document_store.get_lineage(
+                                unchanged_chunk.chunk_hash, source_id=content.source_id
+                            )
+                            original_embedding_model = (
+                                original_lineage.embedding_model_id
+                                if original_lineage
+                                else self.embedder.model_id
+                            )
+
+                            lineage = LineageRecord(
+                                chunk_hash=unchanged_chunk.chunk_hash,
+                                source_id=content.source_id,
+                                source_version_id=new_version,  # Same version as added chunks
+                                adapter_id=adapter.adapter_id,
+                                domain=effective_domain,
+                                normalizer_version=content.normalizer_version,
+                                embedding_model_id=original_embedding_model,  # Use original embedding model
+                            )
+                            unchanged_lineage_records.append(lineage)
+
+                        # Write all chunks (both added and unchanged) + lineage to SQLite
+                        all_chunks_to_write = added_chunks + unchanged_chunks
+                        all_lineage_records = added_lineage_records + unchanged_lineage_records
+
+                        sqlite_write_succeeded = False
+                        if all_chunks_to_write:
+                            try:
+                                self.document_store.write_chunks(all_chunks_to_write, all_lineage_records)
+                                sqlite_write_succeeded = True
+                                # Record pending sync operations before attempting LanceDB writes
+                                # Only for added chunks (unchanged ones already have vectors)
+                                added_hashes = [c.chunk_hash for c in added_chunks]
+                                if added_hashes:
+                                    self.document_store.write_sync_log(added_hashes)
+                            except Exception as e:
+                                raise StorageError(
+                                    f"Failed to write chunks to SQLite for source '{content.source_id}': {e}",
+                                    store_type="sqlite",
+                                    inconsistent=False,
+                                ) from e
+
+                        # Retire removed chunks from SQLite first
+                        # Note: retire chunks from the old version (prev_version), not the new one
+                        if diff_result.removed_hashes:
+                            old_version = prev_version.version if prev_version else 1
+                            self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
+                            removed_list = list(diff_result.removed_hashes)
+                            # Record pending delete operations before attempting LanceDB deletes
+                            self.document_store.delete_sync_log(removed_list)
+
+                        # Write vectors to vector store
+                        # If this fails and SQLite write succeeded, mark as inconsistent
+                        if vectors:
+                            try:
+                                # Build chunk vector data as dicts (enum -> string)
+                                chunk_vector_dicts = []
+                                for added_chunk, vector in zip(added_chunks, vectors):
+                                    # Validate using ChunkVectorData schema to ensure field validators run
+                                    chunk_vector = ChunkVectorData(
+                                        chunk_hash=added_chunk.chunk_hash,
+                                        content=added_chunk.content,
+                                        vector=vector,
+                                        domain=effective_domain,
+                                        source_id=content.source_id,
+                                        source_version=new_version,
+                                        created_at=fetch_timestamp,
+                                    )
+                                    chunk_vector_dicts.append({
+                                        "chunk_hash": chunk_vector.chunk_hash,
+                                        "content": chunk_vector.content,
+                                        "vector": chunk_vector.vector,
+                                        "domain": chunk_vector.domain.value,
+                                        "source_id": chunk_vector.source_id,
+                                        "source_version": chunk_vector.source_version,
+                                        "created_at": chunk_vector.created_at,
+                                    })
+
+                                self.vector_store.add_vectors(chunk_vector_dicts)
+                            except Exception as e:
+                                inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
+                                if inconsistency_detected:
+                                    logger.warning(
+                                        f"CRITICAL: SQLite write succeeded but vector store write failed for source "
+                                        f"'{content.source_id}'. Stores may be inconsistent. "
+                                        f"Recovery: Use sync logs to rebuild vector store. Error: {e}"
+                                    )
+                                raise StorageError(
+                                    f"Failed to write vectors for source '{content.source_id}': {e}",
+                                    store_type="vector_store",
+                                    inconsistent=inconsistency_detected,
+                                ) from e
+
+                        # Remove vectors for deleted chunks
+                        if diff_result.removed_hashes:
+                            try:
+                                self.vector_store.delete_vectors(set(diff_result.removed_hashes))
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"
+                                )
+                                # Don't raise here, as the sync log already has the delete operation recorded
+
+                        # Update statistics
+                        chunks_added_total += len(added_chunks)
+                        chunks_removed_total += len(diff_result.removed_hashes)
+                        chunks_unchanged_total += len(diff_result.unchanged_hashes)
+
+                        # Mark store consistency as successful for this source
+                        store_consistency[content.source_id] = "success"
 
                 except ChunkingError as e:
                     # Handle chunking errors (domain-specific parser/processing failures)
