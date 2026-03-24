@@ -145,7 +145,7 @@ class VCardAdapter(BaseAdapter):
         vcf_files = sorted(self._vcf_directory.glob("*.vcf"))
 
         # Track seen source_ids within this fetch() call to detect collisions
-        seen_ids = {}  # Maps source_id -> (display_name, vcf_file path)
+        seen_ids = {}  # Maps source_id -> (display_name, vcf_file Path object)
 
         for vcf_file in vcf_files:
             with open(vcf_file, "r", encoding="utf-8", errors="replace") as f:
@@ -183,7 +183,7 @@ class VCardAdapter(BaseAdapter):
                         f"Downstream systems may deduplicate incorrectly; use explicit UIDs to distinguish."
                     )
                 else:
-                    seen_ids[contact_id] = (metadata.display_name, vcf_file.name)
+                    seen_ids[contact_id] = (metadata.display_name, vcf_file)
 
                 # Yield normalized content
                 yield NormalizedContent(
