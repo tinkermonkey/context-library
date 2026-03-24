@@ -40,7 +40,7 @@ class IngestError(BaseModel):
 
     model_config = {"extra": "allow"}
 
-    source_id: str
+    source_id: str | None = None  # None for adapter-level errors (PartialFetchError, AllEndpointsFailedError)
     error_type: str
     message: str
     chunk_hash: str | None = None
