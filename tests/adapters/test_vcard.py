@@ -927,7 +927,6 @@ END:VCARD"""
                 # Inject a non-string email value
                 if hasattr(vcard_obj, "email"):
                     # Store original, we'll patch it
-                    original_contents = vcard_obj.contents
 
                     # Create a mock email entry with integer value (simulating malformed data)
                     class MockEmailComponent:

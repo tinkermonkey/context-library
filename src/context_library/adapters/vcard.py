@@ -228,11 +228,20 @@ class VCardAdapter(BaseAdapter):
                         contact_index += 1
                         continue
 
-            except VOBJECT_PARSE_ERROR as parse_err:
-                logger.error(
-                    f"Parse error while reading vCard file {vcf_file.name}: {parse_err}. "
-                    f"Processed {contact_index} contacts before error. Continuing with next file."
-                )
+            except Exception as parse_err:
+                # Catch vobject.ParseError (if vobject is available) and other exceptions
+                # from vobject.readComponents. Check if it's a vobject ParseError specifically.
+                if HAS_VOBJECT and VOBJECT_PARSE_ERROR is not None and isinstance(parse_err, VOBJECT_PARSE_ERROR):
+                    logger.error(
+                        f"Parse error while reading vCard file {vcf_file.name}: {parse_err}. "
+                        f"Processed {contact_index} contacts before error. Continuing with next file."
+                    )
+                else:
+                    # For non-vobject errors, log and continue
+                    logger.error(
+                        f"Error while reading vCard file {vcf_file.name}: {parse_err}. "
+                        f"Processed {contact_index} contacts before error. Continuing with next file."
+                    )
 
     def _extract_people_metadata(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> PeopleMetadata:
         """Extract PeopleMetadata from a vCard component.
