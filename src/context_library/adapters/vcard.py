@@ -121,6 +121,14 @@ class VCardAdapter(BaseAdapter):
         Iterates through all .vcf files in the vcf_directory (sorted by name),
         parses vCard entries, and yields NormalizedContent for each contact.
 
+        Error handling:
+        - Per-contact parsing errors (malformed vCard fields, validation errors) are
+          caught and logged; the contact is skipped and processing continues.
+        - File-level parse errors (e.g., vobject.ParseError on malformed vCard syntax)
+          are caught, logged, and the next file is processed.
+        - Encoding errors (non-UTF-8 input) are detected and logged; latin-1 fallback
+          is attempted with an explicit warning that data may be garbled.
+
         Known limitation: When two distinct contacts have identical FN and first EMAIL
         (or identical FN with no email), they will generate the same source_id hash.
         This is spec-compliant per FR-5.4 (deterministic hash of FN + first EMAIL),
@@ -136,9 +144,6 @@ class VCardAdapter(BaseAdapter):
 
         Raises:
             FileNotFoundError: If vcf_directory does not exist
-            ValueError: If vCard parsing or field extraction fails
-            KeyError: If required vCard fields are missing
-            TypeError: If vCard field types are unexpected
         """
         # Ensure directory exists and is accessible
         if not self._vcf_directory.exists():
@@ -215,7 +220,7 @@ class VCardAdapter(BaseAdapter):
                         )
                         contact_index += 1
 
-                    except (ValueError, KeyError, TypeError) as contact_err:
+                    except Exception as contact_err:  # Catch all per-contact errors (ValueError, KeyError, TypeError, AttributeError, ValidationError, etc.)
                         logger.error(
                             f"Error processing contact at index {contact_index} in {vcf_file.name}: {contact_err}. "
                             f"Skipping this contact and continuing with next."

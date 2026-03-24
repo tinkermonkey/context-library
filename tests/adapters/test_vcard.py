@@ -737,3 +737,264 @@ END:VCARD"""
         assert len(results) == 2
         assert any("collision" in record.message.lower() for record in caplog.records)
         assert any("Alice Smith" in record.message for record in caplog.records)
+
+
+class TestVCardAdapterPerContactErrorIsolation:
+    """Tests for per-contact error isolation when parsing vCard files."""
+
+    def _create_vcard_file(self, directory: Path, filename: str, vcard_content: str) -> Path:
+        """Helper to create a vCard file with given content."""
+        file_path = directory / filename
+        file_path.write_text(vcard_content, encoding="utf-8")
+        return file_path
+
+    def test_malformed_contact_skipped_valid_contacts_processed(self, tmp_path, caplog):
+        """Per-contact error isolation: valid contacts before and after a malformed one are still processed."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # File with valid contact, then malformed contact (missing FN), then valid contact
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Good Contact 1
+EMAIL:good1@example.com
+UID:good-1
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:BadContact;NoFN;;;
+EMAIL:badfn@example.com
+UID:bad-fn
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:Good Contact 2
+EMAIL:good2@example.com
+UID:good-2
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "mixed.vcf", vcard_content)
+
+        with caplog.at_level(logging.ERROR):
+            results = list(adapter.fetch(""))
+
+        # Should have processed 2 valid contacts (skipped the malformed one)
+        assert len(results) == 2
+        assert results[0].source_id == "good-1"
+        assert results[1].source_id == "good-2"
+
+        # Error should have been logged
+        assert any("Error processing contact" in record.message for record in caplog.records)
+
+    def test_malformed_contact_does_not_stop_file_processing(self, tmp_path, caplog):
+        """Per-contact error isolation: malformed contact in one file doesn't affect processing of next file."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # First file with a valid contact
+        vcard1 = """BEGIN:VCARD
+VERSION:3.0
+FN:From File 1
+EMAIL:file1@example.com
+UID:file1-contact
+END:VCARD"""
+
+        # Second file starts with malformed contact (missing FN) then valid contact
+        vcard2 = """BEGIN:VCARD
+VERSION:3.0
+N:BadContact;NoFN;;;
+EMAIL:bad@example.com
+UID:bad-contact
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+FN:From File 2
+EMAIL:file2@example.com
+UID:file2-contact
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "a_file1.vcf", vcard1)
+        self._create_vcard_file(tmp_path, "b_file2.vcf", vcard2)
+
+        with caplog.at_level(logging.ERROR):
+            results = list(adapter.fetch(""))
+
+        # Should have processed contacts from both files (skipped malformed one in file2)
+        assert len(results) == 2
+        assert results[0].source_id == "file1-contact"
+        assert results[1].source_id == "file2-contact"
+
+        # Error should have been logged for the malformed contact
+        assert any("Error processing contact" in record.message for record in caplog.records)
+
+
+class TestVCardAdapterEncodingFallback:
+    """Tests for encoding detection and fallback (UTF-8 with latin-1 fallback)."""
+
+    def _create_vcard_file_with_encoding(self, directory: Path, filename: str, vcard_content: str, encoding: str) -> Path:
+        """Helper to create a vCard file with a specific encoding."""
+        file_path = directory / filename
+        file_path.write_bytes(vcard_content.encode(encoding))
+        return file_path
+
+    def test_utf8_file_processes_normally(self, tmp_path):
+        """UTF-8 encoded vCard file processes without warnings."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:UTF-8 Contact
+EMAIL:utf8@example.com
+UID:utf8-contact
+END:VCARD"""
+
+        self._create_vcard_file_with_encoding(tmp_path, "utf8.vcf", vcard_content, "utf-8")
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+        assert results[0].source_id == "utf8-contact"
+
+    def test_latin1_file_logs_encoding_warning(self, tmp_path, caplog):
+        """Latin-1 encoded vCard triggers encoding warning and falls back to latin-1."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Latin-1 specific character (café with accented e)
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Jos\xe9 Garc\xeda
+EMAIL:jose@example.com
+UID:jose-contact
+END:VCARD"""
+
+        self._create_vcard_file_with_encoding(tmp_path, "latin1.vcf", vcard_content, "latin-1")
+
+        with caplog.at_level(logging.WARNING):
+            results = list(adapter.fetch(""))
+
+        # Should have processed the contact
+        assert len(results) == 1
+        assert results[0].source_id == "jose-contact"
+
+        # Should have logged encoding warning
+        assert any("not valid UTF-8" in record.message for record in caplog.records)
+        assert any("latin-1" in record.message for record in caplog.records)
+
+    def test_unreadable_file_skipped_with_error_log(self, tmp_path, caplog):
+        """File with unparseable vCard syntax triggers error log and file is skipped."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Create a file with content that is decodable but invalid vCard syntax
+        # (latin-1 can decode any byte sequence, so we just create invalid vCard structure)
+        bad_file = tmp_path / "bad_syntax.vcf"
+        bad_file.write_bytes(b"NOT A VALID VCARD\xFF\xFE STRUCTURE")
+
+        with caplog.at_level(logging.ERROR):
+            results = list(adapter.fetch(""))
+
+        # Should have skipped the file and logged parse error
+        assert len(results) == 0
+        # The parse error will be logged (from vobject parser)
+        assert any("Parse error" in record.message for record in caplog.records)
+
+
+class TestVCardAdapterNonStringValueWarnings:
+    """Tests for explicit logging of non-string email/phone values."""
+
+    def _create_vcard_file(self, directory: Path, filename: str, vcard_content: str) -> Path:
+        """Helper to create a vCard file with given content."""
+        file_path = directory / filename
+        file_path.write_text(vcard_content, encoding="utf-8")
+        return file_path
+
+    def test_non_string_email_logged_and_skipped(self, tmp_path, caplog, monkeypatch):
+        """Non-string email values trigger warning log and are skipped (not silently filtered)."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Test Contact
+EMAIL:string@example.com
+UID:test-1
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
+
+        # Mock vobject to return a non-string email value
+        import vobject
+
+        original_read = vobject.readComponents
+
+        def mock_read_components(text):
+            for vcard_obj in original_read(text):
+                # Inject a non-string email value
+                if hasattr(vcard_obj, "email"):
+                    # Store original, we'll patch it
+                    original_contents = vcard_obj.contents
+
+                    # Create a mock email entry with integer value (simulating malformed data)
+                    class MockEmailComponent:
+                        def __init__(self):
+                            self.value = 12345  # Non-string value
+
+                    # Replace email in contents
+                    email_list = list(vcard_obj.contents.get("email", []))
+                    email_list.append(MockEmailComponent())
+                    vcard_obj.contents["email"] = email_list
+
+                yield vcard_obj
+
+        monkeypatch.setattr("vobject.readComponents", mock_read_components)
+
+        with caplog.at_level(logging.WARNING):
+            results = list(adapter.fetch(""))
+
+        # Should still process the contact
+        assert len(results) == 1
+
+        # Should have logged warning about non-string email
+        assert any("Skipping non-string email value" in record.message for record in caplog.records)
+        assert any("Test Contact" in record.message for record in caplog.records)
+
+    def test_non_string_phone_logged_and_skipped(self, tmp_path, caplog, monkeypatch):
+        """Non-string phone values trigger warning log and are skipped (not silently filtered)."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Phone Test Contact
+TEL:555-1234
+UID:phone-test-1
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
+
+        # Mock vobject to return a non-string phone value
+        import vobject
+
+        original_read = vobject.readComponents
+
+        def mock_read_components(text):
+            for vcard_obj in original_read(text):
+                # Inject a non-string phone value
+                if hasattr(vcard_obj, "tel"):
+                    # Create a mock tel entry with list value (simulating malformed data)
+                    class MockPhoneComponent:
+                        def __init__(self):
+                            self.value = ["555-1234", "555-5678"]  # Non-string value
+
+                    # Replace tel in contents
+                    tel_list = list(vcard_obj.contents.get("tel", []))
+                    tel_list.append(MockPhoneComponent())
+                    vcard_obj.contents["tel"] = tel_list
+
+                yield vcard_obj
+
+        monkeypatch.setattr("vobject.readComponents", mock_read_components)
+
+        with caplog.at_level(logging.WARNING):
+            results = list(adapter.fetch(""))
+
+        # Should still process the contact
+        assert len(results) == 1
+
+        # Should have logged warning about non-string phone
+        assert any("Skipping non-string phone value" in record.message for record in caplog.records)
+        assert any("Phone Test Contact" in record.message for record in caplog.records)
