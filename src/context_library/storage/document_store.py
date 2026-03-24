@@ -2408,8 +2408,15 @@ class DocumentStore:
                 AND c.retired_at IS NULL
                 AND c.source_version = s.current_version
             )
+            AND EXISTS (
+                SELECT 1
+                FROM chunks c2
+                JOIN sources s2 ON c2.source_id = s2.source_id
+                WHERE c2.chunk_hash = el.source_chunk_hash
+                AND s2.domain = ?
+            )
             """,
-            ("person_appearance", Domain.PEOPLE),
+            ("person_appearance", Domain.PEOPLE, Domain.PEOPLE),
         )
         return [row[0] for row in cursor.fetchall()]
 

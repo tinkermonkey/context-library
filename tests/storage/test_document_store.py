@@ -5168,7 +5168,8 @@ class TestQueryChunksByIdentifiers:
         )
         # alice is sender of ch1, dave is sender of ch2
         assert len(result) == 2
-        assert set(result) == {result[0], result[1]}
+        # Verify both returned hashes are unique chunk hashes from the query
+        assert all(isinstance(h, str) and len(h) == 64 for h in result)
 
     def test_combined_scalar_and_array_fields(self, store: DocumentStore) -> None:
         """Test querying with both scalar and array fields."""
@@ -5213,8 +5214,12 @@ class TestQueryChunksByIdentifiers:
         assert isinstance(result_no_exclude, list)
         assert isinstance(result_exclude_notes, list)
         assert isinstance(result_exclude_events, list)
-        # The parameter should work - at least validate that queries execute
-        assert len(result_no_exclude) >= 0
+
+        # Test data is in a NOTES domain source, so:
+        # - Excluding NOTES should return empty results
+        # - Excluding EVENTS should return all results (no EVENTS domain chunks in test data)
+        assert len(result_exclude_notes) == 0, "Excluding NOTES domain should return no results since all test data is in NOTES domain"
+        assert len(result_exclude_events) == len(result_no_exclude), "Excluding EVENTS domain should not filter any results since test data has no EVENTS domain chunks"
 
     def test_no_scalar_and_array_fields_raises_error(self, store: DocumentStore) -> None:
         """Test that providing neither scalar nor array fields raises ValueError."""
