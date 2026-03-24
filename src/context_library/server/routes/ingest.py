@@ -25,6 +25,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _run_entity_linking(
+    document_store, adapter_id: str | None = None
+) -> tuple[Literal["ok", "failed"] | None, str | None]:
+    """Run entity linking pass and return (status, error_message).
+
+    Args:
+        document_store: The document store instance.
+        adapter_id: Optional adapter ID for logging context.
+
+    Returns:
+        Tuple of (status, error_message) where status is "ok", "failed", or None
+        if entity linking was not run, and error_message is None on success.
+    """
+    try:
+        linker = EntityLinker(document_store=document_store)
+        new_links = await asyncio.to_thread(linker.run)
+        if adapter_id:
+            logger.info("Entity linking pass for %s created %d new links", adapter_id, new_links)
+        else:
+            logger.info("Entity linking pass created %d new links", new_links)
+        return "ok", None
+    except EntityLinkingError as e:
+        if adapter_id:
+            logger.error("Entity linking pass for %s failed: %s", adapter_id, e, exc_info=True)
+        else:
+            logger.error("Entity linking pass failed: %s", e, exc_info=True)
+        return "failed", str(e)
+    except Exception as e:
+        if adapter_id:
+            logger.error("Entity linking pass for %s failed with unexpected error: %s", adapter_id, e, exc_info=True)
+        else:
+            logger.error("Entity linking pass failed with unexpected error: %s", e, exc_info=True)
+        return "failed", f"{type(e).__name__}: {e}"
+
+
 @router.post("/webhooks/ingest", response_model=WebhookIngestResponse)
 async def webhook_ingest(
     payload: WebhookIngestRequest, request: Request
@@ -72,19 +107,9 @@ async def webhook_ingest(
     entity_linking_status: Literal["ok", "failed"] | None = None
     entity_linking_error = None
     if payload.domain == Domain.PEOPLE and result["sources_failed"] == 0:
-        try:
-            linker = EntityLinker(document_store=request.app.state.document_store)
-            new_links = await asyncio.to_thread(linker.run)
-            logger.info("Entity linking pass created %d new links", new_links)
-            entity_linking_status = "ok"
-        except EntityLinkingError as e:
-            logger.error("Entity linking pass failed: %s", e, exc_info=True)
-            entity_linking_status = "failed"
-            entity_linking_error = str(e)
-        except Exception as e:
-            logger.error("Entity linking pass failed with unexpected error: %s", e, exc_info=True)
-            entity_linking_status = "failed"
-            entity_linking_error = f"{type(e).__name__}: {e}"
+        entity_linking_status, entity_linking_error = await _run_entity_linking(
+            request.app.state.document_store
+        )
 
     return WebhookIngestResponse(
         status="ok" if result["sources_failed"] == 0 else "partial",
@@ -144,19 +169,9 @@ async def helper_ingest(
             entity_linking_status: Literal["ok", "failed"] | None = None
             entity_linking_error = None
             if adapter.domain == Domain.PEOPLE and result["sources_failed"] == 0:
-                try:
-                    linker = EntityLinker(document_store=request.app.state.document_store)
-                    new_links = await asyncio.to_thread(linker.run)
-                    logger.info("Entity linking pass for %s created %d new links", adapter.adapter_id, new_links)
-                    entity_linking_status = "ok"
-                except EntityLinkingError as e:
-                    logger.error("Entity linking pass for %s failed: %s", adapter.adapter_id, e, exc_info=True)
-                    entity_linking_status = "failed"
-                    entity_linking_error = str(e)
-                except Exception as e:
-                    logger.error("Entity linking pass for %s failed with unexpected error: %s", adapter.adapter_id, e, exc_info=True)
-                    entity_linking_status = "failed"
-                    entity_linking_error = f"{type(e).__name__}: {e}"
+                entity_linking_status, entity_linking_error = await _run_entity_linking(
+                    request.app.state.document_store, adapter.adapter_id
+                )
 
             results.append(AppleAdapterResult(
                 adapter_id=adapter.adapter_id,
