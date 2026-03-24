@@ -2261,11 +2261,11 @@ class DocumentStore:
         if not links:
             return 0
 
-        cursor = self.conn.cursor()
         created_at = datetime.now(timezone.utc).isoformat()
 
         try:
             with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
                 inserted_count = 0
                 for source_hash, target_hash, link_type, confidence in links:
                     cursor.execute(
