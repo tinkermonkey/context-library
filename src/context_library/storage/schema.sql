@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS source_versions (
 CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id);
 
 CREATE TABLE IF NOT EXISTS chunks (
-    chunk_hash          TEXT NOT NULL,
+    chunk_hash          TEXT NOT NULL UNIQUE,
     source_id           TEXT NOT NULL,
     source_version      INTEGER NOT NULL,
     chunk_index         INTEGER NOT NULL,
@@ -97,8 +97,8 @@ END;
 
 CREATE TABLE IF NOT EXISTS entity_links (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_chunk_hash   TEXT NOT NULL,
-    target_chunk_hash   TEXT NOT NULL,
+    source_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
+    target_chunk_hash   TEXT NOT NULL REFERENCES chunks(chunk_hash),
     link_type           TEXT NOT NULL,
     confidence          REAL NOT NULL DEFAULT 1.0,
     created_at          TEXT NOT NULL,
