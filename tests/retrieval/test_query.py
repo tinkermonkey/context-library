@@ -11,7 +11,7 @@ Covers:
 import os
 import tempfile
 from typing import Generator
-from unittest.mock import MagicMock, patch  # noqa: F401 - used in new test
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -160,12 +160,10 @@ class TestRetrievalResult:
             "domain_metadata must not be included in to_dict() output for security reasons"
         )
 
-        # Verify sensitive contact information is not exposed
-        for key in result_dict:
-            value = result_dict[key]
-            if isinstance(value, (str, tuple, list)):
-                assert "john@example.com" not in str(value), "Email addresses must not be exposed"
-                assert "+1-555-0100" not in str(value), "Phone numbers must not be exposed"
+        # Verify sensitive contact information is not exposed in serialized output
+        result_str = str(result_dict)
+        assert "john@example.com" not in result_str, "Email addresses must not be exposed"
+        assert "+1-555-0100" not in result_str, "Phone numbers must not be exposed"
 
         # Verify expected fields are still present
         assert result_dict["chunk_text"] == "Contact description"
