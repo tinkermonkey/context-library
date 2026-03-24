@@ -58,7 +58,7 @@ class RetrievalResult(BaseModel):
                 "Chunk and lineage must refer to the same content."
             )
 
-    def to_dict(self) -> dict[str, str | int | float | dict | None]:
+    def to_dict(self) -> dict[str, str | int | float | dict[str, object] | None]:
         """Convert result to dictionary format.
 
         Domain-specific metadata handling:
@@ -71,7 +71,7 @@ class RetrievalResult(BaseModel):
             Dictionary with chunk content, source metadata, domain metadata (if applicable),
             and similarity score.
         """
-        result = {
+        result: dict[str, str | int | float | dict[str, object] | None] = {
             "chunk_text": self.chunk.content,
             "chunk_hash": self.chunk.chunk_hash,
             "context_header": self.chunk.context_header,
