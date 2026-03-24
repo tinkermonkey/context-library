@@ -19,7 +19,7 @@ This adapter uses the vobject library for RFC 6350-compliant parsing.
 import hashlib
 import logging
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.people import PeopleDomain
@@ -145,7 +145,7 @@ class VCardAdapter(BaseAdapter):
         vcf_files = sorted(self._vcf_directory.glob("*.vcf"))
 
         # Track seen source_ids within this fetch() call to detect collisions
-        seen_ids = {}  # Maps source_id -> (display_name, vcf_file Path object)
+        seen_ids: dict[str, tuple[str, Any]] = {}  # Maps source_id -> (display_name, vcf_file Path object)
 
         for vcf_file in vcf_files:
             with open(vcf_file, "r", encoding="utf-8", errors="replace") as f:

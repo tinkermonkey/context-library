@@ -103,7 +103,7 @@ class TestVCardAdapterContextManager:
     def test_context_manager_exit_does_not_suppress_exceptions(self, tmp_path):
         """__exit__ returning False allows exceptions to propagate."""
         with pytest.raises(ValueError):
-            with VCardAdapter(vcf_directory=str(tmp_path)) as adapter:
+            with VCardAdapter(vcf_directory=str(tmp_path)):
                 raise ValueError("Test exception")
 
     def test_context_manager_del_no_error(self, tmp_path):
