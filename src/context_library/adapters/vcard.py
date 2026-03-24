@@ -18,7 +18,6 @@ This adapter uses the vobject library for RFC 6350-compliant parsing.
 
 import hashlib
 import logging
-import uuid
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -119,6 +118,13 @@ class VCardAdapter(BaseAdapter):
         Iterates through all .vcf files in the vcf_directory (sorted by name),
         parses vCard entries, and yields NormalizedContent for each contact.
 
+        Known limitation: When two distinct contacts have identical FN and first EMAIL
+        (or identical FN with no email), they will generate the same source_id hash.
+        This is spec-compliant per FR-5.4 (deterministic hash of FN + first EMAIL),
+        but downstream deduplication logic (DocumentStore, Differ) keying on source_id
+        may silently overwrite one contact with the other. Upstream systems should
+        use explicit UIDs to distinguish logically separate contacts.
+
         Args:
             source_ref: Source-specific reference (unused for vCard adapter)
 
@@ -137,6 +143,9 @@ class VCardAdapter(BaseAdapter):
 
         # Process .vcf files in sorted order for deterministic results
         vcf_files = sorted(self._vcf_directory.glob("*.vcf"))
+
+        # Track seen source_ids within this fetch() call to detect collisions
+        seen_ids = {}  # Maps source_id -> (display_name, vcf_file path)
 
         for vcf_file in vcf_files:
             with open(vcf_file, "r", encoding="utf-8", errors="replace") as f:
@@ -163,6 +172,18 @@ class VCardAdapter(BaseAdapter):
 
                 # Use contact_id from metadata (already derived above)
                 contact_id = metadata.contact_id
+
+                # Detect collisions: same source_id for different contacts
+                if contact_id in seen_ids:
+                    prev_name, prev_file = seen_ids[contact_id]
+                    logger.warning(
+                        f"Contact ID collision detected: '{metadata.display_name}' (from {vcf_file.name}) "
+                        f"and '{prev_name}' (from {prev_file.name}) both hash to {contact_id}. "
+                        f"This occurs when contacts have identical FN and first EMAIL. "
+                        f"Downstream systems may deduplicate incorrectly; use explicit UIDs to distinguish."
+                    )
+                else:
+                    seen_ids[contact_id] = (metadata.display_name, vcf_file.name)
 
                 # Yield normalized content
                 yield NormalizedContent(
@@ -305,12 +326,9 @@ class VCardAdapter(BaseAdapter):
         # Fallback: Generate deterministic SHA-256 hash from FN + first EMAIL
         # per spec requirement FR-5.4. This ensures stable identity across
         # structural changes (insertions/deletions) in source files.
-        if not hasattr(vcard, "fn"):
-            raise ValueError("vCard missing required FN (full name) field")
-
+        # Note: FN is guaranteed to be present and valid by _extract_people_metadata
+        # (which calls this method), so we can safely access it here.
         fn_value = vcard.fn.value
-        if not isinstance(fn_value, str) or not fn_value.strip():
-            raise ValueError(f"vCard FN must be non-empty string, got: {fn_value!r}")
 
         # Get first email if available
         emails_raw = vcard.contents.get("email", [])

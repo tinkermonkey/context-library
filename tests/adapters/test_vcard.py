@@ -1,5 +1,6 @@
 """Tests for the VCardAdapter."""
 
+import logging
 import pytest
 from pathlib import Path
 
@@ -76,6 +77,40 @@ class TestVCardAdapterProperties:
         """normalizer_version property returns '1.0.0'."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
         assert adapter.normalizer_version == "1.0.0"
+
+
+class TestVCardAdapterContextManager:
+    """Tests for VCardAdapter context manager protocol."""
+
+    def test_context_manager_enter_returns_self(self, tmp_path):
+        """__enter__ returns the adapter instance for use in with statement."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+        result = adapter.__enter__()
+        assert result is adapter
+
+    def test_context_manager_with_statement(self, tmp_path):
+        """Adapter can be used with 'with' statement."""
+        with VCardAdapter(vcf_directory=str(tmp_path)) as adapter:
+            assert isinstance(adapter, VCardAdapter)
+            assert adapter._account_id == "default"
+
+    def test_context_manager_exit_returns_false(self, tmp_path):
+        """__exit__ returns False to allow exception propagation."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+        result = adapter.__exit__(None, None, None)
+        assert result is False
+
+    def test_context_manager_exit_does_not_suppress_exceptions(self, tmp_path):
+        """__exit__ returning False allows exceptions to propagate."""
+        with pytest.raises(ValueError):
+            with VCardAdapter(vcf_directory=str(tmp_path)) as adapter:
+                raise ValueError("Test exception")
+
+    def test_context_manager_del_no_error(self, tmp_path):
+        """__del__ can be called without error."""
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+        # This should not raise any exception
+        adapter.__del__()
 
 
 class TestVCardAdapterFetch:
@@ -675,3 +710,30 @@ END:VCARD"""
         id2 = results[1].source_id
 
         assert id1 == id2
+
+    def test_collision_detection_logs_warning(self, tmp_path, caplog):
+        """fetch() logs warning when collision is detected (same ID for different contacts).
+
+        When two distinct contacts produce the same source_id (due to identical FN
+        and first EMAIL), a warning is logged to alert users of potential data loss.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        # Two identical contacts in different files
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Alice Smith
+EMAIL:alice@example.com
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "file1.vcf", vcard_content)
+        self._create_vcard_file(tmp_path, "file2.vcf", vcard_content)
+
+        # Fetch and capture logs
+        with caplog.at_level(logging.WARNING):
+            results = list(adapter.fetch(""))
+
+        # Should have logged a collision warning
+        assert len(results) == 2
+        assert any("collision" in record.message.lower() for record in caplog.records)
+        assert any("Alice Smith" in record.message for record in caplog.records)
