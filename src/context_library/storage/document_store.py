@@ -583,7 +583,8 @@ class DocumentStore:
                     PRIMARY KEY (chunk_hash, source_id, source_version),
                     FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
                     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
-                    UNIQUE (source_id, source_version, chunk_index)
+                    UNIQUE (source_id, source_version, chunk_index),
+                    UNIQUE (chunk_hash)
                 )
             """)
             cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
@@ -616,8 +617,10 @@ class DocumentStore:
                     target_chunk_hash   TEXT NOT NULL,
                     link_type           TEXT NOT NULL,
                     confidence          REAL NOT NULL DEFAULT 1.0,
-                    created_at          TEXT NOT NULL,
-                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type),
+                    FOREIGN KEY (source_chunk_hash) REFERENCES chunks(chunk_hash),
+                    FOREIGN KEY (target_chunk_hash) REFERENCES chunks(chunk_hash)
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")
@@ -2261,8 +2264,6 @@ class DocumentStore:
         if not links:
             return 0
 
-        created_at = datetime.now(timezone.utc).isoformat()
-
         try:
             with self._write_lock, self.conn:
                 cursor = self.conn.cursor()
@@ -2271,10 +2272,10 @@ class DocumentStore:
                     cursor.execute(
                         """
                         INSERT OR IGNORE INTO entity_links
-                        (source_chunk_hash, target_chunk_hash, link_type, confidence, created_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        (source_chunk_hash, target_chunk_hash, link_type, confidence)
+                        VALUES (?, ?, ?, ?)
                         """,
-                        (source_hash, target_hash, link_type, confidence, created_at),
+                        (source_hash, target_hash, link_type, confidence),
                     )
                     # Check if row was actually inserted (not ignored)
                     if cursor.rowcount > 0:
