@@ -2306,26 +2306,51 @@ class DocumentStore:
 
         Returns:
             List of chunk_hashes from chunks where a match was found.
+
+        Raises:
+            ValueError: If both scalar_fields and array_fields are empty, or if any field name
+                        contains invalid characters (not alphanumeric or underscore).
         """
         if not identifiers:
             return []
+
+        # Validate that at least one field type is provided
+        if not scalar_fields and not array_fields:
+            raise ValueError("At least one of scalar_fields or array_fields must be provided")
+
+        # Validate field names: allow only alphanumeric characters and underscores
+        for field in scalar_fields + array_fields:
+            if not field or not all(c.isalnum() or c == "_" for c in field):
+                raise ValueError(
+                    f"Invalid field name '{field}': field names must be alphanumeric or underscore only"
+                )
 
         cursor = self.conn.cursor()
         found_hashes: set[str] = set()
 
         for identifier in identifiers:
             # Build WHERE clauses for scalar fields
-            scalar_where = " OR ".join(
+            scalar_where_parts = [
                 f"json_extract(c.domain_metadata, '$.{field}') = ?" for field in scalar_fields
-            )
+            ]
+            scalar_where = " OR ".join(scalar_where_parts) if scalar_where_parts else ""
 
             # Build WHERE clauses for array fields (use COALESCE to default NULL/missing arrays to '[]')
-            array_where = " OR ".join(
+            array_where_parts = [
                 f"EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract(c.domain_metadata, '$.{field}'), '[]')) WHERE value = ?)"
                 for field in array_fields
-            )
+            ]
+            array_where = " OR ".join(array_where_parts) if array_where_parts else ""
 
-            where_clause = f"({scalar_where} OR {array_where})"
+            # Combine where clauses: one or both should exist due to validation above
+            # If both exist, use (scalar_where OR array_where); if only one exists, use it directly
+            where_clause = ""
+            if scalar_where and array_where:
+                where_clause = f"({scalar_where} OR {array_where})"
+            elif scalar_where:
+                where_clause = f"({scalar_where})"
+            elif array_where:
+                where_clause = f"({array_where})"
 
             # Build parameters: identifier repeated for each field check, then domain if excluding
             params = [identifier] * len(scalar_fields) + [identifier] * len(array_fields)
@@ -2351,7 +2376,7 @@ class DocumentStore:
                     found_hashes.add(row[0])
             except Exception as e:
                 logger.error("Error querying chunks for identifier %s: %s", identifier, e)
-                continue
+                raise
 
         return sorted(list(found_hashes))
 
@@ -2363,29 +2388,29 @@ class DocumentStore:
 
         Returns:
             List of source_chunk_hashes for retired person chunks.
+
+        Raises:
+            Exception: If the database query fails. Errors are not swallowed so that callers
+                       can implement appropriate error handling and recovery.
         """
         cursor = self.conn.cursor()
-        try:
-            cursor.execute(
-                """
-                SELECT DISTINCT el.source_chunk_hash
-                FROM entity_links el
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM chunks c
-                    JOIN sources s ON c.source_id = s.source_id
-                    WHERE c.chunk_hash = el.source_chunk_hash
-                    AND s.domain = ?
-                    AND c.retired_at IS NULL
-                    AND c.source_version = s.current_version
-                )
-                """,
-                (Domain.PEOPLE,),
+        cursor.execute(
+            """
+            SELECT DISTINCT el.source_chunk_hash
+            FROM entity_links el
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM chunks c
+                JOIN sources s ON c.source_id = s.source_id
+                WHERE c.chunk_hash = el.source_chunk_hash
+                AND s.domain = ?
+                AND c.retired_at IS NULL
+                AND c.source_version = s.current_version
             )
-            return [row[0] for row in cursor.fetchall()]
-        except Exception as e:
-            logger.error("Error querying retired person links: %s", e)
-            return []
+            """,
+            (Domain.PEOPLE,),
+        )
+        return [row[0] for row in cursor.fetchall()]
 
     def get_linked_chunks(
         self,
