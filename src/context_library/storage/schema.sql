@@ -68,8 +68,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     PRIMARY KEY (chunk_hash, source_id, source_version),
     FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
     FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
-    UNIQUE (source_id, source_version, chunk_index),
-    UNIQUE (chunk_hash)
+    UNIQUE (source_id, source_version, chunk_index)
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version);
@@ -103,9 +102,7 @@ CREATE TABLE IF NOT EXISTS entity_links (
     link_type           TEXT NOT NULL,
     confidence          REAL NOT NULL DEFAULT 1.0,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_chunk_hash, target_chunk_hash, link_type),
-    FOREIGN KEY (source_chunk_hash) REFERENCES chunks(chunk_hash),
-    FOREIGN KEY (target_chunk_hash) REFERENCES chunks(chunk_hash)
+    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash);
