@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { SourceSummary } from '../types/api';
-import type { DomainViewProps } from './registry';
 import { documentCatalogSearchSchema } from '../routes-config';
 import { useSources } from '../hooks/useSources';
 import { Timestamp } from '../components/shared/Timestamp';
@@ -177,10 +176,9 @@ function CatalogEntryCard({
  * Note: This component diverges from standard DomainViewProps usage.
  * It receives chunks and source props but primarily uses the sources listing API.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
-  const navigate = useNavigate({ from: '/browser/catalog/documents' });
-  const rawSearch = useSearch({ from: '/browser/catalog/documents' });
+export function DocumentCatalogView(): ReactNode {
+  const navigate = useNavigate({ from: '/browser/catalog/$domain' });
+  const rawSearch = useSearch({ from: '/browser/catalog/$domain' });
   const search = documentCatalogSearchSchema.parse(rawSearch);
 
   // Extract filter value from URL search params
@@ -264,7 +262,7 @@ export function DocumentCatalogView(_props: DomainViewProps): ReactNode {
   const openDocument = (source: SourceSummary): void => {
     void navigate({
       to: '/browser/view/$domain/$sourceId',
-      params: { domain: 'documents', sourceId: source.source_id },
+      params: { domain: source.domain, sourceId: source.source_id },
     });
   };
 

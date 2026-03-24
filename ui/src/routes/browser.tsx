@@ -18,8 +18,20 @@ const DOMAINS = ALL_DOMAINS;
 // ── Sources Table ──────────────────────────────────────────────
 const sourceColumnHelper = createColumnHelper<SourceSummary>();
 
-function buildSourceColumns(): ColumnDef<SourceSummary, unknown>[] {
+function buildSourceColumns(onView: (source: SourceSummary) => void): ColumnDef<SourceSummary, unknown>[] {
   return [
+    sourceColumnHelper.display({
+      id: 'actions',
+      header: '',
+      cell: (info) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); onView(info.row.original); }}
+          className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors"
+        >
+          View
+        </button>
+      ),
+    }) as ColumnDef<SourceSummary, unknown>,
     sourceColumnHelper.accessor('source_id', {
       header: 'Source ID',
       cell: (info) => (
@@ -478,6 +490,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
 }
 
 function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
+  const navigate = useNavigate();
   const { data: prov, isLoading: provLoading, isError: provError, error: provErrorObj } = useChunkProvenance(
     chunk.chunk_hash,
     chunk.lineage.source_id
@@ -485,6 +498,22 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
 
   return (
     <div className="space-y-6">
+      {/* Navigation */}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          color="success"
+          onClick={() => {
+            void navigate({
+              to: '/browser/view/$domain/$sourceId',
+              params: { domain: chunk.lineage.domain, sourceId: chunk.lineage.source_id },
+            });
+          }}
+        >
+          View Source
+        </Button>
+      </div>
+
       {/* Full Content */}
       <div>
         <h4 className="font-semibold text-sm mb-2">Full Content</h4>
@@ -641,7 +670,17 @@ export default function BrowserPage() {
   );
 
   // ── Sources Table ──────────────────────────────────────────────
-  const sourceColumns = useMemo(() => buildSourceColumns(), []);
+  const handleViewSource = useCallback(
+    (source: SourceSummary) => {
+      navigate({
+        to: '/browser/view/$domain/$sourceId',
+        params: { domain: source.domain, sourceId: source.source_id },
+      });
+    },
+    [navigate]
+  );
+
+  const sourceColumns = useMemo(() => buildSourceColumns(handleViewSource), [handleViewSource]);
 
   const sourceAdapterList = useMemo(() => {
     if (!adapters) return [];
@@ -735,7 +774,7 @@ export default function BrowserPage() {
       <p className="text-gray-600 mb-8">Browse all sources, chunks, and versions by domain</p>
 
       {/* Domain Tabs */}
-      <div className="mb-8 border-b border-gray-200">
+      <div className="mb-8 border-b border-gray-200 pb-3 flex items-center justify-between">
         <ButtonGroup>
           {DOMAINS.map((domain) => (
             <Button
@@ -748,6 +787,18 @@ export default function BrowserPage() {
             </Button>
           ))}
         </ButtonGroup>
+        <Button
+          size="sm"
+          color="gray"
+          onClick={() => {
+            navigate({
+              to: '/browser/catalog/$domain',
+              params: { domain: activeDomain },
+            });
+          }}
+        >
+          Browse {activeDomain.charAt(0).toUpperCase() + activeDomain.slice(1)} Catalog →
+        </Button>
       </div>
 
       {/* Table Type Selector */}

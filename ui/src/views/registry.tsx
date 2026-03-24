@@ -6,6 +6,8 @@ import { TimeSeriesView } from './TimeSeriesView';
 import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
 import { DocumentView } from './DocumentView';
+import { DocumentCatalogView } from './DocumentCatalogView';
+import { createDomainCatalogPage } from './BaseCatalogView';
 
 /**
  * All supported domains as the source of truth.
@@ -20,7 +22,7 @@ export const ALL_DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'd
 export type DomainType = (typeof ALL_DOMAINS)[number];
 
 /**
- * Props passed to all domain view components.
+ * Props passed to all domain view components (single-source detail view).
  */
 export interface DomainViewProps {
   sourceId: string;
@@ -29,15 +31,23 @@ export interface DomainViewProps {
 
 /**
  * Registry entry for a domain view.
- * Maps a domain to its display component and metadata.
+ * Maps a domain to its display components and metadata.
  */
 export interface RegistryEntry {
-  /** React component that renders the domain view */
+  /** React component that renders the domain detail view for a single source. */
   component: ComponentType<DomainViewProps>;
-  /** Human-readable label for this domain (e.g., "Thread", "Document") */
-  label: string;
   /**
-   * Optional: metadata field key for sub-type dispatch (e.g., "health_type").
+   * Zero-prop React component that renders the browsable catalog for this domain.
+   * Self-contained: fetches its own sources and handles its own navigation.
+   * Used by /browser/catalog/$domain.
+   */
+  catalogPage: ComponentType;
+  /** Singular human-readable label (e.g. "Thread", "Document"). */
+  label: string;
+  /** Plural human-readable label for catalog headings (e.g. "Threads", "Documents"). */
+  pluralLabel: string;
+  /**
+   * Optional: metadata field key for sub-type dispatch (e.g. "health_type").
    *
    * RESERVED FOR FUTURE USE: Currently informational only. To implement subtype dispatch:
    * 1. Read the subtypeKey from the registry entry
@@ -54,52 +64,60 @@ export interface RegistryEntry {
 
 /**
  * Domain view registry.
- * Maps each domain to its page-level React component reference.
- * Uses typed domain keys to ensure completeness and prevent typos.
+ * Single source of truth for per-domain view components, catalog pages, and labels.
  */
 const registry: Record<DomainType, RegistryEntry> = {
   messages: {
     component: ThreadView,
+    catalogPage: createDomainCatalogPage('messages'),
     label: 'Thread',
+    pluralLabel: 'Threads',
   },
   notes: {
     component: DocumentView,
+    catalogPage: createDomainCatalogPage('notes'),
     label: 'Note',
+    pluralLabel: 'Notes',
   },
   events: {
     component: TimeSeriesView,
+    catalogPage: createDomainCatalogPage('events'),
     label: 'Timeline',
+    pluralLabel: 'Events',
   },
   tasks: {
     component: TaskListView,
+    catalogPage: createDomainCatalogPage('tasks'),
     label: 'Tasks',
+    pluralLabel: 'Tasks',
   },
   health: {
     component: HealthMetricsView,
+    catalogPage: createDomainCatalogPage('health'),
     label: 'Metrics',
+    pluralLabel: 'Health',
     subtypeKey: 'health_type',
   },
   documents: {
     component: DocumentView,
+    catalogPage: DocumentCatalogView,
     label: 'Document',
+    pluralLabel: 'Documents',
   },
 };
 
 /**
  * Get the domain view registry entry for a given domain.
- *
- * Supports fallback to GenericChunkTable for any unrecognized domain.
- *
- * @param domain - The domain string (e.g., "messages", "health")
- * @returns The registry entry with component reference and metadata
+ * Falls back to GenericChunkTable + BaseCatalogView for unrecognized domains.
  */
 export function getDomainView(domain: string): RegistryEntry {
-  // Type guard: only access registry if domain is a known DomainType
   if (domain in registry) {
     return registry[domain as DomainType];
   }
   return {
     component: GenericChunkTableComponent,
+    catalogPage: createDomainCatalogPage(domain),
     label: 'Chunks',
+    pluralLabel: 'Sources',
   };
 }

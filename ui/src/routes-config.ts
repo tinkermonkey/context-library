@@ -86,6 +86,19 @@ export const documentCatalogSearchSchema = z.object({
 
 export type DocumentCatalogPageSearch = z.infer<typeof documentCatalogSearchSchema>;
 
+/**
+ * Generic domain catalog search schema.
+ * Uses passthrough so each domain's catalog component can read its own filter params
+ * without the route validator stripping them.
+ */
+export const domainCatalogSearchSchema = z
+  .object({
+    documentType: z.string().optional(), // documents domain filter (preserved for backwards compat)
+  })
+  .passthrough();
+
+export type DomainCatalogPageSearch = z.infer<typeof domainCatalogSearchSchema>;
+
 export const searchSearchSchema = z.object({
   q: z.string().optional(),
   domain: z.string().optional(),

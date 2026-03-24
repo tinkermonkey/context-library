@@ -14,15 +14,15 @@ import {
   indexSearchSchema,
   browserSearchSchema,
   domainViewSearchSchema,
-  documentCatalogSearchSchema,
+  domainCatalogSearchSchema,
   searchSearchSchema,
 } from './routes-config'
 
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
 
-// Lazy load DocumentCatalogPage to enable code splitting
-const DocumentCatalogPage = lazy(() => import('./routes/browser.catalog.documents'))
+// Lazy load DomainCatalogPage to enable code splitting
+const DomainCatalogPage = lazy(() => import('./routes/browser.catalog.$domain'))
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -57,11 +57,11 @@ const domainViewRoute = createRoute({
   // Individual domain views will extract only the parameters they need via domain-specific schemas.
 })
 
-const documentCatalogRoute = createRoute({
+const domainCatalogRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/browser/catalog/documents',
-  component: DocumentCatalogPage,
-  validateSearch: (search: unknown) => documentCatalogSearchSchema.parse(search),
+  path: '/browser/catalog/$domain',
+  component: DomainCatalogPage,
+  validateSearch: (search: unknown) => domainCatalogSearchSchema.parse(search),
 })
 
 const searchRoute = createRoute({
@@ -71,7 +71,7 @@ const searchRoute = createRoute({
   validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, documentCatalogRoute, searchRoute])
+const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, domainCatalogRoute, searchRoute])
 
 export const router = createRouter({ routeTree })
 
