@@ -18,6 +18,7 @@ from context_library.server.schemas import (
     WebhookIngestResponse,
 )
 from context_library.server.webhook_adapter import WebhookAdapter
+from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ router = APIRouter()
 
 
 async def _run_entity_linking(
-    document_store, adapter_id: str | None = None
+    document_store: DocumentStore, adapter_id: str | None = None
 ) -> tuple[Literal["ok", "failed", "partial"] | None, str | None]:
     """Run entity linking pass and return (status, error_message).
 

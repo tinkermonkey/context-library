@@ -8,6 +8,7 @@ from context_library.core.identifier_normalizer import normalize_email, normaliz
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    ChunkWithLineageContext,
     Domain,
     EntityLink,
 )
@@ -113,7 +114,7 @@ class EntityLinker:
         )
         return total_links_created, total_chunks_failed
 
-    def _process_person_chunks_page(self, person_chunks: list) -> tuple[int, int]:
+    def _process_person_chunks_page(self, person_chunks: list[ChunkWithLineageContext]) -> tuple[int, int]:
         """Process a single page of person chunks.
 
         For each chunk, extracts identifiers, finds matching chunks in other domains,
