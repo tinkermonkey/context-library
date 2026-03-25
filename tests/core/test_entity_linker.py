@@ -1026,3 +1026,211 @@ class TestEntityLinkerTargetRetirement:
         # The link should no longer be returned since the target is retired
         linked_after = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
         assert msg_hash not in linked_after
+
+
+class TestAtomicDeleteMethods:
+    """Test the atomic delete methods that eliminate TOCTOU race conditions."""
+
+    def test_delete_retired_person_links_atomic_no_deletions_when_all_active(self, doc_store):
+        """No deletions when all person chunks are active."""
+        person_hash = make_sha256_hash("contact_active_alice")
+        msg_hash = make_sha256_hash("message_for_active_alice")
+
+        person_chunk = Chunk(
+            chunk_hash=person_hash,
+            content="Alice",
+            chunk_index=0,
+            domain_metadata={"display_name": "Alice", "emails": ["alice@example.com"], "phones": []},
+        )
+
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Hi from Alice",
+            chunk_index=0,
+            domain_metadata={"sender": "alice@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Create link
+        link = EntityLink(
+            source_chunk_hash=person_hash,
+            target_chunk_hash=msg_hash,
+            link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+            confidence=1.0,
+        )
+        doc_store.write_entity_links([link])
+
+        # No deletions should occur since person chunk is still active
+        rowcount = doc_store.delete_retired_person_links_atomic()
+        assert rowcount == 0
+
+        # Verify link still exists
+        linked = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash in linked
+
+    def test_delete_retired_person_links_atomic_deletes_when_retired(self, doc_store):
+        """Correct deletion when person chunks are retired."""
+        person_hash = make_sha256_hash("contact_retired_bob")
+        msg_hash = make_sha256_hash("message_for_retired_bob")
+
+        person_chunk = Chunk(
+            chunk_hash=person_hash,
+            content="Bob",
+            chunk_index=0,
+            domain_metadata={"display_name": "Bob", "emails": ["bob@example.com"], "phones": []},
+        )
+
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Hi from Bob",
+            chunk_index=0,
+            domain_metadata={"sender": "bob@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Create link
+        link = EntityLink(
+            source_chunk_hash=person_hash,
+            target_chunk_hash=msg_hash,
+            link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+            confidence=1.0,
+        )
+        doc_store.write_entity_links([link])
+
+        # Retire the person chunk
+        doc_store.retire_chunks({person_hash}, source_id="people_source", source_version=1)
+
+        # Should delete the link since person chunk is retired
+        rowcount = doc_store.delete_retired_person_links_atomic()
+        assert rowcount == 1
+
+        # Verify link is gone
+        linked = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash not in linked
+
+    def test_delete_retired_person_links_atomic_guards_missing_chunks(self, doc_store):
+        """No deletion when chunk doesn't exist (AND EXISTS guard)."""
+        # Create a link to a non-existent person chunk hash
+        person_hash = make_sha256_hash("nonexistent_person")
+        msg_hash = make_sha256_hash("orphaned_message")
+
+        # Create message chunk
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Orphaned message",
+            chunk_index=0,
+            domain_metadata={"sender": "unknown@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Manually insert a link with non-existent source chunk
+        cursor = doc_store.conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO entity_links (source_chunk_hash, target_chunk_hash, link_type, confidence)
+            VALUES (?, ?, ?, ?)
+            """,
+            (person_hash, msg_hash, ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0),
+        )
+        doc_store.conn.commit()
+
+        # Should NOT delete this link because the source chunk doesn't exist in people domain
+        # (the AND EXISTS guard prevents deletion of hypothetical orphans)
+        rowcount = doc_store.delete_retired_person_links_atomic()
+        assert rowcount == 0
+
+        # Verify link still exists
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM entity_links
+            WHERE source_chunk_hash = ? AND target_chunk_hash = ?
+            """,
+            (person_hash, msg_hash),
+        )
+        assert cursor.fetchone()[0] == 1
+
+    def test_delete_retired_target_links_atomic_no_deletions_when_all_active(self, doc_store):
+        """No deletions when all target chunks are active."""
+        person_hash = make_sha256_hash("person_for_active_targets")
+        msg_hash = make_sha256_hash("active_message_target")
+
+        person_chunk = Chunk(
+            chunk_hash=person_hash,
+            content="Person",
+            chunk_index=0,
+            domain_metadata={"display_name": "Person", "emails": ["person@example.com"], "phones": []},
+        )
+
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Active message",
+            chunk_index=0,
+            domain_metadata={"sender": "person@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Create link
+        link = EntityLink(
+            source_chunk_hash=person_hash,
+            target_chunk_hash=msg_hash,
+            link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+            confidence=1.0,
+        )
+        doc_store.write_entity_links([link])
+
+        # No deletions should occur since message chunk is still active
+        rowcount = doc_store.delete_retired_target_links_atomic()
+        assert rowcount == 0
+
+        # Verify link still exists
+        linked = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash in linked
+
+    def test_delete_retired_target_links_atomic_deletes_when_retired(self, doc_store):
+        """Correct deletion when target chunks are retired."""
+        person_hash = make_sha256_hash("person_with_retired_target")
+        msg_hash = make_sha256_hash("retired_message_target")
+
+        person_chunk = Chunk(
+            chunk_hash=person_hash,
+            content="Person",
+            chunk_index=0,
+            domain_metadata={"display_name": "Person", "emails": ["person@example.com"], "phones": []},
+        )
+
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Message that will retire",
+            chunk_index=0,
+            domain_metadata={"sender": "person@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Create link
+        link = EntityLink(
+            source_chunk_hash=person_hash,
+            target_chunk_hash=msg_hash,
+            link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+            confidence=1.0,
+        )
+        doc_store.write_entity_links([link])
+
+        # Retire the message chunk (target)
+        doc_store.retire_chunks({msg_hash}, source_id="msg_source", source_version=1)
+
+        # Should delete the link since message chunk is retired
+        rowcount = doc_store.delete_retired_target_links_atomic()
+        assert rowcount == 1
+
+        # Verify link is gone
+        linked = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash not in linked

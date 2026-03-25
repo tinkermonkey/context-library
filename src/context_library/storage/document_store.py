@@ -2429,46 +2429,6 @@ class DocumentStore:
 
         return sorted(list(found_hashes))
 
-    def query_retired_person_links(self) -> list[str]:
-        """Query source_chunk_hashes in entity_links that are no longer active in people domain.
-
-        Finds person contacts that were deleted (retired) so their entity links can be cleaned up.
-        This method safely handles concurrency via the connection pool.
-
-        Returns:
-            List of source_chunk_hashes for retired person chunks.
-
-        Raises:
-            Exception: If the database query fails. Errors are not swallowed so that callers
-                       can implement appropriate error handling and recovery.
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT DISTINCT el.source_chunk_hash
-            FROM entity_links el
-            WHERE el.link_type = ?
-            AND NOT EXISTS (
-                SELECT 1
-                FROM chunks c
-                JOIN sources s ON c.source_id = s.source_id
-                WHERE c.chunk_hash = el.source_chunk_hash
-                AND s.domain = ?
-                AND c.retired_at IS NULL
-                AND c.source_version = s.current_version
-            )
-            AND EXISTS (
-                SELECT 1
-                FROM chunks c2
-                JOIN sources s2 ON c2.source_id = s2.source_id
-                WHERE c2.chunk_hash = el.source_chunk_hash
-                AND s2.domain = ?
-            )
-            """,
-            (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE, Domain.PEOPLE),
-        )
-        return [row[0] for row in cursor.fetchall()]
-
     def get_linked_chunks(
         self,
         chunk_hash: str,
@@ -2516,98 +2476,6 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [row[0] for row in rows]
 
-    def delete_entity_links_for_chunk(self, chunk_hash: str) -> int:
-        """Delete all entity links associated with a chunk.
-
-        Removes rows where the chunk_hash is either the source or target.
-        Called when a chunk is retired to clean up orphaned links.
-
-        Args:
-            chunk_hash: The chunk hash to delete links for.
-
-        Returns:
-            The number of rows deleted.
-        """
-        try:
-            with self._write_lock, self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    """
-                    DELETE FROM entity_links
-                    WHERE source_chunk_hash = ? OR target_chunk_hash = ?
-                    """,
-                    (chunk_hash, chunk_hash),
-                )
-                return cursor.rowcount
-        except Exception as e:
-            logger.error(f"Failed to delete entity links for chunk {chunk_hash}: {e}")
-            raise
-
-    def query_retired_target_links(self) -> list[str]:
-        """Query target_chunk_hashes in entity_links that are no longer active.
-
-        Finds chunks that have been retired but still have entity_links where they
-        are the target. This handles cleanup when non-person chunks (messages, notes,
-        events, etc.) are retired. Only returns chunks that actually existed in the
-        chunks table (not hypothetical orphans).
-
-        Returns:
-            List of target_chunk_hashes for retired chunks that are still referenced
-            in entity_links.
-
-        Raises:
-            Exception: If the database query fails. Errors are not swallowed so that callers
-                       can implement appropriate error handling and recovery.
-        """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT DISTINCT el.target_chunk_hash
-            FROM entity_links el
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM chunks c
-                JOIN sources s ON c.source_id = s.source_id
-                WHERE c.chunk_hash = el.target_chunk_hash
-                AND c.retired_at IS NULL
-                AND c.source_version = s.current_version
-            )
-            AND EXISTS (
-                SELECT 1
-                FROM chunks c2
-                WHERE c2.chunk_hash = el.target_chunk_hash
-            )
-            """
-        )
-        return [row[0] for row in cursor.fetchall()]
-
-    def delete_entity_links_for_target_chunk(self, chunk_hash: str) -> int:
-        """Delete entity links where the given chunk is the target.
-
-        Removes only rows where chunk_hash is the target_chunk_hash.
-        Used to clean up links to retired chunks after retirement.
-
-        Args:
-            chunk_hash: The target chunk hash to delete links for.
-
-        Returns:
-            The number of rows deleted.
-        """
-        try:
-            with self._write_lock, self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute(
-                    """
-                    DELETE FROM entity_links
-                    WHERE target_chunk_hash = ?
-                    """,
-                    (chunk_hash,),
-                )
-                return cursor.rowcount
-        except Exception as e:
-            logger.error(f"Failed to delete entity links for target chunk {chunk_hash}: {e}")
-            raise
-
     def delete_retired_person_links_atomic(self) -> int:
         """Atomically delete entity_links for all retired person chunks.
 
@@ -2637,8 +2505,15 @@ class DocumentStore:
                         AND c.retired_at IS NULL
                         AND c.source_version = s.current_version
                     )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM chunks c2
+                        JOIN sources s2 ON c2.source_id = s2.source_id
+                        WHERE c2.chunk_hash = entity_links.source_chunk_hash
+                        AND s2.domain = ?
+                    )
                     """,
-                    (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE),
+                    (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE, Domain.PEOPLE),
                 )
                 return cursor.rowcount
         except Exception as e:
