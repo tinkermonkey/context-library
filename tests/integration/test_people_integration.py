@@ -19,11 +19,6 @@ from context_library.domains.people import PeopleDomain
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from helpers import make_sha256_hash, setup_chunk_in_store
 
-# Guard heavy imports that pull in sentence_transformers (ML stack)
-pytest.importorskip("sentence_transformers")
-from context_library.core.pipeline import IngestionPipeline
-from context_library.core.differ import Differ
-from context_library.core.embedder import Embedder
 from context_library.storage.vector_store import VectorStore
 
 
@@ -86,6 +81,12 @@ class TestPeopleDomainIntegration:
         3. DocumentStore stores chunks with correct metadata
         4. Chunks are retrievable and have correct domain-specific metadata
         """
+        # This test requires sentence_transformers for the Embedder
+        pytest.importorskip("sentence_transformers")
+        from context_library.core.pipeline import IngestionPipeline
+        from context_library.core.differ import Differ
+        from context_library.core.embedder import Embedder
+
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.db")
             store = DocumentStore(db_path)
