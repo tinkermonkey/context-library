@@ -7,7 +7,7 @@ import { HealthMetricsView } from './HealthMetricsView';
 import { TaskListView } from './TaskListView';
 import { DocumentView } from './DocumentView';
 import { DocumentCatalogView } from './DocumentCatalogView';
-import { createDomainCatalogPage } from './BaseCatalogView';
+import { createDomainCatalogPage } from './createDomainCatalogPage.jsx';
 
 /**
  * All supported domains as the source of truth.
