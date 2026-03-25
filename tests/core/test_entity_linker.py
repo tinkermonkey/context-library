@@ -6,7 +6,7 @@ from pathlib import Path
 
 from context_library.core.entity_linker import EntityLinker
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Chunk, Domain
+from context_library.storage.models import Chunk, Domain, EntityLink, ENTITY_LINK_TYPE_PERSON_APPEARANCE
 
 # Add parent directory to sys.path to allow importing helpers module
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -371,7 +371,7 @@ class TestEntityLinkerRun:
 
         assert new_links == 1
         assert failures == 0
-        linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type="person_appearance")
+        linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
         assert msg_chunk.chunk_hash in linked
 
     def test_run_idempotent(self, doc_store):
@@ -474,7 +474,7 @@ class TestEntityLinkerRun:
 
         assert new_links == 3
         assert failures == 0
-        linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type="person_appearance")
+        linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
         assert msg_chunk1.chunk_hash in linked
         assert msg_chunk2.chunk_hash in linked
         assert msg_chunk3.chunk_hash in linked
@@ -525,7 +525,7 @@ class TestEntityLinkerRun:
         assert row is not None
         assert row[0] == person_chunk.chunk_hash
         assert row[1] == msg_chunk.chunk_hash
-        assert row[2] == "person_appearance"
+        assert row[2] == ENTITY_LINK_TYPE_PERSON_APPEARANCE
         assert row[3] == 1.0
 
     def test_run_cleans_up_retired_person_links(self, doc_store):
@@ -640,8 +640,8 @@ class TestEntityLinkerRun:
         assert new_links == 2
         assert failures == 0
 
-        linked_frank = doc_store.get_linked_chunks(person_chunk1.chunk_hash, link_type="person_appearance")
-        linked_grace = doc_store.get_linked_chunks(person_chunk2.chunk_hash, link_type="person_appearance")
+        linked_frank = doc_store.get_linked_chunks(person_chunk1.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        linked_grace = doc_store.get_linked_chunks(person_chunk2.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
 
         assert msg_chunk_frank.chunk_hash in linked_frank
         assert msg_chunk_grace.chunk_hash in linked_grace
@@ -749,13 +749,13 @@ class TestEntityLinkerIntegration:
         assert new_links == 5
         assert failures == 0
 
-        alice_links = doc_store.get_linked_chunks(alice.chunk_hash, link_type="person_appearance")
+        alice_links = doc_store.get_linked_chunks(alice.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
         assert msg1.chunk_hash in alice_links
         assert msg2.chunk_hash in alice_links
         assert msg3.chunk_hash in alice_links
         assert msg4.chunk_hash not in alice_links
 
-        bob_links = doc_store.get_linked_chunks(bob.chunk_hash, link_type="person_appearance")
+        bob_links = doc_store.get_linked_chunks(bob.chunk_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
         assert msg4.chunk_hash in bob_links
         assert msg1.chunk_hash in bob_links  # msg1 has bob in recipients
         assert msg2.chunk_hash not in bob_links
@@ -763,3 +763,67 @@ class TestEntityLinkerIntegration:
 
         msg5_links = doc_store.get_linked_chunks(msg5.chunk_hash)
         assert len(msg5_links) == 0
+
+
+class TestEntityLinkerTargetRetirement:
+    """Test cleanup of entity_links when target chunks are retired."""
+
+    def test_retired_target_links_cleaned_up(self, doc_store):
+        """Test that entity_links to retired target chunks are cleaned up.
+
+        Verifies the complete flow:
+        1. Create person and message chunks
+        2. Create entity link (person -> message)
+        3. Retire the message chunk
+        4. Run entity linking
+        5. Verify the orphaned link was cleaned up
+        """
+        # Setup: Create person chunk (source)
+        person_hash = make_sha256_hash("person_alice_v1")
+        person_chunk = Chunk(
+            chunk_hash=person_hash,
+            content="Alice Smith (alice@example.com)",
+            chunk_index=0,
+            domain_metadata={"display_name": "Alice", "emails": ["alice@example.com"], "phones": []},
+        )
+
+        # Setup: Create message chunk (target)
+        msg_hash = make_sha256_hash("message_from_alice_v1")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Hi there!",
+            chunk_index=0,
+            domain_metadata={"from": "alice@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, person_chunk, "people_adapter", "test", "people_source", Domain.PEOPLE)
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
+
+        # Step 1: Create the entity link (person -> message)
+        link = EntityLink(
+            source_chunk_hash=person_hash,
+            target_chunk_hash=msg_hash,
+            link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+            confidence=1.0,
+        )
+        doc_store.write_entity_links([link])
+
+        # Verify link exists before retirement
+        linked = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash in linked
+
+        # Step 2: Retire the message chunk (target)
+        doc_store.retire_chunks({msg_hash}, source_id="msg_source", source_version=1)
+
+        # Step 3: Run entity linking (which should clean up orphaned links)
+        linker = EntityLinker(doc_store)
+        new_links, failures = linker.run()
+
+        # Verify no new links created and no failures
+        assert new_links == 0
+        assert failures == 0
+
+        # Step 4: Verify the orphaned link was cleaned up
+        # The link should no longer be returned since the target is retired
+        linked_after = doc_store.get_linked_chunks(person_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+        assert msg_hash not in linked_after

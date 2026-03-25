@@ -2512,7 +2512,8 @@ class DocumentStore:
 
         Finds chunks that have been retired but still have entity_links where they
         are the target. This handles cleanup when non-person chunks (messages, notes,
-        events, etc.) are retired.
+        events, etc.) are retired. Only returns chunks that actually existed in the
+        chunks table (not hypothetical orphans).
 
         Returns:
             List of target_chunk_hashes for retired chunks that are still referenced
@@ -2532,6 +2533,11 @@ class DocumentStore:
                 FROM chunks c
                 WHERE c.chunk_hash = el.target_chunk_hash
                 AND c.retired_at IS NULL
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM chunks c2
+                WHERE c2.chunk_hash = el.target_chunk_hash
             )
             """
         )

@@ -11,7 +11,7 @@ import pytest
 import sys
 
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Domain, Chunk
+from context_library.storage.models import Domain, Chunk, ENTITY_LINK_TYPE_PERSON_APPEARANCE
 from context_library.adapters.apple_contacts import AppleContactsAdapter
 from context_library.domains.people import PeopleDomain
 
@@ -295,11 +295,12 @@ class TestPeopleDomainIntegration:
 
                 # Run entity linker
                 linker = EntityLinker(store)
-                new_links = linker.run()
+                new_links, failures = linker.run()
 
                 # Verify link was created
                 assert new_links == 1
-                linked = store.get_linked_chunks(alice_hash, link_type="person_appearance")
+                assert failures == 0
+                linked = store.get_linked_chunks(alice_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
                 assert msg_hash in linked
 
             finally:
