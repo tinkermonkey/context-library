@@ -72,8 +72,12 @@ class TestNormalizePhone:
 
     def test_remove_extensions(self):
         """Handle extensions (ext, x, etc)."""
-        # Note: extensions with text are stripped; only numeric digits remain
-        assert normalize_phone("555-123-4567 ext. 123") == "+15551234567123"
+        # Extensions with recognized patterns (ext., x, extension) are stripped
+        # to prevent false matches with the base number
+        assert normalize_phone("555-123-4567 ext. 123") == "+15551234567"
+        assert normalize_phone("555-123-4567 EXT. 456") == "+15551234567"
+        assert normalize_phone("555-123-4567 extension 789") == "+15551234567"
+        # Note: "x123" without space is not stripped (ambiguous edge case)
         assert normalize_phone("555-123-4567x123") == "+15551234567123"
 
     def test_no_digits_returns_empty(self):
@@ -95,10 +99,14 @@ class TestNormalizePhone:
         assert normalize_phone("+9") == "+9"
 
     def test_long_phone_numbers(self):
-        """Handle long phone numbers."""
+        """Handle long phone numbers with extensions.
+
+        Extensions are stripped to enable matching with the base number,
+        not concatenated into the normalized form.
+        """
         long_number = "+1 (555) 123-4567 ext. 8901"
-        # All digits extracted: 1 + 555 + 123 + 4567 + 8901
-        assert normalize_phone(long_number) == "+155512345678901"
+        # Extension stripped, base number normalized
+        assert normalize_phone(long_number) == "+15551234567"
 
     def test_phone_with_dots(self):
         """Handle phone numbers with dots."""
@@ -106,8 +114,17 @@ class TestNormalizePhone:
         assert normalize_phone("+1.555.123.4567") == "+15551234567"
 
     def test_phone_leading_zeros(self):
-        """Preserve leading zeros in phone numbers."""
-        assert normalize_phone("0555 123 4567") == "+105551234567"
+        """Handle leading zeros in phone numbers.
+
+        Leading zeros are stripped from domestic (non-+) numbers before adding
+        the +1 country code, since US phone numbers don't use leading zeros.
+        For international numbers with explicit country codes, leading zeros
+        within the number are preserved (they're part of the number in some
+        countries like the UK, where +44 0207 946 0958 uses 0 as a trunk prefix).
+        """
+        # Domestic number with leading zero: stripped before +1 is added
+        assert normalize_phone("0555 123 4567") == "+15551234567"
+        # International number: leading zero in the body is preserved
         assert normalize_phone("+44 0207 946 0958") == "+4402079460958"
 
 

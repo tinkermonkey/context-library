@@ -41,11 +41,12 @@ def normalize_phone(phone: str) -> str:
 
     Normalization steps:
     1. Strip leading/trailing whitespace
-    2. Remove all whitespace, parentheses, hyphens, and other formatting
-    3. Keep only digits and the leading '+' sign (if present)
-    4. Handle country code ambiguity: numbers without '+' prefix are normalized
+    2. Strip common extension patterns (ext., x, etc.) before normalization
+    3. Remove all whitespace, parentheses, hyphens, and other formatting
+    4. Keep only digits and the leading '+' sign (if present)
+    5. Handle country code ambiguity: numbers without '+' prefix are normalized
        to "+1" (US country code) to match numbers with explicit "+1" prefix
-    5. Return empty string if no digits remain
+    6. Return empty string if no digits remain
 
     This approach handles various formats and ensures country code consistency:
     - "+1 (555) 123-4567" → "+15551234567"
@@ -53,10 +54,18 @@ def normalize_phone(phone: str) -> str:
     - "(555) 123-4567" → "+15551234567" (normalized to +1 for matching)
     - "+1-555-123-4567" → "+15551234567"
     - "+44 20 7946 0958" → "+442079460958" (international, +44 preserved)
+    - "555-123-4567 ext. 123" → "+15551234567" (extension stripped)
+    - "0555 123 4567" → "+1555123456" (leading zero stripped for US, NOT "+105551234567")
 
     By normalizing domestic numbers to "+1", we enable entity linking between
     contacts and messages that reference the same number with and without the
     country code prefix (e.g., "555-123-4567" will match "+1-555-123-4567").
+
+    KNOWN LIMITATIONS:
+    - Numbers with leading zeros (e.g., "0555 123 4567") are non-standard for
+      US numbers and will be normalized to "+1" after stripping the leading zero.
+      This is acceptable for US-centric usage but may produce unexpected results
+      for international numbers without explicit country codes.
 
     Args:
         phone: Raw phone number string.
@@ -74,11 +83,17 @@ def normalize_phone(phone: str) -> str:
         '+15551234567'
         >>> normalize_phone("+44 20 7946 0958")
         '+442079460958'
+        >>> normalize_phone("555-123-4567 ext. 123")
+        '+15551234567'
     """
     if not phone:
         return ""
 
     normalized = phone.strip()
+
+    # Strip common extension patterns before processing
+    # This prevents extensions from being merged into the phone number
+    normalized = re.sub(r'\s*(ext\.?|x|extension)\s+\d+$', '', normalized, flags=re.IGNORECASE)
 
     # Check if phone starts with '+' to preserve it
     has_plus = normalized.startswith("+")
@@ -92,6 +107,10 @@ def normalize_phone(phone: str) -> str:
 
     # If no '+' prefix, assume US domestic number and add "+1" country code
     if not has_plus:
+        # Strip leading zeros for domestic numbers (non-standard for US)
+        digits_only = digits_only.lstrip('0')
+        if not digits_only:
+            return ""
         return "+1" + digits_only
 
     # If '+' prefix was present, restore it
