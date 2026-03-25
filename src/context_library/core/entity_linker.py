@@ -249,14 +249,14 @@ class EntityLinker:
     def _cleanup_retired_chunks_links(self) -> int:
         """Clean up entity_links for all retired chunks (both source and target).
 
-        Performs two cleanup operations:
-        1. Deletes entity_links where source_chunk_hash is a retired person chunk
-        2. Deletes entity_links where target_chunk_hash is any retired chunk
+        Performs two atomic cleanup operations using DELETE ... WHERE NOT EXISTS
+        to eliminate TOCTOU race conditions:
+        1. Atomically deletes entity_links where source_chunk_hash is a retired person chunk
+        2. Atomically deletes entity_links where target_chunk_hash is any retired chunk
 
         This ensures that when chunks are retired (deleted), their entity_links rows
-        don't persist and cause orphaned references. This applies to both:
-        - Person chunks being retired (source cleanup)
-        - Target chunks in any domain being retired (target cleanup)
+        don't persist and cause orphaned references. The atomic operations ensure that
+        concurrent ingestion cannot un-retire a chunk between read and delete.
 
         Returns:
             Number of rows deleted.
@@ -267,19 +267,15 @@ class EntityLinker:
         try:
             total_deleted = 0
 
-            # Step 1: Find source_chunk_hashes (person chunks) in entity_links that are
-            # no longer active in the people domain and delete their links
-            retired_source_chunk_hashes = self._store.query_retired_person_links()
-            for chunk_hash in retired_source_chunk_hashes:
-                deleted = self._store.delete_entity_links_for_chunk(chunk_hash)
-                total_deleted += deleted
+            # Step 1: Atomically delete entity_links where source_chunk_hash is a retired
+            # person chunk. Uses DELETE ... WHERE NOT EXISTS to avoid TOCTOU race.
+            deleted = self._store.delete_retired_person_links_atomic()
+            total_deleted += deleted
 
-            # Step 2: Find target_chunk_hashes (any chunks) that are retired and delete
-            # their entity_links rows
-            retired_target_chunk_hashes = self._store.query_retired_target_links()
-            for chunk_hash in retired_target_chunk_hashes:
-                deleted = self._store.delete_entity_links_for_target_chunk(chunk_hash)
-                total_deleted += deleted
+            # Step 2: Atomically delete entity_links where target_chunk_hash is a retired
+            # chunk in any domain. Uses DELETE ... WHERE NOT EXISTS to avoid TOCTOU race.
+            deleted = self._store.delete_retired_target_links_atomic()
+            total_deleted += deleted
 
             return total_deleted
         except Exception as e:

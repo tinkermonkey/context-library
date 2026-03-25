@@ -2567,8 +2567,10 @@ class DocumentStore:
             WHERE NOT EXISTS (
                 SELECT 1
                 FROM chunks c
+                JOIN sources s ON c.source_id = s.source_id
                 WHERE c.chunk_hash = el.target_chunk_hash
                 AND c.retired_at IS NULL
+                AND c.source_version = s.current_version
             )
             AND EXISTS (
                 SELECT 1
@@ -2604,6 +2606,82 @@ class DocumentStore:
                 return cursor.rowcount
         except Exception as e:
             logger.error(f"Failed to delete entity links for target chunk {chunk_hash}: {e}")
+            raise
+
+    def delete_retired_person_links_atomic(self) -> int:
+        """Atomically delete entity_links for all retired person chunks.
+
+        Deletes all entity_links where source_chunk_hash is no longer active
+        in the people domain. Uses a single DELETE ... WHERE NOT EXISTS query
+        to ensure atomicity and eliminate TOCTOU race conditions.
+
+        Returns:
+            The number of rows deleted.
+
+        Raises:
+            Exception: If the database operation fails.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE link_type = ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM chunks c
+                        JOIN sources s ON c.source_id = s.source_id
+                        WHERE c.chunk_hash = entity_links.source_chunk_hash
+                        AND s.domain = ?
+                        AND c.retired_at IS NULL
+                        AND c.source_version = s.current_version
+                    )
+                    """,
+                    (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE),
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete retired person links atomically: {e}")
+            raise
+
+    def delete_retired_target_links_atomic(self) -> int:
+        """Atomically delete entity_links for all retired target chunks.
+
+        Deletes all entity_links where target_chunk_hash is retired (not active
+        in the current version). Uses a single DELETE ... WHERE NOT EXISTS query
+        to ensure atomicity and eliminate TOCTOU race conditions.
+
+        Returns:
+            The number of rows deleted.
+
+        Raises:
+            Exception: If the database operation fails.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM chunks c
+                        JOIN sources s ON c.source_id = s.source_id
+                        WHERE c.chunk_hash = entity_links.target_chunk_hash
+                        AND c.retired_at IS NULL
+                        AND c.source_version = s.current_version
+                    )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM chunks c2
+                        WHERE c2.chunk_hash = entity_links.target_chunk_hash
+                    )
+                    """
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete retired target links atomically: {e}")
             raise
 
     def close(self) -> None:
