@@ -27,7 +27,7 @@ router = APIRouter()
 
 async def _run_entity_linking(
     document_store, adapter_id: str | None = None
-) -> tuple[Literal["ok", "failed"] | None, str | None]:
+) -> tuple[Literal["ok", "failed", "partial"] | None, str | None]:
     """Run entity linking pass and return (status, error_message).
 
     Args:
@@ -35,17 +35,39 @@ async def _run_entity_linking(
         adapter_id: Optional adapter ID for logging context.
 
     Returns:
-        Tuple of (status, error_message) where status is "ok", "failed", or None
-        if entity linking was not run, and error_message is None on success.
+        Tuple of (status, error_message) where:
+        - "ok": Entity linking completed successfully with no per-chunk failures
+        - "partial": Entity linking completed but some chunks failed to link
+        - "failed": Entity linking failed entirely (cleanup or unexpected error)
+        - None: Entity linking was not run
+        error_message is None on success, contains details on failure.
     """
     try:
         linker = EntityLinker(document_store=document_store)
-        new_links = await asyncio.to_thread(linker.run)
-        if adapter_id:
-            logger.info("Entity linking pass for %s created %d new links", adapter_id, new_links)
+        total_links_created, total_chunks_failed = await asyncio.to_thread(linker.run)
+
+        if total_chunks_failed > 0:
+            status = "partial"
+            if adapter_id:
+                logger.warning(
+                    "Entity linking pass for %s created %d new links but %d chunks failed",
+                    adapter_id,
+                    total_links_created,
+                    total_chunks_failed,
+                )
+            else:
+                logger.warning(
+                    "Entity linking pass created %d new links but %d chunks failed",
+                    total_links_created,
+                    total_chunks_failed,
+                )
+            return status, f"{total_chunks_failed} chunks failed to process"
         else:
-            logger.info("Entity linking pass created %d new links", new_links)
-        return "ok", None
+            if adapter_id:
+                logger.info("Entity linking pass for %s created %d new links", adapter_id, total_links_created)
+            else:
+                logger.info("Entity linking pass created %d new links", total_links_created)
+            return "ok", None
     except EntityLinkingError as e:
         if adapter_id:
             logger.error("Entity linking pass for %s failed: %s", adapter_id, e, exc_info=True)

@@ -8,7 +8,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, cast
 
-from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, EntityLink, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+from .models import (
+    AdapterConfig,
+    Chunk,
+    ChunkWithLineageContext,
+    Domain,
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    EntityLink,
+    LineageRecord,
+    PollStrategy,
+    Sha256Hash,
+    SourceInfo,
+    SourceVersion,
+    VersionDiff,
+    _validate_sha256_hex,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2415,7 +2429,7 @@ class DocumentStore:
                 AND s2.domain = ?
             )
             """,
-            ("person_appearance", Domain.PEOPLE, Domain.PEOPLE),
+            (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE, Domain.PEOPLE),
         )
         return [row[0] for row in cursor.fetchall()]
 
@@ -2491,6 +2505,63 @@ class DocumentStore:
                 return cursor.rowcount
         except Exception as e:
             logger.error(f"Failed to delete entity links for chunk {chunk_hash}: {e}")
+            raise
+
+    def query_retired_target_links(self) -> list[str]:
+        """Query target_chunk_hashes in entity_links that are no longer active.
+
+        Finds chunks that have been retired but still have entity_links where they
+        are the target. This handles cleanup when non-person chunks (messages, notes,
+        events, etc.) are retired.
+
+        Returns:
+            List of target_chunk_hashes for retired chunks that are still referenced
+            in entity_links.
+
+        Raises:
+            Exception: If the database query fails. Errors are not swallowed so that callers
+                       can implement appropriate error handling and recovery.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT el.target_chunk_hash
+            FROM entity_links el
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM chunks c
+                WHERE c.chunk_hash = el.target_chunk_hash
+                AND c.retired_at IS NULL
+            )
+            """
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+    def delete_entity_links_for_target_chunk(self, chunk_hash: str) -> int:
+        """Delete entity links where the given chunk is the target.
+
+        Removes only rows where chunk_hash is the target_chunk_hash.
+        Used to clean up links to retired chunks after retirement.
+
+        Args:
+            chunk_hash: The target chunk hash to delete links for.
+
+        Returns:
+            The number of rows deleted.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE target_chunk_hash = ?
+                    """,
+                    (chunk_hash,),
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete entity links for target chunk {chunk_hash}: {e}")
             raise
 
     def close(self) -> None:

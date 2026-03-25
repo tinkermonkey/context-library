@@ -834,6 +834,10 @@ class ChunkWithLineageContext(NamedTuple):
     embedding_model_id: str
 
 
+# Link type constants for entity_links table
+ENTITY_LINK_TYPE_PERSON_APPEARANCE = "person_appearance"
+
+
 class EntityLink(NamedTuple):
     """A cross-domain entity link between two chunks.
 

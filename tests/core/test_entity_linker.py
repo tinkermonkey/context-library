@@ -367,9 +367,10 @@ class TestEntityLinkerRun:
         setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
-        new_links = linker.run()
+        new_links, failures = linker.run()
 
         assert new_links == 1
+        assert failures == 0
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type="person_appearance")
         assert msg_chunk.chunk_hash in linked
 
@@ -402,17 +403,20 @@ class TestEntityLinkerRun:
         setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
-        first_run = linker.run()
-        second_run = linker.run()
+        first_links, first_failures = linker.run()
+        second_links, second_failures = linker.run()
 
-        assert first_run == 1
-        assert second_run == 0
+        assert first_links == 1
+        assert first_failures == 0
+        assert second_links == 0
+        assert second_failures == 0
 
     def test_run_with_no_person_chunks(self, doc_store):
-        """run() returns 0 when no person chunks exist."""
+        """run() returns (0, 0) when no person chunks exist."""
         linker = EntityLinker(doc_store)
-        result = linker.run()
-        assert result == 0
+        links, failures = linker.run()
+        assert links == 0
+        assert failures == 0
 
     def test_run_multi_identifier_contact(self, doc_store):
         """Person with multiple email/phone identifiers links to multiple messages."""
@@ -466,9 +470,10 @@ class TestEntityLinkerRun:
         )
 
         linker = EntityLinker(doc_store)
-        new_links = linker.run()
+        new_links, failures = linker.run()
 
         assert new_links == 3
+        assert failures == 0
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash, link_type="person_appearance")
         assert msg_chunk1.chunk_hash in linked
         assert msg_chunk2.chunk_hash in linked
@@ -503,7 +508,9 @@ class TestEntityLinkerRun:
         setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
-        linker.run()
+        new_links, failures = linker.run()
+        assert new_links == 1
+        assert failures == 0
 
         cursor = doc_store.conn.cursor()
         cursor.execute(
@@ -550,13 +557,15 @@ class TestEntityLinkerRun:
         setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         linker = EntityLinker(doc_store)
-        linker.run()
+        new_links, failures = linker.run()
+        assert new_links == 1
+        assert failures == 0
 
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash)
         assert msg_chunk.chunk_hash in linked
 
         doc_store.retire_chunks({person_chunk.chunk_hash}, "people_source", 1)
-        linker.run()
+        new_links, failures = linker.run()
 
         linked = doc_store.get_linked_chunks(person_chunk.chunk_hash)
         assert len(linked) == 0
@@ -626,9 +635,10 @@ class TestEntityLinkerRun:
         )
 
         linker = EntityLinker(doc_store)
-        new_links = linker.run()
+        new_links, failures = linker.run()
 
         assert new_links == 2
+        assert failures == 0
 
         linked_frank = doc_store.get_linked_chunks(person_chunk1.chunk_hash, link_type="person_appearance")
         linked_grace = doc_store.get_linked_chunks(person_chunk2.chunk_hash, link_type="person_appearance")
@@ -729,7 +739,7 @@ class TestEntityLinkerIntegration:
         )
 
         linker = EntityLinker(doc_store)
-        new_links = linker.run()
+        new_links, failures = linker.run()
 
         # msg1 matches alice (sender) and bob (recipients) = 2 links
         # msg2 matches alice (sender) = 1 link
@@ -737,6 +747,7 @@ class TestEntityLinkerIntegration:
         # msg4 matches bob (sender) = 1 link
         # Total = 5 links
         assert new_links == 5
+        assert failures == 0
 
         alice_links = doc_store.get_linked_chunks(alice.chunk_hash, link_type="person_appearance")
         assert msg1.chunk_hash in alice_links
