@@ -148,7 +148,11 @@ class AppleContactsAdapter(BaseAdapter):
     def __del__(self) -> None:
         """Clean up httpx.Client session when adapter is destroyed (safety net)."""
         if hasattr(self, "_client"):
-            self._client.close()
+            try:
+                self._client.close()
+            except Exception:
+                # Silently ignore exceptions during cleanup (e.g., from httpx internals during interpreter shutdown)
+                pass
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize contacts from the macOS helper API.
@@ -272,9 +276,6 @@ class AppleContactsAdapter(BaseAdapter):
         if not display_name:
             raise ValueError("Contact displayName must be non-empty")
 
-        if "modifiedAt" not in contact:
-            raise KeyError("Contact missing required 'modifiedAt' field")
-
         # Extract optional fields
         given_name = contact.get("givenName")
         if given_name is not None and not isinstance(given_name, str):
@@ -300,12 +301,20 @@ class AppleContactsAdapter(BaseAdapter):
         emails_raw = contact.get("emails", [])
         if not isinstance(emails_raw, list):
             raise TypeError(f"'emails' field must be list, got {type(emails_raw).__name__}")
+        # Validate each email is a string
+        for i, email in enumerate(emails_raw):
+            if not isinstance(email, str):
+                raise TypeError(f"'emails[{i}]' must be str, got {type(email).__name__}")
         emails = tuple(emails_raw)
 
         # Extract phone numbers
         phones_raw = contact.get("phones", [])
         if not isinstance(phones_raw, list):
             raise TypeError(f"'phones' field must be list, got {type(phones_raw).__name__}")
+        # Validate each phone is a string
+        for i, phone in enumerate(phones_raw):
+            if not isinstance(phone, str):
+                raise TypeError(f"'phones[{i}]' must be str, got {type(phone).__name__}")
         phones = tuple(phones_raw)
 
         # Build PeopleMetadata
