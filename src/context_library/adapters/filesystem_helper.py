@@ -68,6 +68,7 @@ class FilesystemHelperAdapter(RemoteAdapter):
             timeout=timeout,
         )
         self._directory_id = directory_id
+        self._cursor: str = ""  # persisted next_cursor from last successful fetch
         self._fetch_params: dict = {"stream": True}
         if extensions is not None:
             self._fetch_params["extensions"] = extensions
@@ -134,7 +135,10 @@ class FilesystemHelperAdapter(RemoteAdapter):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        body = {"source_ref": source_ref, **self._fetch_params}
+        # Use the caller-supplied cursor when provided; fall back to the internally
+        # persisted cursor from the last fetch so incremental polling works correctly.
+        effective_ref = source_ref if source_ref else self._cursor
+        body = {"source_ref": effective_ref, **self._fetch_params}
         if extra_body:
             body.update(extra_body)
 
@@ -154,11 +158,14 @@ class FilesystemHelperAdapter(RemoteAdapter):
                     logger.error("FilesystemHelperAdapter: failed to parse NDJSON line: %s", e)
                     raise
                 if "has_more" in obj:
-                    # Meta line — log pagination state and stop
+                    # Meta line — persist cursor for next call and stop
+                    next_cursor = obj.get("next_cursor")
+                    if next_cursor:
+                        self._cursor = next_cursor
                     if obj.get("has_more"):
                         logger.debug(
                             "FilesystemHelperAdapter: has_more=True, next_cursor=%s",
-                            obj.get("next_cursor"),
+                            next_cursor,
                         )
                     return
                 try:
