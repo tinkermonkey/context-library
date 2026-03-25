@@ -131,7 +131,7 @@ class TestEntityLinkerExtractIdentifiers:
         assert identifiers == ["+15551234567"]
 
     def test_phone_normalization_without_country_code(self):
-        """Normalize phone numbers without country code."""
+        """Normalize phone numbers without country code to +1 prefix."""
         linker = EntityLinker(DocumentStore(":memory:"))
         metadata = {
             "contact_id": "contact_1",
@@ -140,8 +140,8 @@ class TestEntityLinkerExtractIdentifiers:
             "phones": ["(555) 123-4567", "555-123-4567", "555.123.4567"],
         }
         identifiers = linker._extract_identifiers(metadata)
-        # All should normalize to same value
-        assert identifiers == ["5551234567"]
+        # All should normalize to same value with +1 country code
+        assert identifiers == ["+15551234567"]
 
     def test_mixed_email_phone_normalization(self):
         """Normalize mixed emails and phones."""
@@ -157,7 +157,7 @@ class TestEntityLinkerExtractIdentifiers:
             "alice@example.com",
             "bob@company.org",
             "+15551234567",
-            "5559876543",
+            "+15559876543",
         }
 
     def test_empty_after_normalization(self):

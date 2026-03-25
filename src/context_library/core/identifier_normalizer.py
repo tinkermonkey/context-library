@@ -41,30 +41,39 @@ def normalize_phone(phone: str) -> str:
 
     Normalization steps:
     1. Strip leading/trailing whitespace
-    2. Remove all whitespace, parentheses, and hyphens
+    2. Remove all whitespace, parentheses, hyphens, and other formatting
     3. Keep only digits and the leading '+' sign (if present)
-    4. Return empty string if no digits remain
+    4. Handle country code ambiguity: numbers without '+' prefix are normalized
+       to "+1" (US country code) to match numbers with explicit "+1" prefix
+    5. Return empty string if no digits remain
 
-    This approach handles various formats:
+    This approach handles various formats and ensures country code consistency:
     - "+1 (555) 123-4567" → "+15551234567"
-    - "555-123-4567" → "5551234567"
-    - "(555) 123-4567" → "5551234567"
+    - "555-123-4567" → "+15551234567" (normalized to +1 for matching)
+    - "(555) 123-4567" → "+15551234567" (normalized to +1 for matching)
     - "+1-555-123-4567" → "+15551234567"
+    - "+44 20 7946 0958" → "+442079460958" (international, +44 preserved)
+
+    By normalizing domestic numbers to "+1", we enable entity linking between
+    contacts and messages that reference the same number with and without the
+    country code prefix (e.g., "555-123-4567" will match "+1-555-123-4567").
 
     Args:
         phone: Raw phone number string.
 
     Returns:
-        Normalized phone number string, or empty string if input is empty/None
-        or contains no digits.
+        Normalized phone number string with '+' prefix, or empty string if
+        input is empty/None or contains no digits.
 
     Examples:
         >>> normalize_phone("+1 (555) 123-4567")
         '+15551234567'
         >>> normalize_phone("555-123-4567")
-        '5551234567'
+        '+15551234567'
         >>> normalize_phone("  +1-555-123-4567  ")
         '+15551234567'
+        >>> normalize_phone("+44 20 7946 0958")
+        '+442079460958'
     """
     if not phone:
         return ""
@@ -81,8 +90,9 @@ def normalize_phone(phone: str) -> str:
     if not digits_only:
         return ""
 
-    # Restore the '+' prefix if it was present
-    if has_plus:
-        return "+" + digits_only
+    # If no '+' prefix, assume US domestic number and add "+1" country code
+    if not has_plus:
+        return "+1" + digits_only
 
-    return digits_only
+    # If '+' prefix was present, restore it
+    return "+" + digits_only

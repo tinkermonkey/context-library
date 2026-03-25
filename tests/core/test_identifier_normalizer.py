@@ -48,9 +48,9 @@ class TestNormalizePhone:
 
     def test_remove_parentheses_and_hyphens(self):
         """Remove formatting characters."""
-        assert normalize_phone("(555) 123-4567") == "5551234567"
-        assert normalize_phone("555-123-4567") == "5551234567"
-        assert normalize_phone("(555)123-4567") == "5551234567"
+        assert normalize_phone("(555) 123-4567") == "+15551234567"
+        assert normalize_phone("555-123-4567") == "+15551234567"
+        assert normalize_phone("(555)123-4567") == "+15551234567"
 
     def test_preserve_leading_plus(self):
         """Preserve international '+' prefix."""
@@ -66,15 +66,15 @@ class TestNormalizePhone:
 
     def test_remove_whitespace(self):
         """Remove all whitespace."""
-        assert normalize_phone("555 123 4567") == "5551234567"
-        assert normalize_phone("  555-123-4567  ") == "5551234567"
-        assert normalize_phone("\t555.123.4567\n") == "5551234567"
+        assert normalize_phone("555 123 4567") == "+15551234567"
+        assert normalize_phone("  555-123-4567  ") == "+15551234567"
+        assert normalize_phone("\t555.123.4567\n") == "+15551234567"
 
     def test_remove_extensions(self):
         """Handle extensions (ext, x, etc)."""
         # Note: extensions with text are stripped; only numeric digits remain
-        assert normalize_phone("555-123-4567 ext. 123") == "5551234567123"
-        assert normalize_phone("555-123-4567x123") == "5551234567123"
+        assert normalize_phone("555-123-4567 ext. 123") == "+15551234567123"
+        assert normalize_phone("555-123-4567x123") == "+15551234567123"
 
     def test_no_digits_returns_empty(self):
         """Return empty string if no digits found."""
@@ -91,7 +91,7 @@ class TestNormalizePhone:
 
     def test_single_digit(self):
         """Handle single-digit phone numbers."""
-        assert normalize_phone("9") == "9"
+        assert normalize_phone("9") == "+19"
         assert normalize_phone("+9") == "+9"
 
     def test_long_phone_numbers(self):
@@ -102,12 +102,12 @@ class TestNormalizePhone:
 
     def test_phone_with_dots(self):
         """Handle phone numbers with dots."""
-        assert normalize_phone("555.123.4567") == "5551234567"
+        assert normalize_phone("555.123.4567") == "+15551234567"
         assert normalize_phone("+1.555.123.4567") == "+15551234567"
 
     def test_phone_leading_zeros(self):
         """Preserve leading zeros in phone numbers."""
-        assert normalize_phone("0555 123 4567") == "05551234567"
+        assert normalize_phone("0555 123 4567") == "+105551234567"
         assert normalize_phone("+44 0207 946 0958") == "+4402079460958"
 
 
@@ -122,15 +122,13 @@ class TestNormalizationIntegration:
         assert email1 == email2 == email3
 
     def test_extract_and_match_phone_variations(self):
-        """Verify phones with different formatting match."""
+        """Verify phones with different formatting match, including country code normalization."""
         phone1 = normalize_phone("+1 (555) 123-4567")
         phone2 = normalize_phone("+1-555-123-4567")
         phone3 = normalize_phone("+15551234567")
         phone4 = normalize_phone("(555) 123-4567")  # Without country code
-        assert phone1 == phone2 == phone3
-        # Without country code differs
-        assert phone4 == "5551234567"
-        assert phone4 != phone1
+        # All should now match due to country code normalization
+        assert phone1 == phone2 == phone3 == phone4 == "+15551234567"
 
     def test_mixed_identifier_normalization(self):
         """Test both emails and phones in a list."""
@@ -138,7 +136,7 @@ class TestNormalizationIntegration:
             ("ALICE@EXAMPLE.COM", "alice@example.com"),
             ("+1 (555) 123-4567", "+15551234567"),
             ("  Bob@Company.org  ", "bob@company.org"),
-            ("555.987.6543", "5559876543"),
+            ("555.987.6543", "+15559876543"),
         ]
         for raw, normalized in identifiers:
             if "@" in raw:
