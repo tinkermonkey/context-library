@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, cast
 
+from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from .models import (
     AdapterConfig,
     Chunk,
@@ -144,7 +145,26 @@ class DocumentStore:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+
+        # Register custom SQLite functions for identifier normalization
+        conn.create_function("normalize_email_sql", 1, self._normalize_email_sql)
+        conn.create_function("normalize_phone_sql", 1, self._normalize_phone_sql)
+
         return conn
+
+    @staticmethod
+    def _normalize_email_sql(value: str | None) -> str | None:
+        """SQLite custom function for email normalization."""
+        if not value:
+            return None
+        return normalize_email(value)
+
+    @staticmethod
+    def _normalize_phone_sql(value: str | None) -> str | None:
+        """SQLite custom function for phone normalization."""
+        if not value:
+            return None
+        return normalize_phone(value)
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -2305,16 +2325,12 @@ class DocumentStore:
     ) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.
 
-        Uses per-identifier SQL scans with json_extract() for scalar fields
-        and json_each() for array fields. This method safely handles concurrency
-        via the connection pool and respects DocumentStore's encapsulation.
+        Uses normalized SQL-based matching with custom SQLite functions for:
+        - Emails: case-insensitive matching via LOWER()
+        - Phones: format-insensitive matching via custom normalize_phone_sql() function
 
-        Identifiers are normalized before querying to match various formats:
-        - Emails: lowercase, whitespace stripped
-        - Phones: digits and leading '+' only
-
-        Matching is case-insensitive for emails and format-insensitive for phones
-        by normalizing both the query identifiers and the stored values.
+        This approach keeps filtering in SQL (where it's efficient) rather than loading
+        all chunks into memory. Identifiers are normalized on both sides of the comparison.
 
         Args:
             identifiers: List of email/phone strings to search for.
@@ -2344,34 +2360,9 @@ class DocumentStore:
                 )
 
         cursor = self.conn.cursor()
-        found_hashes: set[str] = set()
 
-        # Import normalization functions at method level to avoid circular imports
-        from context_library.core.identifier_normalizer import normalize_email, normalize_phone
-
-        # Process all chunks in memory to handle normalization flexibly
-        # This approach avoids SQL-level string manipulation and is more maintainable
-        # Performance: for typical data volumes (thousands of contacts, tens of thousands of chunks),
-        # this is acceptable; for larger datasets, consider moving to SQLite custom functions
-
-        # First, fetch all active chunks with their identifiers
-        query = """
-            SELECT DISTINCT c.chunk_hash, c.domain_metadata, s.domain
-            FROM chunks c
-            JOIN sources s ON c.source_id = s.source_id
-            WHERE c.retired_at IS NULL
-            AND c.source_version = s.current_version
-        """
-        if exclude_domain:
-            query += " AND s.domain != ?"
-            cursor.execute(query, [exclude_domain])
-        else:
-            cursor.execute(query)
-
-        rows = cursor.fetchall()
-
-        # Normalize all query identifiers once
-        normalized_query_identifiers = []
+        # Normalize all query identifiers once, building as a set
+        normalized_query_identifiers: set[str] = set()
         for identifier in identifiers:
             # Simple heuristic: if it contains '@', treat as email; otherwise as phone
             if "@" in identifier:
@@ -2379,54 +2370,62 @@ class DocumentStore:
             else:
                 normalized = normalize_phone(identifier)
             if normalized:
-                normalized_query_identifiers.append(normalized)
+                normalized_query_identifiers.add(normalized)
 
-        # Check each chunk for matches
-        for row in rows:
-            chunk_hash, domain_metadata_json, source_domain = row
+        if not normalized_query_identifiers:
+            return []
 
-            if not domain_metadata_json:
-                continue
+        # Build SQL conditions for scalar fields (e.g., sender, host, author)
+        scalar_conditions = []
+        for field in scalar_fields:
+            # Use custom functions for emails and phones
+            scalar_conditions.append(f"""
+                (normalize_email_sql(json_extract(c.domain_metadata, '$.{field}')) IN ({','.join('?' * len(normalized_query_identifiers))})
+                 OR
+                 normalize_phone_sql(json_extract(c.domain_metadata, '$.{field}')) IN ({','.join('?' * len(normalized_query_identifiers))}))
+            """)
 
-            try:
-                import json
+        # Build SQL conditions for array fields (e.g., recipients, invitees, collaborators)
+        array_conditions = []
+        for field in array_fields:
+            array_conditions.append(f"""
+                EXISTS (
+                    SELECT 1 FROM json_each(c.domain_metadata, '$.{field}')
+                    WHERE normalize_email_sql(json_each.value) IN ({','.join('?' * len(normalized_query_identifiers))})
+                       OR normalize_phone_sql(json_each.value) IN ({','.join('?' * len(normalized_query_identifiers))})
+                )
+            """)
 
-                domain_metadata = json.loads(domain_metadata_json)
-            except (json.JSONDecodeError, TypeError):
-                continue
+        # Combine all conditions
+        where_conditions = []
+        if scalar_conditions:
+            where_conditions.append(f"({' OR '.join(scalar_conditions)})")
+        if array_conditions:
+            where_conditions.append(f"({' OR '.join(array_conditions)})")
 
-            # Extract all identifiers from this chunk's metadata
-            chunk_identifiers = set()
+        where_clause = " OR ".join(where_conditions)
 
-            # Check scalar fields (sender, host, author)
-            for field in scalar_fields:
-                value = domain_metadata.get(field)
-                if value and isinstance(value, str):
-                    # Normalize the stored value
-                    if "@" in value:
-                        normalized = normalize_email(value)
-                    else:
-                        normalized = normalize_phone(value)
-                    if normalized:
-                        chunk_identifiers.add(normalized)
+        query = f"""
+            SELECT DISTINCT c.chunk_hash
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE c.retired_at IS NULL
+            AND c.source_version = s.current_version
+            AND ({where_clause})
+        """
 
-            # Check array fields (recipients, invitees, collaborators)
-            for field in array_fields:
-                values = domain_metadata.get(field)
-                if isinstance(values, (list, tuple)):
-                    for value in values:
-                        if value and isinstance(value, str):
-                            # Normalize the stored value
-                            if "@" in value:
-                                normalized = normalize_email(value)
-                            else:
-                                normalized = normalize_phone(value)
-                            if normalized:
-                                chunk_identifiers.add(normalized)
+        if exclude_domain:
+            query += " AND s.domain != ?"
+            # Build parameter list: each condition uses normalized_query_identifiers twice
+            params = list(normalized_query_identifiers) * (2 * len(scalar_conditions) + 2 * len(array_conditions)) + [exclude_domain]
+            cursor.execute(query, params)
+        else:
+            # Build parameter list: each condition uses normalized_query_identifiers twice
+            params = list(normalized_query_identifiers) * (2 * len(scalar_conditions) + 2 * len(array_conditions))
+            cursor.execute(query, params)
 
-            # Check if any query identifier matches this chunk's identifiers
-            if chunk_identifiers & set(normalized_query_identifiers):
-                found_hashes.add(chunk_hash)
+        rows = cursor.fetchall()
+        found_hashes = {row[0] for row in rows}
 
         return sorted(list(found_hashes))
 
