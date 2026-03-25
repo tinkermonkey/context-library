@@ -33,16 +33,18 @@ class PeopleDomain(BaseDomain):
 
     @staticmethod
     def build_contact_markdown(metadata: PeopleMetadata) -> str:
-        """Build markdown representation of a contact.
+        """Build markdown representation of a contact for chunk content.
 
         Generates human-readable prose markdown from contact metadata.
+        Excludes sensitive identifiers (emails, phones) per FR-6.3 privacy requirements.
+        Sensitive data is preserved in domain_metadata only.
         This is the canonical formatter for all people domain adapters.
 
         Args:
             metadata: Extracted PeopleMetadata
 
         Returns:
-            Markdown string representation
+            Markdown string representation with public-facing information only
         """
         parts = []
 
@@ -56,15 +58,7 @@ class PeopleDomain(BaseDomain):
         else:
             parts.append(f"{metadata.display_name}.")
 
-        # Add email addresses if present
-        if metadata.emails:
-            parts.append(f"Email addresses: {', '.join(metadata.emails)}.")
-
-        # Add phone numbers if present
-        if metadata.phones:
-            parts.append(f"Phone numbers: {', '.join(metadata.phones)}.")
-
-        # Add notes if present
+        # Add notes if present (no sensitive identifiers)
         if metadata.notes:
             parts.append(f"Notes: {metadata.notes}")
 

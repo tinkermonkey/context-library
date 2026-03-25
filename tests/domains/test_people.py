@@ -654,3 +654,154 @@ class TestOrganizationVariations:
         chunks = people_domain.chunk(content)
 
         assert chunks[0].context_header == "Contact: Mary-Jane O'Neill — Tech Industries Inc."
+
+
+class TestPrivacyCompliance:
+    """Tests for FR-6.3 privacy compliance: exclusion of sensitive contact data."""
+
+    def test_chunk_content_excludes_emails_fr63(
+        self, people_domain, sample_people_metadata
+    ):
+        """chunk() must exclude email addresses from chunk content per FR-6.3.
+
+        Email addresses are sensitive identifiers and must only be stored in
+        domain_metadata (which is excluded from query results). They must NOT
+        appear in chunk content (chunk_text in query results).
+        """
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=sample_people_metadata.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Contact details.",
+            source_id="contact-001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = people_domain.chunk(content)
+
+        # Verify emails are NOT in chunk content
+        chunk_text = chunks[0].content
+        assert "alice@example.com" not in chunk_text, (
+            "Email addresses must not be exposed in chunk content (chunk_text) per FR-6.3"
+        )
+        assert "alice.smith@work.com" not in chunk_text, (
+            "Email addresses must not be exposed in chunk content (chunk_text) per FR-6.3"
+        )
+
+        # Verify emails ARE in domain_metadata for entity linking
+        assert chunks[0].domain_metadata is not None
+        assert "alice@example.com" in chunks[0].domain_metadata.get("emails", [])
+
+    def test_chunk_content_excludes_phones_fr63(
+        self, people_domain, sample_people_metadata
+    ):
+        """chunk() must exclude phone numbers from chunk content per FR-6.3.
+
+        Phone numbers are sensitive identifiers and must only be stored in
+        domain_metadata (which is excluded from query results). They must NOT
+        appear in chunk content (chunk_text in query results).
+        """
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=sample_people_metadata.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Contact details.",
+            source_id="contact-001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = people_domain.chunk(content)
+
+        # Verify phones are NOT in chunk content
+        chunk_text = chunks[0].content
+        assert "555-123-4567" not in chunk_text, (
+            "Phone numbers must not be exposed in chunk content (chunk_text) per FR-6.3"
+        )
+        assert "555-987-6543" not in chunk_text, (
+            "Phone numbers must not be exposed in chunk content (chunk_text) per FR-6.3"
+        )
+
+        # Verify phones ARE in domain_metadata for entity linking
+        assert chunks[0].domain_metadata is not None
+        assert "555-123-4567" in chunks[0].domain_metadata.get("phones", [])
+
+    def test_chunk_content_includes_public_information_fr63(
+        self, people_domain, sample_people_metadata
+    ):
+        """chunk() must preserve non-sensitive public information.
+
+        Display name, organization, job title, and notes are public information
+        that should be accessible (in context_header and domain_metadata).
+        Only sensitive identifiers (emails, phones) are excluded from chunk content.
+        """
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=sample_people_metadata.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Additional contact description.",
+            source_id="contact-001",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = people_domain.chunk(content)
+
+        # Verify public information IS in context_header
+        assert "Alice Smith" in chunks[0].context_header, "Display name must be in context_header"
+        assert "Acme Corp" in chunks[0].context_header, "Organization must be in context_header"
+
+        # Verify public information IS in domain_metadata
+        assert chunks[0].domain_metadata["display_name"] == "Alice Smith"
+        assert chunks[0].domain_metadata["organization"] == "Acme Corp"
+        assert chunks[0].domain_metadata["job_title"] == "Senior Engineer"
+        assert chunks[0].domain_metadata["notes"] == "Met at conference 2025"
+
+    def test_build_contact_markdown_excludes_emails_phones(
+        self, sample_people_metadata
+    ):
+        """PeopleDomain.build_contact_markdown() must exclude emails and phones.
+
+        This is the core formatter used by adapters. It must produce markdown
+        that contains only public information (name, org, job, notes) but not
+        sensitive identifiers.
+        """
+        markdown = PeopleDomain.build_contact_markdown(sample_people_metadata)
+
+        # Verify emails are NOT in markdown
+        assert "alice@example.com" not in markdown, (
+            "build_contact_markdown() must not include email addresses"
+        )
+        assert "alice.smith@work.com" not in markdown, (
+            "build_contact_markdown() must not include email addresses"
+        )
+
+        # Verify phones are NOT in markdown
+        assert "555-123-4567" not in markdown, (
+            "build_contact_markdown() must not include phone numbers"
+        )
+        assert "555-987-6543" not in markdown, (
+            "build_contact_markdown() must not include phone numbers"
+        )
+
+        # Verify public information IS included
+        assert "Alice Smith" in markdown
+        assert "Senior Engineer" in markdown
+        assert "Acme Corp" in markdown
+        assert "Met at conference 2025" in markdown
