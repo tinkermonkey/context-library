@@ -206,10 +206,14 @@ class VCardAdapter(BaseAdapter):
                                 f"Contact ID collision detected: '{metadata.display_name}' (from {vcf_file.name}) "
                                 f"and '{prev_name}' (from {prev_file.name}) both hash to {contact_id}. "
                                 f"This occurs when contacts have identical FN and first EMAIL. "
-                                f"Downstream systems may deduplicate incorrectly; use explicit UIDs to distinguish."
+                                f"Skipping this contact to prevent data loss; use explicit UIDs to distinguish."
                             )
-                        else:
-                            seen_ids[contact_id] = (metadata.display_name, vcf_file)
+                            # Skip yielding this contact to prevent overwriting the first contact
+                            contact_index += 1
+                            continue
+
+                        # Record this contact_id to detect future collisions
+                        seen_ids[contact_id] = (metadata.display_name, vcf_file)
 
                         # Yield normalized content
                         yield NormalizedContent(
@@ -384,12 +388,17 @@ class VCardAdapter(BaseAdapter):
         Raises:
             ValueError: If vCard has no FN (required field per RFC 6350)
         """
-        # Prefer UID if present (most stable, from vCard itself)
+        # Prefer UID if present and non-empty (most stable, from vCard itself)
         if hasattr(vcard, "uid"):
             uid_value = vcard.uid.value
-            if isinstance(uid_value, str):
+            # Accept only non-empty string UIDs; empty strings fall through to hash fallback
+            if isinstance(uid_value, str) and uid_value.strip():
                 return uid_value
-            return str(uid_value)
+            # Non-string or empty UID: convert to string and check if non-empty
+            uid_str = str(uid_value).strip()
+            if uid_str:
+                return uid_str
+            # Empty UID: fall through to hash-based fallback below
 
         # Fallback: Generate deterministic SHA-256 hash from FN + first EMAIL
         # per spec requirement FR-5.4. This ensures stable identity across

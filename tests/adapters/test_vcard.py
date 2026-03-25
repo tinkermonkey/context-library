@@ -300,6 +300,32 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         assert results[0].source_id == "unique-id-12345"
 
+    def test_fetch_empty_uid_falls_back_to_hash(self, tmp_path):
+        """fetch() falls back to SHA-256 hash when UID is empty string.
+
+        Per the fix for empty UID acceptance, an empty string UID should NOT be used
+        as contact_id. Instead, the adapter falls back to the deterministic SHA-256
+        hash of FN + first EMAIL, preventing collisions with other empty-UID contacts.
+        """
+        adapter = VCardAdapter(vcf_directory=str(tmp_path))
+
+        vcard_content = """BEGIN:VCARD
+VERSION:3.0
+FN:Jane Smith
+EMAIL:jane@example.com
+UID:
+END:VCARD"""
+
+        self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
+
+        results = list(adapter.fetch(""))
+        source_id = results[0].source_id
+
+        # Should be a SHA-256 hash (64 hex characters), NOT the empty string
+        assert len(source_id) == 64
+        assert all(c in "0123456789abcdef" for c in source_id)
+        assert source_id != ""
+
     def test_fetch_without_uid_uses_hash(self, tmp_path):
         """fetch() uses deterministic SHA-256 hash of FN + first EMAIL when UID is missing."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
@@ -651,17 +677,18 @@ END:VCARD"""
         # ID should change because the hash of first EMAIL changed
         assert original_id != new_id
 
-    def test_collision_for_same_name_without_email(self, tmp_path):
-        """Two contacts with identical name and no email get the SAME ID (as expected per spec).
+    def test_collision_for_same_name_without_email_skips_duplicate(self, tmp_path, caplog):
+        """Two contacts with identical name and no email: first retained, second skipped.
 
-        Per spec FR-5.4, the fallback ID is hash(FN + first_email).
-        Since both contacts have identical FN and no email, they hash to the same ID.
-        This is expected behavior: the spec indicates upstream systems must use
-        explicit UIDs to distinguish between contacts with identical names and emails.
+        Per spec FR-5.4, the fallback ID is hash(FN + first_email). When two contacts
+        have identical FN and no email, they hash to the same ID. To prevent silent data
+        loss, the second contact is skipped and a collision warning is logged. Upstream
+        systems must use explicit UIDs to distinguish between contacts with identical
+        names and emails.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
-        # Two contacts with same name, no email
+        # Two contacts with same name, no email (in same file to test within-file collision)
         vcard_content = """BEGIN:VCARD
 VERSION:3.0
 FN:Common Name
@@ -673,22 +700,20 @@ END:VCARD"""
 
         self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
 
-        results = list(adapter.fetch(""))
-        assert len(results) == 2
+        with caplog.at_level(logging.WARNING):
+            results = list(adapter.fetch(""))
 
-        # IDs will be identical because they have identical FN and no email (per spec)
-        id1 = results[0].source_id
-        id2 = results[1].source_id
+        # Only first contact retained; second skipped to prevent overwrite
+        assert len(results) == 1
+        assert any("collision" in record.message.lower() for record in caplog.records)
 
-        assert id1 == id2
+    def test_identical_contacts_collision_skips_second(self, tmp_path):
+        """Identical contacts in different files: first is retained, second is skipped to prevent overwrite.
 
-    def test_identical_contacts_same_id_across_files(self, tmp_path):
-        """Identical contacts in different files get the SAME ID (per spec FN + EMAIL hash).
-
-        Tests that using FN + EMAIL hash for ID generation produces identical
-        IDs for contacts with identical name and email, regardless of file
-        location. This is spec-compliant behavior (FR-5.4). Upstream systems
-        should use explicit UIDs to distinguish logically separate contacts.
+        When two identical contacts (same FN and EMAIL) are found, the adapter detects
+        the collision, logs a warning, and skips the second contact to prevent silent
+        data loss. Upstream systems should use explicit UIDs to distinguish logically
+        separate contacts and avoid this scenario.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -703,19 +728,18 @@ END:VCARD"""
         self._create_vcard_file(tmp_path, "file2.vcf", vcard_content)
 
         results = list(adapter.fetch(""))
-        assert len(results) == 2
+        # Only first contact is retained; second is skipped to prevent overwrite
+        assert len(results) == 1
 
-        # IDs should be identical due to identical FN + EMAIL (per spec)
-        id1 = results[0].source_id
-        id2 = results[1].source_id
+        # Single contact retained from file1
+        assert "Same Name" in results[0].markdown
 
-        assert id1 == id2
-
-    def test_collision_detection_logs_warning(self, tmp_path, caplog):
-        """fetch() logs warning when collision is detected (same ID for different contacts).
+    def test_collision_detection_logs_warning_and_skips_second(self, tmp_path, caplog):
+        """fetch() detects collision and skips second contact to prevent silent overwrite.
 
         When two distinct contacts produce the same source_id (due to identical FN
-        and first EMAIL), a warning is logged to alert users of potential data loss.
+        and first EMAIL), a warning is logged and the second contact is skipped
+        to prevent data loss from the first contact being overwritten.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -733,10 +757,11 @@ END:VCARD"""
         with caplog.at_level(logging.WARNING):
             results = list(adapter.fetch(""))
 
-        # Should have logged a collision warning
-        assert len(results) == 2
+        # Only first contact should be yielded; second is skipped to prevent overwrite
+        assert len(results) == 1
         assert any("collision" in record.message.lower() for record in caplog.records)
         assert any("Alice Smith" in record.message for record in caplog.records)
+        assert any("Skipping this contact to prevent data loss" in record.message for record in caplog.records)
 
 
 class TestVCardAdapterPerContactErrorIsolation:
