@@ -47,7 +47,7 @@ async def _run_entity_linking(
         total_links_created, total_chunks_failed = await asyncio.to_thread(linker.run)
 
         if total_chunks_failed > 0:
-            status = "partial"
+            status: Literal["partial"] = "partial"
             if adapter_id:
                 logger.warning(
                     "Entity linking pass for %s created %d new links but %d chunks failed",
@@ -126,7 +126,7 @@ async def webhook_ingest(
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {type(e).__name__}: {e}")
 
     # Run entity linking pass if People domain ingestion completed successfully
-    entity_linking_status: Literal["ok", "failed"] | None = None
+    entity_linking_status: Literal["ok", "failed", "partial"] | None = None
     entity_linking_error = None
     if payload.domain == Domain.PEOPLE and result["sources_failed"] == 0:
         entity_linking_status, entity_linking_error = await _run_entity_linking(
@@ -188,7 +188,7 @@ async def helper_ingest(
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
             # Run entity linking pass if People domain ingestion completed successfully
-            entity_linking_status: Literal["ok", "failed"] | None = None
+            entity_linking_status: Literal["ok", "failed", "partial"] | None = None
             entity_linking_error = None
             if adapter.domain == Domain.PEOPLE and result["sources_failed"] == 0:
                 entity_linking_status, entity_linking_error = await _run_entity_linking(

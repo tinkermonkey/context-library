@@ -59,7 +59,7 @@ class WebhookIngestResponse(BaseModel):
     chunks_removed: int
     chunks_unchanged: int
     errors: list[IngestError]
-    entity_linking_status: Literal["ok", "failed"] | None = None
+    entity_linking_status: Literal["ok", "failed", "partial"] | None = None
     entity_linking_error: str | None = None
 
 
@@ -107,7 +107,7 @@ class AppleAdapterResult(BaseModel):
     chunks_removed: int
     chunks_unchanged: int
     errors: list[IngestError]
-    entity_linking_status: Literal["ok", "failed"] | None = None
+    entity_linking_status: Literal["ok", "failed", "partial"] | None = None
     entity_linking_error: str | None = None
 
 
