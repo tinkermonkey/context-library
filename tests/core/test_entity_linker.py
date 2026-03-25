@@ -46,7 +46,8 @@ class TestEntityLinkerExtractIdentifiers:
             "phones": ["+1-555-0101", "+1-555-0102"],
         }
         identifiers = linker._extract_identifiers(metadata)
-        assert set(identifiers) == {"+1-555-0101", "+1-555-0102"}
+        # Phones are normalized: hyphens removed
+        assert set(identifiers) == {"+15550101", "+15550102"}
 
     def test_extract_emails_and_phones(self):
         """Extract both emails and phones."""
@@ -58,7 +59,8 @@ class TestEntityLinkerExtractIdentifiers:
             "phones": ["+1-555-0101"],
         }
         identifiers = linker._extract_identifiers(metadata)
-        assert set(identifiers) == {"alice@example.com", "+1-555-0101"}
+        # Phones are normalized: hyphens removed
+        assert set(identifiers) == {"alice@example.com", "+15550101"}
 
     def test_empty_identifiers(self):
         """Handle metadata with no emails or phones."""
@@ -88,7 +90,87 @@ class TestEntityLinkerExtractIdentifiers:
             "phones": ["+1-555-0101"],
         }
         identifiers = linker._extract_identifiers(metadata)
-        assert identifiers == ["+1-555-0101", "alice@example.com"]  # Sorted, deduplicated
+        # Phones are normalized: hyphens removed. Emails deduplicated.
+        assert identifiers == ["+15550101", "alice@example.com"]  # Sorted, deduplicated
+
+    def test_email_normalization_case_insensitive(self):
+        """Normalize email addresses to lowercase."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": ["ALICE@EXAMPLE.COM", "Alice.Smith@Company.org"],
+            "phones": [],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        assert identifiers == ["alice.smith@company.org", "alice@example.com"]
+
+    def test_email_normalization_whitespace(self):
+        """Normalize emails with whitespace."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": ["  alice@example.com  ", "\tbob@company.org\n"],
+            "phones": [],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        assert identifiers == ["alice@example.com", "bob@company.org"]
+
+    def test_phone_normalization_formatting(self):
+        """Normalize phone numbers with various formatting."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": [],
+            "phones": ["+1 (555) 123-4567", "+1-555-123-4567", "+15551234567"],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        # All three formats should normalize to the same value
+        assert identifiers == ["+15551234567"]
+
+    def test_phone_normalization_without_country_code(self):
+        """Normalize phone numbers without country code."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": [],
+            "phones": ["(555) 123-4567", "555-123-4567", "555.123.4567"],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        # All should normalize to same value
+        assert identifiers == ["5551234567"]
+
+    def test_mixed_email_phone_normalization(self):
+        """Normalize mixed emails and phones."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": ["ALICE@EXAMPLE.COM", "  bob@company.org  "],
+            "phones": ["+1 (555) 123-4567", "555-987-6543"],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        assert set(identifiers) == {
+            "alice@example.com",
+            "bob@company.org",
+            "+15551234567",
+            "5559876543",
+        }
+
+    def test_empty_after_normalization(self):
+        """Filter out identifiers that become empty after normalization."""
+        linker = EntityLinker(DocumentStore(":memory:"))
+        metadata = {
+            "contact_id": "contact_1",
+            "display_name": "Alice",
+            "emails": ["", "   ", "alice@example.com"],
+            "phones": ["", "()--", "+15551234567"],
+        }
+        identifiers = linker._extract_identifiers(metadata)
+        assert identifiers == ["+15551234567", "alice@example.com"]
 
 
 class TestEntityLinkerFindMatchingChunks:
@@ -333,6 +415,123 @@ class TestEntityLinkerFindMatchingChunks:
         # Should only match v2 (current version), not v1 (superseded)
         assert msg_chunk_v2.chunk_hash in matching
         assert msg_chunk_v1.chunk_hash not in matching
+
+    def test_find_matching_chunks_normalized_email_case(self, doc_store):
+        """Find chunks with email stored in different case than query."""
+        msg_hash = make_sha256_hash("message_uppercase_alice")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Message from ALICE",
+            context_header="Message",
+            chunk_index=0,
+            domain_metadata={"sender": "ALICE@EXAMPLE.COM"},
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        # Query with lowercase, should match chunk stored in uppercase
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert msg_chunk.chunk_hash in matching
+
+    def test_find_matching_chunks_normalized_phone_format(self, doc_store):
+        """Find chunks with phone in different format than query."""
+        msg_hash = make_sha256_hash("message_with_phone")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Message with phone",
+            context_header="Message",
+            chunk_index=0,
+            domain_metadata={"sender": "+1 (555) 123-4567"},
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        # Query with normalized format, should match chunk with formatted version
+        matching = linker._find_matching_chunks(["+15551234567"])
+
+        assert msg_chunk.chunk_hash in matching
+
+    def test_find_matching_chunks_normalized_phone_formatting_variations(self, doc_store):
+        """Find chunks matching phone with various formatting variations."""
+        msg_hash1 = make_sha256_hash("formatted_hyphen")
+        msg_hash2 = make_sha256_hash("formatted_spaces")
+        msg_hash3 = make_sha256_hash("formatted_plain")
+
+        chunk1 = Chunk(
+            chunk_hash=msg_hash1,
+            content="Phone 1",
+            chunk_index=0,
+            domain_metadata={"sender": "+1-555-123-4567"},
+        )
+        chunk2 = Chunk(
+            chunk_hash=msg_hash2,
+            content="Phone 2",
+            chunk_index=1,
+            domain_metadata={"sender": "+1 (555) 123-4567"},
+        )
+        chunk3 = Chunk(
+            chunk_hash=msg_hash3,
+            content="Phone 3",
+            chunk_index=2,
+            domain_metadata={"sender": "+15551234567"},
+        )
+
+        setup_chunk_in_store(
+            doc_store,
+            [chunk1, chunk2, chunk3],
+            "msg_adapter",
+            "test",
+            "source_1",
+            Domain.MESSAGES,
+        )
+
+        linker = EntityLinker(doc_store)
+        # Query with any format should match all variations
+        matching = linker._find_matching_chunks(["+15551234567"])
+
+        assert len(matching) == 3
+        assert msg_hash1 in matching
+        assert msg_hash2 in matching
+        assert msg_hash3 in matching
+
+    def test_find_matching_chunks_normalized_email_whitespace(self, doc_store):
+        """Find chunks matching email with whitespace."""
+        msg_hash = make_sha256_hash("email_with_spaces")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Email with spaces",
+            chunk_index=0,
+            domain_metadata={"sender": "  alice@example.com  "},
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        # Query clean email, should match chunk with whitespace
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert msg_chunk.chunk_hash in matching
+
+    def test_find_matching_chunks_normalized_recipient_array_case(self, doc_store):
+        """Find chunks in recipient arrays with case normalization."""
+        msg_hash = make_sha256_hash("recipients_uppercase")
+        msg_chunk = Chunk(
+            chunk_hash=msg_hash,
+            content="Message to uppercase recipients",
+            chunk_index=0,
+            domain_metadata={"recipients": ["ALICE@EXAMPLE.COM", "bob@example.com"]},
+        )
+
+        setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "source_1", Domain.MESSAGES)
+
+        linker = EntityLinker(doc_store)
+        # Query lowercase alice, should match uppercase in array
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert msg_chunk.chunk_hash in matching
 
 
 class TestEntityLinkerRun:

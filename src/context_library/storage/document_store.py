@@ -2309,6 +2309,13 @@ class DocumentStore:
         and json_each() for array fields. This method safely handles concurrency
         via the connection pool and respects DocumentStore's encapsulation.
 
+        Identifiers are normalized before querying to match various formats:
+        - Emails: lowercase, whitespace stripped
+        - Phones: digits and leading '+' only
+
+        Matching is case-insensitive for emails and format-insensitive for phones
+        by normalizing both the query identifiers and the stored values.
+
         Args:
             identifiers: List of email/phone strings to search for.
             scalar_fields: List of scalar field names to search (e.g., ['sender', 'host', 'author']).
@@ -2339,57 +2346,87 @@ class DocumentStore:
         cursor = self.conn.cursor()
         found_hashes: set[str] = set()
 
+        # Import normalization functions at method level to avoid circular imports
+        from context_library.core.identifier_normalizer import normalize_email, normalize_phone
+
+        # Process all chunks in memory to handle normalization flexibly
+        # This approach avoids SQL-level string manipulation and is more maintainable
+        # Performance: for typical data volumes (thousands of contacts, tens of thousands of chunks),
+        # this is acceptable; for larger datasets, consider moving to SQLite custom functions
+
+        # First, fetch all active chunks with their identifiers
+        query = """
+            SELECT DISTINCT c.chunk_hash, c.domain_metadata, s.domain
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE c.retired_at IS NULL
+            AND c.source_version = s.current_version
+        """
+        if exclude_domain:
+            query += " AND s.domain != ?"
+            cursor.execute(query, [exclude_domain])
+        else:
+            cursor.execute(query)
+
+        rows = cursor.fetchall()
+
+        # Normalize all query identifiers once
+        normalized_query_identifiers = []
         for identifier in identifiers:
-            # Build WHERE clauses for scalar fields
-            scalar_where_parts = [
-                f"json_extract(c.domain_metadata, '$.{field}') = ?" for field in scalar_fields
-            ]
-            scalar_where = " OR ".join(scalar_where_parts) if scalar_where_parts else ""
+            # Simple heuristic: if it contains '@', treat as email; otherwise as phone
+            if "@" in identifier:
+                normalized = normalize_email(identifier)
+            else:
+                normalized = normalize_phone(identifier)
+            if normalized:
+                normalized_query_identifiers.append(normalized)
 
-            # Build WHERE clauses for array fields
-            # Use CASE WHEN to guard json_each() — ensures it only receives valid JSON arrays
-            # This prevents crashes when domain_metadata stores a field as a bare string instead of an array
-            array_where_parts = [
-                f"EXISTS (SELECT 1 FROM json_each(CASE WHEN json_type(c.domain_metadata, '$.{field}') = 'array' THEN json_extract(c.domain_metadata, '$.{field}') ELSE '[]' END) WHERE value = ?)"
-                for field in array_fields
-            ]
-            array_where = " OR ".join(array_where_parts) if array_where_parts else ""
+        # Check each chunk for matches
+        for row in rows:
+            chunk_hash, domain_metadata_json, source_domain = row
 
-            # Combine where clauses: one or both should exist due to validation above
-            # If both exist, use (scalar_where OR array_where); if only one exists, use it directly
-            where_clause = ""
-            if scalar_where and array_where:
-                where_clause = f"({scalar_where} OR {array_where})"
-            elif scalar_where:
-                where_clause = f"({scalar_where})"
-            elif array_where:
-                where_clause = f"({array_where})"
-
-            # Build parameters: identifier repeated for each field check, then domain if excluding
-            params = [identifier] * len(scalar_fields) + [identifier] * len(array_fields)
-            if exclude_domain:
-                params.append(exclude_domain)
-
-            # Build the query
-            query = f"""
-                SELECT DISTINCT c.chunk_hash
-                FROM chunks c
-                JOIN sources s ON c.source_id = s.source_id
-                WHERE {where_clause}
-                AND c.retired_at IS NULL
-                AND c.source_version = s.current_version
-            """
-            if exclude_domain:
-                query += " AND s.domain != ?"
+            if not domain_metadata_json:
+                continue
 
             try:
-                cursor.execute(query, params)
-                rows = cursor.fetchall()
-                for row in rows:
-                    found_hashes.add(row[0])
-            except Exception as e:
-                logger.error("Error querying chunks for identifier %s: %s", identifier, e)
-                raise
+                import json
+
+                domain_metadata = json.loads(domain_metadata_json)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            # Extract all identifiers from this chunk's metadata
+            chunk_identifiers = set()
+
+            # Check scalar fields (sender, host, author)
+            for field in scalar_fields:
+                value = domain_metadata.get(field)
+                if value and isinstance(value, str):
+                    # Normalize the stored value
+                    if "@" in value:
+                        normalized = normalize_email(value)
+                    else:
+                        normalized = normalize_phone(value)
+                    if normalized:
+                        chunk_identifiers.add(normalized)
+
+            # Check array fields (recipients, invitees, collaborators)
+            for field in array_fields:
+                values = domain_metadata.get(field)
+                if isinstance(values, (list, tuple)):
+                    for value in values:
+                        if value and isinstance(value, str):
+                            # Normalize the stored value
+                            if "@" in value:
+                                normalized = normalize_email(value)
+                            else:
+                                normalized = normalize_phone(value)
+                            if normalized:
+                                chunk_identifiers.add(normalized)
+
+            # Check if any query identifier matches this chunk's identifiers
+            if chunk_identifiers & set(normalized_query_identifiers):
+                found_hashes.add(chunk_hash)
 
         return sorted(list(found_hashes))
 

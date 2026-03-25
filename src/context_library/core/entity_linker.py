@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 from context_library.core.exceptions import EntityLinkingError
+from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     ENTITY_LINK_TYPE_PERSON_APPEARANCE,
@@ -172,31 +173,48 @@ class EntityLinker:
     def _extract_identifiers(self, domain_metadata: Optional[dict]) -> list[str]:
         """Extract email and phone identifiers from PeopleMetadata.
 
+        Identifiers are normalized:
+        - Emails: lowercase, stripped of whitespace
+        - Phones: digits and leading '+' only, extra formatting removed
+
         Args:
             domain_metadata: Serialized PeopleMetadata dict from chunk.domain_metadata.
 
         Returns:
-            List of email and phone strings, deduplicated.
+            List of normalized email and phone strings, deduplicated and sorted.
         """
         if not domain_metadata:
             return []
 
         identifiers: set[str] = set()
 
-        # Extract emails and phones from PeopleMetadata
+        # Extract and normalize emails from PeopleMetadata
         if "emails" in domain_metadata:
             emails = domain_metadata.get("emails")
             if isinstance(emails, (list, tuple)):
-                identifiers.update(str(e) for e in emails if e)
+                for e in emails:
+                    if e:
+                        normalized = normalize_email(str(e))
+                        if normalized:
+                            identifiers.add(normalized)
             elif isinstance(emails, str):
-                identifiers.add(emails)
+                normalized = normalize_email(emails)
+                if normalized:
+                    identifiers.add(normalized)
 
+        # Extract and normalize phones from PeopleMetadata
         if "phones" in domain_metadata:
             phones = domain_metadata.get("phones")
             if isinstance(phones, (list, tuple)):
-                identifiers.update(str(p) for p in phones if p)
+                for p in phones:
+                    if p:
+                        normalized = normalize_phone(str(p))
+                        if normalized:
+                            identifiers.add(normalized)
             elif isinstance(phones, str):
-                identifiers.add(phones)
+                normalized = normalize_phone(phones)
+                if normalized:
+                    identifiers.add(normalized)
 
         return sorted(list(identifiers))
 
