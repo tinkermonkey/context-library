@@ -279,6 +279,7 @@ class DocumentStore:
             cursor.execute("DROP TABLE _chunks_old")
 
             # Recreate indices for chunks
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
@@ -451,6 +452,7 @@ class DocumentStore:
             cursor.execute("DROP TABLE _chunks_old")
 
             # Recreate indices for chunks
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
@@ -624,6 +626,7 @@ class DocumentStore:
             cursor.execute("DROP TABLE _chunks_old")
 
             # Recreate indices for chunks
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
@@ -651,7 +654,9 @@ class DocumentStore:
                     link_type           TEXT NOT NULL,
                     confidence          REAL NOT NULL DEFAULT 1.0,
                     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type),
+                    FOREIGN KEY (source_chunk_hash) REFERENCES chunks(chunk_hash),
+                    FOREIGN KEY (target_chunk_hash) REFERENCES chunks(chunk_hash)
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")

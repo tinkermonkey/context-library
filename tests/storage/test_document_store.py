@@ -33,7 +33,8 @@ from context_library.storage.models import (
     ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     LineageRecord,
     PollStrategy,
-    VersionDiff
+    VersionDiff,
+    compute_chunk_hash
 )
 
 
@@ -4689,13 +4690,20 @@ class TestGetAdapterStats:
 class TestEntityLinks:
     """Tests for entity_links table and DocumentStore methods."""
 
-    def _setup_with_chunks(self, store: DocumentStore, chunk_hashes: list[str]) -> None:
+    def _setup_with_chunks(self, store: DocumentStore, chunk_contents: list[str]) -> None:
         """Helper to set up test database with chunks for entity link FK constraints.
+
+        Args:
+            store: DocumentStore instance
+            chunk_contents: List of content strings to create chunks from (hashes computed via compute_chunk_hash)
 
         Note: Disables FK constraints because chunk_hash is part of a composite PK in chunks
         table, and we need to insert test data without meeting all PK requirements.
         """
         cursor = store.conn.cursor()
+
+        # Compute valid SHA-256 hashes from content strings
+        chunk_hashes = [compute_chunk_hash(content) for content in chunk_contents]
 
         # Disable FK constraints for test data setup
         # (entity_links has FK to chunks which has composite PK: (chunk_hash, source_id, source_version))
@@ -4720,14 +4728,15 @@ class TestEntityLinks:
         """, ("test-source", 1, "test", ",".join(chunk_hashes), "test-adapter", "1.0", "2024-01-01T00:00:00Z"))
 
         # Create chunks
-        for idx, hash_val in enumerate(chunk_hashes):
+        for idx, (hash_val, content) in enumerate(zip(chunk_hashes, chunk_contents)):
             cursor.execute("""
                 INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (hash_val, "test-source", 1, idx, f"Content {idx}", "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
+            """, (hash_val, "test-source", 1, idx, content, "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
 
         store.conn.commit()
         # Keep FK constraints OFF for entity link tests since they have circular or composite FK refs
+        return chunk_hashes
 
     def test_write_entity_links_single_link(self) -> None:
         """Test writing a single entity link."""
@@ -4736,10 +4745,10 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
 
             # Write a single link
-            links = [EntityLink("source-hash-1", "target-hash-1", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0)]
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
             count = store.write_entity_links(links)
             assert count == 1
 
@@ -4747,8 +4756,8 @@ class TestEntityLinks:
             cursor = store.conn.cursor()
             cursor.execute("""
                 SELECT * FROM entity_links
-                WHERE source_chunk_hash = 'source-hash-1' AND target_chunk_hash = 'target-hash-1'
-            """)
+                WHERE source_chunk_hash = ? AND target_chunk_hash = ?
+            """, (chunk_hashes[0], chunk_hashes[1]))
             row = cursor.fetchone()
             assert row is not None
             assert row["link_type"] == ENTITY_LINK_TYPE_PERSON_APPEARANCE
@@ -4763,13 +4772,13 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["source-hash-1", "source-hash-2", "target-hash-1", "target-hash-2"])
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "source content 2", "target content 1", "target content 2"])
 
             # Write multiple links
             links = [
-                EntityLink("source-hash-1", "target-hash-1", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0),
-                EntityLink("source-hash-1", "target-hash-2", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 0.95),
-                EntityLink("source-hash-2", "target-hash-1", "mention", 0.8),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[2], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[3], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=0.95),
+                EntityLink(source_chunk_hash=chunk_hashes[1], target_chunk_hash=chunk_hashes[2], link_type="mention", confidence=0.8),
             ]
             count = store.write_entity_links(links)
             assert count == 3
@@ -4788,10 +4797,10 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
 
             # Write a link
-            links = [EntityLink("source-hash-1", "target-hash-1", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0)]
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
             count1 = store.write_entity_links(links)
             assert count1 == 1
 
@@ -4830,19 +4839,19 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1"])
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
 
             # Write links
-            links = [EntityLink("source-hash-1", "target-hash-1", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0)]
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
             store.write_entity_links(links)
 
             # Get linked chunks from source
-            linked = store.get_linked_chunks("source-hash-1")
-            assert "target-hash-1" in linked
+            linked = store.get_linked_chunks(chunk_hashes[0])
+            assert chunk_hashes[1] in linked
 
             # Get linked chunks from target (bidirectional)
-            linked = store.get_linked_chunks("target-hash-1")
-            assert "source-hash-1" in linked
+            linked = store.get_linked_chunks(chunk_hashes[1])
+            assert chunk_hashes[0] in linked
 
             store.conn.close()
 
@@ -4853,23 +4862,23 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["source-hash-1", "target-hash-1", "target-hash-2"])
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1", "target content 2"])
 
             # Write links with different types
             links = [
-                EntityLink("source-hash-1", "target-hash-1", ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0),
-                EntityLink("source-hash-1", "target-hash-2", "mention", 0.95),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[2], link_type="mention", confidence=0.95),
             ]
             store.write_entity_links(links)
 
             # Filter by link_type
-            linked = store.get_linked_chunks("source-hash-1", link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
-            assert "target-hash-1" in linked
-            assert "target-hash-2" not in linked
+            linked = store.get_linked_chunks(chunk_hashes[0], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+            assert chunk_hashes[1] in linked
+            assert chunk_hashes[2] not in linked
 
-            linked = store.get_linked_chunks("source-hash-1", link_type="mention")
-            assert "target-hash-2" in linked
-            assert "target-hash-1" not in linked
+            linked = store.get_linked_chunks(chunk_hashes[0], link_type="mention")
+            assert chunk_hashes[2] in linked
+            assert chunk_hashes[1] not in linked
 
             store.conn.close()
 
@@ -4896,19 +4905,19 @@ class TestEntityLinks:
             store = DocumentStore(str(db_path))
 
             # Set up chunks
-            self._setup_with_chunks(store, ["hash-a", "hash-b", "hash-c"])
+            chunk_hashes = self._setup_with_chunks(store, ["content a", "content b", "content c"])
 
             # Write bidirectional links
             links = [
-                EntityLink("hash-a", "hash-b", "coappearance", 1.0),
-                EntityLink("hash-b", "hash-c", "coappearance", 1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type="coappearance", confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[1], target_chunk_hash=chunk_hashes[2], link_type="coappearance", confidence=1.0),
             ]
             store.write_entity_links(links)
 
-            # hash-b should be linked to both hash-a (as target) and hash-c (as source)
-            linked = store.get_linked_chunks("hash-b")
-            assert "hash-a" in linked
-            assert "hash-c" in linked
+            # chunk_hashes[1] should be linked to both chunk_hashes[0] (as target) and chunk_hashes[2] (as source)
+            linked = store.get_linked_chunks(chunk_hashes[1])
+            assert chunk_hashes[0] in linked
+            assert chunk_hashes[2] in linked
             assert len(linked) == 2
 
             store.conn.close()

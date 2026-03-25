@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     UNIQUE (source_id, source_version, chunk_index)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash);
 CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version);
 CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain);
 CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash);

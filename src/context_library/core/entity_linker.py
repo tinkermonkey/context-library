@@ -145,7 +145,7 @@ class EntityLinker:
 
                 # Build EntityLink objects: (person_chunk_hash, matching_chunk_hash, link_type, confidence)
                 links = [
-                    EntityLink(chunk.chunk_hash, matching_hash, ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0)
+                    EntityLink(source_chunk_hash=chunk.chunk_hash, target_chunk_hash=matching_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)
                     for matching_hash in matching_chunk_hashes
                 ]
 

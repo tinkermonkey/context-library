@@ -838,18 +838,20 @@ class ChunkWithLineageContext(NamedTuple):
 ENTITY_LINK_TYPE_PERSON_APPEARANCE = "person_appearance"
 
 
-class EntityLink(NamedTuple):
+class EntityLink(BaseModel):
     """A cross-domain entity link between two chunks.
 
-    Named tuple representing a directed link from a source chunk to a target chunk
-    with an optional confidence score. Using a NamedTuple prevents accidental field
-    reordering and provides explicit field names, making source/target swaps impossible.
+    Represents a directed link from a source chunk to a target chunk with an optional
+    confidence score. Using Pydantic BaseModel ensures Sha256Hash validation actually
+    fires at runtime, preventing malformed hashes from being stored.
     """
 
     source_chunk_hash: Sha256Hash
     target_chunk_hash: Sha256Hash
     link_type: str
     confidence: float = 1.0
+
+    model_config = ConfigDict(frozen=True)
 
 
 class SourceVersion(BaseModel):

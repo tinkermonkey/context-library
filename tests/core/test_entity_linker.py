@@ -1129,7 +1129,9 @@ class TestAtomicDeleteMethods:
         setup_chunk_in_store(doc_store, msg_chunk, "msg_adapter", "test", "msg_source", Domain.MESSAGES)
 
         # Manually insert a link with non-existent source chunk
+        # Note: We must disable FK constraints temporarily to create an orphaned link for testing
         cursor = doc_store.conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.execute(
             """
             INSERT INTO entity_links (source_chunk_hash, target_chunk_hash, link_type, confidence)
@@ -1138,6 +1140,7 @@ class TestAtomicDeleteMethods:
             (person_hash, msg_hash, ENTITY_LINK_TYPE_PERSON_APPEARANCE, 1.0),
         )
         doc_store.conn.commit()
+        cursor.execute("PRAGMA foreign_keys=ON")
 
         # Should NOT delete this link because the source chunk doesn't exist in people domain
         # (the AND EXISTS guard prevents deletion of hypothetical orphans)
