@@ -961,6 +961,19 @@ class DocumentStore:
             )
 
 
+    def clear_sync_log(self, chunk_hashes: list[Sha256Hash]) -> None:
+        """Remove entries from the sync log after successful vector store operations.
+
+        Called after vectors have been successfully written to or deleted from the
+        vector store, so the sync log only retains entries for operations that have
+        not yet been applied (i.e. need recovery on next startup).
+        """
+        with self._write_lock, self.conn:
+            self.conn.executemany(
+                "DELETE FROM lancedb_sync_log WHERE chunk_hash = ?",
+                [(h,) for h in chunk_hashes],
+            )
+
     def get_latest_version(self, source_id: str) -> Optional[SourceVersion]:
         """Get the latest version of a source.
 

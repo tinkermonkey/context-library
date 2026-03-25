@@ -359,6 +359,8 @@ class IngestionPipeline:
                                     })
 
                                 self.vector_store.add_vectors(chunk_vector_dicts)
+                                # Clear sync log entries now that vector store write succeeded
+                                self.document_store.clear_sync_log(added_hashes)
                             except Exception as e:
                                 inconsistency_detected = bool(sqlite_write_succeeded and all_chunks_to_write)
                                 if inconsistency_detected:
@@ -377,6 +379,8 @@ class IngestionPipeline:
                         if diff_result.removed_hashes:
                             try:
                                 self.vector_store.delete_vectors(set(diff_result.removed_hashes))
+                                # Clear sync log entries now that vector store delete succeeded
+                                self.document_store.clear_sync_log(list(diff_result.removed_hashes))
                             except Exception as e:
                                 logger.warning(
                                     f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"

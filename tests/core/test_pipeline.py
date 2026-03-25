@@ -133,17 +133,17 @@ class TestIngestionPipelineFirstIngest:
     def test_first_ingest_writes_sync_log(
         self, pipeline, temp_markdown_dir, domain_chunker
     ):
-        """First ingest should write sync log entries for all chunks."""
+        """Sync log entries are written before vector store writes and cleared on success."""
         adapter = FilesystemAdapter(temp_markdown_dir)
         result = pipeline.ingest(adapter, domain_chunker)
 
-        # Get sync log entries
+        assert result["chunks_added"] > 0
+
+        # After a successful ingest, sync log entries are cleared (written then removed on success)
         cursor = pipeline.document_store.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
         sync_count = cursor.fetchone()[0]
-
-        # Should have one entry per added chunk
-        assert sync_count == result["chunks_added"]
+        assert sync_count == 0
 
     def test_first_ingest_creates_chunks(
         self, pipeline, temp_markdown_dir, domain_chunker
@@ -281,11 +281,11 @@ Some different text here."""
         vector_count_before = pipeline.vector_store.count()
         assert vector_count_before > 0
 
-        # Get sync log count before modification
+        # Sync log should be empty after successful first ingest (entries cleared on success)
         cursor = pipeline.document_store.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
         sync_log_count_before = cursor.fetchone()[0]
-        assert sync_log_count_before > 0
+        assert sync_log_count_before == 0
 
         # Modify file1.md to remove a section entirely, reducing the chunk count
         # This triggers the differ to detect removed chunks
@@ -314,12 +314,11 @@ Completely new content."""
         vector_count_after = pipeline.vector_store.count()
         assert vector_count_after < vector_count_before
 
-        # Verify sync log records delete operations for removed chunks
-        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'delete'")
-        delete_count = cursor.fetchone()[0]
-        # The key invariant: delete operations are recorded for removed chunks
-        assert delete_count > 0, \
-            "Sync log should record delete operations for removed chunks"
+        # Sync log should be empty after successful delete (entries cleared on success)
+        cursor.execute("SELECT COUNT(*) FROM lancedb_sync_log")
+        sync_log_after = cursor.fetchone()[0]
+        assert sync_log_after == 0, \
+            "Sync log should be cleared after successful vector store delete"
 
     def test_reingest_deleted_chunk(
         self, pipeline, temp_markdown_dir, domain_chunker
@@ -956,7 +955,7 @@ Some shared text here."""
         result_first = pipeline.ingest(adapter, domain_chunker)
         assert result_first["sources_processed"] == 2
         assert result_first["chunks_added"] > 0
-        sync_log_after_first = self._count_sync_log_inserts(pipeline)
+        vector_count_after_first = pipeline.vector_store.count()
 
         # Phase 2: Modify one file - some chunks unchanged, some added
         file1 = temp_markdown_dir / "file1.md"
@@ -966,18 +965,20 @@ Some shared text here."""
         # Re-ingest - file1 has partial changes
         result_second = pipeline.ingest(adapter, domain_chunker)
 
-        # Core assertion: sync log only records ADDED chunks, not unchanged ones
-        sync_log_after_second = self._count_sync_log_inserts(pipeline)
-        new_sync_entries = sync_log_after_second - sync_log_after_first
+        # Core assertion: only ADDED chunks are embedded (not unchanged ones)
+        vector_count_after_second = pipeline.vector_store.count()
+        new_vectors = vector_count_after_second - vector_count_after_first
 
-        # The test exercises the fix: unchanged chunks are NOT re-embedded
-        assert new_sync_entries == result_second["chunks_added"], \
-            f"Only newly added chunks should create sync log entries. " \
-            f"Got {new_sync_entries} new entries, but chunks_added={result_second['chunks_added']}"
+        assert new_vectors == result_second["chunks_added"], \
+            f"Only newly added chunks should be embedded. " \
+            f"Got {new_vectors} new vectors, but chunks_added={result_second['chunks_added']}"
 
         # Verify unchanged chunks are preserved
         assert result_second["chunks_unchanged"] > 0, \
             "Partial updates should preserve unchanged chunks"
+
+        # Sync log should be empty after successful ingest
+        assert self._count_sync_log_inserts(pipeline) == 0
 
     def _count_sync_log_inserts(self, pipeline) -> int:
         """Helper to count total insert operations in sync log."""
