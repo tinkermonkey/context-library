@@ -4690,23 +4690,22 @@ class TestGetAdapterStats:
 class TestEntityLinks:
     """Tests for entity_links table and DocumentStore methods."""
 
-    def _setup_with_chunks(self, store: DocumentStore, chunk_contents: list[str]) -> None:
+    def _setup_with_chunks(self, store: DocumentStore, chunk_contents: list[str]) -> list[str]:
         """Helper to set up test database with chunks for entity link FK constraints.
 
         Args:
             store: DocumentStore instance
             chunk_contents: List of content strings to create chunks from (hashes computed via compute_chunk_hash)
 
-        Note: Disables FK constraints because chunk_hash is part of a composite PK in chunks
-        table, and we need to insert test data without meeting all PK requirements.
+        Returns:
+            List of computed chunk hashes for use in entity link tests.
         """
         cursor = store.conn.cursor()
 
         # Compute valid SHA-256 hashes from content strings
         chunk_hashes = [compute_chunk_hash(content) for content in chunk_contents]
 
-        # Disable FK constraints for test data setup
-        # (entity_links has FK to chunks which has composite PK: (chunk_hash, source_id, source_version))
+        # Disable FK constraints for test data setup to avoid circular deps during schema creation
         cursor.execute("PRAGMA foreign_keys=OFF")
 
         # Create adapter
@@ -4735,7 +4734,8 @@ class TestEntityLinks:
             """, (hash_val, "test-source", 1, idx, content, "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
 
         store.conn.commit()
-        # Keep FK constraints OFF for entity link tests since they have circular or composite FK refs
+        # Re-enable FK constraints to test referential integrity during entity link operations
+        cursor.execute("PRAGMA foreign_keys=ON")
         return chunk_hashes
 
     def test_write_entity_links_single_link(self) -> None:
