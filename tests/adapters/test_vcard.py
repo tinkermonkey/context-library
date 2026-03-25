@@ -4,7 +4,7 @@ import logging
 import pytest
 from pathlib import Path
 
-from context_library.adapters.vcard import VCardAdapter
+from context_library.adapters.vcard import VCardAdapter, ContactIDCollisionError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, PeopleMetadata
 
 
@@ -687,14 +687,14 @@ END:VCARD"""
         # ID should change because the hash of first EMAIL changed
         assert original_id != new_id
 
-    def test_collision_for_same_name_without_email_skips_duplicate(self, tmp_path, caplog):
-        """Two contacts with identical name and no email: first retained, second skipped.
+    def test_collision_for_same_name_without_email_raises_error(self, tmp_path):
+        """Two contacts with identical name and no email: raises ContactIDCollisionError.
 
         Per spec FR-5.4, the fallback ID is hash(FN + first_email). When two contacts
-        have identical FN and no email, they hash to the same ID. To prevent silent data
-        loss, the second contact is skipped and a collision warning is logged. Upstream
-        systems must use explicit UIDs to distinguish between contacts with identical
-        names and emails.
+        have identical FN and no email, they hash to the same ID. Rather than silently
+        skipping the second contact, a ContactIDCollisionError is raised to prevent
+        data loss from going unnoticed. Upstream systems must use explicit UIDs to
+        distinguish between contacts with identical names and emails.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -710,20 +710,22 @@ END:VCARD"""
 
         self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
 
-        with caplog.at_level(logging.WARNING):
-            results = list(adapter.fetch(""))
+        with pytest.raises(ContactIDCollisionError) as exc_info:
+            list(adapter.fetch(""))
 
-        # Only first contact retained; second skipped to prevent overwrite
-        assert len(results) == 1
-        assert any("collision" in record.message.lower() for record in caplog.records)
+        # Verify exception contains collision details
+        assert exc_info.value.second_contact_name == "Common Name"
+        assert exc_info.value.first_contact_name == "Common Name"
+        assert "collision" in str(exc_info.value).lower()
 
-    def test_identical_contacts_collision_skips_second(self, tmp_path):
-        """Identical contacts in different files: first is retained, second is skipped to prevent overwrite.
+    def test_identical_contacts_collision_raises_error(self, tmp_path):
+        """Identical contacts in different files: raises ContactIDCollisionError to prevent silent data loss.
 
         When two identical contacts (same FN and EMAIL) are found, the adapter detects
-        the collision, logs a warning, and skips the second contact to prevent silent
-        data loss. Upstream systems should use explicit UIDs to distinguish logically
-        separate contacts and avoid this scenario.
+        the collision and raises ContactIDCollisionError rather than silently skipping
+        the second contact. This prevents data loss from going unnoticed. Upstream
+        systems should use explicit UIDs to distinguish logically separate contacts
+        and avoid this scenario.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -737,19 +739,21 @@ END:VCARD"""
         self._create_vcard_file(tmp_path, "file1.vcf", vcard_content)
         self._create_vcard_file(tmp_path, "file2.vcf", vcard_content)
 
-        results = list(adapter.fetch(""))
-        # Only first contact is retained; second is skipped to prevent overwrite
-        assert len(results) == 1
+        with pytest.raises(ContactIDCollisionError) as exc_info:
+            list(adapter.fetch(""))
 
-        # Single contact retained from file1
-        assert "Same Name" in results[0].markdown
+        # Verify exception indicates the colliding contacts
+        assert exc_info.value.first_contact_name == "Same Name"
+        assert exc_info.value.second_contact_name == "Same Name"
+        assert "file1" in str(exc_info.value.first_contact_file)
+        assert "file2" in str(exc_info.value.second_contact_file)
 
-    def test_collision_detection_logs_warning_and_skips_second(self, tmp_path, caplog):
-        """fetch() detects collision and skips second contact to prevent silent overwrite.
+    def test_collision_detection_raises_error_with_details(self, tmp_path):
+        """fetch() detects collision and raises error with collision details.
 
         When two distinct contacts produce the same source_id (due to identical FN
-        and first EMAIL), a warning is logged and the second contact is skipped
-        to prevent data loss from the first contact being overwritten.
+        and first EMAIL), a ContactIDCollisionError is raised with details about
+        both contacts, preventing the collision from going unnoticed.
         """
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
@@ -763,15 +767,16 @@ END:VCARD"""
         self._create_vcard_file(tmp_path, "file1.vcf", vcard_content)
         self._create_vcard_file(tmp_path, "file2.vcf", vcard_content)
 
-        # Fetch and capture logs
-        with caplog.at_level(logging.WARNING):
-            results = list(adapter.fetch(""))
+        # Fetch and expect collision error
+        with pytest.raises(ContactIDCollisionError) as exc_info:
+            list(adapter.fetch(""))
 
-        # Only first contact should be yielded; second is skipped to prevent overwrite
-        assert len(results) == 1
-        assert any("collision" in record.message.lower() for record in caplog.records)
-        assert any("Alice Smith" in record.message for record in caplog.records)
-        assert any("Skipping this contact to prevent data loss" in record.message for record in caplog.records)
+        # Verify error contains both contact names
+        error = exc_info.value
+        assert error.first_contact_name == "Alice Smith"
+        assert error.second_contact_name == "Alice Smith"
+        assert "Alice Smith" in str(error)
+        assert "collision" in str(error).lower()
 
 
 class TestVCardAdapterPerContactErrorIsolation:

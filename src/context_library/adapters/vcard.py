@@ -31,6 +31,53 @@ from context_library.storage.models import (
     StructuralHints,
 )
 
+
+class ContactIDCollisionError(Exception):
+    """Raised when two distinct contacts produce the same contact_id due to hash collision.
+
+    This error occurs when two contacts have identical FN (full name) and first EMAIL,
+    or identical FN with no email. Such collisions are prevented by raising an exception
+    rather than silently skipping contacts, ensuring data loss is visible to the pipeline
+    and can be addressed by upstream systems (e.g., by providing explicit UIDs).
+
+    Attributes:
+        contact_id: The colliding contact_id hash
+        first_contact_name: Display name of the first contact
+        first_contact_file: File containing the first contact
+        second_contact_name: Display name of the second (colliding) contact
+        second_contact_file: File containing the second (colliding) contact
+    """
+
+    def __init__(
+        self,
+        contact_id: str,
+        first_contact_name: str,
+        first_contact_file: Path,
+        second_contact_name: str,
+        second_contact_file: Path,
+    ):
+        """Initialize ContactIDCollisionError.
+
+        Args:
+            contact_id: The colliding contact_id
+            first_contact_name: Display name of first contact
+            first_contact_file: File of first contact
+            second_contact_name: Display name of second (colliding) contact
+            second_contact_file: File of second (colliding) contact
+        """
+        self.contact_id = contact_id
+        self.first_contact_name = first_contact_name
+        self.first_contact_file = first_contact_file
+        self.second_contact_name = second_contact_name
+        self.second_contact_file = second_contact_file
+        message = (
+            f"Contact ID collision detected: '{second_contact_name}' (from {second_contact_file.name}) "
+            f"and '{first_contact_name}' (from {first_contact_file.name}) both hash to {contact_id}. "
+            f"This occurs when contacts have identical FN and first EMAIL. "
+            f"Use explicit UIDs to distinguish contacts with identical names and emails."
+        )
+        super().__init__(message)
+
 logger = logging.getLogger(__name__)
 
 # Try to import optional dependency
@@ -128,13 +175,9 @@ class VCardAdapter(BaseAdapter):
           are caught, logged, and the next file is processed.
         - Encoding errors (non-UTF-8 input) are detected and logged; latin-1 fallback
           is attempted with an explicit warning that data may be garbled.
-
-        Known limitation: When two distinct contacts have identical FN and first EMAIL
-        (or identical FN with no email), they will generate the same source_id hash.
-        This is spec-compliant per FR-5.4 (deterministic hash of FN + first EMAIL),
-        but downstream deduplication logic (DocumentStore, Differ) keying on source_id
-        may silently overwrite one contact with the other. Upstream systems should
-        use explicit UIDs to distinguish logically separate contacts.
+        - Contact ID collisions (two contacts with identical FN and first EMAIL, or
+          identical FN with no email) raise ContactIDCollisionError to prevent silent
+          data loss. The pipeline catches this per-source and reports the collision.
 
         Args:
             source_ref: Source-specific reference (unused for vCard adapter)
@@ -144,6 +187,7 @@ class VCardAdapter(BaseAdapter):
 
         Raises:
             FileNotFoundError: If vcf_directory does not exist
+            ContactIDCollisionError: If two contacts have identical contact_id (same FN and first EMAIL)
         """
         # Ensure directory exists and is accessible
         if not self._vcf_directory.exists():
@@ -202,15 +246,13 @@ class VCardAdapter(BaseAdapter):
                         # Detect collisions: same source_id for different contacts
                         if contact_id in seen_ids:
                             prev_name, prev_file = seen_ids[contact_id]
-                            logger.warning(
-                                f"Contact ID collision detected: '{metadata.display_name}' (from {vcf_file.name}) "
-                                f"and '{prev_name}' (from {prev_file.name}) both hash to {contact_id}. "
-                                f"This occurs when contacts have identical FN and first EMAIL. "
-                                f"Skipping this contact to prevent data loss; use explicit UIDs to distinguish."
+                            raise ContactIDCollisionError(
+                                contact_id=contact_id,
+                                first_contact_name=prev_name,
+                                first_contact_file=prev_file,
+                                second_contact_name=metadata.display_name,
+                                second_contact_file=vcf_file,
                             )
-                            # Skip yielding this contact to prevent overwriting the first contact
-                            contact_index += 1
-                            continue
 
                         # Record this contact_id to detect future collisions
                         seen_ids[contact_id] = (metadata.display_name, vcf_file)
@@ -224,6 +266,9 @@ class VCardAdapter(BaseAdapter):
                         )
                         contact_index += 1
 
+                    except ContactIDCollisionError:
+                        # Re-raise collision errors to prevent silent data loss
+                        raise
                     except Exception as contact_err:  # Catch all per-contact errors (ValueError, KeyError, TypeError, AttributeError, ValidationError, etc.)
                         logger.error(
                             f"Error processing contact at index {contact_index} in {vcf_file.name}: {contact_err}. "
@@ -232,6 +277,9 @@ class VCardAdapter(BaseAdapter):
                         contact_index += 1
                         continue
 
+            except ContactIDCollisionError:
+                # Re-raise collision errors to prevent silent data loss
+                raise
             except Exception as parse_err:
                 # Catch vobject.ParseError (if vobject is available) and other exceptions
                 # from vobject.readComponents. Check if it's a vobject ParseError specifically.
