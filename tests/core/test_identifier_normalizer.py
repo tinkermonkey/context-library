@@ -1,6 +1,5 @@
 """Tests for identifier normalization functions."""
 
-import pytest
 
 from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 
