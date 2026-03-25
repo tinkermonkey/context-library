@@ -55,7 +55,7 @@ def normalize_phone(phone: str) -> str:
     - "+1-555-123-4567" → "+15551234567"
     - "+44 20 7946 0958" → "+442079460958" (international, +44 preserved)
     - "555-123-4567 ext. 123" → "+15551234567" (extension stripped)
-    - "0555 123 4567" → "+1555123456" (leading zero stripped for US, NOT "+105551234567")
+    - "0555 123 4567" → "+15551234567" (leading zero stripped for US, NOT "+105551234567")
 
     By normalizing domestic numbers to "+1", we enable entity linking between
     contacts and messages that reference the same number with and without the
