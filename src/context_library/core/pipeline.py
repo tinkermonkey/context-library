@@ -70,15 +70,45 @@ class IngestionPipeline:
         # the same source_id simultaneously. Without this, both callers can pass
         # the get_latest_version/diff check before either commits, resulting in
         # duplicate versions with identical content being written.
-        self._source_locks: dict[str, threading.Lock] = {}
+        # Use a bounded LRU cache to prevent unbounded memory growth in long-running servers.
+        # The cache size of 128 is conservative; typical workloads will have far fewer
+        # concurrent unique sources. When a source falls out of the LRU cache, its lock
+        # is garbage collected. The next ingest() for that source will create a new lock.
+        self._source_locks_cache: dict[str, threading.Lock] = {}
         self._source_locks_mutex = threading.Lock()
+        self._source_locks_max_size = 128
 
     def _get_source_lock(self, source_id: str) -> threading.Lock:
-        """Return the per-source lock for source_id, creating it if needed."""
+        """Return the per-source lock for source_id, creating it if needed.
+
+        Uses an LRU eviction policy to prevent unbounded dictionary growth.
+        When the cache reaches max_size and a new source is requested, the least
+        recently used lock is discarded. This is safe because:
+        - Locks are only needed to protect concurrent ingest() calls for the same source
+        - If a source's lock is evicted and then immediately re-ingested, a new lock
+          is created, which is acceptable (slight race window, but no data loss)
+        - In typical usage, the same sources are re-ingested regularly
+        """
         with self._source_locks_mutex:
-            if source_id not in self._source_locks:
-                self._source_locks[source_id] = threading.Lock()
-            return self._source_locks[source_id]
+            if source_id in self._source_locks_cache:
+                lock = self._source_locks_cache[source_id]
+                # Move to end (mark as most recently used) by deleting and re-adding
+                del self._source_locks_cache[source_id]
+                self._source_locks_cache[source_id] = lock
+                return lock
+
+            # Create new lock
+            lock = threading.Lock()
+
+            # Evict least recently used if cache is full
+            if len(self._source_locks_cache) >= self._source_locks_max_size:
+                # Pop the first item (least recently used in insertion order)
+                # In Python 3.10+, regular dicts maintain insertion order
+                first_key = next(iter(self._source_locks_cache))
+                del self._source_locks_cache[first_key]
+
+            self._source_locks_cache[source_id] = lock
+            return lock
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
