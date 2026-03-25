@@ -270,15 +270,65 @@ class TestIngestEntityLinking:
         assert data["entity_linking_status"] is None
         assert data["entity_linking_error"] is None
 
-    def test_entity_linking_not_triggered_when_ingestion_fails(
+    def test_entity_linking_runs_on_partial_ingestion_success(
         self, client: TestClient
     ) -> None:
-        """Verify entity linking does not run if People ingestion has failures."""
-        # Use a mock that will report sources_failed > 0
+        """Verify entity linking runs even when ingestion has partial failures, with indication."""
+        # Use a mock that will report sources_failed > 0 but sources_processed > 0
         mock_pipeline = client.app.state.pipeline
         mock_pipeline.ingest.return_value = {
-            "sources_processed": 1,
-            "sources_failed": 1,  # Failure means entity linking shouldn't run
+            "sources_processed": 999,
+            "sources_failed": 1,  # Partial failure: 999 succeeded, 1 failed
+            "chunks_added": 999,
+            "chunks_removed": 0,
+            "chunks_unchanged": 0,
+            "errors": [{"source_id": "person-1000", "error_type": "ChunkingError", "message": "Invalid format"}],
+        }
+
+        payload = {
+            "adapter_id": "people-adapter",
+            "domain": "people",
+            "normalizer_version": "1.0.0",
+            "items": [
+                {
+                    "source_id": "person-1",
+                    "markdown": "Name: John Doe\nEmail: john@example.com",
+                    "structural_hints": _make_structural_hints(),
+                }
+            ],
+        }
+
+        # Mock EntityLinker to track if it's called
+        with patch(
+            "context_library.server.routes.ingest.EntityLinker"
+        ) as mock_linker_class:
+            mock_linker_instance = MagicMock()
+            mock_linker_instance.run.return_value = (100, 0)  # 100 links created, 0 failed
+            mock_linker_class.return_value = mock_linker_instance
+
+            resp = client.post("/webhooks/ingest", json=payload)
+            # Should return 200 (partial success) and entity linking should have been triggered
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "partial"
+            # Entity linking should have run and succeeded
+            assert data["entity_linking_status"] == "ok"
+            # Error message should indicate linking ran on partial data
+            assert "partial ingestion" in data["entity_linking_error"].lower()
+            assert data["entity_linking_error"] is not None
+            # Verify EntityLinker was instantiated and run() was called
+            mock_linker_class.assert_called_once()
+            mock_linker_instance.run.assert_called_once()
+
+    def test_entity_linking_not_triggered_when_all_ingestion_fails(
+        self, client: TestClient
+    ) -> None:
+        """Verify entity linking does not run if all People ingestion fails (no successful processing)."""
+        # Use a mock that will report sources_processed = 0 (nothing succeeded)
+        mock_pipeline = client.app.state.pipeline
+        mock_pipeline.ingest.return_value = {
+            "sources_processed": 0,  # All sources failed
+            "sources_failed": 1,
             "chunks_added": 0,
             "chunks_removed": 0,
             "chunks_unchanged": 0,
@@ -298,7 +348,7 @@ class TestIngestEntityLinking:
             ],
         }
         resp = client.post("/webhooks/ingest", json=payload)
-        # Should return 200 (partial success) but entity linking should not be triggered
+        # Should return 200 but entity linking should not run since nothing was processed
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "partial"
@@ -563,20 +613,60 @@ class TestHelperIngestEntityLinking:
             assert result["entity_linking_status"] == "ok"
             assert result["entity_linking_error"] is None
 
-    def test_helper_ingest_entity_linking_not_triggered_on_failure(
+    def test_helper_ingest_entity_linking_runs_on_partial_failure(
         self, client: TestClient
     ) -> None:
-        """Verify entity linking does not run if People helper ingestion fails."""
+        """Verify entity linking runs even with partial People helper ingestion failure."""
         # Set up People helper adapter
         mock_adapter = MagicMock(spec=BaseAdapter)
         mock_adapter.adapter_id = "people-helper"
         mock_adapter.domain = Domain.PEOPLE
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock pipeline to report ingestion failure
+        # Mock pipeline to report partial success (some processed, some failed)
         mock_pipeline = client.app.state.pipeline
         mock_pipeline.ingest.return_value = {
-            "sources_processed": 1,
+            "sources_processed": 999,
+            "sources_failed": 1,
+            "chunks_added": 999,
+            "chunks_removed": 0,
+            "chunks_unchanged": 0,
+            "errors": [{"source_id": "person-1000", "error_type": "ChunkingError", "message": "Invalid"}],
+        }
+
+        # Mock EntityLinker
+        with patch(
+            "context_library.server.routes.ingest.EntityLinker"
+        ) as mock_linker_class:
+            mock_linker_instance = MagicMock()
+            mock_linker_instance.run.return_value = (50, 0)  # 50 links created, 0 failed
+            mock_linker_class.return_value = mock_linker_instance
+
+            resp = client.post("/ingest/helpers")
+            assert resp.status_code == 200
+            data = resp.json()
+            result = data["results"][0]
+            assert result["status"] == "partial"
+            # Entity linking should have run and succeeded
+            assert result["entity_linking_status"] == "ok"
+            # Error message should indicate partial ingestion data
+            assert result["entity_linking_error"] is not None
+            assert "partial ingestion" in result["entity_linking_error"].lower()
+
+    def test_helper_ingest_entity_linking_not_triggered_when_all_fails(
+        self, client: TestClient
+    ) -> None:
+        """Verify entity linking does not run if all People helper ingestion fails (sources_processed=0)."""
+        # Set up People helper adapter
+        mock_adapter = MagicMock(spec=BaseAdapter)
+        mock_adapter.adapter_id = "people-helper"
+        mock_adapter.domain = Domain.PEOPLE
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock pipeline to report all sources failed (nothing processed)
+        mock_pipeline = client.app.state.pipeline
+        mock_pipeline.ingest.return_value = {
+            "sources_processed": 0,  # Nothing succeeded
             "sources_failed": 1,
             "chunks_added": 0,
             "chunks_removed": 0,
