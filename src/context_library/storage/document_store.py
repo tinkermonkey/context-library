@@ -509,6 +509,7 @@ class DocumentStore:
         origin_ref: str,
         poll_strategy: PollStrategy = PollStrategy.PULL,
         poll_interval_sec: int | None = None,
+        display_name: str | None = None,
     ) -> None:
         """Register a source.
 
@@ -545,10 +546,10 @@ class DocumentStore:
                 self.conn.execute(
                     """
                     INSERT INTO sources
-                    (source_id, adapter_id, domain, origin_ref, poll_strategy, poll_interval_sec)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (source_id, adapter_id, domain, origin_ref, display_name, poll_strategy, poll_interval_sec)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (source_id, adapter_id, domain.value, origin_ref, poll_strategy.value, poll_interval_sec),
+                    (source_id, adapter_id, domain.value, origin_ref, display_name, poll_strategy.value, poll_interval_sec),
                 )
             else:
                 # Check if domain is changing
@@ -586,6 +587,14 @@ class DocumentStore:
                     """,
                     (adapter_id, domain.value, poll_strategy.value, poll_interval_sec, source_id),
                 )
+
+    def update_display_name(self, source_id: str, display_name: str) -> None:
+        """Update the display_name for a source if it differs from the stored value."""
+        with self._write_lock, self.conn:
+            self.conn.execute(
+                "UPDATE sources SET display_name = ? WHERE source_id = ? AND (display_name IS NULL OR display_name != ?)",
+                (display_name, source_id, display_name),
+            )
 
     def create_source_version(
         self,

@@ -172,6 +172,12 @@ class IngestionPipeline:
                         # Chunk the current content
                         chunks = effective_chunker.chunk(content)
 
+                        # Extract display_name from chunk domain_metadata (e.g. "title" for
+                        # documents/notes). Always written so existing sources are backfilled.
+                        display_name: str | None = None
+                        if chunks and chunks[0].domain_metadata:
+                            display_name = chunks[0].domain_metadata.get("title")
+
                         # Compute current chunk hashes
                         curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
 
@@ -184,10 +190,12 @@ class IngestionPipeline:
                             prev_markdown, content.markdown, prev_chunk_hashes, curr_chunk_hashes
                         )
 
-                        # Case 1: Content unchanged - just update last_fetched_at, skip writes
+                        # Case 1: Content unchanged - just update last_fetched_at, skip writes.
+                        # Still update display_name so existing sources are backfilled.
                         if not diff_result.changed:
-                            # Update last_fetched_at to track when we last checked this source
                             self.document_store.update_last_fetched_at(content.source_id)
+                            if display_name:
+                                self.document_store.update_display_name(content.source_id, display_name)
                             chunks_unchanged_total += len(chunks)
                             continue
 
@@ -202,7 +210,10 @@ class IngestionPipeline:
                                 domain=effective_domain,
                                 origin_ref=content.structural_hints.file_path or content.source_id,
                                 poll_strategy=poll_strategy,
+                                display_name=display_name,
                             )
+                        elif display_name:
+                            self.document_store.update_display_name(content.source_id, display_name)
 
                         # Create source version with atomically assigned version number.
                         # create_next_source_version computes MAX(version)+1 inside the
