@@ -76,6 +76,11 @@ class FilesystemHelperAdapter(RemoteAdapter):
         if page_size != 50:
             self._fetch_params["page_size"] = page_size
 
+    #: FilesystemHelperAdapter requires proactive background polling.
+    #: The bridge only pushes filesystem changes on file events; the library
+    #: must also pull on a schedule to catch up after restarts or quiet periods.
+    background_poll: bool = True
+
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
