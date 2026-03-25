@@ -1220,7 +1220,7 @@ class TestSourceLocksLRUCache:
         lock_ids = []
         for i in range(100):
             source_id = f"source_{i:03d}"
-            lock = pipeline._get_source_lock(source_id)
+            pipeline._get_source_lock(source_id)
             lock_ids.append(source_id)
 
         # Verify all 100 are in cache
