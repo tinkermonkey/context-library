@@ -34,5 +34,6 @@ class ServerConfig(BaseSettings):
     helper_url: str = ""
     helper_api_key: str = ""
     helper_filesystem_enabled: bool = False
+    helper_filesystem_timeout: float = 300.0  # seconds; large dirs can be slow to start streaming
     helper_obsidian_enabled: bool = False
     helper_oura_enabled: bool = False

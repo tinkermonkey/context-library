@@ -25,6 +25,8 @@ Expected endpoint contract:
 
 import json as _json
 import logging
+import mimetypes
+from pathlib import PurePosixPath
 from typing import Iterator
 
 from pydantic import ValidationError
@@ -50,16 +52,20 @@ class FilesystemHelperAdapter(RemoteAdapter):
         extensions: list[str] | None = None,
         max_size_mb: float | None = None,
         page_size: int = 50,
+        timeout: float = 300.0,
     ) -> None:
         if not api_key:
             raise ValueError("api_key is required for FilesystemHelperAdapter")
 
         # Pass service_url with /filesystem suffix so RemoteAdapter posts to /filesystem/fetch
+        # Use a long timeout (default 300s) because the bridge may scan a large directory
+        # before streaming the first NDJSON line.
         super().__init__(
             service_url=f"{api_url.rstrip('/')}/filesystem",
             domain=Domain.DOCUMENTS,
             adapter_id=f"filesystem_helper:{directory_id}",
             api_key=api_key,
+            timeout=timeout,
         )
         self._directory_id = directory_id
         self._fetch_params: dict = {"stream": True}
@@ -73,6 +79,25 @@ class FilesystemHelperAdapter(RemoteAdapter):
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
+
+    @staticmethod
+    def _synthesize_extra_metadata(content: NormalizedContent) -> dict:
+        """Build minimal DocumentMetadata when the bridge doesn't provide extra_metadata.
+
+        Uses source_id as the file path to extract title and infer document_type.
+        """
+        path = PurePosixPath(content.source_id)
+        stem = path.stem
+        suffix = path.suffix.lower()
+        mime, _ = mimetypes.guess_type(f"file{suffix}")
+        return {
+            "document_id": content.source_id,
+            "title": stem.replace("-", " ").replace("_", " "),
+            "document_type": mime or "text/markdown",
+            "source_type": "filesystem",
+            "modified_at": content.structural_hints.modified_at,
+            "file_size_bytes": content.structural_hints.file_size_bytes,
+        }
 
     def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         """Fetch and normalize content via NDJSON streaming.
@@ -132,7 +157,15 @@ class FilesystemHelperAdapter(RemoteAdapter):
                         )
                     return
                 try:
-                    yield NormalizedContent.model_validate(obj)
+                    nc = NormalizedContent.model_validate(obj)
+                    # Bridge does not populate extra_metadata; synthesize it so
+                    # DocumentsDomain has the required DocumentMetadata fields.
+                    if nc.structural_hints.extra_metadata is None:
+                        patched_hints = nc.structural_hints.model_copy(
+                            update={"extra_metadata": self._synthesize_extra_metadata(nc)}
+                        )
+                        nc = nc.model_copy(update={"structural_hints": patched_hints})
+                    yield nc
                 except ValidationError as e:
                     logger.error(
                         "FilesystemHelperAdapter: failed to validate NormalizedContent: %s", e

@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
         if config.helper_filesystem_enabled:
             try:
                 from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
-                helper_adapters.append(FilesystemHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+                helper_adapters.append(FilesystemHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key, timeout=config.helper_filesystem_timeout))
             except ImportError as e:
                 logger.warning("FilesystemHelperAdapter not available (missing dependency): %s", e)
 
