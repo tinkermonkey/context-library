@@ -846,8 +846,8 @@ class EntityLink(NamedTuple):
     reordering and provides explicit field names, making source/target swaps impossible.
     """
 
-    source_chunk_hash: str
-    target_chunk_hash: str
+    source_chunk_hash: Sha256Hash
+    target_chunk_hash: Sha256Hash
     link_type: str
     confidence: float = 1.0
 

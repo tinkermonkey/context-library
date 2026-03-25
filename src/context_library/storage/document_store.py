@@ -2361,21 +2361,24 @@ class DocumentStore:
 
         cursor = self.conn.cursor()
 
-        # Normalize all query identifiers once, building as a set
-        normalized_query_identifiers: set[str] = set()
+        # Normalize all query identifiers once, building as a list
+        normalized_query_identifiers: list[str] = []
+        seen = set()
         for identifier in identifiers:
             # Simple heuristic: if it contains '@', treat as email; otherwise as phone
             if "@" in identifier:
                 normalized = normalize_email(identifier)
             else:
                 normalized = normalize_phone(identifier)
-            if normalized:
-                normalized_query_identifiers.add(normalized)
+            if normalized and normalized not in seen:
+                normalized_query_identifiers.append(normalized)
+                seen.add(normalized)
 
         if not normalized_query_identifiers:
             return []
 
-        # Build SQL conditions for scalar fields (e.g., sender, host, author)
+        # Build SQL conditions and parameters incrementally
+        params: list = []
         scalar_conditions = []
         for field in scalar_fields:
             # Use custom functions for emails and phones
@@ -2384,6 +2387,9 @@ class DocumentStore:
                  OR
                  normalize_phone_sql(json_extract(c.domain_metadata, '$.{field}')) IN ({','.join('?' * len(normalized_query_identifiers))}))
             """)
+            # Add parameters for email matching: normalized_query_identifiers twice (once for email, once for phone)
+            params.extend(normalized_query_identifiers)
+            params.extend(normalized_query_identifiers)
 
         # Build SQL conditions for array fields (e.g., recipients, invitees, collaborators)
         array_conditions = []
@@ -2395,6 +2401,9 @@ class DocumentStore:
                        OR normalize_phone_sql(json_each.value) IN ({','.join('?' * len(normalized_query_identifiers))})
                 )
             """)
+            # Add parameters for array matching: normalized_query_identifiers twice (once for email, once for phone)
+            params.extend(normalized_query_identifiers)
+            params.extend(normalized_query_identifiers)
 
         # Combine all conditions
         where_conditions = []
@@ -2416,13 +2425,9 @@ class DocumentStore:
 
         if exclude_domain:
             query += " AND s.domain != ?"
-            # Build parameter list: each condition uses normalized_query_identifiers twice
-            params = list(normalized_query_identifiers) * (2 * len(scalar_conditions) + 2 * len(array_conditions)) + [exclude_domain]
-            cursor.execute(query, params)
-        else:
-            # Build parameter list: each condition uses normalized_query_identifiers twice
-            params = list(normalized_query_identifiers) * (2 * len(scalar_conditions) + 2 * len(array_conditions))
-            cursor.execute(query, params)
+            params.append(exclude_domain)
+
+        cursor.execute(query, params)
 
         rows = cursor.fetchall()
         found_hashes = {row[0] for row in rows}
