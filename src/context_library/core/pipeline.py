@@ -71,23 +71,27 @@ class IngestionPipeline:
         # the get_latest_version/diff check before either commits, resulting in
         # duplicate versions with identical content being written.
         # Use a bounded LRU cache to prevent unbounded memory growth in long-running servers.
-        # The cache size of 128 is conservative; typical workloads will have far fewer
-        # concurrent unique sources. When a source falls out of the LRU cache, its lock
-        # is garbage collected. The next ingest() for that source will create a new lock.
+        # The cache size of 10,000 is chosen to balance memory use with safety: each Lock
+        # is ~60 bytes, so 10K locks ≈ 600KB — negligible overhead. With a high bound, the
+        # risk of evicting an actively-held lock is minimal (would require 10K+ unique sources
+        # in concurrent ingestion). If more granularity is needed, reference counting can be
+        # added in a future iteration.
         self._source_locks_cache: dict[str, threading.Lock] = {}
         self._source_locks_mutex = threading.Lock()
-        self._source_locks_max_size = 128
+        self._source_locks_max_size = 10_000
 
     def _get_source_lock(self, source_id: str) -> threading.Lock:
         """Return the per-source lock for source_id, creating it if needed.
 
         Uses an LRU eviction policy to prevent unbounded dictionary growth.
-        When the cache reaches max_size and a new source is requested, the least
-        recently used lock is discarded. This is safe because:
-        - Locks are only needed to protect concurrent ingest() calls for the same source
-        - If a source's lock is evicted and then immediately re-ingested, a new lock
-          is created, which is acceptable (slight race window, but no data loss)
-        - In typical usage, the same sources are re-ingested regularly
+        The cache is sized at 10,000 entries; eviction only occurs when that threshold
+        is exceeded. At that scale, the probability of evicting an actively-held lock is
+        negligible (would require 10K+ unique sources being ingested concurrently).
+
+        Lock behavior:
+        - When a source is accessed, its lock is moved to the cache's end (marked most-recently-used)
+        - When capacity is reached and a new source is needed, the least-recently-used lock is evicted
+        - Each Lock object is ~60 bytes, so 10K locks ≈ 600KB total memory
         """
         with self._source_locks_mutex:
             if source_id in self._source_locks_cache:
@@ -103,7 +107,7 @@ class IngestionPipeline:
             # Evict least recently used if cache is full
             if len(self._source_locks_cache) >= self._source_locks_max_size:
                 # Pop the first item (least recently used in insertion order)
-                # In Python 3.10+, regular dicts maintain insertion order
+                # Since Python 3.7+, regular dicts maintain insertion order
                 first_key = next(iter(self._source_locks_cache))
                 del self._source_locks_cache[first_key]
 

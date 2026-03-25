@@ -1196,3 +1196,118 @@ class TestPipelineErrorHandling:
                 # Verify error sources are tracked
                 error_sources = {error["source_id"] for error in result["errors"]}
                 assert len(error_sources) == result["sources_failed"]
+
+
+class TestSourceLocksLRUCache:
+    """Tests for the _source_locks LRU cache behavior."""
+
+    def test_source_lock_cache_stays_bounded(self, pipeline):
+        """Cache should remain bounded at max_size even after accessing many sources."""
+        # Access 15,000 unique sources (well beyond the 10,000 limit)
+        for i in range(15_000):
+            source_id = f"source_{i:05d}"
+            lock = pipeline._get_source_lock(source_id)
+            assert lock is not None
+
+        # Cache size should not exceed the maximum
+        assert len(pipeline._source_locks_cache) <= pipeline._source_locks_max_size
+        # Should be at exactly max_size since we've exceeded it
+        assert len(pipeline._source_locks_cache) == pipeline._source_locks_max_size
+
+    def test_source_lock_cache_lru_ordering(self, pipeline):
+        """Recently accessed locks should survive eviction; old ones should be evicted."""
+        # Add 100 sources (well below the 10,000 limit, but enough to test ordering)
+        lock_ids = []
+        for i in range(100):
+            source_id = f"source_{i:03d}"
+            lock = pipeline._get_source_lock(source_id)
+            lock_ids.append(source_id)
+
+        # Verify all 100 are in cache
+        assert len(pipeline._source_locks_cache) == 100
+
+        # Access source_0 again (move it to end, mark most-recently-used)
+        lock_0 = pipeline._get_source_lock("source_000")
+        assert lock_0 is not None
+
+        # The cache should still have 100 entries (no eviction yet)
+        assert len(pipeline._source_locks_cache) == 100
+
+        # Verify source_000 is at the end (last key in the dict)
+        cache_keys = list(pipeline._source_locks_cache.keys())
+        assert cache_keys[-1] == "source_000"
+
+    def test_source_lock_reuse_same_lock(self, pipeline):
+        """Same source_id should always return the same lock object (until evicted)."""
+        source_id = "test_source"
+
+        # Get lock multiple times
+        lock1 = pipeline._get_source_lock(source_id)
+        lock2 = pipeline._get_source_lock(source_id)
+        lock3 = pipeline._get_source_lock(source_id)
+
+        # All should be the same object
+        assert lock1 is lock2
+        assert lock2 is lock3
+
+    def test_source_lock_eviction_creates_new_lock(self, pipeline):
+        """When a source's lock is evicted, requesting it again creates a new lock."""
+        # This test verifies the documented behavior: after eviction,
+        # a new lock is created (not the old one).
+
+        # Access the limit + 1 sources to force eviction
+        source_ids = [f"source_{i:05d}" for i in range(pipeline._source_locks_max_size + 1)]
+
+        # Get lock for first source before eviction
+        first_lock = pipeline._get_source_lock(source_ids[0])
+        assert first_lock is not None
+
+        # Fill the cache by accessing all the other sources
+        for source_id in source_ids[1:]:
+            pipeline._get_source_lock(source_id)
+
+        # The first source's lock should have been evicted (cache is full)
+        assert source_ids[0] not in pipeline._source_locks_cache
+
+        # Request the first source again
+        new_lock = pipeline._get_source_lock(source_ids[0])
+
+        # Should be a new lock object (different from the original)
+        assert new_lock is not first_lock
+        # But it should be in the cache now
+        assert source_ids[0] in pipeline._source_locks_cache
+
+    def test_source_lock_cache_thread_safety(self, pipeline):
+        """Cache operations should be thread-safe (protected by mutex)."""
+        import threading
+
+        errors = []
+
+        def worker(start_idx, end_idx):
+            try:
+                for i in range(start_idx, end_idx):
+                    source_id = f"source_{i:05d}"
+                    lock = pipeline._get_source_lock(source_id)
+                    # Simulate some work with the lock
+                    with lock:
+                        pass
+            except Exception as e:
+                errors.append(e)
+
+        # Spawn multiple threads to access locks concurrently
+        threads = []
+        for t_id in range(10):
+            start = t_id * 1000
+            end = start + 1000
+            thread = threading.Thread(target=worker, args=(start, end))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Should have no errors
+        assert len(errors) == 0
+        # Cache should be bounded
+        assert len(pipeline._source_locks_cache) <= pipeline._source_locks_max_size
