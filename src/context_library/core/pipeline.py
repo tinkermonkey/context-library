@@ -13,6 +13,7 @@ from context_library.core.exceptions import (
     AllSourcesFailedError,
 )
 from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.domains.base import BaseDomain
 from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
@@ -463,6 +464,24 @@ class IngestionPipeline:
             })
             sources_failed += 1
             # Continue to next adapter; this adapter yielded no data
+        except ContactIDCollisionError as e:
+            # Contact ID collision: two distinct contacts have identical contact_id
+            # Log the collision with detailed context for debugging
+            logger.error(
+                f"Contact ID collision in adapter {adapter.adapter_id}: {e}"
+            )
+            errors.append({
+                "source_id": None,  # Adapter-level failure, not source-level
+                "error_type": "ContactIDCollisionError",
+                "message": str(e),
+                "collision_contact_id": e.contact_id,
+                "first_contact_name": e.first_contact_name,
+                "first_contact_file": str(e.first_contact_file),
+                "second_contact_name": e.second_contact_name,
+                "second_contact_file": str(e.second_contact_file),
+            })
+            sources_failed += 1
+            # Continue to next adapter; collision prevents further processing
 
 
         # Raise if all sources failed

@@ -177,7 +177,8 @@ class VCardAdapter(BaseAdapter):
           is attempted with an explicit warning that data may be garbled.
         - Contact ID collisions (two contacts with identical FN and first EMAIL, or
           identical FN with no email) raise ContactIDCollisionError to prevent silent
-          data loss. The pipeline catches this per-source and reports the collision.
+          data loss. The pipeline catches this and reports the collision in the errors
+          list, allowing the API caller to be notified of the collision.
 
         Args:
             source_ref: Source-specific reference (unused for vCard adapter)
