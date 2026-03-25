@@ -115,11 +115,12 @@ def mock_oura_httpx_get(monkeypatch):
 def mock_all_health_endpoints_integration(mock_health_httpx_get):
     """Fixture that configures Apple Health endpoints with empty responses for integration tests.
 
-    Note: Apple Health adapter only exposes /workouts. Sleep, activity, HRV, SpO2,
-    mindfulness, and heart rate metrics are served by the Oura adapter.
+    Apple Health adapter fetches from multiple endpoints: workouts, activity, sleep, spo2,
+    mindfulness, and heart-rate. This fixture sets up all of them with empty arrays.
     """
     base_url = "http://127.0.0.1:7124"
-    endpoints = ["/workouts"]
+    endpoints = ["/health/workouts", "/health/activity", "/health/sleep",
+                 "/health/spo2", "/health/mindfulness", "/health/heart-rate"]
 
     for endpoint in endpoints:
         mock_health_httpx_get.set_response(f"{base_url}{endpoint}", [])

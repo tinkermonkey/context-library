@@ -325,7 +325,7 @@ class TestIngestEntityLinking:
             "context_library.server.routes.ingest.EntityLinker"
         ) as mock_linker_class:
             mock_linker_instance = MagicMock()
-            mock_linker_instance.run.return_value = 5  # 5 new links created
+            mock_linker_instance.run.return_value = (5, 0)  # 5 new links created, 0 failures
             mock_linker_class.return_value = mock_linker_instance
 
             payload = {
@@ -466,7 +466,7 @@ class TestIngestEntityLinking:
             side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)
         ) as mock_to_thread:
             mock_linker_instance = MagicMock()
-            mock_linker_instance.run.return_value = 3
+            mock_linker_instance.run.return_value = (3, 0)  # 3 new links created, 0 failures
             mock_linker_class.return_value = mock_linker_instance
 
             payload = {
@@ -551,7 +551,7 @@ class TestHelperIngestEntityLinking:
             "context_library.server.routes.ingest.EntityLinker"
         ) as mock_linker_class:
             mock_linker_instance = MagicMock()
-            mock_linker_instance.run.return_value = 10
+            mock_linker_instance.run.return_value = (10, 0)  # 10 new links created, 0 failures
             mock_linker_class.return_value = mock_linker_instance
 
             resp = client.post("/ingest/helpers")

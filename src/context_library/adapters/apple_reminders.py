@@ -240,7 +240,7 @@ class AppleRemindersAdapter(BaseAdapter):
 
         # Make the API request
         response = self._client.get(
-            f"{self._api_url}/reminders/reminders",
+            f"{self._api_url}/reminders",
             params=params,
             headers=headers,
         )
