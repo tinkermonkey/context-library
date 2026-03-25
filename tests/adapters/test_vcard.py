@@ -425,7 +425,7 @@ END:VCARD"""
         assert "Tech Company" in markdown
 
     def test_markdown_includes_emails(self, tmp_path):
-        """Generated markdown includes email addresses."""
+        """Generated metadata includes email addresses (not in markdown per FR-6.3)."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
         vcard_content = """BEGIN:VCARD
@@ -439,12 +439,17 @@ END:VCARD"""
         self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
 
         results = list(adapter.fetch(""))
+        # Emails are excluded from markdown per FR-6.3 privacy requirements
         markdown = results[0].markdown
-        assert "carol@work.com" in markdown
-        assert "carol@personal.com" in markdown
+        assert "carol@work.com" not in markdown
+        assert "carol@personal.com" not in markdown
+        # But emails should be in metadata for entity linking
+        metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
+        assert "carol@work.com" in metadata.emails
+        assert "carol@personal.com" in metadata.emails
 
     def test_markdown_includes_phones(self, tmp_path):
-        """Generated markdown includes phone numbers."""
+        """Generated metadata includes phone numbers (not in markdown per FR-6.3)."""
         adapter = VCardAdapter(vcf_directory=str(tmp_path))
 
         vcard_content = """BEGIN:VCARD
@@ -458,9 +463,14 @@ END:VCARD"""
         self._create_vcard_file(tmp_path, "contacts.vcf", vcard_content)
 
         results = list(adapter.fetch(""))
+        # Phones are excluded from markdown per FR-6.3 privacy requirements
         markdown = results[0].markdown
-        assert "555-1111" in markdown
-        assert "555-2222" in markdown
+        assert "555-1111" not in markdown
+        assert "555-2222" not in markdown
+        # But phones should be in metadata for entity linking
+        metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
+        assert "555-1111" in metadata.phones
+        assert "555-2222" in metadata.phones
 
     def test_markdown_includes_notes(self, tmp_path):
         """Generated markdown includes notes when present."""

@@ -446,7 +446,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         assert "Tech Company" in markdown
 
     def test_markdown_includes_emails(self, mock_apple_contacts_client):
-        """Generated markdown includes email addresses."""
+        """Generated metadata includes email addresses (not in markdown per FR-6.3)."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         contacts_url = "http://127.0.0.1:7123/contacts"
@@ -466,12 +466,17 @@ class TestAppleContactsAdapterMarkdownGeneration:
         ])
 
         results = list(adapter.fetch(""))
+        # Emails are excluded from markdown per FR-6.3 privacy requirements
         markdown = results[0].markdown
-        assert "carol@work.com" in markdown
-        assert "carol@personal.com" in markdown
+        assert "carol@work.com" not in markdown
+        assert "carol@personal.com" not in markdown
+        # But emails should be in metadata for entity linking
+        metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
+        assert "carol@work.com" in metadata.emails
+        assert "carol@personal.com" in metadata.emails
 
     def test_markdown_includes_phones(self, mock_apple_contacts_client):
-        """Generated markdown includes phone numbers."""
+        """Generated metadata includes phone numbers (not in markdown per FR-6.3)."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         contacts_url = "http://127.0.0.1:7123/contacts"
@@ -491,9 +496,14 @@ class TestAppleContactsAdapterMarkdownGeneration:
         ])
 
         results = list(adapter.fetch(""))
+        # Phones are excluded from markdown per FR-6.3 privacy requirements
         markdown = results[0].markdown
-        assert "555-1111" in markdown
-        assert "555-2222" in markdown
+        assert "555-1111" not in markdown
+        assert "555-2222" not in markdown
+        # But phones should be in metadata for entity linking
+        metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
+        assert "555-1111" in metadata.phones
+        assert "555-2222" in metadata.phones
 
     def test_markdown_includes_notes(self, mock_apple_contacts_client):
         """Generated markdown includes notes when present."""
