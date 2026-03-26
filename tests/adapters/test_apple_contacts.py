@@ -89,7 +89,7 @@ class TestAppleContactsAdapterFetch:
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # Mock contacts response
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -115,7 +115,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() yields NormalizedContent for multiple contacts."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -152,7 +152,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() passes 'since' query parameter for incremental fetch."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [])
 
         list(adapter.fetch("2026-03-06T10:00:00Z"))
@@ -168,7 +168,7 @@ class TestAppleContactsAdapterFetch:
             api_key="test_token_123"
         )
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [])
 
         list(adapter.fetch(""))
@@ -186,7 +186,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() extracts multiple email addresses."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -212,7 +212,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() extracts multiple phone numbers."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -239,7 +239,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() handles contacts with missing optional fields."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -269,7 +269,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() produces PeopleMetadata that passes model_validate."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -298,7 +298,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() propagates HTTP errors."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, {}, status_code=500)
 
         with pytest.raises(httpx.HTTPStatusError):
@@ -308,7 +308,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() raises ValueError if response is not a list."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, {"contacts": []})  # Should be a list, not dict
 
         with pytest.raises(ValueError, match="must be a list"):
@@ -318,7 +318,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() raises KeyError if contact is missing required field."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -341,7 +341,7 @@ class TestAppleContactsAdapterFetch:
         """fetch() raises TypeError if contact field has wrong type."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -401,7 +401,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated markdown includes contact display name."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -424,7 +424,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated markdown includes job title and organization."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -449,7 +449,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated metadata includes email addresses (not in markdown per FR-6.3)."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -479,7 +479,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated metadata includes phone numbers (not in markdown per FR-6.3)."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -509,7 +509,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated markdown includes notes when present."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -532,7 +532,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated markdown correctly formats when only organization is present."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",
@@ -558,7 +558,7 @@ class TestAppleContactsAdapterMarkdownGeneration:
         """Generated markdown correctly formats when only job title is present."""
         adapter = AppleContactsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        contacts_url = "http://127.0.0.1:7123/contacts"
+        contacts_url = "http://127.0.0.1:7123/contacts/contacts"
         mock_apple_contacts_client.set_response(contacts_url, [
             {
                 "id": "contact-1",

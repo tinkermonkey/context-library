@@ -9,7 +9,7 @@ Expected Local Service API Contract:
 
 The macOS helper service should expose the following HTTP endpoint:
 
-  GET /contacts
+  GET /contacts/contacts
     Query parameters:
       - since (optional): ISO 8601 timestamp; return contacts modified after this time
 
@@ -231,7 +231,7 @@ class AppleContactsAdapter(BaseAdapter):
 
         # Make the API request
         response = self._client.get(
-            f"{self._api_url}/contacts",
+            f"{self._api_url}/contacts/contacts",
             params=params,
             headers=headers,
         )
