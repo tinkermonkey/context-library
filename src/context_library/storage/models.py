@@ -41,6 +41,7 @@ class Domain(str, Enum):
     TASKS = "tasks"
     HEALTH = "health"
     DOCUMENTS = "documents"
+    PEOPLE = "people"
 
 
 class ChunkType(str, Enum):
@@ -703,6 +704,56 @@ class DocumentMetadata(BaseModel):
         return value
 
 
+class PeopleMetadata(BaseModel):
+    """Contact metadata extracted by people/contacts adapters.
+
+    Captures contact identification, communication channels, and organizational context
+    for people-based chunking and cross-domain entity linking.
+
+    Invariants:
+    - contact_id, display_name, and source_type must be non-empty strings
+    - emails and phones are tuples of strings (empty tuple by default)
+    - given_name, family_name, organization, job_title, and notes are optional strings
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    contact_id: str
+    display_name: str
+    given_name: str | None = None
+    family_name: str | None = None
+    emails: tuple[str, ...] = ()
+    phones: tuple[str, ...] = ()
+    organization: str | None = None
+    job_title: str | None = None
+    notes: str | None = None
+    source_type: str
+
+    @field_validator("contact_id")
+    @classmethod
+    def validate_contact_id(cls, value: str) -> str:
+        """Validate that contact_id is not empty."""
+        if not value:
+            raise ValueError("contact_id must be a non-empty string")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def validate_display_name(cls, value: str) -> str:
+        """Validate that display_name is not empty."""
+        if not value:
+            raise ValueError("display_name must be a non-empty string")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+
 class NormalizedContent(BaseModel):
     """Content after adapter normalization (e.g., markdown extraction, deduplication).
 
@@ -781,6 +832,26 @@ class ChunkWithLineageContext(NamedTuple):
     domain: str
     normalizer_version: str
     embedding_model_id: str
+
+
+# Link type constants for entity_links table
+ENTITY_LINK_TYPE_PERSON_APPEARANCE = "person_appearance"
+
+
+class EntityLink(BaseModel):
+    """A cross-domain entity link between two chunks.
+
+    Represents a directed link from a source chunk to a target chunk with an optional
+    confidence score. Using Pydantic BaseModel ensures Sha256Hash validation actually
+    fires at runtime, preventing malformed hashes from being stored.
+    """
+
+    source_chunk_hash: Sha256Hash
+    target_chunk_hash: Sha256Hash
+    link_type: str
+    confidence: float = 1.0
+
+    model_config = ConfigDict(frozen=True)
 
 
 class SourceVersion(BaseModel):

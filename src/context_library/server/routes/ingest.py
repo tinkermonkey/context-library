@@ -3,10 +3,12 @@
 import asyncio
 import logging
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from context_library.core.exceptions import AllSourcesFailedError
+from context_library.core.entity_linker import EntityLinker
+from context_library.core.exceptions import AllSourcesFailedError, EntityLinkingError
 from context_library.domains.registry import get_domain_chunker
 from context_library.server.schemas import (
     AppleAdapterResult,
@@ -16,11 +18,69 @@ from context_library.server.schemas import (
     WebhookIngestResponse,
 )
 from context_library.server.webhook_adapter import WebhookAdapter
-from context_library.storage.models import NormalizedContent
+from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _run_entity_linking(
+    document_store: DocumentStore, adapter_id: str | None = None
+) -> tuple[Literal["ok", "failed", "partial"] | None, str | None]:
+    """Run entity linking pass and return (status, error_message).
+
+    Args:
+        document_store: The document store instance.
+        adapter_id: Optional adapter ID for logging context.
+
+    Returns:
+        Tuple of (status, error_message) where:
+        - "ok": Entity linking completed successfully with no per-chunk failures
+        - "partial": Entity linking completed but some chunks failed to link
+        - "failed": Entity linking failed entirely (cleanup or unexpected error)
+        - None: Entity linking was not run
+        error_message is None on success, contains details on failure.
+    """
+    try:
+        linker = EntityLinker(document_store=document_store)
+        total_links_created, total_chunks_failed = await asyncio.to_thread(linker.run)
+
+        if total_chunks_failed > 0:
+            status: Literal["partial"] = "partial"
+            if adapter_id:
+                logger.warning(
+                    "Entity linking pass for %s created %d new links but %d chunks failed",
+                    adapter_id,
+                    total_links_created,
+                    total_chunks_failed,
+                )
+            else:
+                logger.warning(
+                    "Entity linking pass created %d new links but %d chunks failed",
+                    total_links_created,
+                    total_chunks_failed,
+                )
+            return status, f"{total_chunks_failed} chunks failed to process"
+        else:
+            if adapter_id:
+                logger.info("Entity linking pass for %s created %d new links", adapter_id, total_links_created)
+            else:
+                logger.info("Entity linking pass created %d new links", total_links_created)
+            return "ok", None
+    except EntityLinkingError as e:
+        if adapter_id:
+            logger.error("Entity linking pass for %s failed: %s", adapter_id, e, exc_info=True)
+        else:
+            logger.error("Entity linking pass failed: %s", e, exc_info=True)
+        return "failed", str(e)
+    except Exception as e:
+        if adapter_id:
+            logger.error("Entity linking pass for %s failed with unexpected error: %s", adapter_id, e, exc_info=True)
+        else:
+            logger.error("Entity linking pass failed with unexpected error: %s", e, exc_info=True)
+        return "failed", f"{type(e).__name__}: {e}"
 
 
 @router.post("/webhooks/ingest", response_model=WebhookIngestResponse)
@@ -66,6 +126,20 @@ async def webhook_ingest(
         logger.error("Unexpected error during webhook ingestion: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {type(e).__name__}: {e}")
 
+    # Run entity linking pass for People domain if any items were successfully ingested
+    entity_linking_status: Literal["ok", "failed", "partial"] | None = None
+    entity_linking_error = None
+    if payload.domain == Domain.PEOPLE and result["sources_processed"] > 0:
+        entity_linking_status, entity_linking_error = await _run_entity_linking(
+            request.app.state.document_store
+        )
+        # If ingestion had partial failures, note this in the error message
+        if entity_linking_status is not None and result["sources_failed"] > 0:
+            if entity_linking_error is None:
+                entity_linking_error = f"Linking completed on partial ingestion data ({result['sources_processed']} sources processed, {result['sources_failed']} failed)"
+            else:
+                entity_linking_error = f"{entity_linking_error} (Note: ingestion had {result['sources_failed']} failures)"
+
     return WebhookIngestResponse(
         status="ok" if result["sources_failed"] == 0 else "partial",
         sources_processed=result["sources_processed"],
@@ -74,6 +148,8 @@ async def webhook_ingest(
         chunks_removed=result["chunks_removed"],
         chunks_unchanged=result["chunks_unchanged"],
         errors=[IngestError(**e) for e in result["errors"]],
+        entity_linking_status=entity_linking_status,
+        entity_linking_error=entity_linking_error,
     )
 
 
@@ -117,6 +193,21 @@ async def helper_ingest(
         domain_chunker = get_domain_chunker(adapter.domain)
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
+
+            # Run entity linking pass for People domain if any items were successfully ingested
+            entity_linking_status: Literal["ok", "failed", "partial"] | None = None
+            entity_linking_error = None
+            if adapter.domain == Domain.PEOPLE and result["sources_processed"] > 0:
+                entity_linking_status, entity_linking_error = await _run_entity_linking(
+                    request.app.state.document_store, adapter.adapter_id
+                )
+                # If ingestion had partial failures, note this in the error message
+                if entity_linking_status is not None and result["sources_failed"] > 0:
+                    if entity_linking_error is None:
+                        entity_linking_error = f"Linking completed on partial ingestion data ({result['sources_processed']} sources processed, {result['sources_failed']} failed)"
+                    else:
+                        entity_linking_error = f"{entity_linking_error} (Note: ingestion had {result['sources_failed']} failures)"
+
             results.append(AppleAdapterResult(
                 adapter_id=adapter.adapter_id,
                 status="ok" if result["sources_failed"] == 0 else "partial",
@@ -126,6 +217,8 @@ async def helper_ingest(
                 chunks_removed=result["chunks_removed"],
                 chunks_unchanged=result["chunks_unchanged"],
                 errors=[IngestError(**e) for e in result["errors"]],
+                entity_linking_status=entity_linking_status,
+                entity_linking_error=entity_linking_error,
             ))
         except Exception as e:
             logger.error("Apple adapter %s failed: %s", adapter.adapter_id, e, exc_info=True)

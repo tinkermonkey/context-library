@@ -1,11 +1,11 @@
 PRAGMA foreign_keys=ON;
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
-PRAGMA user_version=3;
+PRAGMA user_version=4;
 
 CREATE TABLE IF NOT EXISTS adapters (
     adapter_id          TEXT PRIMARY KEY,
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
     adapter_type        TEXT NOT NULL,
     normalizer_version  TEXT NOT NULL,
     config              TEXT,
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS adapters (
 CREATE TABLE IF NOT EXISTS sources (
     source_id           TEXT PRIMARY KEY,
     adapter_id          TEXT NOT NULL,
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
     origin_ref          TEXT NOT NULL,
     display_name        TEXT,
     current_version     INTEGER NOT NULL DEFAULT 0,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index         INTEGER NOT NULL,
     content             TEXT NOT NULL,
     context_header      TEXT,
-    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
     adapter_id          TEXT NOT NULL,
     fetch_timestamp     DATETIME NOT NULL,
     normalizer_version  TEXT NOT NULL,
@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     UNIQUE (source_id, source_version, chunk_index)
 );
 
+CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash);
 CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version);
 CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain);
 CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash);
@@ -94,6 +95,19 @@ WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
 END;
+
+CREATE TABLE IF NOT EXISTS entity_links (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_chunk_hash   TEXT NOT NULL,
+    target_chunk_hash   TEXT NOT NULL,
+    link_type           TEXT NOT NULL,
+    confidence          REAL NOT NULL DEFAULT 1.0,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash);
+CREATE INDEX IF NOT EXISTS idx_entity_links_target ON entity_links(target_chunk_hash);
 
 CREATE TABLE IF NOT EXISTS lancedb_sync_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1,6 +1,8 @@
 """Fixtures and configuration for adapter tests."""
 
 import sys
+import gc
+import time
 from unittest.mock import MagicMock
 
 import httpx
@@ -34,6 +36,19 @@ class MockHTML2Text:
         text = text.strip()
 
         return text
+
+
+def pytest_runtest_teardown(item):
+    """Hook that runs after each test to clean up system resources.
+
+    Aggressively cleans up inotify resources used by watchdog/watchfiles
+    to prevent exhausting the system inotify instance limit (max_user_instances=128).
+    """
+    gc.collect()
+    time.sleep(0.2)
+    gc.collect()
+    time.sleep(0.2)
+    gc.collect()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -321,3 +336,45 @@ def mock_apple_music_library_endpoints(mock_apple_music_library_client):
         mock_apple_music_library_client.set_response(f"{base_url}{endpoint}", [])
 
     return mock_apple_music_library_client
+
+
+@pytest.fixture
+def mock_apple_contacts_client(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Contacts endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleContactsAdapter.
+    """
+
+    class MockClient:
+        """Mock httpx.Client that tracks requests and returns configured responses."""
+        def __init__(self, *args, **kwargs):
+            self.requests = []
+            self.responses = {}
+            self.timeout = kwargs.get("timeout")
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+            if url not in self.responses:
+                raise AssertionError(
+                    f"MockClient.get() called with unconfigured URL: {url}. "
+                    f"Configured URLs: {list(self.responses.keys())}. "
+                    f"Did you call set_response() for this URL?"
+                )
+            return self.responses[url]
+
+        def set_response(self, url, data, status_code=200):
+            self.responses[url] = MockResponse(data, status_code, url=url)
+
+        def close(self):
+            """No-op for mock client."""
+            pass
+
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_contacts.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client

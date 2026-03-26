@@ -23,6 +23,7 @@ rich-fs = ["markitdown", "watchdog"]
 obsidian = ["obsidiantools", "python-frontmatter", "PyYAML", "watchdog"]
 caldav = ["caldav", "icalendar"]
 apple-reminders = ["httpx"]
+apple-contacts = ["httpx"]
 apple-health = ["httpx"]
 apple-imessage = ["httpx"]
 apple-notes = ["httpx"]
@@ -30,6 +31,7 @@ apple-music = ["httpx"]
 oura = ["httpx"]
 filesystem-helper = ["httpx"]
 obsidian-helper   = ["httpx"]
+vcard = ["vobject"]
 server = ["fastapi>=0.100", "uvicorn[standard]", "pydantic-settings>=2.0"]
 dev = ["ruff", "mypy", "pytest", "types-PyYAML", "watchdog", "watchfiles"]
 
@@ -90,9 +92,20 @@ ignore_missing_imports = true
 module = "pydantic_settings.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "vobject"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "vobject.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "requires_fs_watch: marks tests that require active filesystem watching (may be skipped if inotify resources are exhausted)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/context_library"]

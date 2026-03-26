@@ -11,7 +11,7 @@ Covers:
 import os
 import tempfile
 from typing import Generator
-from unittest.mock import MagicMock, patch  # noqa: F401 - used in new test
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -117,6 +117,329 @@ class TestRetrievalResult:
         assert result_dict["adapter_id"] == "test-adapter"
         assert result_dict["embedding_model"] == "all-MiniLM-L6-v2"
         assert result_dict["similarity_score"] == 0.9
+
+    def test_to_dict_excludes_domain_metadata(self) -> None:
+        """Test that to_dict() excludes domain_metadata for PEOPLE domain (FR-6.3).
+
+        Per FR-6.3 spec, contact domain_metadata containing sensitive information
+        (emails, phones) must not be exposed in retrieval result output.
+        """
+        # Create a chunk with sensitive people domain metadata (emails, phones)
+        people_metadata = {
+            "contact_id": "contact_123",
+            "display_name": "John Doe",
+            "emails": ("john@example.com", "johndoe@work.com"),
+            "phones": ("+1-555-0100", "+1-555-0200"),
+            "organization": "ACME Corp",
+            "job_title": "Engineer",
+            "source_type": "contacts",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("0"),
+            content="Contact description",
+            context_header="Contact: John Doe",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=people_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("0"),
+            source_id="people_source",
+            source_version_id=1,
+            adapter_id="people-adapter",
+            domain=Domain.PEOPLE,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.85)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata is NOT in the output
+        assert "domain_metadata" not in result_dict, (
+            "domain_metadata must not be included in to_dict() output for security reasons"
+        )
+
+        # Verify sensitive contact information is not exposed in serialized output
+        result_str = str(result_dict)
+        assert "john@example.com" not in result_str, "Email addresses must not be exposed"
+        assert "+1-555-0100" not in result_str, "Phone numbers must not be exposed"
+
+        # Verify expected fields are still present
+        assert result_dict["chunk_text"] == "Contact description"
+        assert result_dict["domain"] == "people"
+        assert result_dict["context_header"] == "Contact: John Doe"
+
+    def test_to_dict_includes_domain_metadata_for_messages(self) -> None:
+        """Test that to_dict() includes domain_metadata for MESSAGES domain.
+
+        Message threading metadata should be accessible to clients.
+        """
+        message_metadata = {
+            "thread_id": "thread_123",
+            "message_id": "msg_456",
+            "sender": "alice@example.com",
+            "recipients": ("bob@example.com",),
+            "timestamp": "2025-03-20T10:00:00Z",
+            "is_thread_root": True,
+            "in_reply_to": None,
+            "subject": "Re: Meeting Notes",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("1"),
+            content="Message content here",
+            context_header="From: alice@example.com",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=message_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("1"),
+            source_id="email_source",
+            source_version_id=1,
+            adapter_id="email-adapter",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.85)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for MESSAGES domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for MESSAGES domain"
+        assert result_dict["domain_metadata"] == message_metadata
+        assert result_dict["domain_metadata"]["thread_id"] == "thread_123"
+
+    def test_to_dict_includes_domain_metadata_for_events(self) -> None:
+        """Test that to_dict() includes domain_metadata for EVENTS domain.
+
+        Event date and participant information should be accessible to clients.
+        """
+        event_metadata = {
+            "event_id": "evt_789",
+            "title": "Team Standup",
+            "start_date": "2025-03-20T09:00:00Z",
+            "end_date": "2025-03-20T09:30:00Z",
+            "duration_minutes": 30,
+            "host": "carol@example.com",
+            "invitees": ("dave@example.com", "eve@example.com"),
+            "date_first_observed": "2025-03-10T00:00:00Z",
+            "source_type": "calendar",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("2"),
+            content="Standup agenda",
+            context_header="Event: Team Standup",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=event_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("2"),
+            source_id="calendar_source",
+            source_version_id=1,
+            adapter_id="calendar-adapter",
+            domain=Domain.EVENTS,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.90)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for EVENTS domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for EVENTS domain"
+        assert result_dict["domain_metadata"] == event_metadata
+        assert result_dict["domain_metadata"]["start_date"] == "2025-03-20T09:00:00Z"
+
+    def test_to_dict_includes_domain_metadata_for_tasks(self) -> None:
+        """Test that to_dict() includes domain_metadata for TASKS domain.
+
+        Task status and priority information should be accessible to clients.
+        """
+        task_metadata = {
+            "task_id": "task_101",
+            "status": "in-progress",
+            "title": "Implement feature X",
+            "due_date": "2025-03-25T17:00:00Z",
+            "priority": 2,
+            "dependencies": ("task_100",),
+            "collaborators": ("frank@example.com",),
+            "date_first_observed": "2025-03-15T00:00:00Z",
+            "source_type": "todoist",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("3"),
+            content="Task description",
+            context_header="Task: Implement feature X",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=task_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("3"),
+            source_id="tasks_source",
+            source_version_id=1,
+            adapter_id="tasks-adapter",
+            domain=Domain.TASKS,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.88)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for TASKS domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for TASKS domain"
+        assert result_dict["domain_metadata"] == task_metadata
+        assert result_dict["domain_metadata"]["status"] == "in-progress"
+
+    def test_to_dict_includes_domain_metadata_for_health(self) -> None:
+        """Test that to_dict() includes domain_metadata for HEALTH domain.
+
+        Health metrics should be accessible to clients.
+        """
+        health_metadata = {
+            "record_id": "health_202",
+            "health_type": "sleep_summary",
+            "date": "2025-03-19",
+            "source_type": "apple_health",
+            "date_first_observed": "2025-03-20T00:00:00Z",
+            "duration_minutes": 420,
+            "deep_sleep_minutes": 120,
+            "rem_sleep_minutes": 90,
+            "light_sleep_minutes": 210,
+            "efficiency": 0.92,
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("4"),
+            content="Sleep data for 2025-03-19",
+            context_header="Health: Sleep Summary",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=health_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("4"),
+            source_id="health_source",
+            source_version_id=1,
+            adapter_id="health-adapter",
+            domain=Domain.HEALTH,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.92)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for HEALTH domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for HEALTH domain"
+        assert result_dict["domain_metadata"] == health_metadata
+        assert result_dict["domain_metadata"]["duration_minutes"] == 420
+
+    def test_to_dict_includes_domain_metadata_for_documents(self) -> None:
+        """Test that to_dict() includes domain_metadata for DOCUMENTS domain.
+
+        Document metadata (author, format, etc.) should be accessible to clients.
+        """
+        document_metadata = {
+            "document_id": "doc_303",
+            "title": "Q1 Financial Report",
+            "document_type": "application/pdf",
+            "source_type": "filesystem",
+            "created_at": "2025-03-01T10:00:00Z",
+            "modified_at": "2025-03-15T14:30:00Z",
+            "file_size_bytes": 5242880,
+            "author": "grace@example.com",
+            "tags": ("financial", "report"),
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("5"),
+            content="Document excerpt",
+            context_header="Document: Q1 Financial Report",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=document_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("5"),
+            source_id="documents_source",
+            source_version_id=1,
+            adapter_id="documents-adapter",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.87)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for DOCUMENTS domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for DOCUMENTS domain"
+        assert result_dict["domain_metadata"] == document_metadata
+        assert result_dict["domain_metadata"]["author"] == "grace@example.com"
+
+    def test_to_dict_includes_domain_metadata_for_notes(self) -> None:
+        """Test that to_dict() includes domain_metadata for NOTES domain.
+
+        Note hierarchy metadata (headings, structure) should be accessible to clients.
+        """
+        note_metadata = {
+            "heading_level": 2,
+            "parent_heading": "Project Documentation",
+        }
+        chunk_with_metadata = Chunk(
+            chunk_hash=_make_hash("6"),
+            content="Note content under heading",
+            context_header="## Implementation Guide",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=note_metadata,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("6"),
+            source_id="notes_source",
+            source_version_id=1,
+            adapter_id="notes-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_with_metadata, lineage=lineage, similarity_score=0.91)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata IS included for NOTES domain
+        assert "domain_metadata" in result_dict, "domain_metadata must be included for NOTES domain"
+        assert result_dict["domain_metadata"] == note_metadata
+        assert result_dict["domain_metadata"]["heading_level"] == 2
+
+    def test_to_dict_without_domain_metadata_other_domains(self) -> None:
+        """Test that to_dict() excludes domain_metadata when None for non-PEOPLE domains."""
+        chunk_without_metadata = Chunk(
+            chunk_hash=_make_hash("7"),
+            content="Content without metadata",
+            context_header=None,
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=None,
+        )
+        lineage = LineageRecord(
+            chunk_hash=_make_hash("7"),
+            source_id="source_1",
+            source_version_id=1,
+            adapter_id="test-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id="all-MiniLM-L6-v2",
+        )
+        result = RetrievalResult(chunk=chunk_without_metadata, lineage=lineage, similarity_score=0.80)
+
+        result_dict = result.to_dict()
+
+        # Verify domain_metadata is NOT in the output when it's None
+        assert "domain_metadata" not in result_dict
 
 
 class TestRetrieve:

@@ -8,7 +8,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, cast
 
-from .models import AdapterConfig, Chunk, ChunkWithLineageContext, Domain, LineageRecord, PollStrategy, Sha256Hash, SourceInfo, SourceVersion, VersionDiff, _validate_sha256_hex
+from context_library.core.identifier_normalizer import normalize_email, normalize_phone
+from .models import (
+    AdapterConfig,
+    Chunk,
+    ChunkWithLineageContext,
+    Domain,
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    EntityLink,
+    LineageRecord,
+    PollStrategy,
+    Sha256Hash,
+    SourceInfo,
+    SourceVersion,
+    VersionDiff,
+    _validate_sha256_hex,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +78,7 @@ class DocumentStore:
         self._local.conn = self._make_connection()
 
         # Check if this is an existing database that needs migration
-        # This must be done BEFORE executing schema.sql which sets version to 3
+        # This must be done BEFORE executing schema.sql which sets version to 4
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
@@ -82,7 +97,14 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=3)
+        if version == 3:
+            # Migrate from v3 to v4 BEFORE executing new schema
+            self._migrate_v3_to_v4()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=4)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -111,9 +133,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 3:
+        if final_version != 4:
             raise RuntimeError(
-                f"Schema version mismatch: expected 3, got {final_version}"
+                f"Schema version mismatch: expected 4, got {final_version}"
             )
 
     def _make_connection(self) -> sqlite3.Connection:
@@ -123,7 +145,26 @@ class DocumentStore:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+
+        # Register custom SQLite functions for identifier normalization
+        conn.create_function("normalize_email_sql", 1, self._normalize_email_sql)
+        conn.create_function("normalize_phone_sql", 1, self._normalize_phone_sql)
+
         return conn
+
+    @staticmethod
+    def _normalize_email_sql(value: str | None) -> str | None:
+        """SQLite custom function for email normalization."""
+        if not value:
+            return None
+        return normalize_email(value)
+
+    @staticmethod
+    def _normalize_phone_sql(value: str | None) -> str | None:
+        """SQLite custom function for phone normalization."""
+        if not value:
+            return None
+        return normalize_phone(value)
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -238,6 +279,7 @@ class DocumentStore:
             cursor.execute("DROP TABLE _chunks_old")
 
             # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
@@ -410,6 +452,7 @@ class DocumentStore:
             cursor.execute("DROP TABLE _chunks_old")
 
             # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
@@ -451,6 +494,195 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v2 to v3: {e}"
+            ) from e
+
+    def _migrate_v3_to_v4(self) -> None:
+        """Migrate schema from v3 to v4: add 'people' to domain CHECK constraints and create entity_links table.
+
+        SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so we must
+        use the rename-recreate-copy pattern for each affected table (adapters,
+        sources, chunks). All operations are wrapped in a transaction and foreign
+        key enforcement is temporarily disabled.
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v3 to v4 (adding people domain support and entity_links table)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            # Disable foreign key enforcement temporarily
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Start transaction
+            cursor.execute("BEGIN")
+
+            # Migrate adapters table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
+            cursor.execute("""
+                CREATE TABLE adapters (
+                    adapter_id          TEXT PRIMARY KEY,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    adapter_type        TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    config              TEXT,
+                    enabled             BOOLEAN NOT NULL DEFAULT 1,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("INSERT INTO adapters SELECT * FROM _adapters_old")
+            cursor.execute("DROP TABLE _adapters_old")
+
+            # Migrate sources table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE sources RENAME TO _sources_old")
+            cursor.execute("""
+                CREATE TABLE sources (
+                    source_id           TEXT PRIMARY KEY,
+                    adapter_id          TEXT NOT NULL,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    origin_ref          TEXT NOT NULL,
+                    display_name        TEXT,
+                    current_version     INTEGER NOT NULL DEFAULT 0,
+                    last_fetched_at     DATETIME,
+                    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                    poll_interval_sec   INTEGER,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO sources SELECT * FROM _sources_old")
+            cursor.execute("DROP TABLE _sources_old")
+
+            # Recreate indices for sources
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+            # Recreate sources_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS sources_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER sources_update_timestamp
+                AFTER UPDATE ON sources
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+                END
+            """)
+
+            # Migrate source_versions table: rename old, create new with correct foreign keys, copy data
+            # This is necessary because the old source_versions has foreign keys pointing to _sources_old and _adapters_old
+            cursor.execute("ALTER TABLE source_versions RENAME TO _source_versions_old")
+            cursor.execute("""
+                CREATE TABLE source_versions (
+                    source_id           TEXT NOT NULL,
+                    version             INTEGER NOT NULL,
+                    markdown            TEXT NOT NULL,
+                    chunk_hashes        TEXT NOT NULL,
+                    adapter_id          TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (source_id, version),
+                    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO source_versions SELECT * FROM _source_versions_old")
+            cursor.execute("DROP TABLE _source_versions_old")
+
+            # Create index for source_versions
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+            # Migrate chunks table: rename old, create new with people domain, copy data
+            cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    chunk_hash          TEXT NOT NULL,
+                    source_id           TEXT NOT NULL,
+                    source_version      INTEGER NOT NULL,
+                    chunk_index         INTEGER NOT NULL,
+                    content             TEXT NOT NULL,
+                    context_header      TEXT,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+                    adapter_id          TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                    parent_chunk_hash   TEXT,
+                    domain_metadata     TEXT,
+                    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                    retired_at          DATETIME,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (chunk_hash, source_id, source_version),
+                    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                    UNIQUE (source_id, source_version, chunk_index)
+                )
+            """)
+            cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
+            cursor.execute("DROP TABLE _chunks_old")
+
+            # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+            # Recreate adapters_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS adapters_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER adapters_update_timestamp
+                AFTER UPDATE ON adapters
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+                END
+            """)
+
+            # Create entity_links table (without FK constraints since chunk_hash can appear in multiple sources/versions)
+            cursor.execute("""
+                CREATE TABLE entity_links (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_chunk_hash   TEXT NOT NULL,
+                    target_chunk_hash   TEXT NOT NULL,
+                    link_type           TEXT NOT NULL,
+                    confidence          REAL NOT NULL DEFAULT 1.0,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_target ON entity_links(target_chunk_hash)")
+
+            # Update schema version to 4
+            cursor.execute("PRAGMA user_version=4")
+
+            # Commit transaction using connection object
+            self.conn.commit()
+
+            # Re-enable foreign key enforcement
+            cursor.execute("PRAGMA foreign_keys=ON")
+
+            logger.info("Successfully migrated schema from v3 to v4")
+
+        except Exception as e:
+            # Rollback transaction using connection object, catching any rollback errors
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as pragma_error:
+                logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v3 to v4: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
@@ -2067,6 +2299,295 @@ class DocumentStore:
             }
             for row in rows
         ]
+
+    def write_entity_links(
+        self,
+        links: list[EntityLink],
+    ) -> int:
+        """Write entity links to the entity_links table.
+
+        Inserts rows into entity_links with idempotency enforced by the UNIQUE constraint
+        (source_chunk_hash, target_chunk_hash, link_type). Duplicate inserts are silently
+        ignored via INSERT OR IGNORE.
+
+        Args:
+            links: List of EntityLink objects representing directed links between chunks.
+
+        Returns:
+            The number of new rows inserted (duplicates are not counted).
+        """
+        if not links:
+            return 0
+
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                inserted_count = 0
+                for link in links:
+                    cursor.execute(
+                        """
+                        INSERT OR IGNORE INTO entity_links
+                        (source_chunk_hash, target_chunk_hash, link_type, confidence)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (link.source_chunk_hash, link.target_chunk_hash, link.link_type, link.confidence),
+                    )
+                    # Check if row was actually inserted (not ignored)
+                    if cursor.rowcount > 0:
+                        inserted_count += 1
+
+                return inserted_count
+        except Exception as e:
+            logger.error(f"Failed to write entity links: {e}")
+            raise
+
+    def query_chunks_by_identifiers(
+        self,
+        identifiers: list[str],
+        scalar_fields: list[str],
+        array_fields: list[str],
+        exclude_domain: Optional[str] = None,
+    ) -> list[str]:
+        """Query chunks where domain_metadata contains any of the given identifiers.
+
+        Uses normalized SQL-based matching with custom SQLite functions for:
+        - Emails: case-insensitive matching via LOWER()
+        - Phones: format-insensitive matching via custom normalize_phone_sql() function
+
+        This approach keeps filtering in SQL (where it's efficient) rather than loading
+        all chunks into memory. Identifiers are normalized on both sides of the comparison.
+
+        Args:
+            identifiers: List of email/phone strings to search for.
+            scalar_fields: List of scalar field names to search (e.g., ['sender', 'host', 'author']).
+            array_fields: List of array field names to search (e.g., ['recipients', 'invitees', 'collaborators']).
+            exclude_domain: Optional domain to exclude from results (e.g., 'people').
+
+        Returns:
+            List of chunk_hashes from chunks where a match was found.
+
+        Raises:
+            ValueError: If both scalar_fields and array_fields are empty, or if any field name
+                        contains invalid characters (not alphanumeric or underscore).
+        """
+        if not identifiers:
+            return []
+
+        # Validate that at least one field type is provided
+        if not scalar_fields and not array_fields:
+            raise ValueError("At least one of scalar_fields or array_fields must be provided")
+
+        # Validate field names: allow only alphanumeric characters and underscores
+        for field in scalar_fields + array_fields:
+            if not field or not all(c.isalnum() or c == "_" for c in field):
+                raise ValueError(
+                    f"Invalid field name '{field}': field names must be alphanumeric or underscore only"
+                )
+
+        cursor = self.conn.cursor()
+
+        # Normalize all query identifiers once, building as a list
+        normalized_query_identifiers: list[str] = []
+        seen = set()
+        for identifier in identifiers:
+            # Simple heuristic: if it contains '@', treat as email; otherwise as phone
+            if "@" in identifier:
+                normalized = normalize_email(identifier)
+            else:
+                normalized = normalize_phone(identifier)
+            if normalized and normalized not in seen:
+                normalized_query_identifiers.append(normalized)
+                seen.add(normalized)
+
+        if not normalized_query_identifiers:
+            return []
+
+        # Build SQL conditions and parameters incrementally
+        params: list = []
+        scalar_conditions = []
+        for field in scalar_fields:
+            # Use custom functions for emails and phones
+            scalar_conditions.append(f"""
+                (normalize_email_sql(json_extract(c.domain_metadata, '$.{field}')) IN ({','.join('?' * len(normalized_query_identifiers))})
+                 OR
+                 normalize_phone_sql(json_extract(c.domain_metadata, '$.{field}')) IN ({','.join('?' * len(normalized_query_identifiers))}))
+            """)
+            # Add parameters for email matching: normalized_query_identifiers twice (once for email, once for phone)
+            params.extend(normalized_query_identifiers)
+            params.extend(normalized_query_identifiers)
+
+        # Build SQL conditions for array fields (e.g., recipients, invitees, collaborators)
+        array_conditions = []
+        for field in array_fields:
+            array_conditions.append(f"""
+                EXISTS (
+                    SELECT 1 FROM json_each(c.domain_metadata, '$.{field}')
+                    WHERE normalize_email_sql(json_each.value) IN ({','.join('?' * len(normalized_query_identifiers))})
+                       OR normalize_phone_sql(json_each.value) IN ({','.join('?' * len(normalized_query_identifiers))})
+                )
+            """)
+            # Add parameters for array matching: normalized_query_identifiers twice (once for email, once for phone)
+            params.extend(normalized_query_identifiers)
+            params.extend(normalized_query_identifiers)
+
+        # Combine all conditions
+        where_conditions = []
+        if scalar_conditions:
+            where_conditions.append(f"({' OR '.join(scalar_conditions)})")
+        if array_conditions:
+            where_conditions.append(f"({' OR '.join(array_conditions)})")
+
+        where_clause = " OR ".join(where_conditions)
+
+        query = f"""
+            SELECT DISTINCT c.chunk_hash
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE c.retired_at IS NULL
+            AND c.source_version = s.current_version
+            AND ({where_clause})
+        """
+
+        if exclude_domain:
+            query += " AND s.domain != ?"
+            params.append(exclude_domain)
+
+        cursor.execute(query, params)
+
+        rows = cursor.fetchall()
+        found_hashes = {row[0] for row in rows}
+
+        return sorted(list(found_hashes))
+
+    def get_linked_chunks(
+        self,
+        chunk_hash: str,
+        link_type: str | None = None,
+    ) -> list[str]:
+        """Query all chunks linked to a given chunk.
+
+        Bidirectional traversal: returns chunks where the given chunk is the source OR the target.
+        Optionally filters by link_type.
+
+        Args:
+            chunk_hash: The chunk hash to find links for.
+            link_type: Optional link type to filter by (e.g., 'person_appearance').
+
+        Returns:
+            A list of linked chunk hashes (deduplicated).
+        """
+        cursor = self.conn.cursor()
+
+        if link_type:
+            # Query where chunk_hash is source or target, with link_type filter
+            cursor.execute(
+                """
+                SELECT DISTINCT target_chunk_hash FROM entity_links
+                WHERE source_chunk_hash = ? AND link_type = ?
+                UNION
+                SELECT DISTINCT source_chunk_hash FROM entity_links
+                WHERE target_chunk_hash = ? AND link_type = ?
+                """,
+                (chunk_hash, link_type, chunk_hash, link_type),
+            )
+        else:
+            # Query where chunk_hash is source or target, no filter
+            cursor.execute(
+                """
+                SELECT DISTINCT target_chunk_hash FROM entity_links
+                WHERE source_chunk_hash = ?
+                UNION
+                SELECT DISTINCT source_chunk_hash FROM entity_links
+                WHERE target_chunk_hash = ?
+                """,
+                (chunk_hash, chunk_hash),
+            )
+
+        rows = cursor.fetchall()
+        return [row[0] for row in rows]
+
+    def delete_retired_person_links_atomic(self) -> int:
+        """Atomically delete entity_links for all retired person chunks.
+
+        Deletes all entity_links where source_chunk_hash is no longer active
+        in the people domain. Uses a single DELETE ... WHERE NOT EXISTS query
+        to ensure atomicity and eliminate TOCTOU race conditions.
+
+        Returns:
+            The number of rows deleted.
+
+        Raises:
+            Exception: If the database operation fails.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE link_type = ?
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM chunks c
+                        JOIN sources s ON c.source_id = s.source_id
+                        WHERE c.chunk_hash = entity_links.source_chunk_hash
+                        AND s.domain = ?
+                        AND c.retired_at IS NULL
+                        AND c.source_version = s.current_version
+                    )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM chunks c2
+                        JOIN sources s2 ON c2.source_id = s2.source_id
+                        WHERE c2.chunk_hash = entity_links.source_chunk_hash
+                        AND s2.domain = ?
+                    )
+                    """,
+                    (ENTITY_LINK_TYPE_PERSON_APPEARANCE, Domain.PEOPLE, Domain.PEOPLE),
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete retired person links atomically: {e}")
+            raise
+
+    def delete_retired_target_links_atomic(self) -> int:
+        """Atomically delete entity_links for all retired target chunks.
+
+        Deletes all entity_links where target_chunk_hash is retired (not active
+        in the current version). Uses a single DELETE ... WHERE NOT EXISTS query
+        to ensure atomicity and eliminate TOCTOU race conditions.
+
+        Returns:
+            The number of rows deleted.
+
+        Raises:
+            Exception: If the database operation fails.
+        """
+        try:
+            with self._write_lock, self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    """
+                    DELETE FROM entity_links
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM chunks c
+                        JOIN sources s ON c.source_id = s.source_id
+                        WHERE c.chunk_hash = entity_links.target_chunk_hash
+                        AND c.retired_at IS NULL
+                        AND c.source_version = s.current_version
+                    )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM chunks c2
+                        WHERE c2.chunk_hash = entity_links.target_chunk_hash
+                    )
+                    """
+                )
+                return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Failed to delete retired target links atomically: {e}")
+            raise
 
     def close(self) -> None:
         """Close the current thread's database connection.

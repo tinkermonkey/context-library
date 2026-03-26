@@ -58,13 +58,20 @@ class RetrievalResult(BaseModel):
                 "Chunk and lineage must refer to the same content."
             )
 
-    def to_dict(self) -> dict[str, str | int | float | None]:
+    def to_dict(self) -> dict[str, str | int | float | dict[str, object] | None]:
         """Convert result to dictionary format.
 
+        Domain-specific metadata handling:
+        - PEOPLE domain: domain_metadata is excluded to satisfy FR-6.3 requirement
+          that sensitive contact fields (emails, phones) must not be exposed in results
+        - All other domains: domain_metadata is included to preserve structured metadata
+          (event dates, task statuses, health metrics, message threading info, etc.)
+
         Returns:
-            Dictionary with chunk content, source metadata, and similarity score.
+            Dictionary with chunk content, source metadata, domain metadata (if applicable),
+            and similarity score.
         """
-        return {
+        result: dict[str, str | int | float | dict[str, object] | None] = {
             "chunk_text": self.chunk.content,
             "chunk_hash": self.chunk.chunk_hash,
             "context_header": self.chunk.context_header,
@@ -77,6 +84,12 @@ class RetrievalResult(BaseModel):
             "embedding_model": self.lineage.embedding_model_id,
             "similarity_score": self.similarity_score,
         }
+
+        # Include domain_metadata for all domains except PEOPLE (FR-6.3 requirement)
+        if self.lineage.domain != Domain.PEOPLE and self.chunk.domain_metadata is not None:
+            result["domain_metadata"] = self.chunk.domain_metadata
+
+        return result
 
 
 def retrieve(

@@ -89,7 +89,7 @@ class TestHealthDomainIntegration:
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Configure a single workout record
-        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-001",
                 "activityType": "running",
@@ -111,14 +111,14 @@ class TestHealthDomainIntegration:
         assert result["chunks_added"] > 0
         assert result["chunks_removed"] == 0
 
-        # Verify data in document store (source_id format is {activity_type}/workout-{id})
-        versions = pipeline.document_store.get_version_history("running/workout-001")
+        # Verify data in document store (source_id format is apple_health/workout/{activity_type}/{id})
+        versions = pipeline.document_store.get_version_history("apple_health/workout/running/workout-001")
         assert len(versions) >= 1
         version = versions[0]
         assert len(version.chunk_hashes) > 0
 
         # Verify chunks contain health metadata
-        chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
+        chunks, _ = pipeline.document_store.get_chunks_by_source("apple_health/workout/running/workout-001")
         assert len(chunks) > 0
         chunk = chunks[0]
         assert chunk.domain_metadata is not None
@@ -135,12 +135,12 @@ class TestHealthDomainIntegration:
         self, pipeline, health_domain, mock_all_health_endpoints_integration
     ):
         """Test pipeline handles multiple workout types from Apple Health."""
-        # Note: Apple Health adapter only exposes workouts; sleep and other metrics
-        # are served by the Oura collector (separate adapter).
+        # Note: Apple Health adapter fetches from multiple endpoints, and this
+        # fixture has configured all of them.
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
 
         # Configure multiple workout records
-        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/workouts", [
+        mock_all_health_endpoints_integration.set_response("http://127.0.0.1:7124/health/workouts", [
             {
                 "id": "workout-001",
                 "activityType": "running",
@@ -165,8 +165,8 @@ class TestHealthDomainIntegration:
         assert result["chunks_added"] >= 2
 
         # Verify both workouts in document store
-        running_chunks, _ = pipeline.document_store.get_chunks_by_source("running/workout-001")
-        cycling_chunks, _ = pipeline.document_store.get_chunks_by_source("cycling/workout-002")
+        running_chunks, _ = pipeline.document_store.get_chunks_by_source("apple_health/workout/running/workout-001")
+        cycling_chunks, _ = pipeline.document_store.get_chunks_by_source("apple_health/workout/cycling/workout-002")
 
         assert len(running_chunks) > 0
         assert len(cycling_chunks) > 0

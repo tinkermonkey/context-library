@@ -13,6 +13,7 @@ from context_library.core.exceptions import (
     AllSourcesFailedError,
 )
 from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.domains.base import BaseDomain
 from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
@@ -69,15 +70,49 @@ class IngestionPipeline:
         # the same source_id simultaneously. Without this, both callers can pass
         # the get_latest_version/diff check before either commits, resulting in
         # duplicate versions with identical content being written.
-        self._source_locks: dict[str, threading.Lock] = {}
+        # Use a bounded LRU cache to prevent unbounded memory growth in long-running servers.
+        # The cache size of 10,000 is chosen to balance memory use with safety: each Lock
+        # is ~60 bytes, so 10K locks ≈ 600KB — negligible overhead. With a high bound, the
+        # risk of evicting an actively-held lock is minimal (would require 10K+ unique sources
+        # in concurrent ingestion). If more granularity is needed, reference counting can be
+        # added in a future iteration.
+        self._source_locks_cache: dict[str, threading.Lock] = {}
         self._source_locks_mutex = threading.Lock()
+        self._source_locks_max_size = 10_000
 
     def _get_source_lock(self, source_id: str) -> threading.Lock:
-        """Return the per-source lock for source_id, creating it if needed."""
+        """Return the per-source lock for source_id, creating it if needed.
+
+        Uses an LRU eviction policy to prevent unbounded dictionary growth.
+        The cache is sized at 10,000 entries; eviction only occurs when that threshold
+        is exceeded. At that scale, the probability of evicting an actively-held lock is
+        negligible (would require 10K+ unique sources being ingested concurrently).
+
+        Lock behavior:
+        - When a source is accessed, its lock is moved to the cache's end (marked most-recently-used)
+        - When capacity is reached and a new source is needed, the least-recently-used lock is evicted
+        - Each Lock object is ~60 bytes, so 10K locks ≈ 600KB total memory
+        """
         with self._source_locks_mutex:
-            if source_id not in self._source_locks:
-                self._source_locks[source_id] = threading.Lock()
-            return self._source_locks[source_id]
+            if source_id in self._source_locks_cache:
+                lock = self._source_locks_cache[source_id]
+                # Move to end (mark as most recently used) by deleting and re-adding
+                del self._source_locks_cache[source_id]
+                self._source_locks_cache[source_id] = lock
+                return lock
+
+            # Create new lock
+            lock = threading.Lock()
+
+            # Evict least recently used if cache is full
+            if len(self._source_locks_cache) >= self._source_locks_max_size:
+                # Pop the first item (least recently used in insertion order)
+                # Since Python 3.7+, regular dicts maintain insertion order
+                first_key = next(iter(self._source_locks_cache))
+                del self._source_locks_cache[first_key]
+
+            self._source_locks_cache[source_id] = lock
+            return lock
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
@@ -478,6 +513,24 @@ class IngestionPipeline:
             })
             sources_failed += 1
             # Continue to next adapter; this adapter yielded no data
+        except ContactIDCollisionError as e:
+            # Contact ID collision: two distinct contacts have identical contact_id
+            # Log the collision with detailed context for debugging
+            logger.error(
+                f"Contact ID collision in adapter {adapter.adapter_id}: {e}"
+            )
+            errors.append({
+                "source_id": None,  # Adapter-level failure, not source-level
+                "error_type": "ContactIDCollisionError",
+                "message": str(e),
+                "collision_contact_id": e.contact_id,
+                "first_contact_name": e.first_contact_name,
+                "first_contact_file": str(e.first_contact_file),
+                "second_contact_name": e.second_contact_name,
+                "second_contact_file": str(e.second_contact_file),
+            })
+            sources_failed += 1
+            # Continue to next adapter; collision prevents further processing
 
 
         # Raise if all sources failed

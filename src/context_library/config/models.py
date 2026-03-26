@@ -175,7 +175,7 @@ class AdaptersConfig(BaseModel):
             config.adapter_id for config in self.remote_adapters
         ] + [config.adapter_id for config in self.local_adapters]
 
-        seen = set()
+        seen: set[str] = set()
         for adapter_id in all_adapter_ids:
             if adapter_id in seen:
                 raise ValueError(

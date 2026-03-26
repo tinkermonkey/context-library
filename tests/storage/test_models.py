@@ -22,6 +22,7 @@ from context_library.storage.models import (
     LineageRecord,
     MessageMetadata,
     NormalizedContent,
+    PeopleMetadata,
     PollStrategy,
     SourceTimeline,
     SourceVersion,
@@ -2320,5 +2321,157 @@ class TestDocumentMetadata:
                 document_type="text/plain",
                 source_type=source_type,
                 date_first_observed="2024-03-01T10:00:00Z",
+            )
+            assert metadata.source_type == source_type
+
+
+class TestPeopleMetadata:
+    """Tests for PeopleMetadata model."""
+
+    def test_create_people_metadata_all_fields(self) -> None:
+        """Test creating PeopleMetadata with all fields populated."""
+        metadata = PeopleMetadata(
+            contact_id="person-123",
+            display_name="Alice Johnson",
+            given_name="Alice",
+            family_name="Johnson",
+            emails=("alice@example.com", "alice.johnson@work.com"),
+            phones=("+1-555-123-4567", "+1-555-987-6543"),
+            organization="Tech Corp",
+            job_title="Senior Engineer",
+            notes="Important contact",
+            source_type="apple_contacts",
+        )
+        assert metadata.contact_id == "person-123"
+        assert metadata.display_name == "Alice Johnson"
+        assert metadata.given_name == "Alice"
+        assert metadata.family_name == "Johnson"
+        assert metadata.emails == ("alice@example.com", "alice.johnson@work.com")
+        assert metadata.phones == ("+1-555-123-4567", "+1-555-987-6543")
+        assert metadata.organization == "Tech Corp"
+        assert metadata.job_title == "Senior Engineer"
+        assert metadata.notes == "Important contact"
+        assert metadata.source_type == "apple_contacts"
+
+    def test_create_people_metadata_minimal_required(self) -> None:
+        """Test creating PeopleMetadata with only required fields."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Bob Smith",
+            source_type="apple_contacts",
+        )
+        assert metadata.contact_id == "person-1"
+        assert metadata.display_name == "Bob Smith"
+        assert metadata.source_type == "apple_contacts"
+        assert metadata.given_name is None
+        assert metadata.family_name is None
+        assert metadata.emails == ()
+        assert metadata.phones == ()
+        assert metadata.organization is None
+        assert metadata.job_title is None
+        assert metadata.notes is None
+
+    def test_people_metadata_empty_contact_id_rejected(self) -> None:
+        """Test that empty contact_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            PeopleMetadata(
+                contact_id="",
+                display_name="Alice",
+                source_type="apple_contacts",
+            )
+        assert "contact_id must be a non-empty string" in str(exc_info.value)
+
+    def test_people_metadata_empty_display_name_rejected(self) -> None:
+        """Test that empty display_name is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            PeopleMetadata(
+                contact_id="person-1",
+                display_name="",
+                source_type="apple_contacts",
+            )
+        assert "display_name must be a non-empty string" in str(exc_info.value)
+
+    def test_people_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            PeopleMetadata(
+                contact_id="person-1",
+                display_name="Alice",
+                source_type="",
+            )
+        assert "source_type must be a non-empty string" in str(exc_info.value)
+
+    def test_people_metadata_frozen_immutability(self) -> None:
+        """Test that PeopleMetadata is frozen and immutable."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Alice",
+            source_type="apple_contacts",
+        )
+        with pytest.raises(ValidationError):
+            metadata.display_name = "Bob"
+
+    def test_people_metadata_model_dump_serializable(self) -> None:
+        """Test that PeopleMetadata model_dump() produces serializable output."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Alice Johnson",
+            emails=("alice@example.com",),
+            phones=("+1-555-123-4567",),
+            source_type="apple_contacts",
+        )
+        dumped = metadata.model_dump()
+        assert dumped["contact_id"] == "person-1"
+        assert dumped["display_name"] == "Alice Johnson"
+        assert dumped["emails"] == ("alice@example.com",)
+        assert dumped["phones"] == ("+1-555-123-4567",)
+        assert dumped["source_type"] == "apple_contacts"
+        # Verify serializable to JSON
+        import json
+        json_str = json.dumps(dumped)
+        assert isinstance(json_str, str)
+
+    def test_people_metadata_round_trip_serialization(self) -> None:
+        """Test that PeopleMetadata can round-trip through model_dump and model_validate."""
+        original = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            emails=("a@b.com",),
+            phones=("+1555",),
+            source_type="apple_contacts",
+        )
+        dumped = original.model_dump()
+        restored = PeopleMetadata.model_validate(dumped)
+        assert restored.contact_id == original.contact_id
+        assert restored.display_name == original.display_name
+        assert restored.emails == original.emails
+        assert restored.phones == original.phones
+        assert restored.source_type == original.source_type
+
+    def test_people_metadata_empty_emails_and_phones_valid(self) -> None:
+        """Test that empty emails and phones tuples are valid."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Alice",
+            emails=(),
+            phones=(),
+            source_type="apple_contacts",
+        )
+        assert metadata.emails == ()
+        assert metadata.phones == ()
+
+    def test_people_metadata_all_source_types_valid(self) -> None:
+        """Test that various source_type values are accepted."""
+        source_types = [
+            "apple_contacts",
+            "gmail",
+            "caldav",
+            "custom_source",
+        ]
+        for source_type in source_types:
+            metadata = PeopleMetadata(
+                contact_id="person-1",
+                display_name="Alice",
+                source_type=source_type,
             )
             assert metadata.source_type == source_type

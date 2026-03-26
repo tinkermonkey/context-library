@@ -113,11 +113,17 @@ class TestListRegisteredDomains:
 
         assert Domain.DOCUMENTS in domains
 
-    def test_expected_count(self):
-        """list_registered_domains returns exactly six registered domains."""
+    def test_contains_people_domain(self):
+        """list_registered_domains includes Domain.PEOPLE."""
         domains = list_registered_domains()
 
-        assert len(domains) == 6
+        assert Domain.PEOPLE in domains
+
+    def test_expected_count(self):
+        """list_registered_domains returns exactly seven registered domains."""
+        domains = list_registered_domains()
+
+        assert len(domains) == 7
 
     def test_all_returned_domains_are_enum_values(self):
         """All values returned are valid Domain enum members."""

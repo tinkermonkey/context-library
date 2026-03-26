@@ -33,6 +33,7 @@ class TestGetStats:
 
     def test_zeros_when_empty(self, client: TestClient, ds) -> None:
         # Clear all data
+        ds.conn.execute("DELETE FROM entity_links")
         ds.conn.execute("DELETE FROM chunks")
         ds.conn.execute("DELETE FROM source_versions")
         ds.conn.execute("DELETE FROM sources")
@@ -72,6 +73,7 @@ class TestGetAdapterStats:
 
     def test_empty_when_no_adapters(self, client: TestClient, ds) -> None:
         # Clear all data
+        ds.conn.execute("DELETE FROM entity_links")
         ds.conn.execute("DELETE FROM chunks")
         ds.conn.execute("DELETE FROM source_versions")
         ds.conn.execute("DELETE FROM sources")

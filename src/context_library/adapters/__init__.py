@@ -86,3 +86,19 @@ if importlib.util.find_spec("httpx") is not None:
     )
 
     __all__.append("AppleMusicLibraryAdapter")
+
+# Check if apple_contacts adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_contacts import (  # noqa: F401
+        AppleContactsAdapter as AppleContactsAdapter,
+    )
+
+    __all__.append("AppleContactsAdapter")
+
+# Check if vcard adapter's dependencies are available
+if importlib.util.find_spec("vobject") is not None:
+    from context_library.adapters.vcard import (  # noqa: F401
+        VCardAdapter as VCardAdapter,
+    )
+
+    __all__.append("VCardAdapter")

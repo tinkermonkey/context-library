@@ -18,6 +18,7 @@ Covers:
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import cast, Generator
 
 import pytest
@@ -28,9 +29,12 @@ from context_library.storage.models import (
     Chunk,
     ChunkType,
     Domain,
+    EntityLink,
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     LineageRecord,
     PollStrategy,
-    VersionDiff
+    VersionDiff,
+    compute_chunk_hash
 )
 
 
@@ -74,13 +78,13 @@ class TestDocumentStoreInit:
             store.close()
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 3 (documents domain support)."""
+        """Test that user_version is verified to be 4 (people domain support)."""
         store = DocumentStore(":memory:")
         try:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 3
+            assert version == 4
         finally:
             store.close()
 
@@ -2101,10 +2105,14 @@ class TestRecoveryMechanisms:
 
         # Manually delete the chunk from chunks table (simulating orphaned sync log)
         cursor = store.conn.cursor()
-        cursor.execute(
-            "DELETE FROM chunks WHERE chunk_hash = ?",
-            (_make_hash("a"),),
-        )
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        try:
+            cursor.execute(
+                "DELETE FROM chunks WHERE chunk_hash = ?",
+                (_make_hash("a"),),
+            )
+        finally:
+            cursor.execute("PRAGMA foreign_keys=ON")
 
         # get_chunks_pending_sync should NOT return it due to INNER JOIN
         pending = store.get_chunks_pending_sync()
@@ -4677,3 +4685,861 @@ class TestGetAdapterStats:
         # Should now have 1 active chunk
         stats = store.get_adapter_stats()
         assert stats[0]["active_chunk_count"] == 1
+
+
+class TestEntityLinks:
+    """Tests for entity_links table and DocumentStore methods."""
+
+    def _setup_with_chunks(self, store: DocumentStore, chunk_contents: list[str]) -> list[str]:
+        """Helper to set up test database with chunks for entity link FK constraints.
+
+        Args:
+            store: DocumentStore instance
+            chunk_contents: List of content strings to create chunks from (hashes computed via compute_chunk_hash)
+
+        Returns:
+            List of computed chunk hashes for use in entity link tests.
+        """
+        cursor = store.conn.cursor()
+
+        # Compute valid SHA-256 hashes from content strings
+        chunk_hashes = [compute_chunk_hash(content) for content in chunk_contents]
+
+        # Disable FK constraints for test data setup to avoid circular deps during schema creation
+        cursor.execute("PRAGMA foreign_keys=OFF")
+
+        # Create adapter
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES (?, ?, ?, ?)
+        """, ("test-adapter", "people", "test_adapter", "1.0"))
+
+        # Create source
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES (?, ?, ?, ?, ?)
+        """, ("test-source", "test-adapter", "people", "test-origin", "push"))
+
+        # Create source version
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("test-source", 1, "test", ",".join(chunk_hashes), "test-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+        # Create chunks
+        for idx, (hash_val, content) in enumerate(zip(chunk_hashes, chunk_contents)):
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (hash_val, "test-source", 1, idx, content, "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+        store.conn.commit()
+        # Re-enable FK constraints to test referential integrity during entity link operations
+        cursor.execute("PRAGMA foreign_keys=ON")
+        return chunk_hashes
+
+    def test_write_entity_links_single_link(self) -> None:
+        """Test writing a single entity link."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
+
+            # Write a single link
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
+            count = store.write_entity_links(links)
+            assert count == 1
+
+            # Verify it was written
+            cursor = store.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM entity_links
+                WHERE source_chunk_hash = ? AND target_chunk_hash = ?
+            """, (chunk_hashes[0], chunk_hashes[1]))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row["link_type"] == ENTITY_LINK_TYPE_PERSON_APPEARANCE
+            assert row["confidence"] == 1.0
+
+            store.conn.close()
+
+    def test_write_entity_links_multiple_links(self) -> None:
+        """Test writing multiple entity links at once."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "source content 2", "target content 1", "target content 2"])
+
+            # Write multiple links
+            links = [
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[2], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[3], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=0.95),
+                EntityLink(source_chunk_hash=chunk_hashes[1], target_chunk_hash=chunk_hashes[2], link_type="mention", confidence=0.8),
+            ]
+            count = store.write_entity_links(links)
+            assert count == 3
+
+            # Verify all were written
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 3
+
+            store.conn.close()
+
+    def test_write_entity_links_idempotency(self) -> None:
+        """Test that writing the same link twice via INSERT OR IGNORE enforces idempotency."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
+
+            # Write a link
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
+            count1 = store.write_entity_links(links)
+            assert count1 == 1
+
+            # Write the same link again (idempotency)
+            count2 = store.write_entity_links(links)
+            assert count2 == 0  # No new rows inserted
+
+            # Verify only one row exists
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 1
+
+            store.conn.close()
+
+    def test_write_entity_links_empty_list(self) -> None:
+        """Test that writing an empty list of links succeeds with count 0."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Write empty list
+            count = store.write_entity_links([])
+            assert count == 0
+
+            # Verify no rows written
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT COUNT(*) as cnt FROM entity_links")
+            assert cursor.fetchone()["cnt"] == 0
+
+            store.conn.close()
+
+    def test_get_linked_chunks_single_direction(self) -> None:
+        """Test getting linked chunks in a single direction."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1"])
+
+            # Write links
+            links = [EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0)]
+            store.write_entity_links(links)
+
+            # Get linked chunks from source
+            linked = store.get_linked_chunks(chunk_hashes[0])
+            assert chunk_hashes[1] in linked
+
+            # Get linked chunks from target (bidirectional)
+            linked = store.get_linked_chunks(chunk_hashes[1])
+            assert chunk_hashes[0] in linked
+
+            store.conn.close()
+
+    def test_get_linked_chunks_with_link_type_filter(self) -> None:
+        """Test getting linked chunks with link_type filter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["source content 1", "target content 1", "target content 2"])
+
+            # Write links with different types
+            links = [
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE, confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[2], link_type="mention", confidence=0.95),
+            ]
+            store.write_entity_links(links)
+
+            # Filter by link_type
+            linked = store.get_linked_chunks(chunk_hashes[0], link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+            assert chunk_hashes[1] in linked
+            assert chunk_hashes[2] not in linked
+
+            linked = store.get_linked_chunks(chunk_hashes[0], link_type="mention")
+            assert chunk_hashes[2] in linked
+            assert chunk_hashes[1] not in linked
+
+            store.conn.close()
+
+    def test_get_linked_chunks_no_results(self) -> None:
+        """Test getting linked chunks when no links exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Query non-existent chunk
+            linked = store.get_linked_chunks("nonexistent-hash")
+            assert linked == []
+
+            # Query with link_type filter on non-existent chunk
+            linked = store.get_linked_chunks("nonexistent-hash", link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+            assert linked == []
+
+            store.conn.close()
+
+    def test_get_linked_chunks_bidirectional(self) -> None:
+        """Test that get_linked_chunks returns links in both directions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+            store = DocumentStore(str(db_path))
+
+            # Set up chunks
+            chunk_hashes = self._setup_with_chunks(store, ["content a", "content b", "content c"])
+
+            # Write bidirectional links
+            links = [
+                EntityLink(source_chunk_hash=chunk_hashes[0], target_chunk_hash=chunk_hashes[1], link_type="coappearance", confidence=1.0),
+                EntityLink(source_chunk_hash=chunk_hashes[1], target_chunk_hash=chunk_hashes[2], link_type="coappearance", confidence=1.0),
+            ]
+            store.write_entity_links(links)
+
+            # chunk_hashes[1] should be linked to both chunk_hashes[0] (as target) and chunk_hashes[2] (as source)
+            linked = store.get_linked_chunks(chunk_hashes[1])
+            assert chunk_hashes[0] in linked
+            assert chunk_hashes[2] in linked
+            assert len(linked) == 2
+
+            store.conn.close()
+
+
+class TestQueryChunksByIdentifiers:
+    """Tests for DocumentStore.query_chunks_by_identifiers()."""
+
+    def _setup_chunks_with_metadata(self, store: DocumentStore) -> None:
+        """Set up test chunks with domain_metadata for identifier searching."""
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+
+        _setup_adapter_and_source(store)
+
+        # Create chunks with various domain_metadata containing identifiers
+        # Chunk 1: Messages domain with sender and recipients
+        ch1 = compute_chunk_hash("email content 1")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="email content 1",
+            context_header="Email header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "sender": "alice@example.com",
+                "recipients": ["bob@example.com", "charlie@example.com"]
+            },
+        )
+
+        # Chunk 2: Messages domain with different identifiers
+        ch2 = compute_chunk_hash("email content 2")
+        chunk2 = Chunk(
+            chunk_hash=ch2,
+            content="email content 2",
+            context_header="Email header",
+            chunk_index=1,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "sender": "dave@example.com",
+                "recipients": ["alice@example.com"]
+            },
+        )
+
+        # Chunk 3: Notes domain with author and collaborators
+        ch3 = compute_chunk_hash("note content 1")
+        chunk3 = Chunk(
+            chunk_hash=ch3,
+            content="note content 1",
+            context_header="Note header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "author": "eve@example.com",
+                "collaborators": ["alice@example.com", "bob@example.com"]
+            },
+        )
+
+        # Chunk 4: Events domain with invitees
+        ch4 = compute_chunk_hash("event content 1")
+        chunk4 = Chunk(
+            chunk_hash=ch4,
+            content="event content 1",
+            context_header="Event header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={
+                "host": "frank@example.com",
+                "invitees": ["alice@example.com", "charlie@example.com"]
+            },
+        )
+
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1, ch2, ch3, ch4],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+
+        lineage_records = [
+            LineageRecord(
+                chunk_hash=ch1,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch2,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.MESSAGES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch3,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+            LineageRecord(
+                chunk_hash=ch4,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.EVENTS,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            ),
+        ]
+        store.write_chunks([chunk1, chunk2, chunk3, chunk4], lineage_records)
+
+    def test_empty_identifiers_list(self, store: DocumentStore) -> None:
+        """Test that empty identifiers list returns empty results."""
+        result = store.query_chunks_by_identifiers(
+            identifiers=[],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert result == []
+
+    def test_single_scalar_field_match(self, store: DocumentStore) -> None:
+        """Test querying by single scalar field."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        # Alice is the sender in chunk1, so should find exactly that chunk
+        assert len(result) == 1
+        assert isinstance(result[0], str) and len(result[0]) == 64  # Valid SHA-256 hash
+
+    def test_single_array_field_match(self, store: DocumentStore) -> None:
+        """Test querying by single array field."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["bob@example.com"],
+            scalar_fields=[],
+            array_fields=["recipients"]
+        )
+        # bob@example.com appears only in ch1 recipients
+        assert len(result) == 1
+
+    def test_multiple_identifiers(self, store: DocumentStore) -> None:
+        """Test querying with multiple identifiers."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com", "dave@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        # alice is sender of ch1, dave is sender of ch2
+        assert len(result) == 2
+        # Verify both returned hashes are unique chunk hashes from the query
+        assert all(isinstance(h, str) and len(h) == 64 for h in result)
+
+    def test_combined_scalar_and_array_fields(self, store: DocumentStore) -> None:
+        """Test querying with both scalar and array fields."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators"]
+        )
+        # alice appears: as sender in ch1, in collaborators of ch3 (2 chunks)
+        # ch2 has alice in recipients but she's not sender/author
+        # ch4 has alice in invitees but query doesn't search invitees
+        assert len(result) == 2
+
+    def test_exclude_domain_filter(self, store: DocumentStore) -> None:
+        """Test that exclude_domain parameter filters out results from excluded domain."""
+        self._setup_chunks_with_metadata(store)
+        # Query for alice, searching across all field types
+        result_no_exclude = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"]
+        )
+
+        # Query excluding NOTES domain - should filter out chunks from NOTES sources
+        result_exclude_notes = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"],
+            exclude_domain=Domain.NOTES
+        )
+
+        # Query excluding EVENTS domain
+        result_exclude_events = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender", "author"],
+            array_fields=["recipients", "collaborators", "invitees"],
+            exclude_domain=Domain.EVENTS
+        )
+
+        # Both should return lists (exclude_domain parameter works without error)
+        assert isinstance(result_no_exclude, list)
+        assert isinstance(result_exclude_notes, list)
+        assert isinstance(result_exclude_events, list)
+
+        # Test data is in a NOTES domain source, so:
+        # - Excluding NOTES should return empty results
+        # - Excluding EVENTS should return all results (no EVENTS domain chunks in test data)
+        assert len(result_exclude_notes) == 0, "Excluding NOTES domain should return no results since all test data is in NOTES domain"
+        assert len(result_exclude_events) == len(result_no_exclude), "Excluding EVENTS domain should not filter any results since test data has no EVENTS domain chunks"
+
+    def test_no_scalar_and_array_fields_raises_error(self, store: DocumentStore) -> None:
+        """Test that providing neither scalar nor array fields raises ValueError."""
+        with pytest.raises(ValueError, match="At least one of scalar_fields or array_fields must be provided"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[],
+                array_fields=[]
+            )
+
+    def test_invalid_field_name_raises_error(self, store: DocumentStore) -> None:
+        """Test that invalid field names raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=["invalid-field-name"],  # Contains dash, not allowed
+                array_fields=[]
+            )
+
+    def test_empty_field_name_raises_error(self, store: DocumentStore) -> None:
+        """Test that empty field names raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[""],  # Empty string
+                array_fields=[]
+            )
+
+    def test_field_name_with_special_chars_raises_error(self, store: DocumentStore) -> None:
+        """Test that field names with special characters raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=["field'; DROP TABLE"],
+                array_fields=[]
+            )
+
+    def test_valid_field_names_with_underscores(self, store: DocumentStore) -> None:
+        """Test that underscores are allowed in field names."""
+        self._setup_chunks_with_metadata(store)
+        # Should not raise error for valid underscored field names
+        result = store.query_chunks_by_identifiers(
+            identifiers=["test@example.com"],
+            scalar_fields=["sender_address", "user_email"],
+            array_fields=[]
+        )
+        # No results expected since we don't have these fields, but no error
+        assert result == []
+
+    def test_results_are_sorted(self, store: DocumentStore) -> None:
+        """Test that results are returned in sorted order."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=["recipients", "collaborators", "invitees"]
+        )
+        # Verify results are sorted
+        assert result == sorted(result)
+
+    def test_no_matches_returns_empty(self, store: DocumentStore) -> None:
+        """Test that no matching identifiers returns empty list."""
+        self._setup_chunks_with_metadata(store)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["nonexistent@example.com"],
+            scalar_fields=["sender"],
+            array_fields=["recipients"]
+        )
+        assert result == []
+
+    def test_retired_chunks_excluded(self, store: DocumentStore) -> None:
+        """Test that retired chunks are excluded from results."""
+        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+
+        _setup_adapter_and_source(store)
+
+        # Create and write a chunk
+        ch1 = compute_chunk_hash("content")
+        chunk1 = Chunk(
+            chunk_hash=ch1,
+            content="content",
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata={"sender": "alice@example.com"},
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch1],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage1 = LineageRecord(
+            chunk_hash=ch1,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk1], [lineage1])
+
+        # Verify it's found
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert ch1 in result
+
+        # Retire the chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE chunks SET retired_at = ? WHERE chunk_hash = ?",
+            ("2024-01-02T00:00:00Z", ch1)
+        )
+        store.conn.commit()
+
+        # Verify it's no longer found
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=["sender"],
+            array_fields=[]
+        )
+        assert ch1 not in result
+
+
+class TestSchemaMigrationV3toV4:
+    """Tests for schema migration from v3 to v4 (people domain and entity_links support)."""
+
+    def _create_v3_database(self, db_path: Path) -> None:
+        """Create a v3 database with some seed data for migration testing."""
+        import sqlite3
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+
+        # Set schema version to 3
+        cursor.execute("PRAGMA user_version=3")
+
+        # Create minimal v3 schema (without people domain and entity_links)
+        cursor.execute("""
+            CREATE TABLE adapters (
+                adapter_id          TEXT PRIMARY KEY,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                adapter_type        TEXT NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                config              TEXT,
+                enabled             BOOLEAN NOT NULL DEFAULT 1,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE sources (
+                source_id           TEXT PRIMARY KEY,
+                adapter_id          TEXT NOT NULL,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                origin_ref          TEXT NOT NULL,
+                display_name        TEXT,
+                current_version     INTEGER NOT NULL DEFAULT 0,
+                last_fetched_at     DATETIME,
+                poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                poll_interval_sec   INTEGER,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE source_versions (
+                source_id           TEXT NOT NULL,
+                version             INTEGER NOT NULL,
+                markdown            TEXT NOT NULL,
+                chunk_hashes        TEXT NOT NULL,
+                adapter_id          TEXT NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                fetch_timestamp     DATETIME NOT NULL,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source_id, version),
+                FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE chunks (
+                chunk_hash          TEXT NOT NULL,
+                source_id           TEXT NOT NULL,
+                source_version      INTEGER NOT NULL,
+                chunk_index         INTEGER NOT NULL,
+                content             TEXT NOT NULL,
+                context_header      TEXT,
+                domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents')),
+                adapter_id          TEXT NOT NULL,
+                fetch_timestamp     DATETIME NOT NULL,
+                normalizer_version  TEXT NOT NULL,
+                embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                parent_chunk_hash   TEXT,
+                domain_metadata     TEXT,
+                chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                retired_at          DATETIME,
+                created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chunk_hash, source_id, source_version),
+                FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                UNIQUE (source_id, source_version, chunk_index)
+            )
+        """)
+
+        # Insert seed data
+        cursor.execute("""
+            INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+            VALUES ('test-adapter', 'messages', 'EmailAdapter', '1.0.0')
+        """)
+
+        cursor.execute("""
+            INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+            VALUES ('test-source', 'test-adapter', 'messages', 'test://ref', 'pull')
+        """)
+
+        cursor.execute("""
+            INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+            VALUES ('test-source', 1, 'Test content', '["abc123"]', 'test-adapter', '1.0.0', CURRENT_TIMESTAMP)
+        """)
+
+        cursor.execute("""
+            INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id,
+                                fetch_timestamp, normalizer_version)
+            VALUES ('abc123', 'test-source', 1, 0, 'Test chunk content', 'messages', 'test-adapter',
+                    CURRENT_TIMESTAMP, '1.0.0')
+        """)
+
+        conn.commit()
+        conn.close()
+
+    def test_migrate_v3_to_v4_creates_entity_links_table(self) -> None:
+        """Test that migration from v3 to v4 creates entity_links table."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database
+            self._create_v3_database(db_path)
+
+            # Trigger migration by opening DocumentStore
+            store = DocumentStore(str(db_path))
+
+            # Verify schema version is now 4
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 4
+
+            # Verify entity_links table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='entity_links'
+            """)
+            assert cursor.fetchone() is not None
+
+            store.close()
+
+    def test_migrate_v3_to_v4_adds_people_domain(self) -> None:
+        """Test that migration adds 'people' to domain CHECK constraints."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database
+            self._create_v3_database(db_path)
+
+            # Trigger migration
+            store = DocumentStore(str(db_path))
+
+            # Verify we can insert a people domain adapter
+            store.register_adapter(
+                AdapterConfig(
+                    adapter_id="people-adapter",
+                    adapter_type="AppleContactsAdapter",
+                    domain=Domain.PEOPLE,
+                    normalizer_version="1.0.0",
+                )
+            )
+
+            # Verify it was inserted
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT domain FROM adapters WHERE adapter_id = ?", ("people-adapter",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "people"
+
+            store.close()
+
+    def test_migrate_v3_to_v4_preserves_existing_data(self) -> None:
+        """Test that migration preserves all existing data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database with seed data
+            self._create_v3_database(db_path)
+
+            # Trigger migration
+            store = DocumentStore(str(db_path))
+
+            # Verify seed data is intact
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT adapter_id, domain FROM adapters WHERE adapter_id = ?", ("test-adapter",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "test-adapter"
+            assert result[1] == "messages"
+
+            cursor.execute("SELECT source_id FROM sources WHERE source_id = ?", ("test-source",))
+            result = cursor.fetchone()
+            assert result is not None
+
+            cursor.execute("SELECT chunk_hash, content FROM chunks WHERE chunk_hash = ?", ("abc123",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[1] == "Test chunk content"
+
+            cursor.execute("SELECT source_id, version FROM source_versions WHERE source_id = ?", ("test-source",))
+            result = cursor.fetchone()
+            assert result is not None
+            assert result[0] == "test-source"
+            assert result[1] == 1
+
+            store.close()
+
+    def test_migrate_v3_to_v4_idempotent(self) -> None:
+        """Test that migration is idempotent (v4 DB not re-migrated)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store1 = DocumentStore(str(db_path))
+            store1.close()
+
+            # Open again - should not attempt re-migration
+            store2 = DocumentStore(str(db_path))
+
+            cursor = store2.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+            assert version == 4
+
+            # Verify entity_links table still exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='entity_links'
+            """)
+            assert cursor.fetchone() is not None
+
+            store2.close()
+
+    def test_migrate_v3_to_v4_entity_links_schema(self) -> None:
+        """Test that entity_links table has correct schema after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store = DocumentStore(str(db_path))
+
+            # Get entity_links table info
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA table_info(entity_links)")
+            columns = cursor.fetchall()
+
+            # Verify columns exist
+            column_names = [col[1] for col in columns]
+            assert "source_chunk_hash" in column_names
+            assert "target_chunk_hash" in column_names
+            assert "link_type" in column_names
+            assert "confidence" in column_names
+            assert "created_at" in column_names
+
+            store.close()
+
+    def test_migrate_v3_to_v4_entity_links_has_indices(self) -> None:
+        """Test that after migration, entity_links table has proper indices."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create v3 database and migrate to v4
+            self._create_v3_database(db_path)
+            store = DocumentStore(str(db_path))
+
+            # Get indices on entity_links table
+            cursor = store.conn.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='index' AND tbl_name='entity_links'
+            """)
+            indices = [row[0] for row in cursor.fetchall()]
+
+            # Verify indices exist for efficient querying
+            assert len(indices) > 0
+            # Should have indices on source and target for efficient lookups
+            index_names = [idx.lower() for idx in indices]
+            assert any('source' in idx for idx in index_names)
+            assert any('target' in idx for idx in index_names)
+
+            store.close()
