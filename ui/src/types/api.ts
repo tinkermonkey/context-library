@@ -5,12 +5,25 @@
 
 // ── Health ──────────────────────────────────────────────────────
 
+export interface EndpointDeliveryStatus {
+  cursor: string | null;
+  has_more: boolean;
+}
+
+export interface CollectorDeliveryStatus {
+  cursor: string | null;  // simple collectors: last delivery cursor
+  has_more: boolean;      // simple collectors: more pages exist
+  has_pending: boolean;   // simple collectors: stash loaded (PagedCollectors only)
+  endpoints: Record<string, EndpointDeliveryStatus> | null;  // multi-endpoint collectors
+}
+
 export interface CollectorStatus {
   name: string;           // adapter_id, e.g. "apple_music:default"
   adapter_type: string;   // class name, e.g. "AppleMusicAdapter"
   enabled: boolean;
   healthy: boolean | null;
   error: string | null;
+  delivery: CollectorDeliveryStatus | null;  // null if /status unavailable
 }
 
 export interface HelperHealth {
@@ -18,6 +31,7 @@ export interface HelperHealth {
   probed_at: string;      // ISO 8601 UTC
   collectors: CollectorStatus[];
   error: string | null;
+  watermark: string | null;  // last successful delivery; null if never
 }
 
 export interface HealthResponse {

@@ -25,6 +25,7 @@ succeeded at all.
 
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -37,6 +38,14 @@ PROBE_TTL_SECONDS = 30
 
 
 @dataclass
+class EndpointDelivery:
+    """Delivery state for one endpoint within a multi-endpoint collector."""
+
+    cursor: str | None
+    has_more: bool
+
+
+@dataclass
 class CollectorHealth:
     """Health status of a single configured adapter / helper collector."""
 
@@ -45,6 +54,12 @@ class CollectorHealth:
     enabled: bool           # always True — only enabled adapters appear here
     healthy: bool | None    # None = helper didn't report per-collector status
     error: str | None       # error message if healthy is False
+    # Delivery progress fields — populated from /status (best-effort)
+    cursor: str | None = None       # simple collectors: last delivery cursor
+    has_more: bool = False          # simple collectors: more pages exist
+    has_pending: bool = False       # simple collectors: stash loaded (PagedCollectors only)
+    endpoints: dict[str, EndpointDelivery] | None = None  # multi-endpoint collectors only
+    delivery_available: bool = False  # True when _apply_status populated these fields
 
 
 @dataclass
@@ -55,6 +70,7 @@ class HelperHealthSnapshot:
     probed_at: str                              # ISO 8601 UTC
     collectors: list[CollectorHealth] = field(default_factory=list)
     error: str | None = None                    # connection / parse error
+    watermark: str | None = None                # last successful delivery across all collectors
 
 
 class HelperHealthCache:
@@ -100,11 +116,8 @@ class HelperHealthCache:
     # ------------------------------------------------------------------
 
     def _probe(self) -> HelperHealthSnapshot:
-        import httpx  # lazy import — httpx is an optional dependency
-
         probed_at = datetime.now(timezone.utc).isoformat()
 
-        # Build the collector list from the configured adapters (all enabled).
         collectors = [
             CollectorHealth(
                 name=a.adapter_id,
@@ -116,55 +129,114 @@ class HelperHealthCache:
             for a in self._adapters
         ]
 
-        try:
-            resp = httpx.get(
-                f"{self._helper_url}/health",
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=5.0,
-            )
-            resp.raise_for_status()
+        # Fetch /health and /status concurrently to halve worst-case lock hold time.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            health_future = executor.submit(self._get_json, "/health")
+            status_future = executor.submit(self._get_json, "/status")
 
-            # Try to parse per-collector health if the helper reports it.
             try:
-                body: Any = resp.json()
-            except Exception:
-                body = {}
+                health_body = health_future.result()
+            except Exception as exc:
+                logger.warning(
+                    "Helper health probe to %s/health failed: %s",
+                    self._helper_url,
+                    exc,
+                )
+                return HelperHealthSnapshot(
+                    reachable=False,
+                    probed_at=probed_at,
+                    collectors=collectors,
+                    error=str(exc),
+                )
 
-            if isinstance(body, dict):
-                raw: Any = body.get("collectors") or {}
-                if isinstance(raw, dict):
-                    short_map = {self._short_name(c.name): c for c in collectors}
-                    for key, info in raw.items():
-                        collector = short_map.get(key)
-                        if collector is not None and isinstance(info, dict):
-                            collector.healthy = info.get("status") == "ok"
-                            if not collector.healthy:
-                                collector.error = (
-                                    info.get("error") or info.get("message")
-                                )
+            try:
+                status_body = status_future.result()
+            except Exception as exc:
+                logger.debug("Helper /status probe failed (non-fatal): %s", exc)
+                status_body = None
 
-            return HelperHealthSnapshot(
-                reachable=True,
-                probed_at=probed_at,
-                collectors=collectors,
-            )
+        short_map = {self._short_name(c.name): c for c in collectors}
 
-        except Exception as exc:
-            logger.warning(
-                "Helper health probe to %s/health failed: %s",
-                self._helper_url,
-                exc,
-            )
-            return HelperHealthSnapshot(
-                reachable=False,
-                probed_at=probed_at,
-                collectors=collectors,
-                error=str(exc),
-            )
+        if isinstance(health_body, dict):
+            raw: Any = health_body.get("collectors") or {}
+            if isinstance(raw, dict):
+                for key, info in raw.items():
+                    collector = short_map.get(key)
+                    if collector is not None and isinstance(info, dict):
+                        collector.healthy = info.get("status") == "ok"
+                        if not collector.healthy:
+                            collector.error = (
+                                info.get("error") or info.get("message")
+                            )
+
+        watermark = self._apply_status(short_map, status_body)
+        return HelperHealthSnapshot(
+            reachable=True,
+            probed_at=probed_at,
+            collectors=collectors,
+            watermark=watermark,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _get_json(self, path: str) -> Any:
+        """Make an authenticated GET to the helper and return the parsed JSON body.
+
+        Raises on connection errors, HTTP errors, or JSON parse failures.
+        """
+        import httpx  # lazy import — httpx is an optional dependency
+
+        resp = httpx.get(
+            f"{self._helper_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _apply_status(
+        self,
+        short_map: dict[str, CollectorHealth],
+        body: Any,
+    ) -> str | None:
+        """Parse a /status response body and update collector delivery fields.
+
+        Returns the watermark string, or None if the body is absent/invalid.
+        """
+        if not isinstance(body, dict):
+            return None
+
+        watermark: str | None = body.get("watermark")
+        raw: Any = body.get("collectors") or {}
+        if not isinstance(raw, dict):
+            return watermark if isinstance(watermark, str) else None
+
+        for key, info in raw.items():
+            collector = short_map.get(key)
+            if collector is None or not isinstance(info, dict):
+                continue
+
+            collector.delivery_available = True
+
+            endpoints: Any = info.get("endpoints")
+            if isinstance(endpoints, dict):
+                # Multi-endpoint collector (health, oura) — preserve per-endpoint granularity
+                collector.endpoints = {
+                    name: EndpointDelivery(
+                        cursor=ep.get("cursor"),
+                        has_more=bool(ep.get("has_more", False)),
+                    )
+                    for name, ep in endpoints.items()
+                    if isinstance(ep, dict)
+                }
+            else:
+                collector.cursor = info.get("cursor")
+                collector.has_more = bool(info.get("has_more", False))
+                collector.has_pending = bool(info.get("has_pending", False))
+
+        return watermark if isinstance(watermark, str) else None
 
     @staticmethod
     def _short_name(adapter_id: str) -> str:

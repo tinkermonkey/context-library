@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Request
 
 from context_library.server.helper_health import HelperHealthSnapshot
-from context_library.server.schemas import CollectorStatus, HelperHealth, HealthResponse
+from context_library.server.schemas import CollectorDeliveryStatus, EndpointDeliveryStatus, CollectorStatus, HelperHealth, HealthResponse
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ def _snapshot_to_schema(snapshot: HelperHealthSnapshot) -> HelperHealth:
     return HelperHealth(
         reachable=snapshot.reachable,
         probed_at=snapshot.probed_at,
+        watermark=snapshot.watermark,
         collectors=[
             CollectorStatus(
                 name=c.name,
@@ -24,6 +25,15 @@ def _snapshot_to_schema(snapshot: HelperHealthSnapshot) -> HelperHealth:
                 enabled=c.enabled,
                 healthy=c.healthy,
                 error=c.error,
+                delivery=CollectorDeliveryStatus(
+                    cursor=c.cursor,
+                    has_more=c.has_more,
+                    has_pending=c.has_pending,
+                    endpoints={
+                        name: EndpointDeliveryStatus(cursor=ep.cursor, has_more=ep.has_more)
+                        for name, ep in c.endpoints.items()
+                    } if c.endpoints else None,
+                ) if c.delivery_available else None,
             )
             for c in snapshot.collectors
         ],

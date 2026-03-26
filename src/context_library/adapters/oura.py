@@ -215,6 +215,8 @@ class OuraAdapter(BaseAdapter):
     - Additional health-specific fields in extra_metadata
     """
 
+    background_poll: bool = True
+
     @property
     def domain(self) -> Domain:
         """Return the domain this adapter handles."""

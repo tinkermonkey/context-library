@@ -119,6 +119,22 @@ class AppleIngestResponse(BaseModel):
 # ── Health ─────────────────────────────────────────────────────────
 
 
+class EndpointDeliveryStatus(BaseModel):
+    """Delivery state for one endpoint within a multi-endpoint collector."""
+
+    cursor: str | None = None
+    has_more: bool = False
+
+
+class CollectorDeliveryStatus(BaseModel):
+    """Delivery progress for a single collector (from helper /status)."""
+
+    cursor: str | None = None   # simple collectors: last delivery cursor
+    has_more: bool = False      # simple collectors: more pages exist
+    has_pending: bool = False   # simple collectors: stash loaded (PagedCollectors only)
+    endpoints: dict[str, EndpointDeliveryStatus] | None = None  # multi-endpoint collectors
+
+
 class CollectorStatus(BaseModel):
     """Health status of a single configured adapter / helper collector."""
 
@@ -127,6 +143,7 @@ class CollectorStatus(BaseModel):
     enabled: bool
     healthy: bool | None = None   # None = helper didn't report per-collector
     error: str | None = None
+    delivery: CollectorDeliveryStatus | None = None   # None if /status unavailable
 
 
 class HelperHealth(BaseModel):
@@ -136,6 +153,7 @@ class HelperHealth(BaseModel):
     probed_at: str                          # ISO 8601 UTC
     collectors: list[CollectorStatus] = []
     error: str | None = None
+    watermark: str | None = None            # last successful delivery; None if never
 
 
 class HealthResponse(BaseModel):
