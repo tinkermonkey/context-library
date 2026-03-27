@@ -163,6 +163,39 @@ async def lifespan(app: FastAPI):
         if helper_adapters:
             logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
 
+    # YouTube adapters — standalone, no helper bridge required
+    if config.youtube_enabled:
+        if not config.youtube_takeout_path:
+            logger.warning(
+                "CTX_YOUTUBE_ENABLED=true but CTX_YOUTUBE_TAKEOUT_PATH is not set; skipping YouTube adapters"
+            )
+        else:
+            try:
+                from context_library.adapters.youtube_watch_history import YouTubeWatchHistoryAdapter
+                from context_library.adapters.youtube_transcripts import YouTubeTranscriptAdapter
+
+                languages = [lang.strip() for lang in config.youtube_transcript_languages.split(",") if lang.strip()]
+                watch_adapter = YouTubeWatchHistoryAdapter(
+                    takeout_path=config.youtube_takeout_path,
+                    account_id=config.youtube_account_id,
+                )
+                transcript_adapter = YouTubeTranscriptAdapter(
+                    document_store=document_store,
+                    watch_history_adapter_id=watch_adapter.adapter_id,
+                    account_id=config.youtube_account_id,
+                    languages=languages or ["en"],
+                )
+                helper_adapters.extend([watch_adapter, transcript_adapter])
+                logger.info(
+                    "YouTube adapters configured (takeout_path=%s, account_id=%s)",
+                    config.youtube_takeout_path,
+                    config.youtube_account_id,
+                )
+            except ImportError as exc:
+                logger.warning("YouTube adapters not available (missing dependency): %s", exc)
+            except ValueError as exc:
+                logger.warning("YouTube adapters not available (invalid configuration): %s", exc)
+
     # Build helper health cache (probes helper /health on demand, TTL 30s)
     helper_health_cache = None
     if config.helper_url and config.helper_api_key and helper_adapters:

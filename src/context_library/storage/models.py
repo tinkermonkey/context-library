@@ -620,6 +620,13 @@ class DocumentMetadata(BaseModel):
     play_count: int | None = None
     duration_minutes: int | None = None
 
+    # YouTube-specific metadata (YouTube watch history / transcript adapters)
+    video_id: str | None = None
+    channel: str | None = None
+    channel_id: str | None = None
+    url: str | None = None
+    published_at: str | None = None   # ISO 8601 — video publish date or watched_at proxy
+
     @field_validator("document_id")
     @classmethod
     def validate_document_id(cls, value: str) -> str:
@@ -675,6 +682,14 @@ class DocumentMetadata(BaseModel):
     @classmethod
     def validate_modified_at(cls, value: str | None) -> str | None:
         """Validate that modified_at is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("published_at")
+    @classmethod
+    def validate_published_at(cls, value: str | None) -> str | None:
+        """Validate that published_at is a valid ISO 8601 timestamp if provided."""
         if value is not None:
             validate_iso8601_timestamp(value)
         return value

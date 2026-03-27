@@ -32,6 +32,7 @@ oura = ["httpx"]
 filesystem-helper = ["httpx"]
 obsidian-helper   = ["httpx"]
 vcard = ["vobject"]
+youtube = ["youtube-transcript-api"]
 server = ["fastapi>=0.100", "uvicorn[standard]", "pydantic-settings>=2.0"]
 dev = ["ruff", "mypy", "pytest", "types-PyYAML", "watchdog", "watchfiles"]
 
@@ -98,6 +99,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "vobject.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "youtube_transcript_api.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

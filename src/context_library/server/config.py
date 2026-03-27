@@ -39,3 +39,9 @@ class ServerConfig(BaseSettings):
     helper_pull_poll_interval_sec: int = 300   # seconds between background polls of PULL adapters
     helper_obsidian_enabled: bool = False
     helper_oura_enabled: bool = False
+
+    # YouTube adapters (standalone — no helper bridge required)
+    youtube_enabled: bool = False
+    youtube_takeout_path: str = ""          # Path to Google Takeout watch-history.json
+    youtube_account_id: str = "default"
+    youtube_transcript_languages: str = "en"  # Comma-separated language preference order
