@@ -650,9 +650,11 @@ export default function BrowserPage() {
   // Handle domain tab change
   const handleDomainChange = useCallback(
     (domain: string) => {
+      // Clear source_id and adapter_id when switching domains — they're domain-specific
+      const { source_id: _sid, adapter_id: _aid, ...rest } = searchRef.current;
       navigate({
         to: '/browser',
-        search: { ...searchRef.current, domain, page: 0 },
+        search: { ...rest, domain, page: 0 },
       });
     },
     [navigate]
