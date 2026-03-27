@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
         # AppleContactsAdapter
         try:
             from context_library.adapters.apple_contacts import AppleContactsAdapter
-            helper_adapters.append(AppleContactsAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            helper_adapters.append(AppleContactsAdapter(api_url=config.helper_url, api_key=config.helper_api_key, timeout=config.helper_contacts_timeout))
         except ImportError as e:
             logger.warning("AppleContactsAdapter not available (missing dependency): %s", e)
         except ValueError as e:

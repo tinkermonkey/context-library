@@ -87,6 +87,7 @@ class AppleContactsAdapter(BaseAdapter):
         api_url: str,
         api_key: str,
         account_id: str = "default",
+        timeout: float = 120.0,
     ) -> None:
         """Initialize AppleContactsAdapter.
 
@@ -110,7 +111,7 @@ class AppleContactsAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._account_id = account_id
-        self._client = httpx.Client(timeout=30.0)
+        self._client = httpx.Client(timeout=timeout)
 
     @property
     def adapter_id(self) -> str:
