@@ -117,20 +117,19 @@ class TestLifespanInitialization:
         from fastapi import FastAPI
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Set CTX_HELPER_URL="" explicitly — env vars take priority over .env file in
+            # pydantic-settings, so an empty string here overrides any value in .env.
             with patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
                     "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
                     "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
-                    # No CTX_HELPER_URL
+                    "CTX_HELPER_URL": "",
+                    "CTX_HELPER_API_KEY": "",
+                    "CTX_YOUTUBE_ENABLED": "false",
                 },
-                clear=False,
             ):
-                # Remove helper URL if set
-                os.environ.pop("CTX_HELPER_URL", None)
-                os.environ.pop("CTX_HELPER_API_KEY", None)
-
                 app = FastAPI()
 
                 async with lifespan(app):
@@ -200,7 +199,8 @@ class TestOuraAdapterInitialization:
         from fastapi import FastAPI
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Test with missing API key - this will cause ValueError in OuraAdapter.__init__
+            # Set CTX_HELPER_API_KEY="" explicitly — env vars take priority over .env file in
+            # pydantic-settings, so an empty string here overrides any value in .env.
             with patch.dict(
                 os.environ,
                 {
@@ -208,14 +208,10 @@ class TestOuraAdapterInitialization:
                     "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
                     "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
                     "CTX_HELPER_URL": "http://localhost:7123",
-                    # Missing CTX_HELPER_API_KEY - causes ValueError
+                    "CTX_HELPER_API_KEY": "",  # empty → OuraAdapter raises ValueError
                     "CTX_HELPER_OURA_ENABLED": "true",
                 },
-                clear=False,
             ):
-                # Ensure no API key is set
-                os.environ.pop("CTX_HELPER_API_KEY", None)
-
                 app = FastAPI()
 
                 # lifespan should complete successfully despite OuraAdapter failing

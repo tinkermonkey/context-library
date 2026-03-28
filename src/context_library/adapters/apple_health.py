@@ -378,9 +378,12 @@ class AppleHealthAdapter(BaseAdapter):
                 try:
                     timestamp = sample["timestamp"]
                     # Apple Health timestamps: "2026-01-15 09:30:00 -0500"
-                    # fromisoformat requires no space before the timezone sign,
-                    # so collapse "T09:30:00 -0500" → "T09:30:00-0500".
+                    # fromisoformat requires ISO 8601 offset with colon: -05:00 not -0500.
+                    # Step 1: remove space before timezone sign.
+                    # Step 2: insert colon in bare 4-digit offset (e.g. -0500 → -05:00).
+                    import re as _re
                     ts_iso = timestamp.replace(" ", "T", 1).replace(" -", "-").replace(" +", "+")
+                    ts_iso = _re.sub(r'([+-])(\d{2})(\d{2})$', r'\1\2:\3', ts_iso)
                     dt = datetime.fromisoformat(ts_iso)
                     date = dt.date().isoformat()
                     hour = dt.hour

@@ -76,7 +76,8 @@ class Watcher:
         if poll_strategy is not None and poll_strategy != PollStrategy.PUSH:
             raise ValueError(
                 f"Cannot register adapter {adapter.adapter_id} with Watcher: "
-                f"poll_strategy is {poll_strategy}, but Watcher only supports PollStrategy.PUSH. "
+                f"poll_strategy is {poll_strategy.__class__.__name__}.{poll_strategy.name}, "
+                f"but Watcher only supports PollStrategy.PUSH. "
                 f"Use Poller for pull-based sources."
             )
 
