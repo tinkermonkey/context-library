@@ -40,8 +40,7 @@ class ServerConfig(BaseSettings):
     helper_obsidian_enabled: bool = False
     helper_oura_enabled: bool = False
 
-    # YouTube adapters (standalone — no helper bridge required)
+    # YouTube adapters (require helper bridge — context-helpers must have youtube collector enabled)
     youtube_enabled: bool = False
-    youtube_takeout_path: str = ""          # Path to Google Takeout watch-history.json
     youtube_account_id: str = "default"
     youtube_transcript_languages: str = "en"  # Comma-separated language preference order

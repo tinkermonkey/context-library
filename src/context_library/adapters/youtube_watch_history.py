@@ -1,45 +1,47 @@
-"""YouTubeWatchHistoryAdapter — ingests YouTube watch history from a Google Takeout export.
+"""YouTubeWatchHistoryAdapter — ingests YouTube watch history from the macOS helper service.
 
-Parses the ``watch-history.json`` file produced by Google Takeout and yields one
-EVENTS-domain ``NormalizedContent`` per watched video.  Each watch event becomes its
-own source (keyed ``youtube/watch/{video_id}/{watched_at_iso}``) so that rewatches are
-stored as separate events.
+The macOS helper (context-helpers) exposes a ``GET /youtube/history`` endpoint that
+runs ``yt-dlp --cookies-from-browser`` against the YouTube history feed and returns
+recently-watched videos with an approximate ``watched_at`` timestamp.  This adapter
+fetches that data incrementally and yields one EVENTS-domain ``NormalizedContent``
+per watch event.
 
-Google Takeout format (watch-history.json)
-==========================================
-A JSON array of activity objects.  Each watch looks like::
+Expected Local Service API Contract
+====================================
+``GET /youtube/history``
 
-    {
-      "header": "YouTube",
-      "title": "Watched Some Video Title",
-      "titleUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      "subtitles": [
-        {
-          "name": "Channel Name",
-          "url": "https://www.youtube.com/channel/UCxxxxxxxxxx"
-        }
-      ],
-      "time": "2024-01-15T14:30:00.000Z",
-      "products": ["YouTube"],
-      "activityControls": ["YouTube watch history"]
-    }
+  Query parameters:
+    - since (optional): ISO 8601 timestamp; return only videos first-seen after this time
 
-Non-watch items (searches, ad views) lack ``titleUrl`` or have a non-watch URL and are
-skipped.  Deleted videos lack ``subtitles`` — channel fields will be ``None``.
+  Response: JSON array of video objects::
 
-Incremental fetching
-====================
-The adapter maintains an internal high-water mark (``self._cursor``) across poll cycles.
-On each call to ``fetch(source_ref)``, items with ``time <= cursor`` are skipped.  The
-cursor is updated to the maximum ``time`` seen after processing.  On server restart the
-cursor resets to ``""``, but the differ prevents duplicate chunk storage.
+    [
+      {
+        "video_id":   "<string>",
+        "title":      "<string>",
+        "channel":    "<string | null>",
+        "channel_id": "<string | null>",
+        "url":        "<string>",
+        "watched_at": "<ISO 8601>",
+        "duration":   <int | null>,
+        "upload_date": "<YYYYMMDD | null>",
+        "thumbnail":  "<string | null>"
+      }
+    ]
+
+  Results are sorted ASC by ``watched_at`` and bounded by the helper's
+  ``push_page_size`` (default 50).
+
+Security
+=========
+A Bearer API token is REQUIRED: ``Authorization: Bearer <api_key>``
 """
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Iterator
-from urllib.parse import parse_qs, urlparse
+from datetime import datetime
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -52,12 +54,20 @@ from context_library.storage.models import (
 
 logger = logging.getLogger(__name__)
 
+HAS_HTTPX = False
+try:
+    import httpx
+
+    HAS_HTTPX = True
+except ImportError:
+    pass
+
 
 class YouTubeWatchHistoryAdapter(BaseAdapter):
-    """Ingests YouTube watch history from a Google Takeout watch-history.json file.
+    """Ingests YouTube watch history from the macOS helper's /youtube/history endpoint.
 
     Each watched video is emitted as an EVENTS-domain NormalizedContent item.
-    EventMetadata fields are populated from the Takeout data; YouTube-specific
+    EventMetadata fields are populated from the helper response; YouTube-specific
     fields (video_id, channel_id, url) are preserved as extra keys in
     domain_metadata via the EventsDomain merge pattern.
     """
@@ -67,24 +77,33 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
 
     def __init__(
         self,
-        takeout_path: str,
+        api_url: str,
+        api_key: str,
         account_id: str = "default",
     ) -> None:
         """Initialize YouTubeWatchHistoryAdapter.
 
         Args:
-            takeout_path: Filesystem path to the Google Takeout watch-history.json file.
-            account_id: Logical account identifier used in adapter_id (default: "default").
+            api_url: Base URL of the macOS helper API (e.g., ``"http://192.168.1.50:7123"``).
+            api_key: Required bearer token for API authentication.
+            account_id: Logical account identifier used in adapter_id (default: ``"default"``).
 
         Raises:
-            ValueError: If takeout_path is empty.
+            ImportError: If httpx is not installed.
+            ValueError: If api_key is empty.
         """
-        if not takeout_path:
-            raise ValueError("takeout_path is required for YouTubeWatchHistoryAdapter")
+        if not HAS_HTTPX:
+            raise ImportError(
+                "httpx is required for YouTubeWatchHistoryAdapter. "
+                "Install with: pip install httpx"
+            )
+        if not api_key:
+            raise ValueError("api_key is required for YouTubeWatchHistoryAdapter")
 
-        self._takeout_path = takeout_path
+        self._api_url = api_url.rstrip("/")
+        self._api_key = api_key
         self._account_id = account_id
-        self._cursor: str = ""   # ISO 8601 high-water mark; persisted in-memory across polls
+        self._client = httpx.Client(timeout=60.0)
 
     @property
     def adapter_id(self) -> str:
@@ -100,108 +119,121 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
 
     @property
     def normalizer_version(self) -> str:
-        return "1.0.0"
+        return "1.1.0"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._client.close()
+        return False
+
+    def __del__(self) -> None:
+        if hasattr(self, "_client"):
+            self._client.close()
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
-        """Parse watch-history.json and yield one NormalizedContent per new watch event.
+        """Fetch watch history from the helper API and yield NormalizedContent.
 
         Args:
-            source_ref: ISO 8601 timestamp used as lower bound for incremental fetch.
-                The background poller always passes ``""``; the adapter falls back to
-                the internal ``self._cursor`` for watermarking.
+            source_ref: ISO 8601 lower-bound for incremental fetch, or ``""`` for all.
 
         Yields:
-            NormalizedContent (domain=EVENTS) for each watch event newer than the cursor.
+            NormalizedContent (domain=EVENTS) for each watched video.
 
         Raises:
-            OSError: If takeout_path cannot be read.
-            json.JSONDecodeError: If the file is not valid JSON.
+            httpx.HTTPStatusError: On auth errors (401/403) or other HTTP failures.
+            httpx.RequestError: On network errors.
+            json.JSONDecodeError: If the API returns invalid JSON.
         """
-        effective_since = source_ref or self._cursor
-        since: datetime | None = None
-        if effective_since:
-            since = datetime.fromisoformat(effective_since.replace("Z", "+00:00"))
+        since = source_ref if source_ref else None
+        videos = self._fetch_history(since)
 
-        with open(self._takeout_path, encoding="utf-8") as fh:
-            history: list[dict] = json.load(fh)
-
-        if not isinstance(history, list):
-            raise ValueError(
-                f"watch-history.json must be a JSON array, got {type(history).__name__}"
-            )
-
-        max_watched_at: datetime | None = None
-
-        # Takeout orders items newest-first; process all and filter by cursor
-        for item in history:
+        for idx, video in enumerate(videos):
             try:
-                content = self._process_item(item, since)
-            except (KeyError, ValueError, TypeError) as exc:
-                logger.warning("Skipping malformed watch history item: %s", exc)
+                content = self._process_video(video)
+            except (ValueError, KeyError, TypeError) as exc:
+                vid = video.get("video_id", f"<index {idx}>") if isinstance(video, dict) else f"<index {idx}>"
+                logger.warning("Skipping malformed watch history entry (video_id=%s): %s", vid, exc)
                 continue
 
-            if content is None:
-                continue
+            if content is not None:
+                yield content
 
-            # Track high-water mark using the start_date stored in extra_metadata
-            item_time_str = item.get("time", "")
-            if item_time_str:
-                item_dt = datetime.fromisoformat(item_time_str.replace("Z", "+00:00"))
-                if max_watched_at is None or item_dt > max_watched_at:
-                    max_watched_at = item_dt
+    def _fetch_history(self, since: str | None) -> list[dict]:
+        """Call ``GET /youtube/history`` on the helper and return the video list."""
+        params: dict = {}
+        if since:
+            params["since"] = since
 
-            yield content
+        headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        if max_watched_at is not None:
-            self._cursor = max_watched_at.isoformat()
+        try:
+            response = self._client.get(
+                f"{self._api_url}/youtube/history",
+                params=params,
+                headers=headers,
+            )
+            response.raise_for_status()
 
-    def _process_item(
-        self,
-        item: dict,
-        since: datetime | None,
-    ) -> NormalizedContent | None:
-        """Convert a single Takeout history item to NormalizedContent.
+            videos = response.json()
+            if not isinstance(videos, list):
+                raise ValueError(
+                    f"Helper /youtube/history response must be a list, got {type(videos).__name__}"
+                )
+            return videos
 
-        Returns None for non-watch items or items before the cursor.
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                logger.error(
+                    "Authentication error from YouTube history helper: %s %s",
+                    exc.response.status_code,
+                    exc.response.text,
+                )
+            else:
+                logger.error(
+                    "HTTP error from YouTube history helper: %s %s",
+                    exc.response.status_code,
+                    exc.response.text,
+                )
+            raise
+        except httpx.RequestError as exc:
+            logger.error(
+                "Network error connecting to YouTube history helper at %s/youtube/history: %s",
+                self._api_url,
+                exc,
+            )
+            raise
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Invalid JSON from YouTube history helper /youtube/history: %s", exc
+            )
+            raise
+
+    def _process_video(self, video: dict) -> NormalizedContent | None:
+        """Convert a single helper video dict to NormalizedContent.
+
+        Returns None for entries with no usable video_id or watched_at.
         """
-        title_url = item.get("titleUrl", "")
-        if not title_url:
-            return None   # Search, ad, or other non-watch activity
-
-        video_id = _extract_video_id(title_url)
+        video_id: str | None = video.get("video_id")
         if not video_id:
-            return None   # Not a standard watch URL (e.g., youtube.com/shorts/ redirect)
-
-        time_str = item.get("time")
-        if not time_str:
             return None
 
-        watched_at = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
-        if since is not None and watched_at <= since:
-            return None   # Already ingested
+        watched_at: str | None = video.get("watched_at")
+        if not watched_at:
+            return None
 
-        # Strip "Watched " prefix that Takeout adds to video titles
-        raw_title = item.get("title", f"YouTube video {video_id}")
-        title = raw_title.removeprefix("Watched ")
-        if not title:
-            title = f"YouTube video {video_id}"
+        title: str = video.get("title") or f"YouTube video {video_id}"
+        channel: str | None = video.get("channel")
+        channel_id: str | None = video.get("channel_id")
+        url: str = video.get("url") or f"https://www.youtube.com/watch?v={video_id}"
 
-        # Channel info is in subtitles[0]; absent for deleted videos
-        subtitles = item.get("subtitles") or []
-        channel: str | None = None
-        channel_id: str | None = None
-        if subtitles and isinstance(subtitles[0], dict):
-            channel = subtitles[0].get("name")
-            channel_url = subtitles[0].get("url", "")
-            channel_id = _extract_channel_id(channel_url)
-
-        watched_at_iso = watched_at.isoformat()
         now = datetime.now(timezone.utc).isoformat()
 
         event_metadata = EventMetadata(
-            event_id=f"{video_id}@{watched_at_iso}",
+            event_id=f"{video_id}@{watched_at}",
             title=title,
-            start_date=watched_at_iso,
+            start_date=watched_at,
             date_first_observed=now,
             source_type="youtube_watch_history",
         )
@@ -213,12 +245,12 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
             "video_id": video_id,
             "channel": channel,
             "channel_id": channel_id,
-            "url": title_url,
+            "url": url,
         }
 
         return NormalizedContent(
-            markdown=_build_watch_markdown(title, watched_at_iso, channel, title_url),
-            source_id=f"youtube/watch/{video_id}/{watched_at_iso}",
+            markdown=_build_watch_markdown(title, watched_at, channel, url),
+            source_id=f"youtube/watch/{video_id}/{watched_at}",
             structural_hints=StructuralHints(
                 has_headings=False,
                 has_lists=False,
@@ -231,34 +263,6 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
 
 
 # ── Module-level helpers ────────────────────────────────────────────────────
-
-def _extract_video_id(url: str) -> str | None:
-    """Extract video_id from a youtube.com/watch?v=... URL."""
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return None
-    if "youtube.com" not in parsed.netloc:
-        return None
-    if parsed.path != "/watch":
-        return None
-    qs = parse_qs(parsed.query)
-    ids = qs.get("v", [])
-    return ids[0] if ids else None
-
-
-def _extract_channel_id(url: str) -> str | None:
-    """Extract channel ID from a youtube.com/channel/UC... URL."""
-    if not url:
-        return None
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return None
-    parts = [p for p in parsed.path.split("/") if p]
-    if len(parts) >= 2 and parts[0] == "channel":
-        return parts[1]
-    return None
 
 
 def _build_watch_markdown(

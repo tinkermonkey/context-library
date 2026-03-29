@@ -160,23 +160,16 @@ async def lifespan(app: FastAPI):
                     e
                 )
 
-        if helper_adapters:
-            logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
-
-    # YouTube adapters — standalone, no helper bridge required
-    if config.youtube_enabled:
-        if not config.youtube_takeout_path:
-            logger.warning(
-                "CTX_YOUTUBE_ENABLED=true but CTX_YOUTUBE_TAKEOUT_PATH is not set; skipping YouTube adapters"
-            )
-        else:
+        # YouTube watch history + transcripts (requires helper bridge with youtube collector enabled)
+        if config.youtube_enabled:
             try:
                 from context_library.adapters.youtube_watch_history import YouTubeWatchHistoryAdapter
                 from context_library.adapters.youtube_transcripts import YouTubeTranscriptAdapter
 
                 languages = [lang.strip() for lang in config.youtube_transcript_languages.split(",") if lang.strip()]
                 watch_adapter = YouTubeWatchHistoryAdapter(
-                    takeout_path=config.youtube_takeout_path,
+                    api_url=config.helper_url,
+                    api_key=config.helper_api_key,
                     account_id=config.youtube_account_id,
                 )
                 transcript_adapter = YouTubeTranscriptAdapter(
@@ -186,15 +179,13 @@ async def lifespan(app: FastAPI):
                     languages=languages or ["en"],
                 )
                 helper_adapters.extend([watch_adapter, transcript_adapter])
-                logger.info(
-                    "YouTube adapters configured (takeout_path=%s, account_id=%s)",
-                    config.youtube_takeout_path,
-                    config.youtube_account_id,
-                )
             except ImportError as exc:
                 logger.warning("YouTube adapters not available (missing dependency): %s", exc)
             except ValueError as exc:
                 logger.warning("YouTube adapters not available (invalid configuration): %s", exc)
+
+        if helper_adapters:
+            logger.info("Helper adapters configured (%d adapters, url=%s)", len(helper_adapters), config.helper_url)
 
     # Build helper health cache (probes helper /health on demand, TTL 30s)
     helper_health_cache = None
