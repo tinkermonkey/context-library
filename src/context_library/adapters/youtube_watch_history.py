@@ -39,9 +39,8 @@ A Bearer API token is REQUIRED: ``Authorization: Bearer <api_key>``
 
 import json
 import logging
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Iterator
-from datetime import datetime
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -103,7 +102,8 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._account_id = account_id
-        self._client = httpx.Client(timeout=60.0)
+        # yt-dlp has an internal 120s timeout; give the helper a comfortable margin.
+        self._client = httpx.Client(timeout=150.0)
 
     @property
     def adapter_id(self) -> str:
@@ -180,6 +180,10 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
             if not isinstance(videos, list):
                 raise ValueError(
                     f"Helper /youtube/history response must be a list, got {type(videos).__name__}"
+                )
+            if videos and not isinstance(videos[0], dict):
+                raise ValueError(
+                    f"Helper /youtube/history response items must be dicts, got {type(videos[0]).__name__}"
                 )
             return videos
 

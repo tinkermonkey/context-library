@@ -294,6 +294,12 @@ class TestYouTubeWatchHistoryAdapterErrors:
         with pytest.raises(ValueError, match="must be a list"):
             list(adapter.fetch(""))
 
+    def test_fetch_raises_when_response_items_not_dicts(self):
+        adapter = _make_adapter()
+        adapter._client.get.return_value = _make_mock_response([1, 2, 3])
+        with pytest.raises(ValueError, match="items must be dicts"):
+            list(adapter.fetch(""))
+
     def test_fetch_skips_malformed_entry_continues(self):
         # A valid item after a malformed one should still be yielded.
         malformed = {"video_id": "BAD", "watched_at": None}  # no watched_at → skipped
