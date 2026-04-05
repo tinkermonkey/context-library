@@ -95,6 +95,22 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("AppleContactsAdapter")
 
+# Check if apple_imessage adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_imessage import (  # noqa: F401
+        AppleiMessageAdapter as AppleiMessageAdapter,
+    )
+
+    __all__.append("AppleiMessageAdapter")
+
+# Check if apple_notes adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_notes import (  # noqa: F401
+        AppleNotesAdapter as AppleNotesAdapter,
+    )
+
+    __all__.append("AppleNotesAdapter")
+
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:
     from context_library.adapters.vcard import (  # noqa: F401
