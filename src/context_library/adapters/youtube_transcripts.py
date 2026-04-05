@@ -261,7 +261,7 @@ class YouTubeTranscriptAdapter(BaseAdapter):
             NormalizedContent or None if no transcript is available.
         """
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)  # type: ignore[attr-defined]
             transcript = transcript_list.find_transcript(self._languages)
             segments = transcript.fetch()
         except TranscriptsDisabled:
