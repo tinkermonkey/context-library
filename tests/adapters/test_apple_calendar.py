@@ -108,7 +108,10 @@ class TestAppleCalendarAdapterFetch:
         assert len(results) == 1
         assert isinstance(results[0], NormalizedContent)
         assert results[0].source_id == "apple_calendar/event-1"
-        assert "Team meeting" in results[0].markdown
+        # Markdown contains just the notes (description body)
+        assert results[0].markdown == "Discuss Q2 roadmap"
+        # Title is in extra_metadata, not markdown
+        assert results[0].structural_hints.extra_metadata["title"] == "Team meeting"
 
     def test_fetch_event_without_notes_not_yielded(self, mock_httpx_client_calendar):
         """fetch() does not yield events with null notes."""
@@ -285,6 +288,7 @@ class TestAppleCalendarAdapterFetch:
         assert extra["isAllDay"] is True
         assert extra["recurrence"] == {"frequency": "weekly"}
         assert extra["url"] == "https://example.com/event"
+        assert extra["lastModified"] == "2026-03-06T10:00:00Z"
 
     def test_fetch_http_error_propagates(self, mock_httpx_client_calendar):
         """fetch() propagates HTTP errors."""
@@ -342,8 +346,8 @@ class TestAppleCalendarAdapterFetch:
 class TestAppleCalendarAdapterMarkdownGeneration:
     """Tests for markdown generation in fetch()."""
 
-    def test_markdown_includes_title(self, mock_httpx_client_calendar):
-        """Generated markdown includes event title."""
+    def test_markdown_is_notes_body(self, mock_httpx_client_calendar):
+        """Generated markdown is the notes/description body only."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -366,10 +370,13 @@ class TestAppleCalendarAdapterMarkdownGeneration:
         ])
 
         results = list(adapter.fetch(""))
-        assert "Team standup" in results[0].markdown
+        # Markdown is just the notes, not the title or metadata
+        assert results[0].markdown == "Daily sync"
+        # Title is in extra_metadata, used by EventsDomain for context headers
+        assert results[0].structural_hints.extra_metadata["title"] == "Team standup"
 
-    def test_markdown_includes_notes_as_description(self, mock_httpx_client_calendar):
-        """Generated markdown includes notes as description."""
+    def test_markdown_contains_notes(self, mock_httpx_client_calendar):
+        """Generated markdown contains the event notes/description."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -392,7 +399,7 @@ class TestAppleCalendarAdapterMarkdownGeneration:
         ])
 
         results = list(adapter.fetch(""))
-        assert "Important description here" in results[0].markdown
-        assert "Description" in results[0].markdown
+        # Markdown is just the notes
+        assert results[0].markdown == "Important description here"
 
 

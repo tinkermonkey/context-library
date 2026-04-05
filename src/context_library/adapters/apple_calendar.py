@@ -270,8 +270,7 @@ class AppleCalendarAdapter(BaseAdapter):
 
         Raises:
             KeyError: If required fields are missing
-            TypeError: If fields have unexpected types
-            ValueError: If fields fail validation
+            ValueError: If fields fail validation (via Pydantic)
         """
         # Extract required fields
         if "id" not in event:
@@ -286,33 +285,19 @@ class AppleCalendarAdapter(BaseAdapter):
             raise KeyError("Event missing required 'lastModified' field")
         last_modified = event["lastModified"]
 
-        # Validate title is non-empty
-        if not isinstance(title, str):
-            raise TypeError(f"'title' field must be str, got {type(title).__name__}")
-        if not title:
-            raise ValueError("Event title must be non-empty")
-
         # Extract optional fields
         start_date = event.get("startDate")
-        if start_date is not None and not isinstance(start_date, str):
-            raise TypeError(f"'startDate' field must be str or null, got {type(start_date).__name__}")
-
         end_date = event.get("endDate")
-        if end_date is not None and not isinstance(end_date, str):
-            raise TypeError(f"'endDate' field must be str or null, got {type(end_date).__name__}")
 
         # Extract attendees and format as display strings (name + email)
         attendees_raw = event.get("attendees", [])
-        if not isinstance(attendees_raw, list):
-            raise TypeError(f"'attendees' field must be list, got {type(attendees_raw).__name__}")
-
         attendees = tuple(
             f"{a.get('name', '')} <{a.get('email', '')}>".strip() if a.get('email') else a.get('name', '')
             for a in attendees_raw
             if a.get('name') or a.get('email')
         )
 
-        # Build EventMetadata
+        # Build EventMetadata (Pydantic validates field types)
         return EventMetadata(
             event_id=event_id,
             title=title,
@@ -332,42 +317,15 @@ class AppleCalendarAdapter(BaseAdapter):
         Returns:
             Dictionary with extra metadata fields
         """
-        extra = {}
-
-        # Pass through location
-        location = event.get("location")
-        if location is not None:
-            extra["location"] = location
-
-        # Pass through calendar
-        calendar = event.get("calendar")
-        if calendar is not None:
-            extra["calendar"] = calendar
-
-        # Pass through status
-        status = event.get("status")
-        if status is not None:
-            extra["status"] = status
-
-        # Pass through isAllDay
-        is_all_day = event.get("isAllDay")
-        if is_all_day is not None:
-            extra["isAllDay"] = is_all_day
-
-        # Pass through recurrence
-        recurrence = event.get("recurrence")
-        if recurrence is not None:
-            extra["recurrence"] = recurrence
-
-        # Pass through url
-        url = event.get("url")
-        if url is not None:
-            extra["url"] = url
-
-        return extra
+        keys = ("location", "calendar", "status", "isAllDay", "recurrence", "url", "lastModified")
+        return {k: event[k] for k in keys if event.get(k) is not None}
 
     def _build_event_markdown(self, event: dict, metadata: EventMetadata, notes: str) -> str:
         """Build markdown representation of an event.
+
+        The event metadata (title, dates, attendees) is available in extra_metadata
+        and will be used by EventsDomain to build context headers. This method
+        returns just the notes/description body to avoid duplication.
 
         Args:
             event: Raw event dictionary from API
@@ -375,41 +333,6 @@ class AppleCalendarAdapter(BaseAdapter):
             notes: Event notes/description
 
         Returns:
-            Markdown string representation
+            Markdown string representation (notes/description body)
         """
-        parts = [f"# {metadata.title}"]
-
-        # Add calendar if present
-        calendar = event.get("calendar")
-        if calendar:
-            parts.append(f"\n**Calendar:** {calendar}")
-
-        # Add dates
-        if metadata.start_date:
-            parts.append(f"**Start:** {metadata.start_date}")
-        if metadata.end_date:
-            parts.append(f"**End:** {metadata.end_date}")
-
-        # Add location if present
-        location = event.get("location")
-        if location:
-            parts.append(f"**Location:** {location}")
-
-        # Add all-day indicator if true
-        is_all_day = event.get("isAllDay", False)
-        if is_all_day:
-            parts.append("**All Day:** Yes")
-
-        # Add status if not confirmed
-        status = event.get("status", "confirmed")
-        if status != "confirmed":
-            parts.append(f"**Status:** {status}")
-
-        # Add attendees if present
-        if metadata.invitees:
-            parts.append("\n## Attendees\n\n" + "\n".join(f"- {inv}" for inv in metadata.invitees))
-
-        # Add notes as description
-        parts.append(f"\n## Description\n\n{notes}")
-
-        return "\n".join(parts)
+        return notes

@@ -81,6 +81,45 @@ class MockResponse:
             )
 
 
+class MockClient:
+    """Mock httpx.Client that tracks requests and returns configured responses.
+
+    Raises AssertionError if attempting to access a URL that hasn't been
+    configured with set_response(), to catch tests that hit the wrong endpoint.
+    """
+    def __init__(self, *args, **kwargs):
+        self.requests = []
+        self.responses = {}
+        self.timeout = kwargs.get("timeout")
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+        if url not in self.responses:
+            raise AssertionError(
+                f"MockClient.get() called with unconfigured URL: {url}. "
+                f"Configured URLs: {list(self.responses.keys())}. "
+                f"Did you call set_response() for this URL?"
+            )
+        return self.responses[url]
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
+        if url not in self.responses:
+            raise AssertionError(
+                f"MockClient.post() called with unconfigured URL: {url}. "
+                f"Configured URLs: {list(self.responses.keys())}. "
+                f"Did you call set_response() for this URL?"
+            )
+        return self.responses[url]
+
+    def set_response(self, url, data, status_code=200):
+        self.responses[url] = MockResponse(data, status_code, url=url)
+
+    def close(self):
+        """No-op for mock client."""
+        pass
+
+
 @pytest.fixture
 def mock_httpx_client(monkeypatch):
     """Fixture for mocking httpx.Client with request tracking.
@@ -88,45 +127,6 @@ def mock_httpx_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses.
-
-        Raises AssertionError if attempting to access a URL that hasn't been
-        configured with set_response(), to catch tests that hit the wrong endpoint.
-        """
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def post(self, url, json=None, headers=None, timeout=None):
-            self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.post() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
@@ -287,31 +287,6 @@ def mock_apple_music_library_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made. Used for AppleMusicLibraryAdapter.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
@@ -345,31 +320,6 @@ def mock_apple_contacts_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made. Used for AppleContactsAdapter.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
@@ -387,31 +337,6 @@ def mock_httpx_client_calendar(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made. Used for AppleCalendarAdapter.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
