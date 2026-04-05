@@ -1,6 +1,5 @@
 """Tests for YouTubeWatchHistoryAdapter (helper-bridge implementation)."""
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -90,7 +89,6 @@ class TestYouTubeWatchHistoryAdapterInitialization:
                 YouTubeWatchHistoryAdapter(api_url="http://localhost:7123", api_key="")
 
     def test_init_raises_without_httpx(self):
-        import sys
         import context_library.adapters.youtube_watch_history as mod
         original = mod.HAS_HTTPX
         try:
@@ -243,7 +241,7 @@ class TestYouTubeWatchHistoryAdapterFetch:
 
     def test_fetch_domain_is_events(self):
         adapter = self._adapter_with_response([VIDEO_ITEM])
-        results = list(adapter.fetch(""))
+        list(adapter.fetch(""))
         # domain set at adapter level, not on content
         assert adapter.domain == Domain.EVENTS
 

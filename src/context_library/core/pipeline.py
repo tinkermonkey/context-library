@@ -211,7 +211,8 @@ class IngestionPipeline:
                         # documents/notes). Always written so existing sources are backfilled.
                         display_name: str | None = None
                         if chunks and chunks[0].domain_metadata:
-                            display_name = chunks[0].domain_metadata.get("title")
+                            title_val = chunks[0].domain_metadata.get("title")
+                            display_name = title_val if isinstance(title_val, str) else None
 
                         # Compute current chunk hashes
                         curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
@@ -316,8 +317,11 @@ class IngestionPipeline:
                             # Fetch original lineage to preserve the embedding model that created the vectors
                             # (not the current embedder's model, which may have changed since the chunk was created)
                             # Pass source_id to scope lookup correctly in case of cross-source dedup
-                            original_lineage = self.document_store.get_lineage(
+                            original_lineage_result = self.document_store.get_lineage(
                                 unchanged_chunk.chunk_hash, source_id=content.source_id
+                            )
+                            original_lineage: LineageRecord | None = (
+                                original_lineage_result if isinstance(original_lineage_result, LineageRecord) else None
                             )
                             original_embedding_model = (
                                 original_lineage.embedding_model_id

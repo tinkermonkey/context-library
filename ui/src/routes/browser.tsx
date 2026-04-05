@@ -651,7 +651,8 @@ export default function BrowserPage() {
   const handleDomainChange = useCallback(
     (domain: string) => {
       // Clear source_id and adapter_id when switching domains — they're domain-specific
-      const { source_id: _sid, adapter_id: _aid, ...rest } = searchRef.current;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { source_id, adapter_id, ...rest } = searchRef.current;
       navigate({
         to: '/browser',
         search: { ...rest, domain, page: 0 },

@@ -159,7 +159,10 @@ class YouTubeTranscriptAdapter(BaseAdapter):
         # Phase 3: fetch transcripts for pending video_ids
         for video_id in pending:
             try:
-                content = self._fetch_transcript(video_id, watch_meta.get(video_id, {}))
+                meta_dict = watch_meta.get(video_id, {})
+                if not isinstance(meta_dict, dict):
+                    meta_dict = {}
+                content = self._fetch_transcript(video_id, meta_dict)
                 if content is not None:
                     yield content
             except Exception as exc:
@@ -191,22 +194,23 @@ class YouTubeTranscriptAdapter(BaseAdapter):
 
             for chunk_ctx in chunks:
                 meta = chunk_ctx.chunk.domain_metadata
-                if not meta:
+                if not isinstance(meta, dict):
                     continue
                 video_id = meta.get("video_id")
-                if not video_id:
+                if not isinstance(video_id, str):
                     continue
 
                 watched_at = meta.get("start_date", "")
+                watched_at_str = watched_at if isinstance(watched_at, str) else ""
                 existing = result.get(video_id)
                 # Keep most recent watch event's metadata
-                if existing is None or watched_at > existing.get("watched_at", ""):
+                if existing is None or watched_at_str > existing.get("watched_at", ""):
                     result[video_id] = {
                         "title": meta.get("title", f"YouTube video {video_id}"),
                         "channel": meta.get("channel"),
                         "channel_id": meta.get("channel_id"),
                         "url": meta.get("url"),
-                        "watched_at": watched_at,
+                        "watched_at": watched_at_str,
                     }
 
             offset += batch
