@@ -47,6 +47,14 @@ if (
 
     __all__.append("CalDAVAdapter")
 
+# Check if apple_calendar adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_calendar import (  # noqa: F401
+        AppleCalendarAdapter as AppleCalendarAdapter,
+    )
+
+    __all__.append("AppleCalendarAdapter")
+
 # Check if apple_reminders adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_reminders import (  # noqa: F401
