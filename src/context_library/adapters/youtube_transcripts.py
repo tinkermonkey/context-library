@@ -165,11 +165,12 @@ class YouTubeTranscriptAdapter(BaseAdapter):
                 content = self._fetch_transcript(video_id, meta_dict)
                 if content is not None:
                     yield content
-            except (TypeError, AttributeError, ValueError) as exc:
-                # Programming errors must propagate to reveal bugs
-                raise
+            except (ValueError, KeyError, TypeError) as exc:
+                # Data validation errors (malformed API response or metadata) are logged and skipped
+                logger.warning("Skipping transcript for video_id=%s due to malformed data: %s", video_id, exc)
+                continue
             except Exception as exc:
-                # API errors are logged and skipped
+                # Unexpected API or processing errors are logged and skipped per the per-source error isolation pattern
                 logger.warning("Transcript fetch failed for video_id=%s: %s", video_id, exc)
                 continue
 

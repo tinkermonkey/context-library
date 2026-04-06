@@ -283,6 +283,34 @@ class TestYouTubeTranscriptAdapterFetch:
         assert "Transcript" in md
         assert "[0:00]" in md
 
+    def test_fetch_skips_data_validation_errors_and_continues(self):
+        """Verifies that TypeError, ValueError, KeyError are caught and logged, not propagated."""
+        watch_chunks = [_make_watch_chunk("fail_vid"), _make_watch_chunk("ok_vid")]
+        store = _make_mock_store(watch_chunks=watch_chunks, transcript_sources=[])
+        adapter = self._make_adapter(store)
+
+        call_count = 0
+
+        def side_effect(video_id):
+            nonlocal call_count
+            call_count += 1
+            if video_id == "fail_vid":
+                raise TypeError("Malformed metadata: expected dict")
+            mock = MagicMock()
+            mock.find_transcript.return_value.fetch.return_value = SAMPLE_SEGMENTS
+            return mock
+
+        mock_api = MagicMock()
+        mock_api.list_transcripts.side_effect = side_effect
+
+        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
+            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
+                results = list(adapter.fetch(""))
+
+        # Should process both videos: fail_vid logs and skips, ok_vid succeeds
+        assert len(results) == 1  # Only ok_vid succeeded
+        assert call_count == 2  # Both videos were attempted
+
 
 # ── Helper function tests ───────────────────────────────────────────────────
 
