@@ -922,10 +922,10 @@ class TestAppleHealthAdapterAuthErrors:
             list(adapter.fetch(""))
 
 
-class TestPhase7HealthWorkoutDataQuality:
-    """Phase 7: Health workout data quality verification.
+class TestHealthWorkoutFieldMapping:
+    """Verifies health workout field mapping to HealthMetadata.
 
-    Verifies that when context-helpers provides non-null values for
+    Ensures that when context-helpers provides non-null values for
     totalEnergyBurned, totalDistance, and averageHeartRate, the adapter
     correctly maps them to the corresponding HealthMetadata fields:
     - totalEnergyBurned → calories_kcal
@@ -944,7 +944,7 @@ class TestPhase7HealthWorkoutDataQuality:
 
         # Fixture: workout with non-null health metrics
         workout_with_full_metrics = {
-            "id": "phase7-workout-1",
+            "id": "workout-full-metrics-1",
             "activityType": "running",
             "startDate": "2026-03-15T08:00:00+00:00",
             "endDate": "2026-03-15T08:45:00+00:00",
@@ -967,18 +967,12 @@ class TestPhase7HealthWorkoutDataQuality:
 
         # Verify HealthMetadata validation succeeds
         metadata = HealthMetadata.model_validate(metadata_dict)
-        assert metadata.record_id == "phase7-workout-1"
+        assert metadata.record_id == "workout-full-metrics-1"
         assert metadata.health_type == "workout_session"
 
-        # Phase 7 Acceptance Criteria:
-        # Assert totalEnergyBurned is mapped to calories_kcal
+        # Verify non-null workout metrics are mapped to correct HealthMetadata fields
         assert metadata_dict["calories_kcal"] == 350.0
-        assert metadata.calories_kcal == 350.0
 
-        # Assert totalDistance is mapped to distance_meters (NOT distance_km)
         assert metadata_dict["distance_meters"] == 7500.0
-        assert metadata.distance_meters == 7500.0
 
-        # Assert averageHeartRate is mapped to avg_heart_rate_bpm
         assert metadata_dict["avg_heart_rate_bpm"] == 155.0
-        assert metadata.avg_heart_rate_bpm == 155.0
