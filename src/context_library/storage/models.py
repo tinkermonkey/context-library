@@ -156,7 +156,7 @@ class MessageMetadata(BaseModel):
     in_reply_to: str | None
     subject: str | None
     is_thread_root: bool
-    is_from_me: bool
+    is_from_me: bool = False
 
     @field_validator("thread_id")
     @classmethod

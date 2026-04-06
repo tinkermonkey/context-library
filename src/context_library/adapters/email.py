@@ -385,5 +385,6 @@ class EmailAdapter(BaseAdapter):
             in_reply_to=in_reply_to,
             subject=subject,
             is_thread_root=is_thread_root,
+            # TODO: Detect sent mail via mailbox path or account address comparison
             is_from_me=False,
         )
