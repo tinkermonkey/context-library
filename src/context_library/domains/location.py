@@ -71,7 +71,10 @@ class LocationDomain(BaseDomain):
             ) from e
 
         # Build context_header
-        if meta.place_name and meta.arrival_date:
+        # For current location snapshots, use "Current location — {timestamp}" format
+        if meta.source_type == "apple_location_current":
+            context_header = f"Current location — {meta.date_first_observed}"
+        elif meta.place_name and meta.arrival_date:
             context_header = f"{meta.place_name} — {meta.arrival_date}"
         elif meta.place_name:
             context_header = meta.place_name
