@@ -290,10 +290,25 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             visit: Visit dictionary from macOS helper API
 
         Returns:
-            Dictionary with extra metadata fields
+            Dictionary with extra metadata fields (url, browser, visitCount)
+
+        Raises:
+            KeyError: If required fields (browser, visitCount) are missing.
+                Note: url is also required but is already validated in
+                _extract_visit_metadata.
         """
-        keys = ("url", "browser", "visitCount")
-        return {k: visit[k] for k in keys if k in visit}
+        # Validate required fields for extra_metadata
+        if "browser" not in visit:
+            raise KeyError("Visit missing required 'browser' field")
+        if "visitCount" not in visit:
+            raise KeyError("Visit missing required 'visitCount' field")
+
+        # Extract all three fields (url is always present due to prior validation)
+        return {
+            "url": visit["url"],
+            "browser": visit["browser"],
+            "visitCount": visit["visitCount"],
+        }
 
     def _build_visit_markdown(self, visit: dict) -> str:
         """Build markdown representation of a visit.

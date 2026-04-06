@@ -365,3 +365,61 @@ class TestAppleBrowserHistoryAdapterFetch:
 
         with pytest.raises(KeyError, match="'url'"):
             list(adapter.fetch(""))
+
+    def test_fetch_missing_required_field_browser(self, mock_httpx_client_browser_history):
+        """fetch() raises KeyError if visit is missing 'browser' field."""
+        adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        visits_url = "http://127.0.0.1:7123/browser/history"
+        mock_httpx_client_browser_history.set_response(visits_url, [
+            {
+                "id": "visit-1",
+                "url": "https://example.com",
+                "title": "Test",
+                "visitedAt": "2026-03-10T10:00:00Z",
+                # Missing 'browser'
+                "visitCount": 1,
+            }
+        ])
+
+        with pytest.raises(KeyError, match="'browser'"):
+            list(adapter.fetch(""))
+
+    def test_fetch_missing_required_field_visitCount(self, mock_httpx_client_browser_history):
+        """fetch() raises KeyError if visit is missing 'visitCount' field."""
+        adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        visits_url = "http://127.0.0.1:7123/browser/history"
+        mock_httpx_client_browser_history.set_response(visits_url, [
+            {
+                "id": "visit-1",
+                "url": "https://example.com",
+                "title": "Test",
+                "visitedAt": "2026-03-10T10:00:00Z",
+                "browser": "safari",
+                # Missing 'visitCount'
+            }
+        ])
+
+        with pytest.raises(KeyError, match="'visitCount'"):
+            list(adapter.fetch(""))
+
+    def test_fetch_http_error_response(self, mock_httpx_client_browser_history):
+        """fetch() raises httpx.HTTPStatusError when API returns error status."""
+        adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        visits_url = "http://127.0.0.1:7123/browser/history"
+        mock_httpx_client_browser_history.set_response(visits_url, {"error": "Internal Server Error"}, status_code=500)
+
+        with pytest.raises(Exception):  # httpx.HTTPStatusError
+            list(adapter.fetch(""))
+
+    def test_fetch_empty_response_yields_nothing(self, mock_httpx_client_browser_history):
+        """fetch() yields nothing when API returns empty list."""
+        adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        visits_url = "http://127.0.0.1:7123/browser/history"
+        mock_httpx_client_browser_history.set_response(visits_url, [])
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 0
