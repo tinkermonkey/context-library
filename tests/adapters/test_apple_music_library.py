@@ -669,64 +669,6 @@ class TestAppleMusicLibraryAdapterFetch:
         # Should default to 0, not 1
         assert metadata_dict["play_count"] == 0
 
-    def test_fetch_genre_included_in_metadata_when_present(self, mock_apple_music_library_endpoints):
-        """fetch() includes genre in metadata when provided."""
-        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
-
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
-            {
-                "id": "track-1",
-                "title": "Song",
-                "artist": "Artist",
-                "album": "Album",
-                "duration_seconds": 200,
-                "play_count": 1,
-                "genre": "Rock",
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        metadata_dict = results[0].structural_hints.extra_metadata
-
-        assert metadata_dict["genre"] == "Rock"
-
-    def test_fetch_genre_in_markdown_when_present(self, mock_apple_music_library_endpoints):
-        """Generated markdown includes genre when available."""
-        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
-
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
-            {
-                "id": "track-1",
-                "title": "Song",
-                "artist": "Artist",
-                "album": "Album",
-                "duration_seconds": 200,
-                "play_count": 1,
-                "genre": "Jazz",
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        assert "Genre: Jazz" in results[0].markdown
-
-    def test_fetch_genre_excluded_from_markdown_when_null(self, mock_apple_music_library_endpoints):
-        """Generated markdown excludes genre when null."""
-        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
-
-        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
-            {
-                "id": "track-1",
-                "title": "Song",
-                "artist": "Artist",
-                "album": "Album",
-                "duration_seconds": 200,
-                "play_count": 1,
-                "genre": None,
-            }
-        ])
-
-        results = list(adapter.fetch(""))
-        assert "Genre:" not in results[0].markdown
 
     def test_fetch_date_first_observed_not_set_by_adapter(self, mock_apple_music_library_endpoints):
         """fetch() does not set date_first_observed in metadata (storage layer manages it)."""
@@ -884,7 +826,7 @@ class TestAppleMusicLibraryAdapterImportGuard:
     def test_import_error_without_httpx(self, monkeypatch):
         """AppleMusicLibraryAdapter raises ImportError if httpx is not installed."""
         monkeypatch.setattr(
-            "context_library.adapters.apple_music_library.HAS_HTTPX",
+            "context_library.adapters.apple_music_base.HAS_HTTPX",
             False
         )
 

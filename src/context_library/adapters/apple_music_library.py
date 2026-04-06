@@ -38,12 +38,12 @@ Security:
   A Bearer API token is REQUIRED: Authorization: Bearer <api_key>
 """
 
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
 from context_library.adapters.base import BaseAdapter
+from context_library.adapters.apple_music_base import AppleMusicBaseMixin
 from context_library.storage.models import (
     Domain,
     DocumentMetadata,
@@ -55,16 +55,8 @@ from context_library.storage.models import (
 
 logger = logging.getLogger(__name__)
 
-HAS_HTTPX = False
-try:
-    import httpx
 
-    HAS_HTTPX = True
-except ImportError:
-    pass
-
-
-class AppleMusicLibraryAdapter(BaseAdapter):
+class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
     """Adapter that ingests Apple Music library catalog from a macOS helper service.
 
     Treats each track as a persistent document in the catalog, preserving
@@ -76,6 +68,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
         api_url: str,
         api_key: str,
         device_id: str = "default",
+        include_events: bool = True,
     ) -> None:
         """Initialize AppleMusicLibraryAdapter.
 
@@ -83,23 +76,20 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             api_url: Base URL of the macOS helper API (e.g., "http://192.168.1.50:7123")
             api_key: Required bearer token for API authentication
             device_id: Device identifier for adapter_id generation (default: "default")
+            include_events: If True, yield both documents and play events; if False, only yield documents (default: True)
 
         Raises:
             ImportError: If httpx is not installed.
             ValueError: If api_key is empty.
         """
-        if not HAS_HTTPX:
-            raise ImportError(
-                "httpx is required for AppleMusicLibraryAdapter. "
-                "Install with: pip install context-library[apple-music]"
-            )
         if not api_key:
             raise ValueError("api_key is required for AppleMusicLibraryAdapter")
 
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._device_id = device_id
-        self._client = httpx.Client(timeout=30.0)
+        self._include_events = include_events
+        self._init_httpx_client()
 
     @property
     def adapter_id(self) -> str:
@@ -117,17 +107,6 @@ class AppleMusicLibraryAdapter(BaseAdapter):
     def normalizer_version(self) -> str:
         return "1.0.0"
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._client.close()
-        return False
-
-    def __del__(self) -> None:
-        if hasattr(self, "_client"):
-            self._client.close()
-
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize Apple Music library catalog from the macOS helper API.
 
@@ -144,7 +123,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             ValueError: If the helper API returns unexpected response schema
         """
         since = source_ref if source_ref else None
-        tracks = self._fetch_tracks(since)
+        tracks = self._fetch_tracks(self._api_url, self._api_key, since)
 
         for idx, track in enumerate(tracks):
             try:
@@ -153,67 +132,6 @@ class AppleMusicLibraryAdapter(BaseAdapter):
                 track_id = track.get("id", f"<index {idx}>") if isinstance(track, dict) else f"<index {idx}>"
                 logger.error(f"Skipping malformed track (ID: {track_id}): {e}")
                 continue
-
-    def _fetch_tracks(self, since: str | None) -> list[dict]:
-        """Fetch track list from the macOS helper API.
-
-        Args:
-            since: Optional ISO 8601 timestamp for incremental fetch
-
-        Returns:
-            List of track dictionaries
-
-        Raises:
-            httpx.HTTPStatusError: If the API request fails (auth errors 401/403 propagate immediately)
-            httpx.RequestError: If a network error occurs
-            json.JSONDecodeError: If the API returns invalid JSON
-            ValueError: If the API returns unexpected response schema
-        """
-        params = {}
-        if since:
-            params["since"] = since
-
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-
-        try:
-            response = self._client.get(
-                f"{self._api_url}/music/tracks",
-                params=params,
-                headers=headers,
-            )
-            response.raise_for_status()
-
-            tracks = response.json()
-            if not isinstance(tracks, list):
-                raise ValueError(
-                    f"macOS helper API '/music/tracks' response must be a list, got {type(tracks).__name__}"
-                )
-
-            return tracks
-
-        except httpx.HTTPStatusError as e:
-            # Re-raise auth errors immediately for visibility
-            if e.response.status_code in (401, 403):
-                logger.error(
-                    f"Authentication error from Apple Music API: "
-                    f"{e.response.status_code} {e.response.text}"
-                )
-                raise
-            logger.error(
-                f"HTTP error from Apple Music API /music/tracks: "
-                f"{e.response.status_code} {e.response.text}"
-            )
-            raise
-        except httpx.RequestError as e:
-            logger.error(
-                f"Network error connecting to Apple Music API at {self._api_url}/music/tracks: {e}"
-            )
-            raise
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Invalid JSON response from Apple Music API /music/tracks (possible proxy/HTML response): {e}"
-            )
-            raise
 
     def _process_track(self, track: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single track and yield both a library document and a play event.
@@ -236,7 +154,6 @@ class AppleMusicLibraryAdapter(BaseAdapter):
 
         artist = track.get("artist")
         album = track.get("album")
-        genre = track.get("genre")
         duration_seconds = track.get("duration_seconds")
         play_count = track.get("play_count", 0)
         played_at = track.get("played_at")
@@ -253,7 +170,6 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             "album": album,
             "play_count": play_count,
             "duration_minutes": duration_minutes,
-            "genre": genre,
         }
 
         try:
@@ -263,7 +179,7 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             raise
 
         yield NormalizedContent(
-            markdown=self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre),
+            markdown=self._build_track_markdown(title, artist, album, duration_minutes, play_count),
             source_id=f"music/library/{track_id}",
             structural_hints=StructuralHints(
                 has_headings=False,
@@ -276,8 +192,8 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             domain=Domain.DOCUMENTS,
         )
 
-        # ── 2. Play event (EVENTS domain) ────────────────────────────────────
-        if not played_at:
+        # ── 2. Play event (EVENTS domain, optional) ────────────────────────────────────
+        if not self._include_events or not played_at:
             return
 
         now = datetime.now(timezone.utc).isoformat()
@@ -318,27 +234,3 @@ class AppleMusicLibraryAdapter(BaseAdapter):
             normalizer_version=self.normalizer_version,
             domain=Domain.EVENTS,
         )
-
-    def _build_track_markdown(
-        self,
-        title: str,
-        artist: str | None,
-        album: str | None,
-        duration_minutes: int | None,
-        play_count: int,
-        genre: str | None = None,
-    ) -> str:
-        """Build markdown representation of a track."""
-        lines = [f"**{title}**"]
-
-        if artist:
-            lines.append(f"- Artist: {artist}")
-        if album:
-            lines.append(f"- Album: {album}")
-        if genre:
-            lines.append(f"- Genre: {genre}")
-        if duration_minutes is not None:
-            lines.append(f"- Duration: {duration_minutes} min")
-        lines.append(f"- Play count: {play_count}")
-
-        return "\n".join(lines)

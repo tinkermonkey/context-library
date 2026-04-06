@@ -63,13 +63,16 @@ def mock_html2text_module():
 class MockResponse:
     """Mock httpx.Response for testing."""
 
-    def __init__(self, json_data, status_code=200, url="", text=""):
+    def __init__(self, json_data, status_code=200, url="", text="", should_fail_json=False):
         self._json_data = json_data
         self.status_code = status_code
         self.url = url
         self.text = text if text else (str(json_data) if json_data is not None else "")
+        self._should_fail_json = should_fail_json
 
     def json(self):
+        if self._should_fail_json:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
         if self._json_data is None:
             raise ValueError("No JSON data available")
         return self._json_data
@@ -126,7 +129,7 @@ class MockClient:
 
     def set_raw_response(self, url, content, content_type="text/plain"):
         """Set a raw response that will fail JSON parsing."""
-        response = MockResponse(content, 200, url=url, text=content)
+        response = MockResponse(content, 200, url=url, text=content, should_fail_json=True)
         self.responses[url] = response
 
     def close(self):
@@ -303,8 +306,9 @@ def mock_apple_music_library_client(monkeypatch):
     """
     mock_client = MockClient()
 
+    # Patch httpx.Client in the base mixin module since AppleMusicLibraryAdapter uses it
     monkeypatch.setattr(
-        "context_library.adapters.apple_music_library.httpx.Client",
+        "context_library.adapters.apple_music_base.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
 
@@ -499,12 +503,13 @@ def mock_apple_music_client(monkeypatch):
     """Fixture for mocking httpx.Client for Apple Music endpoints with request tracking.
 
     Provides a MockClient instance that can be configured with responses
-    and tracks all requests made. Used for AppleMusicAdapter.
+    and tracks all requests made. Used for AppleMusicAdapter and AppleMusicLibraryAdapter.
     """
     mock_client = MockClient()
 
+    # Patch httpx.Client in the base mixin module since both adapters use it
     monkeypatch.setattr(
-        "context_library.adapters.apple_music.httpx.Client",
+        "context_library.adapters.apple_music_base.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
 

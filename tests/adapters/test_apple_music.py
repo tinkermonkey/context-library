@@ -198,7 +198,6 @@ class TestAppleMusicAdapterFetch:
                 "title": "Bohemian Rhapsody",
                 "artist": "Queen",
                 "album": "A Night at the Opera",
-                "genre": "Rock",
                 "duration_seconds": 354,
                 "play_count": 42,
             }
@@ -212,7 +211,6 @@ class TestAppleMusicAdapterFetch:
         assert extra_metadata["title"] == "Bohemian Rhapsody"
         assert extra_metadata["author"] == "Queen"
         assert extra_metadata["album"] == "A Night at the Opera"
-        assert extra_metadata["genre"] == "Rock"
         assert extra_metadata["duration_minutes"] == 5
         assert extra_metadata["play_count"] == 42
         assert extra_metadata["source_type"] == "apple_music"
@@ -329,7 +327,7 @@ class TestAppleMusicAdapterImportGuard:
 
     def test_import_error_without_httpx(self, monkeypatch):
         """AppleMusicAdapter raises ImportError if httpx is not installed."""
-        monkeypatch.setattr("context_library.adapters.apple_music.HAS_HTTPX", False)
+        monkeypatch.setattr("context_library.adapters.apple_music_base.HAS_HTTPX", False)
 
         with pytest.raises(ImportError, match="httpx is required"):
             AppleMusicAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
