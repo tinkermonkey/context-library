@@ -1,8 +1,7 @@
 """Tests for AppleLocationAdapter."""
 
-import json
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 try:
     import httpx
@@ -12,7 +11,6 @@ except ImportError:
 
 from context_library.adapters.apple_location import AppleLocationAdapter
 from context_library.adapters.base import (
-    EndpointFetchError,
     PartialFetchError,
     AllEndpointsFailedError,
 )
