@@ -79,7 +79,7 @@ def mock_apple_music_library_client(monkeypatch):
     mock_client = MockClient()
 
     monkeypatch.setattr(
-        "context_library.adapters.apple_music_library.httpx.Client",
+        "context_library.adapters.apple_music_base.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
 

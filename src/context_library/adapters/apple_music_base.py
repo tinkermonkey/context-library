@@ -7,7 +7,6 @@ and markdown building.
 
 import json
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +122,7 @@ class AppleMusicBaseMixin:
         album: str | None,
         duration_minutes: int | None,
         play_count: int,
+        genre: str | None = None,
     ) -> str:
         """Build markdown representation of a track.
 
@@ -132,6 +132,7 @@ class AppleMusicBaseMixin:
             album: Album name (optional)
             duration_minutes: Duration in minutes (optional)
             play_count: Number of times played
+            genre: Genre (optional)
 
         Returns:
             Markdown string representation of the track
@@ -142,6 +143,8 @@ class AppleMusicBaseMixin:
             lines.append(f"- Artist: {artist}")
         if album:
             lines.append(f"- Album: {album}")
+        if genre:
+            lines.append(f"- Genre: {genre}")
         if duration_minutes is not None:
             lines.append(f"- Duration: {duration_minutes} min")
         lines.append(f"- Play count: {play_count}")

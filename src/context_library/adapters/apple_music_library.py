@@ -154,6 +154,7 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
 
         artist = track.get("artist")
         album = track.get("album")
+        genre = track.get("genre")
         duration_seconds = track.get("duration_seconds")
         play_count = track.get("play_count", 0)
         played_at = track.get("played_at")
@@ -168,6 +169,7 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
             "source_type": "apple_music",
             "author": artist,
             "album": album,
+            "genre": genre,
             "play_count": play_count,
             "duration_minutes": duration_minutes,
         }
@@ -179,7 +181,7 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
             raise
 
         yield NormalizedContent(
-            markdown=self._build_track_markdown(title, artist, album, duration_minutes, play_count),
+            markdown=self._build_track_markdown(title, artist, album, duration_minutes, play_count, genre),
             source_id=f"music/library/{track_id}",
             structural_hints=StructuralHints(
                 has_headings=False,
