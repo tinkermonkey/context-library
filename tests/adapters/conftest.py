@@ -348,6 +348,23 @@ def mock_httpx_client_calendar(monkeypatch):
 
 
 @pytest.fixture
+def mock_httpx_client_browser_history(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Browser History endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleBrowserHistoryAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_browser_history.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
 def mock_podcasts_httpx_get(monkeypatch):
     """Fixture for mocking httpx.get() function for Apple Podcasts endpoints with request tracking.
 

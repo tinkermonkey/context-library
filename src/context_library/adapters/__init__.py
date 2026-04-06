@@ -127,6 +127,14 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("ApplePodcastsAdapter")
 
+# Check if apple_browser_history adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_browser_history import (  # noqa: F401
+        AppleBrowserHistoryAdapter as AppleBrowserHistoryAdapter,
+    )
+
+    __all__.append("AppleBrowserHistoryAdapter")
+
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:
     from context_library.adapters.vcard import (  # noqa: F401
