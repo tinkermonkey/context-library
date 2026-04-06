@@ -389,6 +389,33 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         assert request is not None
         assert request["params"] == {"since": "2026-03-06T10:00:00Z"}
 
+    def test_fetch_focus_events_invalid_event_type(self, mock_all_screentime_endpoints):
+        """fetch() skips focus events with invalid eventType (not 'lock' or 'unlock')."""
+        adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+            {
+                "timestamp": "2026-03-20T10:00:00+00:00",
+                "eventType": "invalid",
+            },
+            {
+                "timestamp": "2026-03-20T10:05:00+00:00",
+                "eventType": "lock",
+            },
+            {
+                "timestamp": "2026-03-20T10:10:00+00:00",
+                "eventType": "bad_value",
+            },
+        ])
+
+        results = list(adapter.fetch(""))
+        focus_items = [r for r in results if "focus" in r.source_id]
+
+        # Only the valid 'lock' event should be yielded
+        assert len(focus_items) == 1
+        assert focus_items[0].source_id == "screentime/focus/2026-03-20T10:05:00+00:00"
+        assert "Device lock" in focus_items[0].markdown
+
 
 class TestAppleScreenTimeAdapterPartialFailure:
     """Tests for AppleScreenTimeAdapter partial failure handling."""
