@@ -31,6 +31,7 @@ def sample_message_metadata():
         in_reply_to=None,
         subject="Meeting Notes",
         is_thread_root=True,
+        is_from_me=False,
     )
 
 
@@ -177,6 +178,7 @@ class TestSingleMessageChunk:
             in_reply_to=None,
             subject=None,
             is_thread_root=True,
+            is_from_me=False,
         )
 
         hints = StructuralHints(
@@ -547,6 +549,7 @@ class TestChunkHash:
             in_reply_to=None,
             subject="Different Subject",  # Different subject
             is_thread_root=True,
+            is_from_me=False,
         )
 
         hints2 = StructuralHints(
@@ -613,6 +616,7 @@ class TestThreadMetadataPreservation:
             in_reply_to="msg-001",  # Reply to first message
             subject="Re: Meeting Notes",
             is_thread_root=False,
+            is_from_me=False,
         )
 
         hints = StructuralHints(

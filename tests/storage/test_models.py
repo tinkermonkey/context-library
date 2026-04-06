@@ -501,6 +501,7 @@ class TestMessageMetadata:
             in_reply_to="msg-455",
             subject="Re: Project Discussion",
             is_thread_root=False,
+            is_from_me=True,
         )
         assert metadata.thread_id == "thread-123"
         assert metadata.message_id == "msg-456"
@@ -522,6 +523,7 @@ class TestMessageMetadata:
             in_reply_to=None,
             subject=None,
             is_thread_root=True,
+            is_from_me=False,
         )
         assert metadata.thread_id == "t1"
         assert metadata.message_id == "m1"
@@ -544,6 +546,7 @@ class TestMessageMetadata:
                 in_reply_to=None,
                 subject=None,
                 is_thread_root=True,
+                is_from_me=False,
             )
 
     def test_message_metadata_frozen_immutability(self) -> None:
@@ -557,6 +560,7 @@ class TestMessageMetadata:
             in_reply_to=None,
             subject=None,
             is_thread_root=True,
+            is_from_me=False,
         )
         with pytest.raises(ValidationError):
             metadata.subject = "Modified"  # type: ignore[assignment]
@@ -572,6 +576,7 @@ class TestMessageMetadata:
             in_reply_to=None,
             subject="Test",
             is_thread_root=True,
+            is_from_me=False,
         )
         dumped = metadata.model_dump()
         assert isinstance(dumped, dict)
@@ -595,6 +600,7 @@ class TestMessageMetadata:
             in_reply_to=None,
             subject=None,
             is_thread_root=False,
+            is_from_me=False,
         )
         assert metadata.recipients == ()
 
@@ -610,6 +616,7 @@ class TestMessageMetadata:
                 in_reply_to=None,
                 subject=None,
                 is_thread_root=False,
+                is_from_me=False,
             )
         assert "thread_id must be a non-empty string" in str(exc_info.value)
 
@@ -625,6 +632,7 @@ class TestMessageMetadata:
                 in_reply_to=None,
                 subject=None,
                 is_thread_root=False,
+                is_from_me=False,
             )
         assert "message_id must be a non-empty string" in str(exc_info.value)
 
@@ -640,6 +648,7 @@ class TestMessageMetadata:
                 in_reply_to=None,
                 subject=None,
                 is_thread_root=False,
+                is_from_me=False,
             )
         assert "sender must be a non-empty string" in str(exc_info.value)
 
@@ -657,6 +666,7 @@ class TestMessageMetadata:
                 in_reply_to="msg-0",
                 subject=None,
                 is_thread_root=True,
+                is_from_me=False,
             )
         error_msg = str(exc_info.value)
         assert "is_thread_root=True and in_reply_to must be mutually exclusive" in error_msg
@@ -672,6 +682,7 @@ class TestMessageMetadata:
             in_reply_to=None,
             subject=None,
             is_thread_root=True,
+            is_from_me=False,
         )
         assert metadata.is_thread_root is True
         assert metadata.in_reply_to is None
@@ -687,6 +698,7 @@ class TestMessageMetadata:
             in_reply_to="m1",
             subject=None,
             is_thread_root=False,
+            is_from_me=False,
         )
         assert metadata.is_thread_root is False
         assert metadata.in_reply_to == "m1"

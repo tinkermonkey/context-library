@@ -385,4 +385,5 @@ class EmailAdapter(BaseAdapter):
             in_reply_to=in_reply_to,
             subject=subject,
             is_thread_root=is_thread_root,
+            is_from_me=False,
         )
