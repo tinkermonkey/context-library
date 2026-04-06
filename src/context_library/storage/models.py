@@ -108,6 +108,7 @@ class StructuralHints(BaseModel):
     - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Health domain: extra_metadata must be deserializable to HealthMetadata
     - For Documents domain: extra_metadata must be deserializable to DocumentMetadata
+    - For Location domain: extra_metadata must be deserializable to LocationMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -840,6 +841,22 @@ class LocationMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
+    @field_validator("arrival_date")
+    @classmethod
+    def validate_arrival_date(cls, value: str | None) -> str | None:
+        """Validate that arrival_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("departure_date")
+    @classmethod
+    def validate_departure_date(cls, value: str | None) -> str | None:
+        """Validate that departure_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
     @field_validator("duration_minutes")
     @classmethod
     def validate_duration_minutes(cls, value: int | None) -> int | None:
@@ -847,6 +864,35 @@ class LocationMetadata(BaseModel):
         if value is not None and value < 0:
             raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate LocationMetadata invariants after model construction.
+
+        Enforces:
+        - If both arrival_date and departure_date are present, arrival_date <= departure_date
+
+        Note: Uses datetime parsing for accurate ISO 8601 comparison to handle
+        different timezone representations (e.g., "Z" vs "+00:00").
+        """
+        from datetime import datetime
+
+        if self.arrival_date is not None and self.departure_date is not None:
+            # Parse ISO 8601 strings to datetime for correct comparison
+            # (lexicographic string comparison fails with mixed timezone formats)
+            try:
+                arrival_dt = datetime.fromisoformat(self.arrival_date.replace("Z", "+00:00"))
+                departure_dt = datetime.fromisoformat(self.departure_date.replace("Z", "+00:00"))
+            except (ValueError, AttributeError) as e:
+                # Should not happen as individual validators already checked ISO 8601 format
+                raise ValueError(
+                    f"Invalid ISO 8601 format in arrival_date or departure_date: {e}"
+                ) from e
+
+            if arrival_dt > departure_dt:
+                raise ValueError(
+                    f"arrival_date must be <= departure_date when both are present. "
+                    f"Got arrival_date={self.arrival_date!r}, departure_date={self.departure_date!r}"
+                )
 
 
 class NormalizedContent(BaseModel):

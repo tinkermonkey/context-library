@@ -98,8 +98,8 @@ class LocationDomain(BaseDomain):
         for idx, segment in enumerate(segments):
             chunk_hash = compute_chunk_hash(segment)
             # LocationMetadata validates all fields during initialization.
-            # Merge validated model fields with original dict to preserve all metadata.
-            domain_metadata = {**meta.model_dump(), **meta_dict}
+            # Merge with validated model values taking precedence over raw unvalidated values.
+            domain_metadata = {**meta_dict, **meta.model_dump()}
             chunk = Chunk(
                 chunk_hash=chunk_hash,
                 content=segment,
