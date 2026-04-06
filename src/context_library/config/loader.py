@@ -262,6 +262,7 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
     - "caldav" -> CalDAVAdapter
     - "apple_reminders" -> AppleRemindersAdapter
     - "apple_health" -> AppleHealthAdapter
+    - "apple_music" -> AppleMusicAdapter
     - "apple_music_library" -> AppleMusicLibraryAdapter
 
     Args:
@@ -299,6 +300,10 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
         "apple_health": (
             "context_library.adapters.apple_health",
             "AppleHealthAdapter",
+        ),
+        "apple_music": (
+            "context_library.adapters.apple_music",
+            "AppleMusicAdapter",
         ),
         "apple_music_library": (
             "context_library.adapters.apple_music_library",

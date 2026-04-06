@@ -87,6 +87,14 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("OuraAdapter")
 
+# Check if apple_music adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_music import (  # noqa: F401
+        AppleMusicAdapter as AppleMusicAdapter,
+    )
+
+    __all__.append("AppleMusicAdapter")
+
 # Check if apple_music_library adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_music_library import (  # noqa: F401

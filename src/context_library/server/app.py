@@ -100,6 +100,19 @@ async def lifespan(app: FastAPI):
                 e
             )
 
+        # AppleMusicAdapter (track catalog → documents domain)
+        try:
+            from context_library.adapters.apple_music import AppleMusicAdapter
+            helper_adapters.append(AppleMusicAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+        except ImportError as e:
+            logger.warning("AppleMusicAdapter not available (missing dependency): %s", e)
+        except ValueError as e:
+            logger.warning(
+                "AppleMusicAdapter not available (invalid configuration): %s. "
+                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                e
+            )
+
         # AppleMusicLibraryAdapter (track catalog → documents domain, play events → events domain)
         try:
             from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter

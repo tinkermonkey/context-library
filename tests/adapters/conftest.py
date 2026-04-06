@@ -67,9 +67,11 @@ class MockResponse:
         self._json_data = json_data
         self.status_code = status_code
         self.url = url
-        self.text = text if text else str(json_data)
+        self.text = text if text else (str(json_data) if json_data is not None else "")
 
     def json(self):
+        if self._json_data is None:
+            raise ValueError("No JSON data available")
         return self._json_data
 
     def raise_for_status(self):
@@ -114,6 +116,18 @@ class MockClient:
 
     def set_response(self, url, data, status_code=200):
         self.responses[url] = MockResponse(data, status_code, url=url)
+
+    def set_status(self, url, status_code):
+        """Set the response status code for a URL."""
+        if url not in self.responses:
+            self.responses[url] = MockResponse(None, status_code, url=url)
+        else:
+            self.responses[url].status_code = status_code
+
+    def set_raw_response(self, url, content, content_type="text/plain"):
+        """Set a raw response that will fail JSON parsing."""
+        response = MockResponse(content, 200, url=url, text=content)
+        self.responses[url] = response
 
     def close(self):
         """No-op for mock client."""
@@ -478,3 +492,36 @@ def mock_all_screentime_endpoints(mock_screentime_httpx_get):
         mock_screentime_httpx_get.set_response(f"{base_url}{endpoint}", [])
 
     return mock_screentime_httpx_get
+
+
+@pytest.fixture
+def mock_apple_music_client(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Music endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleMusicAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_music.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_apple_music_endpoints(mock_apple_music_client):
+    """Fixture that configures Apple Music endpoint with empty response.
+
+    Convenience fixture for tests that want to mock the Apple Music endpoint
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = ["/music/tracks"]
+
+    for endpoint in endpoints:
+        mock_apple_music_client.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_apple_music_client
