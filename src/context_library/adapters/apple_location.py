@@ -125,7 +125,7 @@ class AppleLocationAdapter(BaseAdapter):
         if not HAS_HTTPX:
             raise ImportError(
                 "Apple Location adapter requires 'httpx' package. "
-                "Install with: pip install context-library[httpx]"
+                "Install with: pip install context-library[apple-location]"
             )
         if not api_key:
             raise ValueError("api_key is required for AppleLocationAdapter")
