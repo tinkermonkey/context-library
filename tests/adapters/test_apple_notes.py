@@ -2,17 +2,12 @@
 
 import pytest
 
-try:
-    import httpx
-    HAS_HTTPX = True
-except ImportError:
-    HAS_HTTPX = False
+import httpx
 
 from context_library.adapters.apple_notes import AppleNotesAdapter
 from context_library.storage.models import Domain, PollStrategy
 
 
-@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
 class TestAppleNotesAdapterInitialization:
     """Tests for AppleNotesAdapter initialization."""
 
@@ -65,12 +60,6 @@ class TestAppleNotesAdapterImportability:
     """Test adapter is properly importable."""
 
     def test_importable_from_context_library_adapters(self):
-        """AppleNotesAdapter is importable from context_library.adapters when httpx is available."""
+        """AppleNotesAdapter is importable from context_library.adapters."""
         from context_library.adapters import AppleNotesAdapter as ImportedAdapter
         assert ImportedAdapter is AppleNotesAdapter
-
-    def test_adapter_in_registry(self):
-        """AppleNotesAdapter is accessible when httpx is installed."""
-        # If we got here, httpx is installed, so the adapter should be importable
-        from context_library.adapters import AppleNotesAdapter as ImportedAdapter
-        assert ImportedAdapter == AppleNotesAdapter
