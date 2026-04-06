@@ -2,6 +2,12 @@
 
 import pytest
 
+try:
+    import httpx
+    HAS_HTTPX = True
+except ImportError:
+    HAS_HTTPX = False
+
 from context_library.adapters.apple_podcasts import ApplePodcastsAdapter
 from context_library.adapters.base import AllEndpointsFailedError, PartialFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, EventMetadata, DocumentMetadata
@@ -674,3 +680,100 @@ class TestApplePodcastsAdapterErrorHandling:
         assert len(listen_items) == 2
         assert listen_items[0].source_id == "podcasts/listen/ep-1"
         assert listen_items[1].source_id == "podcasts/listen/ep-3"
+
+    def test_fetch_401_auth_error_listen_history(self, mock_httpx_client_podcasts):
+        """fetch() propagates 401 auth error from listen-history endpoint immediately."""
+        adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # Listen history returns 401
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", None, status_code=401)
+
+        # Transcripts would succeed (but won't be reached if auth error is propagated)
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [])
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 401
+
+    def test_fetch_403_auth_error_transcripts(self, mock_httpx_client_podcasts):
+        """fetch() propagates 403 auth error from transcripts endpoint immediately."""
+        adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # Listen history succeeds
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
+
+        # Transcripts returns 403
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", None, status_code=403)
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 403
+
+    def test_fetch_all_listen_history_items_malformed_raises_error(self, mock_httpx_client_podcasts):
+        """fetch() raises PartialFetchError when all listen history items are malformed (100% skip rate)."""
+        adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # All items missing required episodeTitle
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+            {
+                "id": "ep-1",
+                "showTitle": "Tech Talk",
+                # Missing episodeTitle
+                "episodeGuid": "guid-1",
+                "feedUrl": None,
+                "listenedAt": "2026-03-20T10:00:00+00:00",
+                "durationSeconds": 3600,
+                "playedSeconds": 3600,
+                "completed": True,
+            },
+            {
+                "id": "ep-2",
+                # Missing episodeTitle
+                "showTitle": "Science Hour",
+                "episodeGuid": "guid-2",
+                "feedUrl": None,
+                "listenedAt": "2026-03-21T10:00:00+00:00",
+                "durationSeconds": 3600,
+                "playedSeconds": 3600,
+                "completed": True,
+            },
+        ])
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [])
+
+        # When listen-history has 100% skip rate, it raises EndpointFetchError internally,
+        # which is caught by fetch() and converted to PartialFetchError (since transcripts succeeds)
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert "/podcasts/listen-history" in exc_info.value.failed_endpoints
+
+    def test_fetch_all_transcript_items_malformed_raises_error(self, mock_httpx_client_podcasts):
+        """fetch() raises PartialFetchError when all transcript items are malformed (100% skip rate)."""
+        adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
+
+        # All transcripts missing required episodeTitle
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+            {
+                "id": "ep-1",
+                "showTitle": "Tech Talk",
+                # Missing episodeTitle
+                "episodeGuid": "guid-1",
+                "publishedDate": "2026-03-01",
+                "transcript": "Some transcript",
+                "transcriptSource": "apple",
+                "transcriptCreatedAt": "2026-03-15T12:00:00+00:00",
+                "playStateTs": "2026-03-20T10:00:00+00:00",
+                "durationSeconds": 3600,
+            },
+        ])
+
+        # When transcripts has 100% skip rate, it raises EndpointFetchError internally,
+        # which is caught by fetch() and converted to PartialFetchError (since listen-history succeeds)
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert "/podcasts/transcripts" in exc_info.value.failed_endpoints

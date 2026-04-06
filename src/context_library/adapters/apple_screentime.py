@@ -129,6 +129,21 @@ class AppleScreenTimeAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._device_id = device_id
+        self._client = httpx.Client(timeout=30.0)
+
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit: clean up httpx.Client session."""
+        self._client.close()
+        return False
+
+    def __del__(self) -> None:
+        """Clean up httpx.Client session when adapter is destroyed (safety net)."""
+        if hasattr(self, "_client"):
+            self._client.close()
 
     @property
     def adapter_id(self) -> str:
@@ -199,11 +214,10 @@ class AppleScreenTimeAdapter(BaseAdapter):
             EndpointFetchError: If the endpoint fails for any other reason
         """
         try:
-            response = httpx.get(
+            response = self._client.get(
                 f"{self._api_url}/screentime/app-usage",
                 params=params,
                 headers=headers,
-                timeout=120.0,
             )
             response.raise_for_status()
 
@@ -211,13 +225,22 @@ class AppleScreenTimeAdapter(BaseAdapter):
             if not isinstance(items, list):
                 raise ValueError(f"Expected list from /screentime/app-usage, got {type(items)}")
 
+            item_count = len(items)
+            yielded_count = 0
+
             for idx, item in enumerate(items):
                 try:
-                    yield from self._process_app_usage_item(item)
+                    for normalized_content in self._process_app_usage_item(item):
+                        yielded_count += 1
+                        yield normalized_content
                 except (ValueError, KeyError) as e:
                     item_id = item.get("bundleId", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed app usage item ({item_id}): {e}")
                     continue
+
+            if item_count > 0 and yielded_count == 0:
+                logger.error(f"All {item_count} items from /screentime/app-usage failed validation; 100% skip rate")
+                raise EndpointFetchError(f"100% item skip rate from /screentime/app-usage: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
@@ -252,11 +275,10 @@ class AppleScreenTimeAdapter(BaseAdapter):
             EndpointFetchError: If the endpoint fails for any other reason
         """
         try:
-            response = httpx.get(
+            response = self._client.get(
                 f"{self._api_url}/screentime/focus",
                 params=params,
                 headers=headers,
-                timeout=120.0,
             )
             response.raise_for_status()
 
@@ -264,13 +286,22 @@ class AppleScreenTimeAdapter(BaseAdapter):
             if not isinstance(items, list):
                 raise ValueError(f"Expected list from /screentime/focus, got {type(items)}")
 
+            item_count = len(items)
+            yielded_count = 0
+
             for idx, item in enumerate(items):
                 try:
-                    yield from self._process_focus_event(item)
+                    for normalized_content in self._process_focus_event(item):
+                        yielded_count += 1
+                        yield normalized_content
                 except (ValueError, KeyError) as e:
                     item_id = item.get("timestamp", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed focus event ({item_id}): {e}")
                     continue
+
+            if item_count > 0 and yielded_count == 0:
+                logger.error(f"All {item_count} items from /screentime/focus failed validation; 100% skip rate")
+                raise EndpointFetchError(f"100% item skip rate from /screentime/focus: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):

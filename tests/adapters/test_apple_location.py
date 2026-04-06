@@ -61,10 +61,14 @@ class TestAppleLocationAdapterInit:
 class TestAppleLocationAdapterVisits:
     """Test location visits endpoint handling."""
 
-    @patch("httpx.get")
-    def test_visit_happy_path(self, mock_get):
+    @patch("context_library.adapters.apple_location.httpx.Client")
+    def test_visit_happy_path(self, mock_client_class):
         """Visits endpoint yields correct LocationMetadata and context header."""
-        def side_effect(url, **kwargs):
+        # Create a mock client instance
+        mock_client = Mock()
+        mock_client_class.return_value = mock_client
+
+        def get_side_effect(url, **kwargs):
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.raise_for_status = Mock()
@@ -88,7 +92,8 @@ class TestAppleLocationAdapterVisits:
 
             return mock_response
 
-        mock_get.side_effect = side_effect
+        mock_client.get.side_effect = get_side_effect
+        mock_client.close = Mock()
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -306,6 +311,111 @@ class TestAppleLocationAdapterPartialFailure:
 
         with pytest.raises(AllEndpointsFailedError):
             list(adapter.fetch(source_ref=""))
+
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+class TestAppleLocationAdapterSilentSkipDetection:
+    """Test that 100% item skip rate is detected and raises an error."""
+
+    @patch("httpx.get")
+    def test_all_visits_malformed_raises_error(self, mock_get):
+        """When all visits items are malformed, endpoint raises EndpointFetchError."""
+        def side_effect(url, **kwargs):
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.raise_for_status = Mock()
+
+            if "/location/visits" in url:
+                # Return a list of items with invalid structure (missing required fields)
+                mock_response.json.return_value = [
+                    {"id": "visit-001"},  # Missing latitude/longitude
+                    {"id": "visit-002"},  # Missing latitude/longitude
+                ]
+            else:  # /location/current
+                mock_response.json.return_value = {}
+
+            return mock_response
+
+        mock_get.side_effect = side_effect
+
+        adapter = AppleLocationAdapter(
+            api_url="http://localhost:7123",
+            api_key="test-key",
+        )
+
+        from context_library.adapters.base import EndpointFetchError
+        with pytest.raises(EndpointFetchError) as exc_info:
+            list(adapter.fetch(source_ref=""))
+
+        assert "100% item skip rate" in str(exc_info.value)
+
+
+@pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
+class TestAppleLocationAdapterAuthErrors:
+    """Test 401/403 authentication error propagation."""
+
+    @patch("httpx.get")
+    def test_401_auth_error_propagates_visits(self, mock_get):
+        """401 auth error from /location/visits is propagated immediately."""
+        def side_effect(url, **kwargs):
+            if "/location/visits" in url:
+                mock_response = Mock()
+                mock_response.status_code = 401
+                mock_response.text = "Unauthorized"
+                mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "401 Unauthorized", request=None, response=mock_response
+                )
+                return mock_response
+            # /location/current succeeds
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.raise_for_status = Mock()
+            mock_response.json.return_value = {}
+            return mock_response
+
+        mock_get.side_effect = side_effect
+
+        adapter = AppleLocationAdapter(
+            api_url="http://localhost:7123",
+            api_key="test-key",
+        )
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(source_ref=""))
+
+        assert exc_info.value.response.status_code == 401
+
+    @patch("httpx.get")
+    def test_403_auth_error_propagates_current(self, mock_get):
+        """403 auth error from /location/current is propagated immediately."""
+        def side_effect(url, **kwargs):
+            # /location/visits succeeds
+            if "/location/visits" in url:
+                mock_response = Mock()
+                mock_response.status_code = 200
+                mock_response.raise_for_status = Mock()
+                mock_response.json.return_value = []
+                return mock_response
+            # /location/current returns 403
+            mock_response = Mock()
+            mock_response.status_code = 403
+            mock_response.text = "Forbidden"
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "403 Forbidden", request=None, response=mock_response
+            )
+            return mock_response
+
+        mock_get.side_effect = side_effect
+
+        adapter = AppleLocationAdapter(
+            api_url="http://localhost:7123",
+            api_key="test-key",
+        )
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(source_ref=""))
+
+        assert exc_info.value.response.status_code == 403
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")

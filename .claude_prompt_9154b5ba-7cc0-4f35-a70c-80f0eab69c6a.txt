@@ -1,0 +1,79 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+[PR Feedback] Multi-Endpoint Error Handling
+
+**Description**:
+Based on consolidated PR review, address the following in **Multi-Endpoint Error Handling**:
+
+- **Silent 100% item skip rate possible**: In `/workspace/src/context_library/adapters/apple_location.py:219-224`, `/workspace/src/context_library/adapters/apple_podcasts.py:237-240`, and `/workspace/src/context_library/adapters/apple_screentime.py:217-220`, per-item `except (ValueError, KeyError)` blocks log and skip malformed items. If the API schema changes and 100% of items fail, the adapter returns empty while the pipeline reports success.
+- **Missing test: 401/403 auth error propagation**: Location, podcasts, and screentime adapters specifically re-raise 401/403 auth errors instead of wrapping as `EndpointFetchError`, but no tests cover this critical auth behavior path.
+- **Inconsistent httpx client usage**: `apple_browser_history.py` and `apple_calendar.py` create `self._client` with connection pooling and 30s timeouts, while `apple_location.py`, `apple_podcasts.py`, and `apple_screentime.py` use `httpx.get()` directly with 120s timeouts. No connection pooling, inconsistent timeout behavior.
+
+---
+_Created by PR Review Stage - Consolidation Phase_
+
+---
+
+## Concurrent Fix Issues (Same Review Cycle)
+
+The following issues are being fixed simultaneously in this review cycle. Check these issues for any files they modify before making your own changes to avoid introducing conflicts:
+
+- #367: [PR Feedback] AppleBrowserHistoryAdapter Domain & Model Mismatch
+- #368: [PR Feedback] LocationMetadata & LocationDomain
+- #369: [PR Feedback] AppleCalendarAdapter
+- #370: [PR Feedback] AppleScreenTimeAdapter
+- #371: [PR Feedback] Music Adapter
+- #373: [PR Feedback] YouTubeTranscriptAdapter
+- #374: [PR Feedback] Pipeline
+
+### Previous Work
+
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.

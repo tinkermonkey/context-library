@@ -530,3 +530,111 @@ def mock_apple_music_endpoints(mock_apple_music_client):
         mock_apple_music_client.set_response(f"{base_url}{endpoint}", [])
 
     return mock_apple_music_client
+
+
+@pytest.fixture
+def mock_httpx_client_location(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Location endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleLocationAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_location.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_location_endpoints(mock_httpx_client_location):
+    """Fixture that configures all Apple Location endpoints with empty responses.
+
+    Convenience fixture for tests that want to mock all location endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/location/visits",
+        "/location/current",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_location.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_location
+
+
+@pytest.fixture
+def mock_httpx_client_podcasts(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Podcasts endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for ApplePodcastsAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_podcasts.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_podcasts_endpoints_client(mock_httpx_client_podcasts):
+    """Fixture that configures all Apple Podcasts endpoints with empty responses (using Client).
+
+    Convenience fixture for tests that want to mock all podcasts endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/podcasts/listen-history",
+        "/podcasts/transcripts",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_podcasts.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_podcasts
+
+
+@pytest.fixture
+def mock_httpx_client_screentime(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple ScreenTime endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleScreenTimeAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_screentime.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_screentime_endpoints_client(mock_httpx_client_screentime):
+    """Fixture that configures all Apple ScreenTime endpoints with empty responses (using Client).
+
+    Convenience fixture for tests that want to mock all screentime endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/screentime/app-usage",
+        "/screentime/focus",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_screentime.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_screentime

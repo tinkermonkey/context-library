@@ -2,6 +2,12 @@
 
 import pytest
 
+try:
+    import httpx
+    HAS_HTTPX = True
+except ImportError:
+    HAS_HTTPX = False
+
 from context_library.adapters.apple_screentime import AppleScreenTimeAdapter
 from context_library.adapters.base import AllEndpointsFailedError, PartialFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent
@@ -579,3 +585,94 @@ class TestAppleScreenTimeAdapterIdempotency:
         assert app_usage_items[0].source_id != app_usage_items[1].source_id
         assert "2026-03-20" in app_usage_items[0].source_id
         assert "2026-03-21" in app_usage_items[1].source_id
+
+
+class TestAppleScreenTimeAdapterAuthErrors:
+    """Tests for 401/403 authentication error propagation."""
+
+    def test_fetch_401_auth_error_app_usage(self, mock_httpx_client_screentime):
+        """fetch() propagates 401 auth error from app-usage endpoint immediately."""
+        adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # App usage returns 401
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/app-usage", None, status_code=401)
+
+        # Focus events would succeed (but won't be reached if auth error is propagated)
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/focus", [])
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 401
+
+    def test_fetch_403_auth_error_focus(self, mock_httpx_client_screentime):
+        """fetch() propagates 403 auth error from focus endpoint immediately."""
+        adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # App usage succeeds
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/app-usage", [])
+
+        # Focus events return 403
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/focus", None, status_code=403)
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert exc_info.value.response.status_code == 403
+
+
+class TestAppleScreenTimeAdapterSilentSkipDetection:
+    """Test that 100% item skip rate is detected and raises an error."""
+
+    def test_fetch_all_app_usage_items_malformed_raises_error(self, mock_httpx_client_screentime):
+        """fetch() raises PartialFetchError when all app usage items are malformed (100% skip rate)."""
+        adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # All items missing required bundleId
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+            {
+                "date": "2026-03-20",
+                # Missing bundleId
+                "appName": "Safari",
+                "durationSeconds": 3600,
+            },
+            {
+                "date": "2026-03-20",
+                # Missing bundleId
+                "appName": "Slack",
+                "durationSeconds": 5400,
+            },
+        ])
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/focus", [])
+
+        # When app-usage has 100% skip rate, it raises EndpointFetchError internally,
+        # which is caught by fetch() and converted to PartialFetchError (since focus succeeds)
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert "/screentime/app-usage" in exc_info.value.failed_endpoints
+
+    def test_fetch_all_focus_events_malformed_raises_error(self, mock_httpx_client_screentime):
+        """fetch() raises PartialFetchError when all focus events are malformed (100% skip rate)."""
+        adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/app-usage", [])
+
+        # All focus events with invalid eventType
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/focus", [
+            {
+                "timestamp": "2026-03-20T10:00:00+00:00",
+                "eventType": "invalid",  # Must be 'lock' or 'unlock'
+            },
+            {
+                "timestamp": "2026-03-20T10:05:00+00:00",
+                "eventType": "bad_value",  # Must be 'lock' or 'unlock'
+            },
+        ])
+
+        # When focus has 100% skip rate, it raises EndpointFetchError internally,
+        # which is caught by fetch() and converted to PartialFetchError (since app-usage succeeds)
+        with pytest.raises(PartialFetchError) as exc_info:
+            list(adapter.fetch(""))
+
+        assert "/screentime/focus" in exc_info.value.failed_endpoints

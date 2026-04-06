@@ -133,6 +133,21 @@ class AppleLocationAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._device_id = device_id
+        self._client = httpx.Client(timeout=30.0)
+
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit: clean up httpx.Client session."""
+        self._client.close()
+        return False
+
+    def __del__(self) -> None:
+        """Clean up httpx.Client session when adapter is destroyed (safety net)."""
+        if hasattr(self, "_client"):
+            self._client.close()
 
     @property
     def adapter_id(self) -> str:
@@ -203,11 +218,10 @@ class AppleLocationAdapter(BaseAdapter):
             EndpointFetchError: If the endpoint fails for any other reason
         """
         try:
-            response = httpx.get(
+            response = self._client.get(
                 f"{self._api_url}/location/visits",
                 params=params,
                 headers=headers,
-                timeout=120.0,
             )
             response.raise_for_status()
 
@@ -215,13 +229,27 @@ class AppleLocationAdapter(BaseAdapter):
             if not isinstance(items, list):
                 raise ValueError(f"Expected list from /location/visits, got {type(items)}")
 
+            item_count = len(items)
+            yielded_count = 0
+
             for idx, item in enumerate(items):
                 try:
-                    yield from self._process_visit_item(item)
+                    yielded = False
+                    for normalized_content in self._process_visit_item(item):
+                        yielded = True
+                        yielded_count += 1
+                        yield normalized_content
+                    if not yielded and item_count > 0:
+                        # Item processing didn't yield anything, but this is normal for some items
+                        pass
                 except (ValueError, KeyError) as e:
                     item_id = item.get("id", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed visit item ({item_id}): {e}")
                     continue
+
+            if item_count > 0 and yielded_count == 0:
+                logger.error(f"All {item_count} items from /location/visits failed validation; 100% skip rate")
+                raise EndpointFetchError(f"100% item skip rate from /location/visits: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
@@ -255,10 +283,9 @@ class AppleLocationAdapter(BaseAdapter):
             EndpointFetchError: If the endpoint fails for any other reason
         """
         try:
-            response = httpx.get(
+            response = self._client.get(
                 f"{self._api_url}/location/current",
                 headers=headers,
-                timeout=120.0,
             )
             response.raise_for_status()
 
