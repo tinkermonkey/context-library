@@ -2,6 +2,10 @@
 
 import pytest
 
+# Skip all tests in this module if mistune is not installed
+# (required by AppleNotesAdapter -> domains/notes.py)
+pytest.importorskip("mistune")
+
 import httpx
 
 from context_library.adapters.apple_notes import AppleNotesAdapter

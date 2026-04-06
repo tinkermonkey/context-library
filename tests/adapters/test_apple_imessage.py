@@ -2,6 +2,10 @@
 
 import pytest
 
+# Skip all tests in this module if mistune is not installed
+# (required by AppleiMessageAdapter -> domains/messages.py which imports from domains/__init__.py)
+pytest.importorskip("mistune")
+
 import httpx
 
 from context_library.adapters.apple_imessage import AppleiMessageAdapter
