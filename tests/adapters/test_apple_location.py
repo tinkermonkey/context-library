@@ -116,31 +116,25 @@ class TestAppleLocationAdapterVisits:
         assert metadata["latitude"] == 37.7749
         assert metadata["longitude"] == -122.4194
 
-    @patch("httpx.get")
-    def test_visit_no_place_name_fallback(self, mock_get):
+    def test_visit_no_place_name_fallback(self, mock_httpx_client_location):
         """Visit without place name falls back to coordinates in markdown."""
-        def side_effect(url, **kwargs):
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-
-            if "/location/visits" in url:
-                mock_response.json.return_value = [
-                    {
-                        "id": "visit-002",
-                        "latitude": 40.7128,
-                        "longitude": -74.0060,
-                        "arrival_date": "2025-02-10T09:00:00Z",
-                        "departure_date": "2025-02-10T17:00:00Z",
-                        "duration_minutes": 480,
-                    }
-                ]
-            else:  # /location/current
-                mock_response.json.return_value = {}
-
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            [
+                {
+                    "id": "visit-002",
+                    "latitude": 40.7128,
+                    "longitude": -74.0060,
+                    "arrival_date": "2025-02-10T09:00:00Z",
+                    "departure_date": "2025-02-10T17:00:00Z",
+                    "duration_minutes": 480,
+                }
+            ]
+        )
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {}
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -159,28 +153,22 @@ class TestAppleLocationAdapterVisits:
 class TestAppleLocationAdapterCurrent:
     """Test current location endpoint handling."""
 
-    @patch("httpx.get")
-    def test_current_happy_path(self, mock_get):
+    def test_current_happy_path(self, mock_httpx_client_location):
         """Current location endpoint yields correct fixed source_id and metadata."""
-        def side_effect(url, **kwargs):
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-
-            if "/location/current" in url:
-                mock_response.json.return_value = {
-                    "latitude": 37.7749,
-                    "longitude": -122.4194,
-                    "place_name": "San Francisco",
-                    "locality": "San Francisco County",
-                    "country": "United States",
-                }
-            else:  # /location/visits
-                mock_response.json.return_value = []
-
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "place_name": "San Francisco",
+                "locality": "San Francisco County",
+                "country": "United States",
+            }
+        )
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            []
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -206,22 +194,16 @@ class TestAppleLocationAdapterCurrent:
         assert metadata["departure_date"] is None
         assert metadata["duration_minutes"] is None
 
-    @patch("httpx.get")
-    def test_empty_current_location_skipped(self, mock_get):
+    def test_empty_current_location_skipped(self, mock_httpx_client_location):
         """Empty current location response yields no content."""
-        def side_effect(url, **kwargs):
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-
-            if "/location/current" in url:
-                mock_response.json.return_value = {}  # Empty response
-            else:
-                mock_response.json.return_value = []  # Empty visits
-
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {}  # Empty response
+        )
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            []  # Empty visits
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -237,24 +219,30 @@ class TestAppleLocationAdapterCurrent:
 class TestAppleLocationAdapterPartialFailure:
     """Test partial failure behavior."""
 
-    @patch("httpx.get")
-    def test_partial_failure_visits_down(self, mock_get):
+    def test_partial_failure_visits_down(self, mock_httpx_client_location):
         """When visits endpoint fails, current endpoint still yields data."""
-        def side_effect(url, **kwargs):
+        # Configure /location/visits to raise an error
+        def raise_error(*args, **kwargs):
+            raise httpx.RequestError("Connection refused")
+
+        # We need to set up custom behavior for visits - let's use the mock client's capability
+        # Store the old get method to replace it
+        original_get = mock_httpx_client_location.get
+
+        def custom_get(url, **kwargs):
             if "/location/visits" in url:
                 raise httpx.RequestError("Connection refused")
+            return original_get(url, **kwargs)
 
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-            mock_response.json.return_value = {
+        mock_httpx_client_location.get = custom_get
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {
                 "latitude": 37.7749,
                 "longitude": -122.4194,
                 "place_name": "San Francisco",
             }
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -267,17 +255,20 @@ class TestAppleLocationAdapterPartialFailure:
         assert "/location/visits" in exc_info.value.failed_endpoints
         # Content should still be yielded before the error is raised
 
-    @patch("httpx.get")
-    def test_partial_failure_current_down(self, mock_get):
+    def test_partial_failure_current_down(self, mock_httpx_client_location):
         """When current endpoint fails, visits endpoint still yields data."""
-        def side_effect(url, **kwargs):
+        # Configure /location/current to raise an error
+        original_get = mock_httpx_client_location.get
+
+        def custom_get(url, **kwargs):
             if "/location/current" in url:
                 raise httpx.RequestError("Connection refused")
+            return original_get(url, **kwargs)
 
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-            mock_response.json.return_value = [
+        mock_httpx_client_location.get = custom_get
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            [
                 {
                     "id": "visit-001",
                     "latitude": 37.7749,
@@ -285,9 +276,7 @@ class TestAppleLocationAdapterPartialFailure:
                     "place_name": "San Francisco",
                 }
             ]
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -299,10 +288,13 @@ class TestAppleLocationAdapterPartialFailure:
 
         assert "/location/current" in exc_info.value.failed_endpoints
 
-    @patch("httpx.get")
-    def test_all_endpoints_failed(self, mock_get):
+    def test_all_endpoints_failed(self, mock_httpx_client_location):
         """When all endpoints fail, AllEndpointsFailedError is raised."""
-        mock_get.side_effect = httpx.RequestError("Connection refused")
+        # Configure both endpoints to raise an error
+        def raise_error(*args, **kwargs):
+            raise httpx.RequestError("Connection refused")
+
+        mock_httpx_client_location.get = raise_error
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -317,63 +309,52 @@ class TestAppleLocationAdapterPartialFailure:
 class TestAppleLocationAdapterSilentSkipDetection:
     """Test that 100% item skip rate is detected and raises an error."""
 
-    @patch("httpx.get")
-    def test_all_visits_malformed_raises_error(self, mock_get):
-        """When all visits items are malformed, endpoint raises EndpointFetchError."""
-        def side_effect(url, **kwargs):
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-
-            if "/location/visits" in url:
-                # Return a list of items with invalid structure (missing required fields)
-                mock_response.json.return_value = [
-                    {"id": "visit-001"},  # Missing latitude/longitude
-                    {"id": "visit-002"},  # Missing latitude/longitude
-                ]
-            else:  # /location/current
-                mock_response.json.return_value = {}
-
-            return mock_response
-
-        mock_get.side_effect = side_effect
+    def test_all_visits_malformed_raises_error(self, mock_httpx_client_location):
+        """When all visits items are malformed, the visits endpoint is marked as failed."""
+        # Configure mocked endpoints
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            [
+                {"id": "visit-001"},  # Missing latitude/longitude
+                {"id": "visit-002"},  # Missing latitude/longitude
+            ]
+        )
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {}
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
             api_key="test-key",
         )
 
-        from context_library.adapters.base import EndpointFetchError
-        with pytest.raises(EndpointFetchError) as exc_info:
+        from context_library.adapters.base import PartialFetchError
+        # When visits has 100% skip rate and current returns empty, visits fails but current succeeds
+        # This results in PartialFetchError for one failed endpoint
+        with pytest.raises(PartialFetchError) as exc_info:
             list(adapter.fetch(source_ref=""))
 
-        assert "100% item skip rate" in str(exc_info.value)
+        # Verify that /location/visits is in the failed endpoints
+        assert "/location/visits" in exc_info.value.failed_endpoints
 
 
 @pytest.mark.skipif(not HAS_HTTPX, reason="httpx not installed")
 class TestAppleLocationAdapterAuthErrors:
     """Test 401/403 authentication error propagation."""
 
-    @patch("httpx.get")
-    def test_401_auth_error_propagates_visits(self, mock_get):
+    def test_401_auth_error_propagates_visits(self, mock_httpx_client_location):
         """401 auth error from /location/visits is propagated immediately."""
-        def side_effect(url, **kwargs):
-            if "/location/visits" in url:
-                mock_response = Mock()
-                mock_response.status_code = 401
-                mock_response.text = "Unauthorized"
-                mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-                    "401 Unauthorized", request=None, response=mock_response
-                )
-                return mock_response
-            # /location/current succeeds
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.raise_for_status = Mock()
-            mock_response.json.return_value = {}
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        # Configure /location/visits to return 401
+        mock_httpx_client_location.set_status(
+            "http://localhost:7123/location/visits",
+            status_code=401
+        )
+        # Configure /location/current to succeed
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {}
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",
@@ -385,27 +366,18 @@ class TestAppleLocationAdapterAuthErrors:
 
         assert exc_info.value.response.status_code == 401
 
-    @patch("httpx.get")
-    def test_403_auth_error_propagates_current(self, mock_get):
+    def test_403_auth_error_propagates_current(self, mock_httpx_client_location):
         """403 auth error from /location/current is propagated immediately."""
-        def side_effect(url, **kwargs):
-            # /location/visits succeeds
-            if "/location/visits" in url:
-                mock_response = Mock()
-                mock_response.status_code = 200
-                mock_response.raise_for_status = Mock()
-                mock_response.json.return_value = []
-                return mock_response
-            # /location/current returns 403
-            mock_response = Mock()
-            mock_response.status_code = 403
-            mock_response.text = "Forbidden"
-            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-                "403 Forbidden", request=None, response=mock_response
-            )
-            return mock_response
-
-        mock_get.side_effect = side_effect
+        # Configure /location/visits to succeed
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            []
+        )
+        # Configure /location/current to return 403
+        mock_httpx_client_location.set_status(
+            "http://localhost:7123/location/current",
+            status_code=403
+        )
 
         adapter = AppleLocationAdapter(
             api_url="http://localhost:7123",

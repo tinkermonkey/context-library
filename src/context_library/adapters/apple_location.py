@@ -231,24 +231,22 @@ class AppleLocationAdapter(BaseAdapter):
 
             item_count = len(items)
             yielded_count = 0
+            error_count = 0
 
             for idx, item in enumerate(items):
                 try:
-                    yielded = False
                     for normalized_content in self._process_visit_item(item):
-                        yielded = True
                         yielded_count += 1
                         yield normalized_content
-                    if not yielded and item_count > 0:
-                        # Item processing didn't yield anything, but this is normal for some items
-                        pass
                 except (ValueError, KeyError) as e:
+                    error_count += 1
                     item_id = item.get("id", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed visit item ({item_id}): {e}")
                     continue
 
-            if item_count > 0 and yielded_count == 0:
-                logger.error(f"All {item_count} items from /location/visits failed validation; 100% skip rate")
+            # Only raise error if all items were malformed (raised exceptions)
+            if item_count > 0 and error_count == item_count:
+                logger.error(f"All {item_count} items from /location/visits failed validation; 100% malformed")
                 raise EndpointFetchError(f"100% item skip rate from /location/visits: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:

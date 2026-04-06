@@ -100,11 +100,11 @@ class TestApplePodcastsAdapterProperties:
 class TestApplePodcastsAdapterFetchListenHistory:
     """Tests for ApplePodcastsAdapter.fetch() with listen history."""
 
-    def test_fetch_listen_history_single_item(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_single_item(self, mock_all_podcasts_endpoints_client):
         """fetch() yields NormalizedContent for a single listen history item."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -129,11 +129,11 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert "Tech Talk" in item.markdown
         assert "Intro to Python" in item.markdown
 
-    def test_fetch_listen_history_multiple_items(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_multiple_items(self, mock_all_podcasts_endpoints_client):
         """fetch() yields NormalizedContent for multiple listen history items."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -164,11 +164,11 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert listen_items[0].source_id == "podcasts/listen/ep-1"
         assert listen_items[1].source_id == "podcasts/listen/ep-2"
 
-    def test_fetch_listen_history_title_format(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_title_format(self, mock_all_podcasts_endpoints_client):
         """fetch() formats listen history title as '{showTitle} — {episodeTitle}'."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -189,17 +189,17 @@ class TestApplePodcastsAdapterFetchListenHistory:
         metadata_dict = listen_items[0].structural_hints.extra_metadata
         assert metadata_dict["title"] == "Tech Talk — Intro to Python"
 
-    def test_fetch_listen_history_with_since_parameter(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_with_since_parameter(self, mock_all_podcasts_endpoints_client):
         """fetch() passes 'since' query parameter for incremental fetch."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
 
         list(adapter.fetch("2026-03-06T10:00:00Z"))
 
         # Check listen history request
         request = None
-        for r in mock_all_podcasts_endpoints.requests:
+        for r in mock_all_podcasts_endpoints_client.requests:
             if "/podcasts/listen-history" in r["url"]:
                 request = r
                 break
@@ -207,20 +207,20 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert request is not None
         assert request["params"]["since"] == "2026-03-06T10:00:00Z"
 
-    def test_fetch_listen_history_with_api_key_auth(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_with_api_key_auth(self, mock_all_podcasts_endpoints_client):
         """fetch() sends Authorization header with Bearer token."""
         adapter = ApplePodcastsAdapter(
             api_url="http://127.0.0.1:7123",
             api_key="test_token_123"
         )
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
 
         list(adapter.fetch(""))
 
         # Check listen history request
         request = None
-        for r in mock_all_podcasts_endpoints.requests:
+        for r in mock_all_podcasts_endpoints_client.requests:
             if "/podcasts/listen-history" in r["url"]:
                 request = r
                 break
@@ -228,11 +228,11 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert request is not None
         assert request["headers"]["Authorization"] == "Bearer test_token_123"
 
-    def test_fetch_listen_history_metadata_validation(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_metadata_validation(self, mock_all_podcasts_endpoints_client):
         """fetch() produces EventMetadata that passes model_validate."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -255,11 +255,11 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert metadata.event_id == "listen/ep-1"
         assert metadata.source_type == "podcast_listen"
 
-    def test_fetch_listen_history_extra_metadata(self, mock_all_podcasts_endpoints):
+    def test_fetch_listen_history_extra_metadata(self, mock_all_podcasts_endpoints_client):
         """fetch() includes extra metadata fields in listen history."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -289,11 +289,11 @@ class TestApplePodcastsAdapterFetchListenHistory:
 class TestApplePodcastsAdapterFetchTranscripts:
     """Tests for ApplePodcastsAdapter.fetch() with transcripts."""
 
-    def test_fetch_transcript_single_item(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_single_item(self, mock_all_podcasts_endpoints_client):
         """fetch() yields NormalizedContent for a single transcript item."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -318,11 +318,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
         assert "Intro to Python" in item.markdown
         assert "Welcome to the podcast" in item.markdown
 
-    def test_fetch_transcript_multiple_items(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_multiple_items(self, mock_all_podcasts_endpoints_client):
         """fetch() yields NormalizedContent for multiple transcripts."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -357,11 +357,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
         assert transcript_items[0].source_id == "podcasts/transcript/ep-1"
         assert transcript_items[1].source_id == "podcasts/transcript/ep-2"
 
-    def test_fetch_transcript_empty_text_yields_nothing(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_empty_text_yields_nothing(self, mock_all_podcasts_endpoints_client):
         """fetch() skips transcripts with empty text (yields nothing for that item)."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -381,11 +381,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
         transcript_items = [r for r in results if "transcript" in r.source_id]
         assert len(transcript_items) == 0
 
-    def test_fetch_transcript_whitespace_only_yields_nothing(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_whitespace_only_yields_nothing(self, mock_all_podcasts_endpoints_client):
         """fetch() skips transcripts with only whitespace."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -405,11 +405,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
         transcript_items = [r for r in results if "transcript" in r.source_id]
         assert len(transcript_items) == 0
 
-    def test_fetch_transcript_metadata_validation(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_metadata_validation(self, mock_all_podcasts_endpoints_client):
         """fetch() produces DocumentMetadata that passes model_validate."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -437,11 +437,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
         assert metadata.source_type == "podcast_transcript"
         assert metadata.document_type == "text/plain"
 
-    def test_fetch_transcript_extra_metadata(self, mock_all_podcasts_endpoints):
+    def test_fetch_transcript_extra_metadata(self, mock_all_podcasts_endpoints_client):
         """fetch() includes extra metadata fields in transcripts."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -470,11 +470,11 @@ class TestApplePodcastsAdapterFetchTranscripts:
 class TestApplePodcastsAdapterDualDomain:
     """Tests for ApplePodcastsAdapter dual-domain behavior."""
 
-    def test_fetch_yields_both_listen_and_transcript(self, mock_all_podcasts_endpoints):
+    def test_fetch_yields_both_listen_and_transcript(self, mock_all_podcasts_endpoints_client):
         """fetch() yields both listen history (EVENTS) and transcripts (DOCUMENTS)."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -488,7 +488,7 @@ class TestApplePodcastsAdapterDualDomain:
             }
         ])
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_all_podcasts_endpoints_client.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -577,12 +577,12 @@ class TestApplePodcastsAdapterErrorHandling:
         assert "/podcasts/transcripts" in exc_info.value.failed_endpoints
         assert exc_info.value.total_endpoints == 2
 
-    def test_fetch_all_endpoints_failed(self, mock_podcasts_httpx_get):
+    def test_fetch_all_endpoints_failed(self, mock_httpx_client_podcasts):
         """fetch() raises AllEndpointsFailedError when all endpoints fail."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/listen-history", [], status_code=500)
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/transcripts", [], status_code=500)
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [], status_code=500)
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [], status_code=500)
 
         with pytest.raises(AllEndpointsFailedError) as exc_info:
             list(adapter.fetch(""))

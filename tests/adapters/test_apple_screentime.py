@@ -100,11 +100,11 @@ class TestAppleScreenTimeAdapterProperties:
 class TestAppleScreenTimeAdapterFetchAppUsage:
     """Tests for AppleScreenTimeAdapter.fetch() with app usage."""
 
-    def test_fetch_app_usage_single_item(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_single_item(self, mock_all_screentime_endpoints_client):
         """fetch() yields NormalizedContent for a single app usage item."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -124,11 +124,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         assert "Safari" in item.markdown
         assert "60 min" in item.markdown
 
-    def test_fetch_app_usage_multiple_items(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_multiple_items(self, mock_all_screentime_endpoints_client):
         """fetch() yields NormalizedContent for multiple app usage items."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -149,11 +149,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         assert app_usage_items[0].source_id == "screentime/app-usage/com.apple.Safari/2026-03-20"
         assert app_usage_items[1].source_id == "screentime/app-usage/com.slack.Slack/2026-03-20"
 
-    def test_fetch_app_usage_title_format(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_title_format(self, mock_all_screentime_endpoints_client):
         """fetch() formats app usage title as '{appName} — {duration_minutes} min'."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -169,11 +169,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         metadata_dict = app_usage_items[0].structural_hints.extra_metadata
         assert metadata_dict["title"] == "Safari — 60 min"
 
-    def test_fetch_app_usage_source_id_stable(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_source_id_stable(self, mock_all_screentime_endpoints_client):
         """fetch() produces stable source_id: screentime/app-usage/{bundleId}/{date}."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -188,11 +188,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         # Source ID should be deterministic: bundleId + date
         assert app_usage_items[0].source_id == "screentime/app-usage/com.apple.Safari/2026-03-20"
 
-    def test_fetch_app_usage_source_type(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_source_type(self, mock_all_screentime_endpoints_client):
         """fetch() sets source_type to 'screentime_app_usage' in event metadata."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -207,11 +207,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         metadata_dict = app_usage_items[0].structural_hints.extra_metadata
         assert metadata_dict["source_type"] == "screentime_app_usage"
 
-    def test_fetch_app_usage_extra_metadata(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_extra_metadata(self, mock_all_screentime_endpoints_client):
         """fetch() includes bundleId and durationSeconds in extra_metadata."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -227,17 +227,17 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         assert metadata_dict["bundleId"] == "com.apple.Safari"
         assert metadata_dict["durationSeconds"] == 3600
 
-    def test_fetch_app_usage_with_since_parameter(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_with_since_parameter(self, mock_all_screentime_endpoints_client):
         """fetch() passes 'since' query parameter for incremental fetch."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [])
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [])
 
         list(adapter.fetch("2026-03-06T10:00:00Z"))
 
         # Check app usage request
         request = None
-        for r in mock_all_screentime_endpoints.requests:
+        for r in mock_all_screentime_endpoints_client.requests:
             if "/screentime/app-usage" in r["url"]:
                 request = r
                 break
@@ -245,11 +245,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
         assert request is not None
         assert request["params"] == {"since": "2026-03-06T10:00:00Z"}
 
-    def test_fetch_app_usage_zero_duration(self, mock_all_screentime_endpoints):
+    def test_fetch_app_usage_zero_duration(self, mock_all_screentime_endpoints_client):
         """fetch() handles zero duration correctly."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -268,11 +268,11 @@ class TestAppleScreenTimeAdapterFetchAppUsage:
 class TestAppleScreenTimeAdapterFetchFocusEvents:
     """Tests for AppleScreenTimeAdapter.fetch() with focus events."""
 
-    def test_fetch_focus_events_lock(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_lock(self, mock_all_screentime_endpoints_client):
         """fetch() yields 'Device lock' for lock event type."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -287,11 +287,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         assert item.domain == Domain.EVENTS
         assert "Device lock" in item.markdown
 
-    def test_fetch_focus_events_unlock(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_unlock(self, mock_all_screentime_endpoints_client):
         """fetch() yields 'Device unlock' for unlock event type."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:05:00+00:00",
                 "eventType": "unlock",
@@ -304,11 +304,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         item = focus_items[0]
         assert "Device unlock" in item.markdown
 
-    def test_fetch_focus_events_multiple_items(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_multiple_items(self, mock_all_screentime_endpoints_client):
         """fetch() yields NormalizedContent for multiple focus events."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -327,11 +327,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         focus_items = [r for r in results if "focus" in r.source_id]
         assert len(focus_items) == 3
 
-    def test_fetch_focus_events_source_id_uses_timestamp(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_source_id_uses_timestamp(self, mock_all_screentime_endpoints_client):
         """fetch() produces source_id: screentime/focus/{timestamp}."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -343,11 +343,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         assert len(focus_items) == 1
         assert focus_items[0].source_id == "screentime/focus/2026-03-20T10:00:00+00:00"
 
-    def test_fetch_focus_events_source_type(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_source_type(self, mock_all_screentime_endpoints_client):
         """fetch() sets source_type to 'screentime_focus' in event metadata."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -360,11 +360,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         metadata_dict = focus_items[0].structural_hints.extra_metadata
         assert metadata_dict["source_type"] == "screentime_focus"
 
-    def test_fetch_focus_events_extra_metadata(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_extra_metadata(self, mock_all_screentime_endpoints_client):
         """fetch() includes eventType in extra_metadata."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -377,17 +377,17 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         metadata_dict = focus_items[0].structural_hints.extra_metadata
         assert metadata_dict["eventType"] == "lock"
 
-    def test_fetch_focus_events_with_since_parameter(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_with_since_parameter(self, mock_all_screentime_endpoints_client):
         """fetch() passes 'since' query parameter for incremental fetch."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [])
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [])
 
         list(adapter.fetch("2026-03-06T10:00:00Z"))
 
         # Check focus request
         request = None
-        for r in mock_all_screentime_endpoints.requests:
+        for r in mock_all_screentime_endpoints_client.requests:
             if "/screentime/focus" in r["url"]:
                 request = r
                 break
@@ -395,11 +395,11 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
         assert request is not None
         assert request["params"] == {"since": "2026-03-06T10:00:00Z"}
 
-    def test_fetch_focus_events_invalid_event_type(self, mock_all_screentime_endpoints):
+    def test_fetch_focus_events_invalid_event_type(self, mock_all_screentime_endpoints_client):
         """fetch() skips focus events with invalid eventType (not 'lock' or 'unlock')."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "invalid",
@@ -508,11 +508,11 @@ class TestAppleScreenTimeAdapterPartialFailure:
 class TestAppleScreenTimeAdapterIdempotency:
     """Tests for AppleScreenTimeAdapter idempotency."""
 
-    def test_idempotency_app_usage_same_source_id(self, mock_all_screentime_endpoints):
+    def test_idempotency_app_usage_same_source_id(self, mock_all_screentime_endpoints_client):
         """fetch() produces the same source_id for the same app-usage record (hash dedup)."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -534,11 +534,11 @@ class TestAppleScreenTimeAdapterIdempotency:
         assert source_id1 == source_id2
         assert source_id1 == "screentime/app-usage/com.apple.Safari/2026-03-20"
 
-    def test_idempotency_different_apps_different_source_ids(self, mock_all_screentime_endpoints):
+    def test_idempotency_different_apps_different_source_ids(self, mock_all_screentime_endpoints_client):
         """fetch() produces different source_ids for different apps."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -559,11 +559,11 @@ class TestAppleScreenTimeAdapterIdempotency:
         # Different apps should have different source_ids
         assert app_usage_items[0].source_id != app_usage_items[1].source_id
 
-    def test_idempotency_same_app_different_dates_different_source_ids(self, mock_all_screentime_endpoints):
+    def test_idempotency_same_app_different_dates_different_source_ids(self, mock_all_screentime_endpoints_client):
         """fetch() produces different source_ids for same app on different dates."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_all_screentime_endpoints_client.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",

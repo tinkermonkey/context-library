@@ -227,6 +227,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
 
             item_count = len(items)
             yielded_count = 0
+            error_count = 0
 
             for idx, item in enumerate(items):
                 try:
@@ -234,12 +235,14 @@ class AppleScreenTimeAdapter(BaseAdapter):
                         yielded_count += 1
                         yield normalized_content
                 except (ValueError, KeyError) as e:
+                    error_count += 1
                     item_id = item.get("bundleId", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed app usage item ({item_id}): {e}")
                     continue
 
-            if item_count > 0 and yielded_count == 0:
-                logger.error(f"All {item_count} items from /screentime/app-usage failed validation; 100% skip rate")
+            # Only raise error if all items were malformed (raised exceptions)
+            if item_count > 0 and error_count == item_count:
+                logger.error(f"All {item_count} items from /screentime/app-usage failed validation; 100% malformed")
                 raise EndpointFetchError(f"100% item skip rate from /screentime/app-usage: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:
@@ -288,6 +291,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
 
             item_count = len(items)
             yielded_count = 0
+            error_count = 0
 
             for idx, item in enumerate(items):
                 try:
@@ -295,12 +299,14 @@ class AppleScreenTimeAdapter(BaseAdapter):
                         yielded_count += 1
                         yield normalized_content
                 except (ValueError, KeyError) as e:
+                    error_count += 1
                     item_id = item.get("timestamp", f"<index {idx}>") if isinstance(item, dict) else f"<index {idx}>"
                     logger.error(f"Skipping malformed focus event ({item_id}): {e}")
                     continue
 
-            if item_count > 0 and yielded_count == 0:
-                logger.error(f"All {item_count} items from /screentime/focus failed validation; 100% skip rate")
+            # Only raise error if all items were malformed (raised exceptions)
+            if item_count > 0 and error_count == item_count:
+                logger.error(f"All {item_count} items from /screentime/focus failed validation; 100% malformed")
                 raise EndpointFetchError(f"100% item skip rate from /screentime/focus: all {item_count} items malformed")
 
         except httpx.HTTPStatusError as e:
