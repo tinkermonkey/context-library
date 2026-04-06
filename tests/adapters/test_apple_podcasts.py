@@ -260,6 +260,7 @@ class TestApplePodcastsAdapterFetchListenHistory:
                 "episodeTitle": "Intro to Python",
                 "episodeGuid": "guid-1",
                 "feedUrl": "https://techtalk.example/feed",
+                "enclosureUrl": "https://example.com/audio/episode1.m4a",
                 "listenedAt": "2026-03-20T10:00:00+00:00",
                 "durationSeconds": 3600,
                 "playedSeconds": 2700,
@@ -276,6 +277,7 @@ class TestApplePodcastsAdapterFetchListenHistory:
         assert metadata_dict["completed"] is False
         assert metadata_dict["episodeGuid"] == "guid-1"
         assert metadata_dict["feedUrl"] == "https://techtalk.example/feed"
+        assert metadata_dict["enclosureUrl"] == "https://example.com/audio/episode1.m4a"
 
 
 class TestApplePodcastsAdapterFetchTranscripts:

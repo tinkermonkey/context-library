@@ -30,6 +30,7 @@ GET /podcasts/listen-history?since=
         "episodeTitle": "<episode name>",
         "episodeGuid": "<guid>",
         "feedUrl": "<feed-url | null>",
+        "enclosureUrl": "<enclosure-url | null>",
         "listenedAt": "<ISO 8601>",
         "durationSeconds": <int>,
         "playedSeconds": <int>,
@@ -333,6 +334,7 @@ class ApplePodcastsAdapter(BaseAdapter):
 
         episode_guid = item.get("episodeGuid")
         feed_url = item.get("feedUrl")
+        enclosure_url = item.get("enclosureUrl")
         listened_at = item.get("listenedAt")
         duration_seconds = item.get("durationSeconds", 0)
         played_seconds = item.get("playedSeconds", 0)
@@ -391,6 +393,7 @@ class ApplePodcastsAdapter(BaseAdapter):
                     "completed": completed,
                     "episodeGuid": episode_guid,
                     "feedUrl": feed_url,
+                    "enclosureUrl": enclosure_url,
                 },
             ),
             normalizer_version=self.normalizer_version,
