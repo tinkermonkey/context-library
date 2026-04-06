@@ -323,6 +323,13 @@ class IngestionPipeline:
                             original_lineage: LineageRecord | None = (
                                 original_lineage_result if isinstance(original_lineage_result, LineageRecord) else None
                             )
+                            if original_lineage_result is not None and original_lineage is None:
+                                # Unexpected type returned from get_lineage()
+                                logger.warning(
+                                    f"Unexpected type from get_lineage() for chunk_hash={unchanged_chunk.chunk_hash} "
+                                    f"source_id={content.source_id}: got {type(original_lineage_result).__name__} "
+                                    f"instead of LineageRecord. Falling back to current embedder model {self.embedder.model_id}"
+                                )
                             original_embedding_model = (
                                 original_lineage.embedding_model_id
                                 if original_lineage
