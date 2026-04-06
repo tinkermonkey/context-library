@@ -135,6 +135,14 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("AppleBrowserHistoryAdapter")
 
+# Check if apple_screentime adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_screentime import (  # noqa: F401
+        AppleScreenTimeAdapter as AppleScreenTimeAdapter,
+    )
+
+    __all__.append("AppleScreenTimeAdapter")
+
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:
     from context_library.adapters.vcard import (  # noqa: F401
