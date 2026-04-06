@@ -143,6 +143,14 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("AppleScreenTimeAdapter")
 
+# Check if apple_location adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_location import (  # noqa: F401
+        AppleLocationAdapter as AppleLocationAdapter,
+    )
+
+    __all__.append("AppleLocationAdapter")
+
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:
     from context_library.adapters.vcard import (  # noqa: F401

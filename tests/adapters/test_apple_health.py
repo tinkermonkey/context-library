@@ -920,3 +920,65 @@ class TestAppleHealthAdapterAuthErrors:
         from context_library.adapters.base import AllEndpointsFailedError
         with pytest.raises(AllEndpointsFailedError):
             list(adapter.fetch(""))
+
+
+class TestPhase7HealthWorkoutDataQuality:
+    """Phase 7: Health workout data quality verification.
+
+    Verifies that when context-helpers provides non-null values for
+    totalEnergyBurned, totalDistance, and averageHeartRate, the adapter
+    correctly maps them to the corresponding HealthMetadata fields:
+    - totalEnergyBurned → calories_kcal
+    - totalDistance → distance_meters
+    - averageHeartRate → avg_heart_rate_bpm
+    """
+
+    def test_workout_data_quality_non_null_fields_mapped_correctly(self, mock_all_health_endpoints):
+        """fetch() correctly maps non-null workout fields to HealthMetadata.
+
+        Verifies that when context-helpers provides a workout with non-null
+        totalEnergyBurned, totalDistance, and averageHeartRate values,
+        they are correctly mapped to the HealthMetadata fields.
+        """
+        adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")
+
+        # Fixture: workout with non-null health metrics
+        workout_with_full_metrics = {
+            "id": "phase7-workout-1",
+            "activityType": "running",
+            "startDate": "2026-03-15T08:00:00+00:00",
+            "endDate": "2026-03-15T08:45:00+00:00",
+            "durationSeconds": 2700,
+            "totalEnergyBurned": 350.0,  # kilocalories (non-null)
+            "totalDistance": 7500.0,      # meters (non-null)
+            "averageHeartRate": 155.0,    # bpm (non-null)
+            "notes": "Morning run with elevated metrics",
+        }
+
+        mock_all_health_endpoints.set_response(
+            "http://127.0.0.1:7124/health/workouts",
+            [workout_with_full_metrics]
+        )
+
+        results = list(adapter.fetch(""))
+        assert len(results) == 1
+
+        metadata_dict = results[0].structural_hints.extra_metadata
+
+        # Verify HealthMetadata validation succeeds
+        metadata = HealthMetadata.model_validate(metadata_dict)
+        assert metadata.record_id == "phase7-workout-1"
+        assert metadata.health_type == "workout_session"
+
+        # Phase 7 Acceptance Criteria:
+        # Assert totalEnergyBurned is mapped to calories_kcal
+        assert metadata_dict["calories_kcal"] == 350.0
+        assert metadata.calories_kcal == 350.0
+
+        # Assert totalDistance is mapped to distance_meters (NOT distance_km)
+        assert metadata_dict["distance_meters"] == 7500.0
+        assert metadata.distance_meters == 7500.0
+
+        # Assert averageHeartRate is mapped to avg_heart_rate_bpm
+        assert metadata_dict["avg_heart_rate_bpm"] == 155.0
+        assert metadata.avg_heart_rate_bpm == 155.0

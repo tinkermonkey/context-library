@@ -42,6 +42,7 @@ class Domain(str, Enum):
     HEALTH = "health"
     DOCUMENTS = "documents"
     PEOPLE = "people"
+    LOCATION = "location"
 
 
 class ChunkType(str, Enum):
@@ -766,6 +767,84 @@ class PeopleMetadata(BaseModel):
         """Validate that source_type is not empty."""
         if not value:
             raise ValueError("source_type must be a non-empty string")
+        return value
+
+
+class LocationMetadata(BaseModel):
+    """Location metadata extracted by location-based adapters.
+
+    Captures geospatial information including place visits and current location snapshots
+    for location-aware chunking and geographic filtering. Conforms to the architecture
+    specification for location domain metadata.
+
+    Invariants:
+    - location_id, source_type must be non-empty strings
+    - latitude must be in range [-90, 90]
+    - longitude must be in range [-180, 180]
+    - date_first_observed must be a valid ISO 8601 timestamp
+    - arrival_date, departure_date must be valid ISO 8601 dates if provided
+    - duration_minutes must be non-negative if provided
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    location_id: str
+    latitude: float
+    longitude: float
+    source_type: str
+    date_first_observed: str
+    place_name: str | None = None
+    locality: str | None = None
+    country: str | None = None
+    arrival_date: str | None = None
+    departure_date: str | None = None
+    duration_minutes: int | None = None
+
+    @field_validator("location_id")
+    @classmethod
+    def validate_location_id(cls, value: str) -> str:
+        """Validate that location_id is not empty."""
+        if not value:
+            raise ValueError("location_id must be a non-empty string")
+        return value
+
+    @field_validator("latitude")
+    @classmethod
+    def validate_latitude(cls, value: float) -> float:
+        """Validate that latitude is in range [-90, 90]."""
+        if not isinstance(value, (int, float)) or not -90 <= value <= 90:
+            raise ValueError(f"latitude must be in range [-90, 90], got: {value}")
+        return value
+
+    @field_validator("longitude")
+    @classmethod
+    def validate_longitude(cls, value: float) -> float:
+        """Validate that longitude is in range [-180, 180]."""
+        if not isinstance(value, (int, float)) or not -180 <= value <= 180:
+            raise ValueError(f"longitude must be in range [-180, 180], got: {value}")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
 

@@ -18,6 +18,7 @@ _DOMAIN_REGISTRY = {
     Domain.HEALTH: ("context_library.domains.health", "HealthDomain"),
     Domain.DOCUMENTS: ("context_library.domains.documents", "DocumentsDomain"),
     Domain.PEOPLE: ("context_library.domains.people", "PeopleDomain"),
+    Domain.LOCATION: ("context_library.domains.location", "LocationDomain"),
 }
 
 
