@@ -295,22 +295,22 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             visit: Visit dictionary from macOS helper API
 
         Returns:
-            Dictionary with extra metadata fields (visit_api_id, browser, visitCount)
+            Dictionary with extra metadata fields (url, browser, visitCount)
 
         Raises:
-            KeyError: If required fields (id, browser, visitCount) are missing.
+            KeyError: If required fields (url, browser, visitCount) are missing.
         """
         # Validate required fields for extra_metadata
-        if "id" not in visit:
-            raise KeyError("Visit missing required 'id' field")
+        if "url" not in visit:
+            raise KeyError("Visit missing required 'url' field")
         if "browser" not in visit:
             raise KeyError("Visit missing required 'browser' field")
         if "visitCount" not in visit:
             raise KeyError("Visit missing required 'visitCount' field")
 
-        # Extract fields (visit['id'] is kept as visit_api_id for reference)
+        # Extract fields (url is preserved for direct access in extra_metadata)
         return {
-            "visit_api_id": visit["id"],
+            "url": visit["url"],
             "browser": visit["browser"],
             "visitCount": visit["visitCount"],
         }
@@ -318,7 +318,8 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
     def _build_visit_markdown(self, visit: dict) -> str:
         """Build markdown representation of a visit.
 
-        The visit metadata (title, date, browser, url) is available in extra_metadata
+        The visit metadata (title, date, browser, url) is available in the merged
+        extra_metadata dict (combined from EventMetadata and _get_extra_metadata)
         and will be used by EventsDomain to build context headers. This method
         returns just the minimal body.
 

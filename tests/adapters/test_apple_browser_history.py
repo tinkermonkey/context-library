@@ -104,7 +104,7 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert results[0].structural_hints.extra_metadata["start_date"] == "2026-03-10T10:00:00Z"
         assert results[0].structural_hints.extra_metadata["date_first_observed"] == "2026-03-10T10:00:00Z"
         assert results[0].structural_hints.extra_metadata["source_type"] == "browser_history"
-        assert results[0].structural_hints.extra_metadata["visit_api_id"] == "visit-1"
+        assert results[0].structural_hints.extra_metadata["url"] == "https://example.com/page1"
         assert results[0].structural_hints.extra_metadata["browser"] == "safari"
         assert results[0].structural_hints.extra_metadata["visitCount"] == 5
 
@@ -260,7 +260,7 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert metadata["source_type"] == "browser_history"
 
         # Check extra_metadata fields
-        assert metadata["visit_api_id"] == "visit-1"
+        assert metadata["url"] == "https://example.com/article"
         assert metadata["browser"] == "safari"
         assert metadata["visitCount"] == 7
 
