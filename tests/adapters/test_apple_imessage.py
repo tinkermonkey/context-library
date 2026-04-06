@@ -6,7 +6,6 @@ import pytest
 # (required by AppleiMessageAdapter -> domains/messages.py which imports from domains/__init__.py)
 pytest.importorskip("mistune")
 
-import httpx
 
 from context_library.adapters.apple_imessage import AppleiMessageAdapter
 from context_library.storage.models import Domain, PollStrategy

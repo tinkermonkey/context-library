@@ -6,7 +6,6 @@ import pytest
 # (required by AppleNotesAdapter -> domains/notes.py)
 pytest.importorskip("mistune")
 
-import httpx
 
 from context_library.adapters.apple_notes import AppleNotesAdapter
 from context_library.storage.models import Domain, PollStrategy
