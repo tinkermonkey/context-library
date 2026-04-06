@@ -519,15 +519,15 @@ class TestApplePodcastsAdapterDualDomain:
 class TestApplePodcastsAdapterErrorHandling:
     """Tests for ApplePodcastsAdapter error handling."""
 
-    def test_fetch_partial_failure_listen_history_down(self, mock_podcasts_httpx_get):
+    def test_fetch_partial_failure_listen_history_down(self, mock_httpx_client_podcasts):
         """fetch() raises PartialFetchError when listen-history endpoint fails but transcripts succeeds."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # Listen history fails
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/listen-history", [], status_code=500)
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [], status_code=500)
 
         # Transcripts succeeds
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -549,12 +549,12 @@ class TestApplePodcastsAdapterErrorHandling:
         assert "/podcasts/listen-history" in exc_info.value.failed_endpoints
         assert exc_info.value.total_endpoints == 2
 
-    def test_fetch_partial_failure_transcripts_down(self, mock_podcasts_httpx_get):
+    def test_fetch_partial_failure_transcripts_down(self, mock_httpx_client_podcasts):
         """fetch() raises PartialFetchError when transcripts endpoint fails but listen-history succeeds."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # Listen history succeeds
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -569,7 +569,7 @@ class TestApplePodcastsAdapterErrorHandling:
         ])
 
         # Transcripts fails
-        mock_podcasts_httpx_get.set_response("http://127.0.0.1:7123/podcasts/transcripts", [], status_code=500)
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [], status_code=500)
 
         with pytest.raises(PartialFetchError) as exc_info:
             list(adapter.fetch(""))
@@ -589,11 +589,11 @@ class TestApplePodcastsAdapterErrorHandling:
 
         assert exc_info.value.total_endpoints == 2
 
-    def test_fetch_missing_episode_title_skips_listen_item(self, mock_all_podcasts_endpoints):
+    def test_fetch_missing_episode_title_skips_listen_item(self, mock_httpx_client_podcasts):
         """fetch() skips listen history items with missing episodeTitle."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -606,16 +606,20 @@ class TestApplePodcastsAdapterErrorHandling:
                 "completed": True,
             }
         ])
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [])
 
-        results = list(adapter.fetch(""))
-        listen_items = [r for r in results if "listen" in r.source_id]
-        assert len(listen_items) == 0
+        # All items in listen-history fail validation, so EndpointFetchError is raised
+        # which becomes PartialFetchError since transcripts succeeds
+        with pytest.raises(PartialFetchError):
+            list(adapter.fetch(""))
 
-    def test_fetch_missing_episode_title_skips_transcript(self, mock_all_podcasts_endpoints):
+    def test_fetch_missing_episode_title_skips_transcript(self, mock_httpx_client_podcasts):
         """fetch() skips transcripts with missing episodeTitle."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [])
+
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [
             {
                 "id": "ep-1",
                 "source": "podcasts",
@@ -631,15 +635,16 @@ class TestApplePodcastsAdapterErrorHandling:
             }
         ])
 
-        results = list(adapter.fetch(""))
-        transcript_items = [r for r in results if "transcript" in r.source_id]
-        assert len(transcript_items) == 0
+        # All items in transcripts fail validation, so EndpointFetchError is raised
+        # which becomes PartialFetchError since listen-history succeeds
+        with pytest.raises(PartialFetchError):
+            list(adapter.fetch(""))
 
-    def test_fetch_malformed_item_skipped_continues(self, mock_all_podcasts_endpoints):
+    def test_fetch_malformed_item_skipped_continues(self, mock_httpx_client_podcasts):
         """fetch() skips malformed items and continues to next."""
         adapter = ApplePodcastsAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
-        mock_all_podcasts_endpoints.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/listen-history", [
             {
                 "id": "ep-1",
                 "showTitle": "Tech Talk",
@@ -674,6 +679,7 @@ class TestApplePodcastsAdapterErrorHandling:
                 "completed": True,
             },
         ])
+        mock_httpx_client_podcasts.set_response("http://127.0.0.1:7123/podcasts/transcripts", [])
 
         results = list(adapter.fetch(""))
         listen_items = [r for r in results if "listen" in r.source_id]

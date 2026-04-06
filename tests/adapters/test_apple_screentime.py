@@ -426,19 +426,19 @@ class TestAppleScreenTimeAdapterFetchFocusEvents:
 class TestAppleScreenTimeAdapterPartialFailure:
     """Tests for AppleScreenTimeAdapter partial failure handling."""
 
-    def test_partial_failure_app_usage_endpoint_down(self, mock_all_screentime_endpoints):
+    def test_partial_failure_app_usage_endpoint_down(self, mock_httpx_client_screentime):
         """fetch() raises PartialFetchError when app-usage endpoint fails but focus succeeds."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # App usage endpoint fails
-        mock_all_screentime_endpoints.set_response(
+        mock_httpx_client_screentime.set_response(
             "http://127.0.0.1:7123/screentime/app-usage",
             {"error": "internal server error"},
             status_code=500
         )
 
         # Focus endpoint succeeds
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/focus", [
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/focus", [
             {
                 "timestamp": "2026-03-20T10:00:00+00:00",
                 "eventType": "lock",
@@ -453,12 +453,12 @@ class TestAppleScreenTimeAdapterPartialFailure:
         assert error.total_endpoints == 2
         assert len(error.failed_endpoints) == 1
 
-    def test_partial_failure_focus_endpoint_down(self, mock_all_screentime_endpoints):
+    def test_partial_failure_focus_endpoint_down(self, mock_httpx_client_screentime):
         """fetch() raises PartialFetchError when focus endpoint fails but app-usage succeeds."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # App usage endpoint succeeds
-        mock_all_screentime_endpoints.set_response("http://127.0.0.1:7123/screentime/app-usage", [
+        mock_httpx_client_screentime.set_response("http://127.0.0.1:7123/screentime/app-usage", [
             {
                 "date": "2026-03-20",
                 "bundleId": "com.apple.Safari",
@@ -468,7 +468,7 @@ class TestAppleScreenTimeAdapterPartialFailure:
         ])
 
         # Focus endpoint fails
-        mock_all_screentime_endpoints.set_response(
+        mock_httpx_client_screentime.set_response(
             "http://127.0.0.1:7123/screentime/focus",
             {"error": "internal server error"},
             status_code=500
@@ -482,17 +482,17 @@ class TestAppleScreenTimeAdapterPartialFailure:
         assert error.total_endpoints == 2
         assert len(error.failed_endpoints) == 1
 
-    def test_all_endpoints_failed(self, mock_all_screentime_endpoints):
+    def test_all_endpoints_failed(self, mock_httpx_client_screentime):
         """fetch() raises AllEndpointsFailedError when all endpoints fail."""
         adapter = AppleScreenTimeAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         # Both endpoints fail
-        mock_all_screentime_endpoints.set_response(
+        mock_httpx_client_screentime.set_response(
             "http://127.0.0.1:7123/screentime/app-usage",
             {"error": "internal server error"},
             status_code=500
         )
-        mock_all_screentime_endpoints.set_response(
+        mock_httpx_client_screentime.set_response(
             "http://127.0.0.1:7123/screentime/focus",
             {"error": "internal server error"},
             status_code=500
