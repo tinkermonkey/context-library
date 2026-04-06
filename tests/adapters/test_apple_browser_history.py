@@ -57,9 +57,9 @@ class TestAppleBrowserHistoryAdapterProperties:
         assert adapter.adapter_id == "apple_browser_history:work"
 
     def test_domain_property(self):
-        """domain property returns Domain.EVENTS."""
+        """domain property returns Domain.DOCUMENTS."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
-        assert adapter.domain == Domain.EVENTS
+        assert adapter.domain == Domain.DOCUMENTS
 
     def test_poll_strategy_property(self):
         """poll_strategy property returns PollStrategy.PULL."""
@@ -95,12 +95,14 @@ class TestAppleBrowserHistoryAdapterFetch:
         results = list(adapter.fetch(""))
         assert len(results) == 1
         assert isinstance(results[0], NormalizedContent)
-        assert results[0].source_id == "browser_history/visit-1"
+        assert results[0].source_id == "browser_history/https://example.com/page1"
         # Markdown is minimal
         assert results[0].markdown == "Visited: https://example.com/page1"
         # Metadata and extra fields in extra_metadata
         assert results[0].structural_hints.extra_metadata["title"] == "Example Page"
-        assert results[0].structural_hints.extra_metadata["url"] == "https://example.com/page1"
+        assert results[0].structural_hints.extra_metadata["document_id"] == "https://example.com/page1"
+        assert results[0].structural_hints.extra_metadata["document_type"] == "text/html"
+        assert results[0].structural_hints.extra_metadata["visit_api_id"] == "visit-1"
         assert results[0].structural_hints.extra_metadata["browser"] == "safari"
         assert results[0].structural_hints.extra_metadata["visitCount"] == 5
 
@@ -124,6 +126,8 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert len(results) == 1
         # Title should be URL (fallback)
         assert results[0].structural_hints.extra_metadata["title"] == "https://example.com/page2"
+        # Document ID should be the URL
+        assert results[0].structural_hints.extra_metadata["document_id"] == "https://example.com/page2"
 
     def test_fetch_visit_with_null_title_uses_url_fallback(self, mock_httpx_client_browser_history):
         """fetch() uses URL as title when title is null."""
@@ -145,6 +149,8 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert len(results) == 1
         # Title should be URL (fallback)
         assert results[0].structural_hints.extra_metadata["title"] == "https://example.com/page3"
+        # Document ID should be the URL
+        assert results[0].structural_hints.extra_metadata["document_id"] == "https://example.com/page3"
 
     def test_fetch_multiple_visits(self, mock_httpx_client_browser_history):
         """fetch() yields multiple visits."""
@@ -223,8 +229,8 @@ class TestAppleBrowserHistoryAdapterFetch:
         request = mock_httpx_client_browser_history.requests[0]
         assert request["headers"]["Authorization"] == "Bearer secret-token-123"
 
-    def test_fetch_happy_path_event_metadata(self, mock_httpx_client_browser_history):
-        """Happy path test: correct EventMetadata with title, start_date, and extra_metadata."""
+    def test_fetch_happy_path_document_metadata(self, mock_httpx_client_browser_history):
+        """Happy path test: correct DocumentMetadata with title, created_at, and extra_metadata."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -243,16 +249,16 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert len(results) == 1
         result = results[0]
 
-        # Check EventMetadata fields
+        # Check DocumentMetadata fields
         metadata = result.structural_hints.extra_metadata
-        assert metadata["event_id"] == "visit-1"
+        assert metadata["document_id"] == "https://example.com/article"
         assert metadata["title"] == "My Article"
-        assert metadata["start_date"] == "2026-03-10T10:30:00Z"
-        assert metadata["date_first_observed"] == "2026-03-10T10:30:00Z"
+        assert metadata["created_at"] == "2026-03-10T10:30:00Z"
+        assert metadata["document_type"] == "text/html"
         assert metadata["source_type"] == "browser_history"
 
         # Check extra_metadata fields
-        assert metadata["url"] == "https://example.com/article"
+        assert metadata["visit_api_id"] == "visit-1"
         assert metadata["browser"] == "safari"
         assert metadata["visitCount"] == 7
 

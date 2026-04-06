@@ -35,8 +35,8 @@ Security:
 
 This adapter:
 - Fetches browser visits from the local macOS helper API
-- Maps browser visit fields to EventMetadata (using Domain.EVENTS per ADR-1)
-- Yields NormalizedContent with EventMetadata in extra_metadata
+- Maps browser visit fields to DocumentMetadata (using Domain.DOCUMENTS)
+- Yields NormalizedContent with DocumentMetadata in extra_metadata
 - Supports both initial ingestion and incremental updates via 'since' parameter
 - Yields all visits (unlike calendar which filters on notes)
 """
@@ -48,7 +48,7 @@ from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     PollStrategy,
-    EventMetadata,
+    DocumentMetadata,
     NormalizedContent,
     StructuralHints,
 )
@@ -67,18 +67,18 @@ except ImportError:
 
 
 class AppleBrowserHistoryAdapter(BaseAdapter):
-    """Adapter that ingests browser visit events from a macOS Apple helper service.
+    """Adapter that ingests browser visit documents from a macOS Apple helper service.
 
     This adapter communicates with an HTTP service on the Mac that reads from
     browser history (Safari, Firefox, Chrome) and exposes visits data via REST API.
     The helper binds to 0.0.0.0 and requires a Bearer API token for authentication.
 
-    Per ADR-1, browser history uses Domain.EVENTS because each record is a timestamped
-    visit event — the URL is a content pointer, not the document body itself.
+    Browser history uses Domain.DOCUMENTS, with the URL as the primary document identifier.
+    Each visit enriches the document with metadata about when and how it was accessed.
 
     Usage: Start the macOS helper service, then instantiate this adapter with
     the helper's base URL and API key. The adapter will fetch browser visits and
-    normalize them to EventMetadata for indexing.
+    normalize them to DocumentMetadata for indexing.
     """
 
     def __init__(
@@ -123,7 +123,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
     @property
     def domain(self) -> Domain:
         """Return the domain this adapter serves."""
-        return Domain.EVENTS
+        return Domain.DOCUMENTS
 
     @property
     def poll_strategy(self) -> PollStrategy:
@@ -162,7 +162,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
 
         Yields:
-            NormalizedContent for each browser visit
+            NormalizedContent for each browser visit as a document with URL as document_id
 
         Raises:
             httpx.HTTPError: If the API request fails
@@ -180,6 +180,11 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
         # Convert each visit to NormalizedContent
         # Process without catching errors to ensure visibility of API schema changes
         for visit in visits:
+            # Extract URL as the primary document identifier
+            url = visit.get("url", "")
+            if not url:
+                raise KeyError("Visit missing required 'url' field")
+
             # Extract visit metadata - errors propagate
             metadata = self._extract_visit_metadata(visit)
 
@@ -198,7 +203,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             # Yield normalized content
             yield NormalizedContent(
                 markdown=markdown,
-                source_id=f"browser_history/{visit['id']}",
+                source_id=f"browser_history/{url}",
                 structural_hints=hints,
                 normalizer_version=self.normalizer_version,
             )
@@ -243,44 +248,41 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         return visits
 
-    def _extract_visit_metadata(self, visit: dict) -> EventMetadata:
-        """Extract EventMetadata from visit response.
+    def _extract_visit_metadata(self, visit: dict) -> DocumentMetadata:
+        """Extract DocumentMetadata from visit response.
 
         Args:
             visit: Visit dictionary from macOS helper API
 
         Returns:
-            EventMetadata object with extracted fields
+            DocumentMetadata object with extracted fields
 
         Raises:
             KeyError: If required fields are missing
             ValueError: If fields fail validation (via Pydantic)
         """
-        # Extract required fields
-        if "id" not in visit:
-            raise KeyError("Visit missing required 'id' field")
-        visit_id = visit["id"]
+        if "url" not in visit:
+            raise KeyError("Visit missing required 'url' field")
+        url = visit["url"]
 
         if "visitedAt" not in visit:
             raise KeyError("Visit missing required 'visitedAt' field")
         visited_at = visit["visitedAt"]
-
-        if "url" not in visit:
-            raise KeyError("Visit missing required 'url' field")
-        url = visit["url"]
 
         # Extract title with fallback to URL if empty or null
         title = visit.get("title")
         if not title:
             title = url
 
-        # Build EventMetadata (Pydantic validates field types)
-        return EventMetadata(
-            event_id=visit_id,
+        # Build DocumentMetadata (Pydantic validates field types)
+        # document_id is the URL (the primary document identifier)
+        # created_at is the visit timestamp
+        return DocumentMetadata(
+            document_id=url,
             title=title,
-            start_date=visited_at,
-            date_first_observed=visited_at,
+            document_type="text/html",
             source_type="browser_history",
+            created_at=visited_at,
         )
 
     def _get_extra_metadata(self, visit: dict) -> dict:
@@ -290,22 +292,22 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             visit: Visit dictionary from macOS helper API
 
         Returns:
-            Dictionary with extra metadata fields (url, browser, visitCount)
+            Dictionary with extra metadata fields (visit_api_id, browser, visitCount)
 
         Raises:
-            KeyError: If required fields (browser, visitCount) are missing.
-                Note: url is also required but is already validated in
-                _extract_visit_metadata.
+            KeyError: If required fields (id, browser, visitCount) are missing.
         """
         # Validate required fields for extra_metadata
+        if "id" not in visit:
+            raise KeyError("Visit missing required 'id' field")
         if "browser" not in visit:
             raise KeyError("Visit missing required 'browser' field")
         if "visitCount" not in visit:
             raise KeyError("Visit missing required 'visitCount' field")
 
-        # Extract all three fields (url is always present due to prior validation)
+        # Extract fields (visit['id'] is kept as visit_api_id for reference)
         return {
-            "url": visit["url"],
+            "visit_api_id": visit["id"],
             "browser": visit["browser"],
             "visitCount": visit["visitCount"],
         }
@@ -314,7 +316,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
         """Build markdown representation of a visit.
 
         The visit metadata (title, date, browser, url) is available in extra_metadata
-        and will be used by EventsDomain to build context headers. This method
+        and will be used by DocumentsDomain to build context headers. This method
         returns just the minimal body.
 
         Args:
