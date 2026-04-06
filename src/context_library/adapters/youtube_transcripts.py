@@ -165,7 +165,11 @@ class YouTubeTranscriptAdapter(BaseAdapter):
                 content = self._fetch_transcript(video_id, meta_dict)
                 if content is not None:
                     yield content
+            except (TypeError, AttributeError, ValueError) as exc:
+                # Programming errors must propagate to reveal bugs
+                raise
             except Exception as exc:
+                # API errors are logged and skipped
                 logger.warning("Transcript fetch failed for video_id=%s: %s", video_id, exc)
                 continue
 
@@ -224,8 +228,7 @@ class YouTubeTranscriptAdapter(BaseAdapter):
 
         Source IDs have the form ``youtube/transcript/{video_id}``.
         """
-        indexed: set[str] = {}  # type: ignore[assignment]
-        indexed = set()
+        indexed: set[str] = set()
         offset = 0
         batch = 1000
 
