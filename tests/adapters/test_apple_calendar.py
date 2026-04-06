@@ -113,8 +113,8 @@ class TestAppleCalendarAdapterFetch:
         # Title is in extra_metadata, not markdown
         assert results[0].structural_hints.extra_metadata["title"] == "Team meeting"
 
-    def test_fetch_event_without_notes_not_yielded(self, mock_httpx_client_calendar):
-        """fetch() does not yield events with null notes."""
+    def test_fetch_event_without_notes_yielded_with_empty_markdown(self, mock_httpx_client_calendar):
+        """fetch() yields events with null notes as empty markdown."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -137,7 +137,9 @@ class TestAppleCalendarAdapterFetch:
         ])
 
         results = list(adapter.fetch(""))
-        assert len(results) == 0
+        assert len(results) == 1
+        assert results[0].markdown == ""
+        assert results[0].source_id == "apple_calendar/event-1"
 
     def test_fetch_incremental_with_since(self, mock_httpx_client_calendar):
         """fetch() passes 'since' query parameter for incremental fetch."""
@@ -198,6 +200,45 @@ class TestAppleCalendarAdapterFetch:
         assert metadata.start_date == "2026-03-20T09:00:00Z"
         assert metadata.end_date == "2026-03-20T17:00:00Z"
         assert metadata.source_type == "apple_calendar"
+        assert metadata.host is None  # Host field is mapped but not populated from Apple Calendar API
+
+    def test_fetch_event_date_first_observed_uses_ingestion_time(self, mock_httpx_client_calendar):
+        """fetch() sets date_first_observed to current time, not event lastModified."""
+        from datetime import datetime, timezone
+
+        adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        events_url = "http://127.0.0.1:7123/calendar/events"
+        # Use an old lastModified timestamp to verify it's not used
+        mock_httpx_client_calendar.set_response(events_url, [
+            {
+                "id": "event-1",
+                "title": "Old event",
+                "notes": "Description",
+                "startDate": "2026-03-20T09:00:00Z",
+                "endDate": "2026-03-20T17:00:00Z",
+                "isAllDay": False,
+                "calendar": "Work",
+                "location": "Office",
+                "status": "confirmed",
+                "lastModified": "2020-01-01T10:00:00Z",  # Old timestamp
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            }
+        ])
+
+        # Capture approximate current time
+        before_fetch = datetime.now(timezone.utc)
+        results = list(adapter.fetch(""))
+        after_fetch = datetime.now(timezone.utc)
+
+        metadata = EventMetadata.model_validate(results[0].structural_hints.extra_metadata)
+        observed_time = datetime.fromisoformat(metadata.date_first_observed)
+
+        # Verify date_first_observed is approximately now, not the old lastModified timestamp
+        assert before_fetch <= observed_time <= after_fetch
+        assert metadata.date_first_observed != "2020-01-01T10:00:00Z"
 
     def test_fetch_attendees_formatting(self, mock_httpx_client_calendar):
         """fetch() formats attendees as display strings."""
@@ -310,8 +351,8 @@ class TestAppleCalendarAdapterFetch:
         with pytest.raises(ValueError, match="must be a list"):
             list(adapter.fetch(""))
 
-    def test_fetch_missing_required_field_raises(self, mock_httpx_client_calendar):
-        """fetch() raises KeyError if event is missing required field."""
+    def test_fetch_missing_required_field_title_raises(self, mock_httpx_client_calendar):
+        """fetch() raises KeyError if event is missing 'title' field."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -334,6 +375,58 @@ class TestAppleCalendarAdapterFetch:
         ])
 
         with pytest.raises(KeyError, match="title"):
+            list(adapter.fetch(""))
+
+    def test_fetch_missing_required_field_id_raises(self, mock_httpx_client_calendar):
+        """fetch() raises KeyError if event is missing 'id' field."""
+        adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        events_url = "http://127.0.0.1:7123/calendar/events"
+        mock_httpx_client_calendar.set_response(events_url, [
+            {
+                # Missing 'id'
+                "title": "Team meeting",
+                "notes": "Description",
+                "startDate": "2026-03-10T10:00:00Z",
+                "endDate": "2026-03-10T11:00:00Z",
+                "isAllDay": False,
+                "calendar": "Work",
+                "location": None,
+                "status": "confirmed",
+                "lastModified": "2026-03-06T10:00:00Z",
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            }
+        ])
+
+        with pytest.raises(KeyError, match="id"):
+            list(adapter.fetch(""))
+
+    def test_fetch_missing_required_field_lastModified_raises(self, mock_httpx_client_calendar):
+        """fetch() raises KeyError if event is missing 'lastModified' field."""
+        adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        events_url = "http://127.0.0.1:7123/calendar/events"
+        mock_httpx_client_calendar.set_response(events_url, [
+            {
+                "id": "event-1",
+                "title": "Team meeting",
+                "notes": "Description",
+                "startDate": "2026-03-10T10:00:00Z",
+                "endDate": "2026-03-10T11:00:00Z",
+                "isAllDay": False,
+                "calendar": "Work",
+                "location": None,
+                "status": "confirmed",
+                # Missing 'lastModified'
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            }
+        ])
+
+        with pytest.raises(KeyError, match="lastModified"):
             list(adapter.fetch(""))
 
     def test_context_manager_closes_client(self, mock_httpx_client_calendar):

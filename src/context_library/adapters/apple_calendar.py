@@ -50,10 +50,11 @@ This adapter:
 - Maps Calendar event fields to EventMetadata
 - Yields NormalizedContent with EventMetadata in extra_metadata
 - Supports both initial ingestion and incremental updates via 'since' parameter
-- Only yields events with notes (empty notes → no yield)
+- Yields all events, including those with empty notes (no filtering at adapter layer)
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
@@ -171,7 +172,7 @@ class AppleCalendarAdapter(BaseAdapter):
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
 
         Yields:
-            NormalizedContent for each event with notes
+            NormalizedContent for each event (including those with empty notes)
 
         Raises:
             httpx.HTTPError: If the API request fails
@@ -192,12 +193,8 @@ class AppleCalendarAdapter(BaseAdapter):
             # Extract event metadata - errors propagate
             metadata = self._extract_event_metadata(event)
 
-            # Get notes for the markdown body
-            notes = event.get("notes")
-
-            # Only yield events with notes (empty notes → no yield)
-            if not notes:
-                continue
+            # Get notes for the markdown body (may be None or empty string)
+            notes = event.get("notes") or ""
 
             # Build structural hints with metadata
             hints = StructuralHints(
@@ -283,7 +280,9 @@ class AppleCalendarAdapter(BaseAdapter):
 
         if "lastModified" not in event:
             raise KeyError("Event missing required 'lastModified' field")
-        last_modified = event["lastModified"]
+        # Note: lastModified is required to validate event integrity,
+        # but date_first_observed is set to current time (ingestion time)
+        _ = event["lastModified"]
 
         # Extract optional fields
         start_date = event.get("startDate")
@@ -297,14 +296,18 @@ class AppleCalendarAdapter(BaseAdapter):
             if a.get('name') or a.get('email')
         )
 
+        # Get current timestamp for date_first_observed (ingestion time, not event modification time)
+        now = datetime.now(timezone.utc).isoformat()
+
         # Build EventMetadata (Pydantic validates field types)
         return EventMetadata(
             event_id=event_id,
             title=title,
             start_date=start_date,
             end_date=end_date,
+            host=None,
             invitees=attendees,
-            date_first_observed=last_modified,
+            date_first_observed=now,
             source_type="apple_calendar",
         )
 
