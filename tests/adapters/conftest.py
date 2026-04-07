@@ -63,13 +63,18 @@ def mock_html2text_module():
 class MockResponse:
     """Mock httpx.Response for testing."""
 
-    def __init__(self, json_data, status_code=200, url="", text=""):
+    def __init__(self, json_data, status_code=200, url="", text="", should_fail_json=False):
         self._json_data = json_data
         self.status_code = status_code
         self.url = url
-        self.text = text if text else str(json_data)
+        self.text = text if text else (str(json_data) if json_data is not None else "")
+        self._should_fail_json = should_fail_json
 
     def json(self):
+        if self._should_fail_json:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+        if self._json_data is None:
+            raise ValueError("No JSON data available")
         return self._json_data
 
     def raise_for_status(self):
@@ -81,6 +86,57 @@ class MockResponse:
             )
 
 
+class MockClient:
+    """Mock httpx.Client that tracks requests and returns configured responses.
+
+    Raises AssertionError if attempting to access a URL that hasn't been
+    configured with set_response(), to catch tests that hit the wrong endpoint.
+    """
+    def __init__(self, *args, **kwargs):
+        self.requests = []
+        self.responses = {}
+        self.timeout = kwargs.get("timeout")
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
+        if url not in self.responses:
+            raise AssertionError(
+                f"MockClient.get() called with unconfigured URL: {url}. "
+                f"Configured URLs: {list(self.responses.keys())}. "
+                f"Did you call set_response() for this URL?"
+            )
+        return self.responses[url]
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
+        if url not in self.responses:
+            raise AssertionError(
+                f"MockClient.post() called with unconfigured URL: {url}. "
+                f"Configured URLs: {list(self.responses.keys())}. "
+                f"Did you call set_response() for this URL?"
+            )
+        return self.responses[url]
+
+    def set_response(self, url, data, status_code=200):
+        self.responses[url] = MockResponse(data, status_code, url=url)
+
+    def set_status(self, url, status_code):
+        """Set the response status code for a URL."""
+        if url not in self.responses:
+            self.responses[url] = MockResponse(None, status_code, url=url)
+        else:
+            self.responses[url].status_code = status_code
+
+    def set_raw_response(self, url, content, content_type="text/plain"):
+        """Set a raw response that will fail JSON parsing."""
+        response = MockResponse(content, 200, url=url, text=content, should_fail_json=True)
+        self.responses[url] = response
+
+    def close(self):
+        """No-op for mock client."""
+        pass
+
+
 @pytest.fixture
 def mock_httpx_client(monkeypatch):
     """Fixture for mocking httpx.Client with request tracking.
@@ -88,45 +144,6 @@ def mock_httpx_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses.
-
-        Raises AssertionError if attempting to access a URL that hasn't been
-        configured with set_response(), to catch tests that hit the wrong endpoint.
-        """
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def post(self, url, json=None, headers=None, timeout=None):
-            self.requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.post() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
@@ -287,35 +304,11 @@ def mock_apple_music_library_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made. Used for AppleMusicLibraryAdapter.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
+    # Patch httpx.Client in the base mixin module since AppleMusicLibraryAdapter uses it
     monkeypatch.setattr(
-        "context_library.adapters.apple_music_library.httpx.Client",
+        "context_library.adapters.apple_music_base.httpx.Client",
         lambda *args, **kwargs: mock_client
     )
 
@@ -345,31 +338,6 @@ def mock_apple_contacts_client(monkeypatch):
     Provides a MockClient instance that can be configured with responses
     and tracks all requests made. Used for AppleContactsAdapter.
     """
-
-    class MockClient:
-        """Mock httpx.Client that tracks requests and returns configured responses."""
-        def __init__(self, *args, **kwargs):
-            self.requests = []
-            self.responses = {}
-            self.timeout = kwargs.get("timeout")
-
-        def get(self, url, params=None, headers=None, timeout=None):
-            self.requests.append({"method": "GET", "url": url, "params": params, "headers": headers})
-            if url not in self.responses:
-                raise AssertionError(
-                    f"MockClient.get() called with unconfigured URL: {url}. "
-                    f"Configured URLs: {list(self.responses.keys())}. "
-                    f"Did you call set_response() for this URL?"
-                )
-            return self.responses[url]
-
-        def set_response(self, url, data, status_code=200):
-            self.responses[url] = MockResponse(data, status_code, url=url)
-
-        def close(self):
-            """No-op for mock client."""
-            pass
-
     mock_client = MockClient()
 
     monkeypatch.setattr(
@@ -378,3 +346,183 @@ def mock_apple_contacts_client(monkeypatch):
     )
 
     return mock_client
+
+
+@pytest.fixture
+def mock_httpx_client_calendar(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Calendar endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleCalendarAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_calendar.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_httpx_client_browser_history(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Browser History endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleBrowserHistoryAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_browser_history.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+
+
+
+
+@pytest.fixture
+def mock_apple_music_client(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Music endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleMusicAdapter and AppleMusicLibraryAdapter.
+    """
+    mock_client = MockClient()
+
+    # Patch httpx.Client in the base mixin module since both adapters use it
+    monkeypatch.setattr(
+        "context_library.adapters.apple_music_base.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_apple_music_endpoints(mock_apple_music_client):
+    """Fixture that configures Apple Music endpoint with empty response.
+
+    Convenience fixture for tests that want to mock the Apple Music endpoint
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = ["/music/tracks"]
+
+    for endpoint in endpoints:
+        mock_apple_music_client.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_apple_music_client
+
+
+@pytest.fixture
+def mock_httpx_client_location(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Location endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleLocationAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_location.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_location_endpoints(mock_httpx_client_location):
+    """Fixture that configures all Apple Location endpoints with empty responses.
+
+    Convenience fixture for tests that want to mock all location endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/location/visits",
+        "/location/current",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_location.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_location
+
+
+@pytest.fixture
+def mock_httpx_client_podcasts(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple Podcasts endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for ApplePodcastsAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_podcasts.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_podcasts_endpoints_client(mock_httpx_client_podcasts):
+    """Fixture that configures all Apple Podcasts endpoints with empty responses (using Client).
+
+    Convenience fixture for tests that want to mock all podcasts endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/podcasts/listen-history",
+        "/podcasts/transcripts",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_podcasts.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_podcasts
+
+
+@pytest.fixture
+def mock_httpx_client_screentime(monkeypatch):
+    """Fixture for mocking httpx.Client for Apple ScreenTime endpoints with request tracking.
+
+    Provides a MockClient instance that can be configured with responses
+    and tracks all requests made. Used for AppleScreenTimeAdapter.
+    """
+    mock_client = MockClient()
+
+    monkeypatch.setattr(
+        "context_library.adapters.apple_screentime.httpx.Client",
+        lambda *args, **kwargs: mock_client
+    )
+
+    return mock_client
+
+
+@pytest.fixture
+def mock_all_screentime_endpoints_client(mock_httpx_client_screentime):
+    """Fixture that configures all Apple ScreenTime endpoints with empty responses (using Client).
+
+    Convenience fixture for tests that want to mock all screentime endpoints
+    and only override the ones they care about.
+    """
+    base_url = "http://127.0.0.1:7123"
+    endpoints = [
+        "/screentime/app-usage",
+        "/screentime/focus",
+    ]
+
+    for endpoint in endpoints:
+        mock_httpx_client_screentime.set_response(f"{base_url}{endpoint}", [])
+
+    return mock_httpx_client_screentime

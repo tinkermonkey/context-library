@@ -1198,6 +1198,126 @@ class TestPipelineErrorHandling:
                 error_sources = {error["source_id"] for error in result["errors"]}
                 assert len(error_sources) == result["sources_failed"]
 
+    def test_display_name_type_guard_non_string_title(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test defensive type guard: display_name when domain_metadata['title'] is non-string."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First successful ingest
+        result = pipeline.ingest(adapter, domain_chunker)
+        assert result["sources_processed"] > 0
+
+        # Store original chunk method
+        original_chunk = domain_chunker.chunk
+
+        def mock_chunk_with_bad_title(content):
+            # Call original chunk first with the NormalizedContent object
+            chunks = original_chunk(content)
+            # Modify domain_metadata of first chunk to have non-string title
+            if chunks and chunks[0].domain_metadata:
+                chunks[0].domain_metadata["title"] = 12345  # Non-string!
+            return chunks
+
+        domain_chunker.chunk = mock_chunk_with_bad_title
+
+        try:
+            # Create a new file to trigger ingest
+            (temp_markdown_dir / "test_type_guard.md").write_text("# Test Type Guard\n\nContent")
+
+            # Re-ingest with mocked chunker that returns non-string title
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should process successfully with the type guard handling non-string title
+            assert result["sources_processed"] > 0
+            # Should have no errors - the type guard should prevent them
+            assert len(result["errors"]) == 0, "display_name type guard should handle non-string title gracefully"
+
+        finally:
+            # Restore original chunk method
+            domain_chunker.chunk = original_chunk
+
+    def test_lineage_type_guard_non_lineage_record(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test defensive type guard: lineage when get_lineage() returns non-LineageRecord type."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First successful ingest
+        result = pipeline.ingest(adapter, domain_chunker)
+        assert result["sources_processed"] > 0
+        assert result["chunks_added"] > 0
+
+        # Modify content to trigger update (which uses lineage lookup)
+        (temp_markdown_dir / "file1.md").write_text(
+            "# MODIFIED\n\n"
+            "New content for triggering unchanged chunk handling. "
+            "This text is long enough to ensure chunks are created. "
+            "Adding more content to create larger chunks. "
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+        )
+
+        # Mock document_store.get_lineage to return non-LineageRecord type (e.g., dict)
+        original_get_lineage = pipeline.document_store.get_lineage
+
+        def mock_get_lineage_returns_dict(chunk_hash, source_id=None):
+            # Return a dict instead of LineageRecord
+            return {"chunk_hash": chunk_hash, "embedding_model_id": "mock-model"}
+
+        pipeline.document_store.get_lineage = mock_get_lineage_returns_dict
+
+        try:
+            # Re-ingest should handle unexpected get_lineage() return type gracefully
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should process successfully with type guard fallback
+            assert result["sources_processed"] > 0
+            # Verify no errors occurred due to the type guard
+            assert len(result["errors"]) == 0, "lineage type guard should handle non-LineageRecord gracefully"
+
+        finally:
+            # Restore original method
+            pipeline.document_store.get_lineage = original_get_lineage
+
+    def test_vector_store_delete_failure_tracked_and_inconsistent(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Test that vector store delete failures are tracked and marked as inconsistent."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        # First ingest to populate store
+        result = pipeline.ingest(adapter, domain_chunker)
+        assert result["sources_processed"] > 0
+        assert result["chunks_added"] > 0
+
+        # Modify file to trigger re-ingest with removals
+        (temp_markdown_dir / "file1.md").write_text(
+            "# MODIFIED\n\n"
+            "Completely new and different content."
+        )
+
+        # Mock vector store delete_vectors to fail
+        with patch.object(
+            pipeline.vector_store, "delete_vectors",
+            side_effect=RuntimeError("Vector store delete failed"),
+        ):
+            result = pipeline.ingest(adapter, domain_chunker)
+
+            # Should have error tracked and marked as inconsistent
+            assert result["sources_failed"] > 0
+            assert len(result["errors"]) > 0
+
+            # Check error indicates inconsistency
+            error = result["errors"][0]
+            assert error["error_type"] == "StorageError"
+            assert error["store_type"] == "vector_store"
+            assert error["inconsistent"]
+
+            # Store consistency should show inconsistency
+            source_id = error["source_id"]
+            assert result["store_consistency"][source_id] == "inconsistent"
+
 
 class TestSourceLocksLRUCache:
     """Tests for the _source_locks LRU cache behavior."""

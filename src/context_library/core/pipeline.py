@@ -211,7 +211,8 @@ class IngestionPipeline:
                         # documents/notes). Always written so existing sources are backfilled.
                         display_name: str | None = None
                         if chunks and chunks[0].domain_metadata:
-                            display_name = chunks[0].domain_metadata.get("title")
+                            title_val = chunks[0].domain_metadata.get("title")
+                            display_name = title_val if isinstance(title_val, str) else None
 
                         # Compute current chunk hashes
                         curr_chunk_hashes = {chunk.chunk_hash for chunk in chunks}
@@ -316,9 +317,19 @@ class IngestionPipeline:
                             # Fetch original lineage to preserve the embedding model that created the vectors
                             # (not the current embedder's model, which may have changed since the chunk was created)
                             # Pass source_id to scope lookup correctly in case of cross-source dedup
-                            original_lineage = self.document_store.get_lineage(
+                            original_lineage_result = self.document_store.get_lineage(
                                 unchanged_chunk.chunk_hash, source_id=content.source_id
                             )
+                            original_lineage: LineageRecord | None = (
+                                original_lineage_result if isinstance(original_lineage_result, LineageRecord) else None
+                            )
+                            if original_lineage_result is not None and original_lineage is None:
+                                # Unexpected type returned from get_lineage()
+                                logger.warning(
+                                    f"Unexpected type from get_lineage() for chunk_hash={unchanged_chunk.chunk_hash} "
+                                    f"source_id={content.source_id}: got {type(original_lineage_result).__name__} "
+                                    f"instead of LineageRecord. Falling back to current embedder model {self.embedder.model_id}"
+                                )
                             original_embedding_model = (
                                 original_lineage.embedding_model_id
                                 if original_lineage
@@ -417,10 +428,13 @@ class IngestionPipeline:
                                 # Clear sync log entries now that vector store delete succeeded
                                 self.document_store.clear_sync_log(list(diff_result.removed_hashes))
                             except Exception as e:
-                                logger.warning(
-                                    f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"
+                                # Vector store delete failed, but SQLite already recorded the delete.
+                                # This creates inconsistency (SQLite says deleted, but vectors remain in store).
+                                raise StorageError(
+                                    f"Failed to delete chunks from vector store for source '{content.source_id}': {e}",
+                                    store_type="vector_store",
+                                    inconsistent=True
                                 )
-                                # Don't raise here, as the sync log already has the delete operation recorded
 
                         # Update statistics
                         chunks_added_total += len(added_chunks)

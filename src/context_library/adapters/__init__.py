@@ -47,6 +47,14 @@ if (
 
     __all__.append("CalDAVAdapter")
 
+# Check if apple_calendar adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_calendar import (  # noqa: F401
+        AppleCalendarAdapter as AppleCalendarAdapter,
+    )
+
+    __all__.append("AppleCalendarAdapter")
+
 # Check if apple_reminders adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_reminders import (  # noqa: F401
@@ -79,6 +87,14 @@ if importlib.util.find_spec("httpx") is not None:
 
     __all__.append("OuraAdapter")
 
+# Check if apple_music adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_music import (  # noqa: F401
+        AppleMusicAdapter as AppleMusicAdapter,
+    )
+
+    __all__.append("AppleMusicAdapter")
+
 # Check if apple_music_library adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
     from context_library.adapters.apple_music_library import (  # noqa: F401
@@ -94,6 +110,54 @@ if importlib.util.find_spec("httpx") is not None:
     )
 
     __all__.append("AppleContactsAdapter")
+
+# Check if apple_imessage adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_imessage import (  # noqa: F401
+        AppleiMessageAdapter as AppleiMessageAdapter,
+    )
+
+    __all__.append("AppleiMessageAdapter")
+
+# Check if apple_notes adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_notes import (  # noqa: F401
+        AppleNotesAdapter as AppleNotesAdapter,
+    )
+
+    __all__.append("AppleNotesAdapter")
+
+# Check if apple_podcasts adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_podcasts import (  # noqa: F401
+        ApplePodcastsAdapter as ApplePodcastsAdapter,
+    )
+
+    __all__.append("ApplePodcastsAdapter")
+
+# Check if apple_browser_history adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_browser_history import (  # noqa: F401
+        AppleBrowserHistoryAdapter as AppleBrowserHistoryAdapter,
+    )
+
+    __all__.append("AppleBrowserHistoryAdapter")
+
+# Check if apple_screentime adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_screentime import (  # noqa: F401
+        AppleScreenTimeAdapter as AppleScreenTimeAdapter,
+    )
+
+    __all__.append("AppleScreenTimeAdapter")
+
+# Check if apple_location adapter's dependencies are available
+if importlib.util.find_spec("httpx") is not None:
+    from context_library.adapters.apple_location import (  # noqa: F401
+        AppleLocationAdapter as AppleLocationAdapter,
+    )
+
+    __all__.append("AppleLocationAdapter")
 
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:

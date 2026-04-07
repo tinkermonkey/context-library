@@ -42,6 +42,7 @@ class Domain(str, Enum):
     HEALTH = "health"
     DOCUMENTS = "documents"
     PEOPLE = "people"
+    LOCATION = "location"
 
 
 class ChunkType(str, Enum):
@@ -107,6 +108,7 @@ class StructuralHints(BaseModel):
     - For Tasks domain: extra_metadata must be deserializable to TaskMetadata
     - For Health domain: extra_metadata must be deserializable to HealthMetadata
     - For Documents domain: extra_metadata must be deserializable to DocumentMetadata
+    - For Location domain: extra_metadata must be deserializable to LocationMetadata
     - For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks
 
     Note: This field uses dict[str, object] to allow flexible domain-specific contracts.
@@ -155,6 +157,7 @@ class MessageMetadata(BaseModel):
     in_reply_to: str | None
     subject: str | None
     is_thread_root: bool
+    is_from_me: bool = False
 
     @field_validator("thread_id")
     @classmethod
@@ -767,6 +770,131 @@ class PeopleMetadata(BaseModel):
         if not value:
             raise ValueError("source_type must be a non-empty string")
         return value
+
+
+class LocationMetadata(BaseModel):
+    """Location metadata extracted by location-based adapters.
+
+    Captures geospatial information including place visits and current location snapshots
+    for location-aware chunking and geographic filtering. Conforms to the architecture
+    specification for location domain metadata.
+
+    Invariants:
+    - location_id, source_type must be non-empty strings
+    - latitude must be in range [-90, 90]
+    - longitude must be in range [-180, 180]
+    - date_first_observed must be a valid ISO 8601 timestamp
+    - arrival_date, departure_date must be valid ISO 8601 timestamps if provided
+    - duration_minutes must be non-negative if provided
+    - arrival_date must be <= departure_date when both are present
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    location_id: str
+    latitude: float
+    longitude: float
+    source_type: str
+    date_first_observed: str
+    place_name: str | None = None
+    locality: str | None = None
+    country: str | None = None
+    accuracy: float | None = None
+    arrival_date: str | None = None
+    departure_date: str | None = None
+    duration_minutes: int | None = None
+
+    @field_validator("location_id")
+    @classmethod
+    def validate_location_id(cls, value: str) -> str:
+        """Validate that location_id is not empty."""
+        if not value:
+            raise ValueError("location_id must be a non-empty string")
+        return value
+
+    @field_validator("latitude")
+    @classmethod
+    def validate_latitude(cls, value: float) -> float:
+        """Validate that latitude is in range [-90, 90]."""
+        if not isinstance(value, (int, float)) or not -90 <= value <= 90:
+            raise ValueError(f"latitude must be in range [-90, 90], got: {value}")
+        return value
+
+    @field_validator("longitude")
+    @classmethod
+    def validate_longitude(cls, value: float) -> float:
+        """Validate that longitude is in range [-180, 180]."""
+        if not isinstance(value, (int, float)) or not -180 <= value <= 180:
+            raise ValueError(f"longitude must be in range [-180, 180], got: {value}")
+        return value
+
+    @field_validator("source_type")
+    @classmethod
+    def validate_source_type(cls, value: str) -> str:
+        """Validate that source_type is not empty."""
+        if not value:
+            raise ValueError("source_type must be a non-empty string")
+        return value
+
+    @field_validator("date_first_observed")
+    @classmethod
+    def validate_date_first_observed(cls, value: str) -> str:
+        """Validate that date_first_observed is a valid ISO 8601 timestamp."""
+        validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("arrival_date")
+    @classmethod
+    def validate_arrival_date(cls, value: str | None) -> str | None:
+        """Validate that arrival_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("departure_date")
+    @classmethod
+    def validate_departure_date(cls, value: str | None) -> str | None:
+        """Validate that departure_date is a valid ISO 8601 timestamp if provided."""
+        if value is not None:
+            validate_iso8601_timestamp(value)
+        return value
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def validate_duration_minutes(cls, value: int | None) -> int | None:
+        """Validate that duration_minutes is non-negative if provided."""
+        if value is not None and value < 0:
+            raise ValueError(f"duration_minutes must be non-negative, got: {value}")
+        return value
+
+    def model_post_init(self, __context) -> None:
+        """Validate LocationMetadata invariants after model construction.
+
+        Enforces:
+        - If both arrival_date and departure_date are present, arrival_date <= departure_date
+
+        Note: Uses datetime parsing for accurate ISO 8601 comparison to handle
+        different timezone representations (e.g., "Z" vs "+00:00").
+        """
+        from datetime import datetime
+
+        if self.arrival_date is not None and self.departure_date is not None:
+            # Parse ISO 8601 strings to datetime for correct comparison
+            # (lexicographic string comparison fails with mixed timezone formats)
+            try:
+                arrival_dt = datetime.fromisoformat(self.arrival_date.replace("Z", "+00:00"))
+                departure_dt = datetime.fromisoformat(self.departure_date.replace("Z", "+00:00"))
+            except (ValueError, AttributeError) as e:
+                # Should not happen as individual validators already checked ISO 8601 format
+                raise ValueError(
+                    f"Invalid ISO 8601 format in arrival_date or departure_date: {e}"
+                ) from e
+
+            if arrival_dt > departure_dt:
+                raise ValueError(
+                    f"arrival_date must be <= departure_date when both are present. "
+                    f"Got arrival_date={self.arrival_date!r}, departure_date={self.departure_date!r}"
+                )
 
 
 class NormalizedContent(BaseModel):

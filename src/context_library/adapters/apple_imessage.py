@@ -203,6 +203,7 @@ class AppleiMessageAdapter(BaseAdapter):
         sender = message["sender"]
         timestamp = message["timestamp"]
         thread_id = str(message["thread_id"])
+        is_from_me = message.get("is_from_me", False)
 
         if not isinstance(sender, str) or not sender:
             raise ValueError("Message 'sender' must be a non-empty string")
@@ -225,12 +226,12 @@ class AppleiMessageAdapter(BaseAdapter):
             # is safe: MessageMetadata requires is_thread_root and in_reply_to to be
             # mutually exclusive, and both False/None satisfies that invariant.
             is_thread_root=False,
+            is_from_me=bool(is_from_me),
         )
 
     def _build_message_markdown(self, message: dict, metadata: MessageMetadata) -> str:
         """Build markdown representation of a message."""
-        is_from_me = message.get("is_from_me", False)
-        direction = "Me" if is_from_me else metadata.sender
+        direction = "Me" if metadata.is_from_me else metadata.sender
 
         parts = [f"**{direction}** ({metadata.timestamp})"]
 

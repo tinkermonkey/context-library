@@ -8,6 +8,7 @@ Exports:
 from context_library.domains.documents import DocumentsDomain
 from context_library.domains.events import EventsDomain
 from context_library.domains.health import HealthDomain
+from context_library.domains.location import LocationDomain
 from context_library.domains.messages import MessagesDomain
 from context_library.domains.notes import NotesDomain
 from context_library.domains.people import PeopleDomain
@@ -22,6 +23,7 @@ __all__ = [
     "HealthDomain",
     "DocumentsDomain",
     "PeopleDomain",
+    "LocationDomain",
     "get_domain_chunker",
     "list_registered_domains",
 ]
