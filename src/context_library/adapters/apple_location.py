@@ -65,6 +65,7 @@ from context_library.adapters.base import (
     AllEndpointsFailedError,
     PartialFetchError,
 )
+from context_library.domains.location import CURRENT_LOCATION_SOURCE_TYPE
 from context_library.storage.models import (
     Domain,
     LocationMetadata,
@@ -444,7 +445,7 @@ class AppleLocationAdapter(BaseAdapter):
             "location_id": "apple-location-current",
             "latitude": latitude,
             "longitude": longitude,
-            "source_type": "apple_location_current",
+            "source_type": CURRENT_LOCATION_SOURCE_TYPE,
             "date_first_observed": timestamp,
             "place_name": place_name,
             "locality": locality,

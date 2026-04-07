@@ -11,6 +11,9 @@ from context_library.storage.models import (
     compute_chunk_hash,
 )
 
+# Source type identifier for current location snapshots (from AppleLocationAdapter)
+CURRENT_LOCATION_SOURCE_TYPE = "apple_location_current"
+
 
 class LocationDomain(BaseDomain):
     """Domain-specific chunker for location content.
@@ -72,7 +75,7 @@ class LocationDomain(BaseDomain):
 
         # Build context_header
         # For current location snapshots, use "Current location — {timestamp}" format
-        if meta.source_type == "apple_location_current":
+        if meta.source_type == CURRENT_LOCATION_SOURCE_TYPE:
             context_header = f"Current location — {meta.date_first_observed}"
         elif meta.place_name and meta.arrival_date:
             context_header = f"{meta.place_name} — {meta.arrival_date}"
