@@ -432,6 +432,7 @@ class AppleLocationAdapter(BaseAdapter):
         place_name = item.get("placeName")
         locality = item.get("locality")
         country = item.get("country")
+        accuracy = item.get("accuracy")
 
         # Use updatedAt timestamp from API if available, otherwise use current time
         timestamp = item.get("updatedAt")
@@ -448,6 +449,7 @@ class AppleLocationAdapter(BaseAdapter):
             "place_name": place_name,
             "locality": locality,
             "country": country,
+            "accuracy": accuracy,
             "arrival_date": None,
             "departure_date": None,
             "duration_minutes": None,
@@ -475,6 +477,8 @@ class AppleLocationAdapter(BaseAdapter):
             location_lines.append(f"- Location: {', '.join(location_parts)}")
 
         location_lines.append(f"- Coordinates: {latitude}, {longitude}")
+        if accuracy is not None:
+            location_lines.append(f"- Accuracy: {accuracy} meters")
         location_lines.append(f"- Timestamp: {timestamp}")
 
         yield NormalizedContent(

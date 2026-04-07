@@ -193,6 +193,54 @@ class TestAppleLocationAdapterCurrent:
         assert metadata["arrival_date"] is None
         assert metadata["departure_date"] is None
         assert metadata["duration_minutes"] is None
+        # Verify timestamp is set (falls back to datetime.now() when updatedAt is absent)
+        assert "date_first_observed" in metadata
+        assert metadata["date_first_observed"] is not None
+        # Verify timestamp appears in markdown
+        assert "Timestamp:" in content.markdown
+
+    def test_current_with_updated_at_timestamp(self, mock_httpx_client_location):
+        """Current location with updatedAt uses that timestamp instead of datetime.now()."""
+        api_timestamp = "2025-02-15T14:30:45Z"
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/current",
+            {
+                "latitude": 37.7749,
+                "longitude": -122.4194,
+                "placeName": "San Francisco",
+                "locality": "San Francisco County",
+                "country": "United States",
+                "accuracy": 25.5,
+                "updatedAt": api_timestamp,
+            }
+        )
+        mock_httpx_client_location.set_response(
+            "http://localhost:7123/location/visits",
+            []
+        )
+
+        adapter = AppleLocationAdapter(
+            api_url="http://localhost:7123",
+            api_key="test-key",
+        )
+
+        contents = list(adapter.fetch(source_ref=""))
+
+        # Find current location content
+        current_contents = [c for c in contents if c.source_id == "apple-location-current"]
+        assert len(current_contents) == 1
+
+        content = current_contents[0]
+        assert content.source_id == "apple-location-current"
+
+        # Check metadata uses the API's updatedAt timestamp
+        metadata = content.structural_hints.extra_metadata
+        assert metadata["date_first_observed"] == api_timestamp
+        assert metadata["accuracy"] == 25.5
+
+        # Verify timestamp appears correctly in markdown
+        assert f"Timestamp: {api_timestamp}" in content.markdown
+        assert "Accuracy: 25.5 meters" in content.markdown
 
     def test_empty_current_location_skipped(self, mock_httpx_client_location):
         """Empty current location response yields no content."""

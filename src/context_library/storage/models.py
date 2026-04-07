@@ -798,6 +798,7 @@ class LocationMetadata(BaseModel):
     place_name: str | None = None
     locality: str | None = None
     country: str | None = None
+    accuracy: float | None = None
     arrival_date: str | None = None
     departure_date: str | None = None
     duration_minutes: int | None = None
