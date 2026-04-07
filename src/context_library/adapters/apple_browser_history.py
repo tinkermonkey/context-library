@@ -1,13 +1,13 @@
 """AppleBrowserHistoryAdapter for ingesting browser history from a macOS helper service.
 
 This adapter consumes an HTTP REST API served by a macOS helper process that reads
-from browser history (Safari, Firefox, Chrome) and exposes visits data. The helper
-process binds to 0.0.0.0 and requires a Bearer API token for authentication.
+from browser history (Safari, Firefox, Chrome) and exposes visits and open tabs data.
+The helper process binds to 0.0.0.0 and requires a Bearer API token for authentication.
 
 Expected Local Service API Contract:
 ====================================
 
-The macOS helper service should expose the following HTTP endpoint:
+The macOS helper service should expose the following HTTP endpoints:
 
   GET /browser/history
     Query parameters:
@@ -29,18 +29,33 @@ The macOS helper service should expose the following HTTP endpoint:
       }
     ]
 
+  GET /browser/tabs
+    Response: JSON array of open tab objects
+    Status: 200 OK
+    Content-Type: application/json
+
+    Example response body:
+    [
+      {
+        "url": "<string>",
+        "title": "<string>",
+        "browser": "<string>"  # "safari", "firefox", or "chrome"
+      }
+    ]
+
 Security:
   The helper binds to 0.0.0.0 for network access from remote servers.
   A Bearer API token is REQUIRED: Authorization: Bearer <api_key>
 
 This adapter:
-- Fetches browser visits from the local macOS helper API
-- Maps browser visit fields to EventMetadata (using Domain.EVENTS)
-- Yields NormalizedContent with EventMetadata in extra_metadata
-- Supports both initial ingestion and incremental updates via 'since' parameter
-- Yields all visits (unlike calendar which filters on notes)
+- Fetches browser visits and open tabs from the local macOS helper API
+- Maps browser data to DocumentMetadata (using Domain.DOCUMENTS)
+- Yields NormalizedContent with DocumentMetadata in extra_metadata
+- Supports both initial ingestion and incremental updates via 'since' parameter for history
+- Yields all visits and currently open tabs
 """
 
+import hashlib
 import logging
 from typing import Iterator
 
@@ -48,7 +63,7 @@ from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
     Domain,
     PollStrategy,
-    EventMetadata,
+    DocumentMetadata,
     NormalizedContent,
     StructuralHints,
 )
@@ -67,18 +82,19 @@ except ImportError:
 
 
 class AppleBrowserHistoryAdapter(BaseAdapter):
-    """Adapter that ingests browser visit events from a macOS Apple helper service.
+    """Adapter that ingests browser visits and open tabs from a macOS Apple helper service.
 
     This adapter communicates with an HTTP service on the Mac that reads from
-    browser history (Safari, Firefox, Chrome) and exposes visits data via REST API.
+    browser history (Safari, Firefox, Chrome) and exposes visits and open tabs data via REST API.
     The helper binds to 0.0.0.0 and requires a Bearer API token for authentication.
 
-    Browser history uses Domain.EVENTS, treating each visit as a timestamped event.
-    The visit id serves as the primary event identifier, and visitedAt is the event timestamp.
+    Browser history uses Domain.DOCUMENTS, treating each page as a document identified by its URL.
+    The URL serves as the primary document identifier, and visitedAt (for history) or current time (for tabs)
+    is the observation timestamp.
 
     Usage: Start the macOS helper service, then instantiate this adapter with
-    the helper's base URL and API key. The adapter will fetch browser visits and
-    normalize them to EventMetadata for indexing.
+    the helper's base URL and API key. The adapter will fetch browser visits and open tabs,
+    normalizing them to DocumentMetadata for indexing.
     """
 
     def __init__(
@@ -123,7 +139,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
     @property
     def domain(self) -> Domain:
         """Return the domain this adapter serves."""
-        return Domain.EVENTS
+        return Domain.DOCUMENTS
 
     @property
     def poll_strategy(self) -> PollStrategy:
@@ -150,69 +166,91 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
             self._client.close()
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
-        """Fetch and normalize browser visits from the macOS helper API.
+        """Fetch and normalize browser visits and open tabs from the macOS helper API.
 
         The source_ref can optionally contain a last_fetched_at timestamp in ISO 8601
-        format. If provided, only visits after that timestamp are fetched.
-        Errors in visit processing (schema mismatches, missing fields) are caught
-        and logged; the adapter continues processing remaining visits. If all visits
+        format. If provided, only visits after that timestamp are fetched from /browser/history.
+        Errors in item processing (schema mismatches, missing fields) are caught
+        and logged; the adapter continues processing remaining items. If all items
         are malformed, raises EndpointFetchError to signal complete failure.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
 
         Yields:
-            NormalizedContent for each browser visit as an event with visit id as event_id
+            NormalizedContent for each browser visit and open tab as a document with URL as document_id
 
         Raises:
             httpx.HTTPError: If the API request fails
             ValueError: If the helper API returns unexpected response schema
-            EndpointFetchError: If all visits are malformed and none can be processed
+            EndpointFetchError: If all items are malformed and none can be processed
         """
         # Determine incremental fetch by presence of timestamp
         since = source_ref if source_ref else None
 
-        # Fetch visits from the local API (errors propagate)
+        # Fetch visits and tabs from the local API (errors propagate)
         visits = self._fetch_visits(since)
+        tabs = self._fetch_tabs()
 
-        # Convert each visit to NormalizedContent
-        # Per-item errors are caught to allow processing remaining visits
+        # Combine all items (visits and tabs)
+        all_items = []
+        for visit in visits:
+            all_items.append(("history", visit))
+        for tab in tabs:
+            all_items.append(("tab", tab))
+
+        # Convert each item to NormalizedContent
+        # Per-item errors are caught to allow processing remaining items
         successful_count = 0
-        for idx, visit in enumerate(visits):
+        for idx, (item_type, item_data) in enumerate(all_items):
             try:
-                # Extract visit metadata
-                metadata = self._extract_visit_metadata(visit)
+                # Extract metadata based on item type
+                metadata = self._extract_document_metadata(item_data, item_type)
 
-                # Build markdown representation of visit
-                markdown = self._build_visit_markdown(visit)
+                # Build markdown representation
+                markdown = self._build_document_markdown(item_data, item_type)
 
                 # Build structural hints with metadata and extra fields
+                extra_meta = self._get_extra_metadata(item_data, item_type)
                 hints = StructuralHints(
                     has_headings=False,
                     has_lists=False,
                     has_tables=False,
                     natural_boundaries=(),
-                    extra_metadata=metadata.model_dump() | self._get_extra_metadata(visit),
+                    extra_metadata=metadata.model_dump() | extra_meta,
                 )
+
+                # Build source_id: use URL as primary identifier (for documents)
+                url = item_data.get("url", "")
+                if item_type == "history":
+                    visit_id = item_data.get("id", "")
+                    source_id = f"browser_history/{visit_id}"
+                else:  # tab
+                    # For tabs, use a hash of URL since tabs don't have stable IDs
+                    url_hash = hashlib.sha256(url.encode()).hexdigest()[:8]
+                    source_id = f"browser_tab/{url_hash}"
 
                 # Yield normalized content
                 yield NormalizedContent(
                     markdown=markdown,
-                    source_id=f"browser_history/{visit['id']}",
+                    source_id=source_id,
                     structural_hints=hints,
                     normalizer_version=self.normalizer_version,
                 )
                 successful_count += 1
 
             except (ValueError, KeyError, TypeError) as e:
-                visit_id = visit.get("id", f"<index {idx}>") if isinstance(visit, dict) else f"<index {idx}>"
-                logger.error(f"Skipping malformed visit (ID: {visit_id}): {e}")
+                if isinstance(item_data, dict):
+                    item_id = item_data.get("id") or item_data.get("url", f"<index {idx}>")
+                else:
+                    item_id = f"<index {idx}>"
+                logger.error(f"Skipping malformed {item_type} (ID: {item_id}): {e}")
                 continue
 
-        # If all visits were malformed, signal complete failure
-        if visits and successful_count == 0:
+        # If all items were malformed, signal complete failure
+        if all_items and successful_count == 0:
             raise EndpointFetchError(
-                f"All {len(visits)} visits from /browser/history were malformed and could not be processed. "
+                f"All {len(all_items)} items from /browser/history and /browser/tabs were malformed and could not be processed. "
                 "This may indicate a helper API schema change or malformed response."
             )
 
@@ -256,91 +294,130 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         return visits
 
-    def _extract_visit_metadata(self, visit: dict) -> EventMetadata:
-        """Extract EventMetadata from visit response.
-
-        Args:
-            visit: Visit dictionary from macOS helper API
+    def _fetch_tabs(self) -> list[dict]:
+        """Fetch open tabs list from the local macOS helper API.
 
         Returns:
-            EventMetadata object with extracted fields
+            List of tab dictionaries
+
+        Raises:
+            httpx.HTTPError: If the API request fails
+            ValueError: If the API returns unexpected response schema
+        """
+        # Build headers
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        # Make the API request
+        response = self._client.get(
+            f"{self._api_url}/browser/tabs",
+            headers=headers,
+        )
+        response.raise_for_status()
+
+        # Parse response
+        tabs = response.json()
+
+        # Validate that response is a list
+        if not isinstance(tabs, list):
+            raise ValueError(
+                f"macOS helper API 'browser/tabs' response must be a list, got {type(tabs).__name__}"
+            )
+
+        return tabs
+
+    def _extract_document_metadata(self, item: dict, item_type: str) -> DocumentMetadata:
+        """Extract DocumentMetadata from item response.
+
+        Args:
+            item: Item dictionary from macOS helper API (visit or tab)
+            item_type: Type of item ("history" or "tab")
+
+        Returns:
+            DocumentMetadata object with extracted fields
 
         Raises:
             KeyError: If required fields are missing
             ValueError: If fields fail validation (via Pydantic)
         """
-        if "id" not in visit:
-            raise KeyError("Visit missing required 'id' field")
-        event_id = visit["id"]
-
-        if "url" not in visit:
-            raise KeyError("Visit missing required 'url' field")
-        url = visit["url"]
+        if "url" not in item:
+            raise KeyError(f"{item_type} missing required 'url' field")
+        url = item["url"]
 
         if not url:
-            raise ValueError("Visit 'url' field must be a non-empty string")
-
-        if "visitedAt" not in visit:
-            raise KeyError("Visit missing required 'visitedAt' field")
-        visited_at = visit["visitedAt"]
+            raise ValueError(f"{item_type} 'url' field must be a non-empty string")
 
         # Extract title with fallback to URL if empty or null
-        title = visit.get("title")
+        title = item.get("title")
         if not title:
             title = url
 
-        # Build EventMetadata (Pydantic validates field types)
-        # event_id is the visit's id field
-        # start_date is the visit timestamp (single moment in time)
-        # date_first_observed is also the visit timestamp
-        return EventMetadata(
-            event_id=event_id,
+        # Build DocumentMetadata (Pydantic validates field types)
+        # document_id is the URL (primary identifier of the page/resource)
+        # source_type is "browser_history" or "browser_tabs"
+        source_type = "browser_history" if item_type == "history" else "browser_tabs"
+
+        return DocumentMetadata(
+            document_id=url,
             title=title,
-            start_date=visited_at,
-            date_first_observed=visited_at,
-            source_type="browser_history",
+            document_type="text/html",
+            source_type=source_type,
         )
 
-    def _get_extra_metadata(self, visit: dict) -> dict:
+    def _get_extra_metadata(self, item: dict, item_type: str) -> dict:
         """Extract extra metadata fields to pass through to extra_metadata.
 
         Args:
-            visit: Visit dictionary from macOS helper API
+            item: Item dictionary from macOS helper API (visit or tab)
+            item_type: Type of item ("history" or "tab")
 
         Returns:
-            Dictionary with extra metadata fields (url, browser, visitCount)
+            Dictionary with extra metadata fields specific to item type
 
         Raises:
-            KeyError: If required fields (url, browser, visitCount) are missing.
+            KeyError: If required fields are missing.
         """
-        # Validate required fields for extra_metadata
-        if "url" not in visit:
-            raise KeyError("Visit missing required 'url' field")
-        if "browser" not in visit:
-            raise KeyError("Visit missing required 'browser' field")
-        if "visitCount" not in visit:
-            raise KeyError("Visit missing required 'visitCount' field")
+        # Extract browser field (required for both history and tabs)
+        if "browser" not in item:
+            raise KeyError(f"{item_type} missing required 'browser' field")
 
-        # Extract fields (url is preserved for direct access in extra_metadata)
-        return {
-            "url": visit["url"],
-            "browser": visit["browser"],
-            "visitCount": visit["visitCount"],
+        extra = {
+            "browser": item["browser"],
         }
 
-    def _build_visit_markdown(self, visit: dict) -> str:
-        """Build markdown representation of a visit.
+        # Extract visit-specific fields for history items
+        if item_type == "history":
+            if "id" not in item:
+                raise KeyError("history item missing required 'id' field")
+            if "visitCount" not in item:
+                raise KeyError("history item missing required 'visitCount' field")
+            if "visitedAt" not in item:
+                raise KeyError("history item missing required 'visitedAt' field")
 
-        The visit metadata (title, date, browser, url) is available in the merged
-        extra_metadata dict (combined from EventMetadata and _get_extra_metadata)
-        and will be used by EventsDomain to build context headers. This method
+            extra.update({
+                "visit_id": item["id"],
+                "visitCount": item["visitCount"],
+                "visitedAt": item["visitedAt"],
+            })
+
+        return extra
+
+    def _build_document_markdown(self, item: dict, item_type: str) -> str:
+        """Build markdown representation of a document (visit or tab).
+
+        The document metadata (title, date, browser, url) is available in the merged
+        extra_metadata dict (combined from DocumentMetadata and _get_extra_metadata)
+        and will be used by DocumentsDomain to build context headers. This method
         returns just the minimal body.
 
         Args:
-            visit: Raw visit dictionary from API
+            item: Raw item dictionary from API (visit or tab)
+            item_type: Type of item ("history" or "tab")
 
         Returns:
             Markdown string representation
         """
-        url = visit.get("url", "")
-        return f"Visited: {url}"
+        url = item.get("url", "")
+        if item_type == "history":
+            return f"Visited: {url}"
+        else:  # tab
+            return f"Currently open: {url}"
