@@ -10,8 +10,8 @@ from context_library.storage.models import Chunk, NormalizedContent
 class BaseDomain(ABC):
     """Abstract base class defining the domain chunking contract.
 
-    All domain implementations (NOTES, MESSAGES, EVENTS, TASKS, HEALTH, DOCUMENTS) must inherit from this class
-    and implement the chunk() method with domain-specific chunking strategies.
+    All domain implementations (MESSAGES, NOTES, EVENTS, TASKS, HEALTH, DOCUMENTS, PEOPLE, LOCATION)
+    must inherit from this class and implement the chunk() method with domain-specific chunking strategies.
 
     Provides shared utility methods for token counting and text splitting that respect
     hard_limit token boundaries. Subclasses must call super().__init__(hard_limit) to
