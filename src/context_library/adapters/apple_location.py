@@ -26,12 +26,12 @@ GET /location/visits?since=
         "id": "<unique-identifier>",
         "latitude": <float>,
         "longitude": <float>,
-        "place_name": "<optional place name>",
+        "placeName": "<optional place name>",
         "locality": "<optional city>",
         "country": "<optional country>",
-        "arrival_date": "<ISO 8601 date>",
-        "departure_date": "<ISO 8601 date>",
-        "duration_minutes": <int>
+        "arrivalDate": "<ISO 8601 timestamp>",
+        "departureDate": "<ISO 8601 timestamp>",
+        "durationMinutes": <int>
       }
     ]
 
@@ -40,9 +40,11 @@ GET /location/current
     {
       "latitude": <float>,
       "longitude": <float>,
-      "place_name": "<optional place name>",
+      "placeName": "<optional place name>",
       "locality": "<optional city>",
-      "country": "<optional country>"
+      "country": "<optional country>",
+      "accuracy": <float>,
+      "updatedAt": "<ISO 8601 timestamp>"
     }
     or {} if no current location available
 
@@ -340,10 +342,10 @@ class AppleLocationAdapter(BaseAdapter):
         if longitude is None:
             raise ValueError("Visit item 'longitude' is required")
 
-        arrival_date = item.get("arrival_date")
-        departure_date = item.get("departure_date")
-        duration_minutes = item.get("duration_minutes")
-        place_name = item.get("place_name")
+        arrival_date = item.get("arrivalDate")
+        departure_date = item.get("departureDate")
+        duration_minutes = item.get("durationMinutes")
+        place_name = item.get("placeName")
         locality = item.get("locality")
         country = item.get("country")
 
@@ -427,18 +429,22 @@ class AppleLocationAdapter(BaseAdapter):
         if longitude is None:
             raise ValueError("Current location 'longitude' is required")
 
-        place_name = item.get("place_name")
+        place_name = item.get("placeName")
         locality = item.get("locality")
         country = item.get("country")
 
+        # Use updatedAt timestamp from API if available, otherwise use current time
+        timestamp = item.get("updatedAt")
+        if not timestamp:
+            timestamp = datetime.now(timezone.utc).isoformat()
+
         # Build location metadata
-        now = datetime.now(timezone.utc).isoformat()
         location_metadata: dict[str, Any] = {
             "location_id": "apple-location-current",
             "latitude": latitude,
             "longitude": longitude,
             "source_type": "apple_location_current",
-            "date_first_observed": now,
+            "date_first_observed": timestamp,
             "place_name": place_name,
             "locality": locality,
             "country": country,
@@ -469,7 +475,7 @@ class AppleLocationAdapter(BaseAdapter):
             location_lines.append(f"- Location: {', '.join(location_parts)}")
 
         location_lines.append(f"- Coordinates: {latitude}, {longitude}")
-        location_lines.append(f"- Timestamp: {now}")
+        location_lines.append(f"- Timestamp: {timestamp}")
 
         yield NormalizedContent(
             markdown="\n".join(location_lines),

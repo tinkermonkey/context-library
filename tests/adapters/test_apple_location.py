@@ -79,12 +79,12 @@ class TestAppleLocationAdapterVisits:
                         "id": "visit-001",
                         "latitude": 37.7749,
                         "longitude": -122.4194,
-                        "place_name": "San Francisco",
+                        "placeName": "San Francisco",
                         "locality": "San Francisco County",
                         "country": "United States",
-                        "arrival_date": "2025-02-10T08:00:00Z",
-                        "departure_date": "2025-02-10T18:00:00Z",
-                        "duration_minutes": 600,
+                        "arrivalDate": "2025-02-10T08:00:00Z",
+                        "departureDate": "2025-02-10T18:00:00Z",
+                        "durationMinutes": 600,
                     }
                 ]
             else:  # /location/current
@@ -125,9 +125,9 @@ class TestAppleLocationAdapterVisits:
                     "id": "visit-002",
                     "latitude": 40.7128,
                     "longitude": -74.0060,
-                    "arrival_date": "2025-02-10T09:00:00Z",
-                    "departure_date": "2025-02-10T17:00:00Z",
-                    "duration_minutes": 480,
+                    "arrivalDate": "2025-02-10T09:00:00Z",
+                    "departureDate": "2025-02-10T17:00:00Z",
+                    "durationMinutes": 480,
                 }
             ]
         )
@@ -160,7 +160,7 @@ class TestAppleLocationAdapterCurrent:
             {
                 "latitude": 37.7749,
                 "longitude": -122.4194,
-                "place_name": "San Francisco",
+                "placeName": "San Francisco",
                 "locality": "San Francisco County",
                 "country": "United States",
             }
@@ -240,7 +240,7 @@ class TestAppleLocationAdapterPartialFailure:
             {
                 "latitude": 37.7749,
                 "longitude": -122.4194,
-                "place_name": "San Francisco",
+                "placeName": "San Francisco",
             }
         )
 
@@ -273,7 +273,7 @@ class TestAppleLocationAdapterPartialFailure:
                     "id": "visit-001",
                     "latitude": 37.7749,
                     "longitude": -122.4194,
-                    "place_name": "San Francisco",
+                    "placeName": "San Francisco",
                 }
             ]
         )
