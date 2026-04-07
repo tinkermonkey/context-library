@@ -44,7 +44,8 @@ class AppleMusicBaseMixin:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        self._client.close()
+        if hasattr(self, "_client"):
+            self._client.close()
         return False
 
     def __del__(self) -> None:
