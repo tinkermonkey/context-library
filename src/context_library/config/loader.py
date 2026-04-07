@@ -265,10 +265,15 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
     - "apple_calendar" -> AppleCalendarAdapter
     - "apple_music" -> AppleMusicAdapter
     - "apple_music_library" -> AppleMusicLibraryAdapter
+    - "apple_contacts" -> AppleContactsAdapter
+    - "apple_imessage" -> AppleiMessageAdapter
+    - "apple_notes" -> AppleNotesAdapter
     - "apple_podcasts" -> ApplePodcastsAdapter
     - "apple_browser_history" -> AppleBrowserHistoryAdapter
     - "apple_screentime" -> AppleScreenTimeAdapter
     - "apple_location" -> AppleLocationAdapter
+    - "oura" -> OuraAdapter
+    - "vcard" -> VCardAdapter
 
     Args:
         config: LocalAdapterConfig with adapter type and parameters
@@ -318,6 +323,18 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
             "context_library.adapters.apple_music_library",
             "AppleMusicLibraryAdapter",
         ),
+        "apple_contacts": (
+            "context_library.adapters.apple_contacts",
+            "AppleContactsAdapter",
+        ),
+        "apple_imessage": (
+            "context_library.adapters.apple_imessage",
+            "AppleiMessageAdapter",
+        ),
+        "apple_notes": (
+            "context_library.adapters.apple_notes",
+            "AppleNotesAdapter",
+        ),
         "apple_podcasts": (
             "context_library.adapters.apple_podcasts",
             "ApplePodcastsAdapter",
@@ -334,6 +351,8 @@ def _instantiate_local_adapter(config: LocalAdapterConfig) -> BaseAdapter:
             "context_library.adapters.apple_location",
             "AppleLocationAdapter",
         ),
+        "oura": ("context_library.adapters.oura", "OuraAdapter"),
+        "vcard": ("context_library.adapters.vcard", "VCardAdapter"),
     }
 
     if config.adapter_type not in adapter_registry:
