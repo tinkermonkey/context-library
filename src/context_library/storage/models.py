@@ -784,8 +784,9 @@ class LocationMetadata(BaseModel):
     - latitude must be in range [-90, 90]
     - longitude must be in range [-180, 180]
     - date_first_observed must be a valid ISO 8601 timestamp
-    - arrival_date, departure_date must be valid ISO 8601 dates if provided
+    - arrival_date, departure_date must be valid ISO 8601 timestamps if provided
     - duration_minutes must be non-negative if provided
+    - arrival_date must be <= departure_date when both are present
     """
 
     model_config = ConfigDict(frozen=True)

@@ -20,6 +20,7 @@ from context_library.storage.models import (
     DocumentMetadata,
     EventMetadata,
     LineageRecord,
+    LocationMetadata,
     MessageMetadata,
     NormalizedContent,
     PeopleMetadata,
@@ -2487,3 +2488,417 @@ class TestPeopleMetadata:
                 source_type=source_type,
             )
             assert metadata.source_type == source_type
+
+
+class TestLocationMetadata:
+    """Tests for LocationMetadata model."""
+
+    def test_create_location_metadata_all_fields(self) -> None:
+        """Test creating LocationMetadata with all fields populated."""
+        metadata = LocationMetadata(
+            location_id="loc-123",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="google_maps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            place_name="San Francisco",
+            locality="San Francisco",
+            country="USA",
+            accuracy=10.5,
+            arrival_date="2024-03-15T09:00:00Z",
+            departure_date="2024-03-15T17:00:00Z",
+            duration_minutes=480,
+        )
+        assert metadata.location_id == "loc-123"
+        assert metadata.latitude == 37.7749
+        assert metadata.longitude == -122.4194
+        assert metadata.source_type == "google_maps"
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.place_name == "San Francisco"
+        assert metadata.locality == "San Francisco"
+        assert metadata.country == "USA"
+        assert metadata.accuracy == 10.5
+        assert metadata.arrival_date == "2024-03-15T09:00:00Z"
+        assert metadata.departure_date == "2024-03-15T17:00:00Z"
+        assert metadata.duration_minutes == 480
+
+    def test_create_location_metadata_minimal_required(self) -> None:
+        """Test creating LocationMetadata with only required fields."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=0.0,
+            longitude=0.0,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.location_id == "loc-1"
+        assert metadata.latitude == 0.0
+        assert metadata.longitude == 0.0
+        assert metadata.source_type == "gps"
+        assert metadata.date_first_observed == "2024-03-01T10:00:00Z"
+        assert metadata.place_name is None
+        assert metadata.locality is None
+        assert metadata.country is None
+        assert metadata.accuracy is None
+        assert metadata.arrival_date is None
+        assert metadata.departure_date is None
+        assert metadata.duration_minutes is None
+
+    def test_location_metadata_empty_location_id_rejected(self) -> None:
+        """Test that empty location_id is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "location_id must be a non-empty string" in str(exc_info.value)
+
+    def test_location_metadata_empty_source_type_rejected(self) -> None:
+        """Test that empty source_type is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "source_type must be a non-empty string" in str(exc_info.value)
+
+    def test_location_metadata_latitude_at_north_pole_valid(self) -> None:
+        """Test that latitude=90 (north pole) is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=90,
+            longitude=0,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.latitude == 90
+
+    def test_location_metadata_latitude_at_south_pole_valid(self) -> None:
+        """Test that latitude=-90 (south pole) is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=-90,
+            longitude=0,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.latitude == -90
+
+    def test_location_metadata_latitude_above_north_pole_rejected(self) -> None:
+        """Test that latitude > 90 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=90.1,
+                longitude=0,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "latitude must be in range [-90, 90]" in str(exc_info.value)
+
+    def test_location_metadata_latitude_below_south_pole_rejected(self) -> None:
+        """Test that latitude < -90 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=-90.1,
+                longitude=0,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "latitude must be in range [-90, 90]" in str(exc_info.value)
+
+    def test_location_metadata_longitude_at_prime_meridian_valid(self) -> None:
+        """Test that longitude=0 (prime meridian) is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=0,
+            longitude=0,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.longitude == 0
+
+    def test_location_metadata_longitude_at_east_valid(self) -> None:
+        """Test that longitude=180 (east) is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=0,
+            longitude=180,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.longitude == 180
+
+    def test_location_metadata_longitude_at_west_valid(self) -> None:
+        """Test that longitude=-180 (west) is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=0,
+            longitude=-180,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.longitude == -180
+
+    def test_location_metadata_longitude_beyond_east_rejected(self) -> None:
+        """Test that longitude > 180 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=0,
+                longitude=180.1,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "longitude must be in range [-180, 180]" in str(exc_info.value)
+
+    def test_location_metadata_longitude_beyond_west_rejected(self) -> None:
+        """Test that longitude < -180 is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=0,
+                longitude=-180.1,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+            )
+        assert "longitude must be in range [-180, 180]" in str(exc_info.value)
+
+    def test_location_metadata_invalid_date_first_observed(self) -> None:
+        """Test that invalid date_first_observed ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="not-a-date",
+            )
+
+    def test_location_metadata_invalid_arrival_date(self) -> None:
+        """Test that invalid arrival_date ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+                arrival_date="invalid-date",
+            )
+
+    def test_location_metadata_invalid_departure_date(self) -> None:
+        """Test that invalid departure_date ISO 8601 is rejected."""
+        with pytest.raises(ValidationError):
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+                departure_date="not-a-date",
+            )
+
+    def test_location_metadata_duration_minutes_non_negative_valid(self) -> None:
+        """Test that non-negative duration_minutes values are accepted."""
+        for duration in [0, 1, 60, 480, 1440, 999999]:
+            metadata = LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+                duration_minutes=duration,
+            )
+            assert metadata.duration_minutes == duration
+
+    def test_location_metadata_duration_minutes_negative_rejected(self) -> None:
+        """Test that negative duration_minutes is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+                duration_minutes=-1,
+            )
+        assert "duration_minutes must be non-negative" in str(exc_info.value)
+
+    def test_location_metadata_arrival_before_departure_valid(self) -> None:
+        """Test that arrival_date < departure_date is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T09:00:00Z",
+            departure_date="2024-03-15T17:00:00Z",
+        )
+        assert metadata.arrival_date == "2024-03-15T09:00:00Z"
+        assert metadata.departure_date == "2024-03-15T17:00:00Z"
+
+    def test_location_metadata_arrival_equals_departure_valid(self) -> None:
+        """Test that arrival_date == departure_date is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T10:00:00Z",
+            departure_date="2024-03-15T10:00:00Z",
+        )
+        assert metadata.arrival_date == metadata.departure_date
+
+    def test_location_metadata_arrival_after_departure_rejected(self) -> None:
+        """Test that arrival_date > departure_date is rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            LocationMetadata(
+                location_id="loc-1",
+                latitude=37.7749,
+                longitude=-122.4194,
+                source_type="gps",
+                date_first_observed="2024-03-01T10:00:00Z",
+                arrival_date="2024-03-15T17:00:00Z",
+                departure_date="2024-03-15T09:00:00Z",
+            )
+        assert "arrival_date must be <= departure_date" in str(exc_info.value)
+
+    def test_location_metadata_only_arrival_date_valid(self) -> None:
+        """Test that only arrival_date without departure_date is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T09:00:00Z",
+            departure_date=None,
+        )
+        assert metadata.arrival_date == "2024-03-15T09:00:00Z"
+        assert metadata.departure_date is None
+
+    def test_location_metadata_only_departure_date_valid(self) -> None:
+        """Test that only departure_date without arrival_date is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date=None,
+            departure_date="2024-03-15T17:00:00Z",
+        )
+        assert metadata.arrival_date is None
+        assert metadata.departure_date == "2024-03-15T17:00:00Z"
+
+    def test_location_metadata_arrival_departure_with_z_timezone_valid(self) -> None:
+        """Test that ISO 8601 timestamps with 'Z' timezone are correctly compared."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T09:00:00Z",
+            departure_date="2024-03-15T17:00:00Z",
+        )
+        assert metadata.arrival_date < metadata.departure_date
+
+    def test_location_metadata_arrival_departure_mixed_timezones_valid(self) -> None:
+        """Test that mixed timezone formats (Z vs +00:00) are correctly compared."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T09:00:00Z",  # Z format
+            departure_date="2024-03-15T17:00:00+00:00",  # +00:00 format
+        )
+        # Should not raise; mixed timezone formats are handled
+        assert metadata.arrival_date == "2024-03-15T09:00:00Z"
+        assert metadata.departure_date == "2024-03-15T17:00:00+00:00"
+
+    def test_location_metadata_arrival_departure_with_offset_timezones_valid(self) -> None:
+        """Test that ISO 8601 timestamps with offset timezones are correctly compared."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            arrival_date="2024-03-15T09:00:00+00:00",
+            departure_date="2024-03-15T17:00:00+00:00",
+        )
+        assert metadata.arrival_date == "2024-03-15T09:00:00+00:00"
+        assert metadata.departure_date == "2024-03-15T17:00:00+00:00"
+
+    def test_location_metadata_frozen_immutability(self) -> None:
+        """Test that LocationMetadata is frozen and immutable."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        with pytest.raises(ValidationError):
+            metadata.location_id = "loc-2"  # type: ignore[assignment]
+
+    def test_location_metadata_accuracy_none_valid(self) -> None:
+        """Test that accuracy=None is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            accuracy=None,
+        )
+        assert metadata.accuracy is None
+
+    def test_location_metadata_accuracy_zero_valid(self) -> None:
+        """Test that accuracy=0 is valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            accuracy=0.0,
+        )
+        assert metadata.accuracy == 0.0
+
+    def test_location_metadata_accuracy_positive_valid(self) -> None:
+        """Test that positive accuracy values are valid."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37.7749,
+            longitude=-122.4194,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+            accuracy=10.5,
+        )
+        assert metadata.accuracy == 10.5
+
+    def test_location_metadata_integer_coordinates_valid(self) -> None:
+        """Test that integer values are accepted for latitude and longitude."""
+        metadata = LocationMetadata(
+            location_id="loc-1",
+            latitude=37,
+            longitude=-122,
+            source_type="gps",
+            date_first_observed="2024-03-01T10:00:00Z",
+        )
+        assert metadata.latitude == 37
+        assert metadata.longitude == -122
