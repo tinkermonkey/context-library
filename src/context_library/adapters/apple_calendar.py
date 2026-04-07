@@ -217,7 +217,7 @@ class AppleCalendarAdapter(BaseAdapter):
                 )
                 successful_count += 1
 
-            except (ValueError, KeyError, TypeError) as e:
+            except (ValueError, KeyError) as e:
                 event_id = event.get("id", f"<index {idx}>") if isinstance(event, dict) else f"<index {idx}>"
                 logger.error(f"Skipping malformed event (ID: {event_id}): {e}")
                 continue

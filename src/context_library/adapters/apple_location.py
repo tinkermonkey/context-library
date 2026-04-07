@@ -328,7 +328,6 @@ class AppleLocationAdapter(BaseAdapter):
             item: Visit item from the API
 
         Raises:
-            KeyError: If required fields are missing
             ValueError: If fields fail validation
         """
         location_id = item.get("id", "")
@@ -419,7 +418,6 @@ class AppleLocationAdapter(BaseAdapter):
             item: Current location item from the API
 
         Raises:
-            KeyError: If required fields are missing
             ValueError: If fields fail validation
         """
         latitude = item.get("latitude")

@@ -239,7 +239,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
                 )
                 successful_count += 1
 
-            except (ValueError, KeyError, TypeError) as e:
+            except (ValueError, KeyError) as e:
                 if isinstance(item_data, dict):
                     item_id = item_data.get("id") or item_data.get("url", f"<index {idx}>")
                 else:
