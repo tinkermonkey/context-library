@@ -428,10 +428,13 @@ class IngestionPipeline:
                                 # Clear sync log entries now that vector store delete succeeded
                                 self.document_store.clear_sync_log(list(diff_result.removed_hashes))
                             except Exception as e:
-                                logger.warning(
-                                    f"Failed to delete chunks from vector store for source '{content.source_id}': {e}"
+                                # Vector store delete failed, but SQLite already recorded the delete.
+                                # This creates inconsistency (SQLite says deleted, but vectors remain in store).
+                                raise StorageError(
+                                    f"Failed to delete chunks from vector store for source '{content.source_id}': {e}",
+                                    store_type="vector_store",
+                                    inconsistent=True
                                 )
-                                # Don't raise here, as the sync log already has the delete operation recorded
 
                         # Update statistics
                         chunks_added_total += len(added_chunks)
