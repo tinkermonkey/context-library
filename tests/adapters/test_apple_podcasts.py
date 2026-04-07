@@ -279,7 +279,7 @@ class TestApplePodcastsAdapterFetchListenHistory:
         metadata_dict = listen_items[0].structural_hints.extra_metadata
 
         assert metadata_dict["durationSeconds"] == 3600
-        assert metadata_dict["playedSeconds"] == 2700
+        assert metadata_dict["playHead"] == 2700
         assert metadata_dict["completed"] is False
         assert metadata_dict["episodeGuid"] == "guid-1"
         assert metadata_dict["feedUrl"] == "https://techtalk.example/feed"

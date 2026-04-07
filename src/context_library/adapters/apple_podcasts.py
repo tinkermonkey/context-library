@@ -426,7 +426,7 @@ class ApplePodcastsAdapter(BaseAdapter):
                 extra_metadata={
                     **event_metadata,
                     "durationSeconds": duration_seconds,
-                    "playedSeconds": played_seconds,
+                    "playHead": played_seconds,
                     "completed": completed,
                     "episodeGuid": episode_guid,
                     "feedUrl": feed_url,
