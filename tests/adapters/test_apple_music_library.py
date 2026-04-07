@@ -280,8 +280,10 @@ class TestAppleMusicLibraryAdapterFetch:
         assert metadata_dict["album"] is None
         assert metadata_dict["duration_minutes"] is None
 
-    def test_fetch_missing_id_field_skips_track(self, mock_apple_music_library_endpoints):
-        """fetch() skips and logs tracks with missing 'id' field."""
+    def test_fetch_missing_id_field_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises EndpointFetchError when all tracks are missing 'id' field."""
+        from context_library.adapters.base import EndpointFetchError
+
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
@@ -295,12 +297,14 @@ class TestAppleMusicLibraryAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the malformed track
-        results = list(adapter.fetch(""))
-        assert len(results) == 0
+        # When all tracks are malformed, should raise EndpointFetchError
+        with pytest.raises(EndpointFetchError, match="malformed"):
+            list(adapter.fetch(""))
 
-    def test_fetch_missing_title_field_skips_track(self, mock_apple_music_library_endpoints):
-        """fetch() skips and logs tracks with missing 'title' field."""
+    def test_fetch_missing_title_field_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises EndpointFetchError when all tracks are missing 'title' field."""
+        from context_library.adapters.base import EndpointFetchError
+
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
@@ -314,12 +318,14 @@ class TestAppleMusicLibraryAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the malformed track
-        results = list(adapter.fetch(""))
-        assert len(results) == 0
+        # When all tracks are malformed, should raise EndpointFetchError
+        with pytest.raises(EndpointFetchError, match="malformed"):
+            list(adapter.fetch(""))
 
-    def test_fetch_empty_id_skips_track(self, mock_apple_music_library_endpoints):
-        """fetch() skips and logs tracks with empty 'id'."""
+    def test_fetch_empty_id_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises EndpointFetchError when all tracks have empty 'id'."""
+        from context_library.adapters.base import EndpointFetchError
+
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
@@ -333,12 +339,14 @@ class TestAppleMusicLibraryAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the malformed track
-        results = list(adapter.fetch(""))
-        assert len(results) == 0
+        # When all tracks are malformed, should raise EndpointFetchError
+        with pytest.raises(EndpointFetchError, match="malformed"):
+            list(adapter.fetch(""))
 
-    def test_fetch_empty_title_skips_track(self, mock_apple_music_library_endpoints):
-        """fetch() skips and logs tracks with empty title."""
+    def test_fetch_empty_title_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises EndpointFetchError when all tracks have empty title."""
+        from context_library.adapters.base import EndpointFetchError
+
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
@@ -352,9 +360,9 @@ class TestAppleMusicLibraryAdapterFetch:
             }
         ])
 
-        # Should not raise, just skip the malformed track
-        results = list(adapter.fetch(""))
-        assert len(results) == 0
+        # When all tracks are malformed, should raise EndpointFetchError
+        with pytest.raises(EndpointFetchError, match="malformed"):
+            list(adapter.fetch(""))
 
     def test_fetch_malformed_track_skipped_continues(self, mock_apple_music_library_endpoints):
         """fetch() skips malformed tracks and continues to next."""
@@ -817,6 +825,36 @@ class TestAppleMusicLibraryAdapterFetch:
         )
 
         with pytest.raises(ValueError, match="must be a list"):
+            list(adapter.fetch(""))
+
+    def test_fetch_all_tracks_malformed_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):
+        """fetch() raises EndpointFetchError when all tracks are malformed (100% skip rate)."""
+        from context_library.adapters.base import EndpointFetchError
+
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        # All tracks missing required 'title' field
+        mock_apple_music_library_endpoints.set_response("http://127.0.0.1:7123/music/tracks", [
+            {
+                "id": "track-1",
+                # Missing 'title'
+                "artist": "Artist 1",
+                "album": "Album 1",
+                "duration_seconds": 180,
+                "play_count": 1,
+            },
+            {
+                "id": "track-2",
+                # Missing 'title'
+                "artist": "Artist 2",
+                "album": "Album 2",
+                "duration_seconds": 200,
+                "play_count": 2,
+            },
+        ])
+
+        # When all tracks are malformed, should raise EndpointFetchError
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
 

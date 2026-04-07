@@ -451,3 +451,43 @@ class TestAppleBrowserHistoryAdapterFetch:
 
         results = list(adapter.fetch(""))
         assert len(results) == 0
+
+    def test_fetch_partial_failure_valid_and_malformed_mix(self, mock_httpx_client_browser_history, caplog):
+        """fetch() yields valid visits and skips malformed ones (does not raise)."""
+        adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        visits_url = "http://127.0.0.1:7123/browser/history"
+        mock_httpx_client_browser_history.set_response(visits_url, [
+            {
+                "id": "visit-1",
+                "url": "https://example.com/page1",
+                "title": "Good Page 1",
+                "visitedAt": "2026-03-10T10:00:00Z",
+                "browser": "safari",
+                "visitCount": 5,
+            },
+            {
+                "id": "visit-2",
+                # Missing required 'url' field — malformed
+                "title": "Bad Page",
+                "visitedAt": "2026-03-10T11:00:00Z",
+                "browser": "firefox",
+                "visitCount": 1,
+            },
+            {
+                "id": "visit-3",
+                "url": "https://example.com/page3",
+                "title": "Good Page 3",
+                "visitedAt": "2026-03-10T12:00:00Z",
+                "browser": "chrome",
+                "visitCount": 3,
+            },
+        ])
+
+        results = list(adapter.fetch(""))
+        # Should yield only the 2 valid visits, skipping the malformed one
+        assert len(results) == 2
+        assert results[0].source_id == "browser_history/visit-1"
+        assert results[1].source_id == "browser_history/visit-3"
+        # Verify that error was logged for malformed visit
+        assert any("Skipping malformed visit" in record.message for record in caplog.records)

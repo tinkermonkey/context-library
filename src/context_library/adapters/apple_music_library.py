@@ -121,17 +121,29 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
             httpx.RequestError: If a network error occurs
             json.JSONDecodeError: If the API returns invalid JSON
             ValueError: If the helper API returns unexpected response schema
+            EndpointFetchError: If all tracks are malformed (100% skip rate)
         """
+        from context_library.adapters.base import EndpointFetchError
+
         since = source_ref if source_ref else None
         tracks = self._fetch_tracks(self._api_url, self._api_key, since)
 
+        successful_count = 0
         for idx, track in enumerate(tracks):
             try:
                 yield from self._process_track(track)
+                successful_count += 1
             except (ValueError, KeyError, TypeError) as e:
                 track_id = track.get("id", f"<index {idx}>") if isinstance(track, dict) else f"<index {idx}>"
                 logger.error(f"Skipping malformed track (ID: {track_id}): {e}")
                 continue
+
+        # If all tracks were malformed, signal complete failure
+        if tracks and successful_count == 0:
+            raise EndpointFetchError(
+                f"All {len(tracks)} tracks from /music/tracks were malformed and could not be processed. "
+                "This may indicate a helper API schema change or malformed response."
+            )
 
     def _process_track(self, track: dict[str, Any]) -> Iterator[NormalizedContent]:
         """Process a single track and yield both a library document and a play event.

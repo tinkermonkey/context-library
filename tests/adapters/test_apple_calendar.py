@@ -436,6 +436,67 @@ class TestAppleCalendarAdapterFetch:
             assert adapter._client is not None
         # Client should be closed after exiting context (close() is called)
 
+    def test_fetch_partial_failure_valid_and_malformed_mix(self, mock_httpx_client_calendar, caplog):
+        """fetch() yields valid events and skips malformed ones (does not raise)."""
+        adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+
+        events_url = "http://127.0.0.1:7123/calendar/events"
+        mock_httpx_client_calendar.set_response(events_url, [
+            {
+                "id": "event-1",
+                "title": "Good Meeting",
+                "notes": "Description",
+                "startDate": "2026-03-10T10:00:00Z",
+                "endDate": "2026-03-10T11:00:00Z",
+                "isAllDay": False,
+                "calendar": "Work",
+                "location": None,
+                "status": "confirmed",
+                "lastModified": "2026-03-06T10:00:00Z",
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            },
+            {
+                "id": "event-2",
+                # Missing required 'title' field — malformed
+                "notes": "Bad Notes",
+                "startDate": "2026-03-10T11:00:00Z",
+                "endDate": "2026-03-10T12:00:00Z",
+                "isAllDay": False,
+                "calendar": "Work",
+                "location": None,
+                "status": "confirmed",
+                "lastModified": "2026-03-06T10:00:00Z",
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            },
+            {
+                "id": "event-3",
+                "title": "Another Good Meeting",
+                "notes": "More notes",
+                "startDate": "2026-03-10T13:00:00Z",
+                "endDate": "2026-03-10T14:00:00Z",
+                "isAllDay": False,
+                "calendar": "Personal",
+                "location": None,
+                "status": "confirmed",
+                "lastModified": "2026-03-06T10:00:00Z",
+                "attendees": [],
+                "recurrence": None,
+                "url": None,
+            },
+        ])
+
+        results = list(adapter.fetch(""))
+        # Should yield only the 2 valid events, skipping the malformed one
+        assert len(results) == 2
+        assert results[0].source_id == "apple_calendar/event-1"
+        assert results[1].source_id == "apple_calendar/event-3"
+        # Verify that error was logged for malformed event
+        assert any("Skipping malformed event" in record.message for record in caplog.records)
+
 
 class TestAppleCalendarAdapterMarkdownGeneration:
     """Tests for markdown generation in fetch()."""
