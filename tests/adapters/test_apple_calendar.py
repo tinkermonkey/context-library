@@ -5,6 +5,7 @@ import pytest
 import httpx
 
 from context_library.adapters.apple_calendar import AppleCalendarAdapter
+from context_library.adapters.base import EndpointFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent, EventMetadata
 
 
@@ -352,7 +353,7 @@ class TestAppleCalendarAdapterFetch:
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_title_raises(self, mock_httpx_client_calendar):
-        """fetch() raises KeyError if event is missing 'title' field."""
+        """fetch() raises EndpointFetchError if all events are missing 'title' field."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -374,11 +375,11 @@ class TestAppleCalendarAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="title"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_id_raises(self, mock_httpx_client_calendar):
-        """fetch() raises KeyError if event is missing 'id' field."""
+        """fetch() raises EndpointFetchError if all events are missing 'id' field."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -400,11 +401,11 @@ class TestAppleCalendarAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="id"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_lastModified_raises(self, mock_httpx_client_calendar):
-        """fetch() raises KeyError if event is missing 'lastModified' field."""
+        """fetch() raises EndpointFetchError if all events are missing 'lastModified' field."""
         adapter = AppleCalendarAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         events_url = "http://127.0.0.1:7123/calendar/events"
@@ -426,7 +427,7 @@ class TestAppleCalendarAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="lastModified"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_context_manager_closes_client(self, mock_httpx_client_calendar):

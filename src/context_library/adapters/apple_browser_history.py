@@ -44,7 +44,7 @@ This adapter:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
     Domain,
     PollStrategy,
@@ -154,9 +154,9 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         The source_ref can optionally contain a last_fetched_at timestamp in ISO 8601
         format. If provided, only visits after that timestamp are fetched.
-        Errors in visit processing (schema mismatches, missing fields) are NOT caught —
-        they propagate to caller for visibility. This prevents silent skipping when
-        the API format changes.
+        Errors in visit processing (schema mismatches, missing fields) are caught
+        and logged; the adapter continues processing remaining visits. If all visits
+        are malformed, raises EndpointFetchError to signal complete failure.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
@@ -166,10 +166,8 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
-            ValueError: If the helper API returns unexpected response schema or a visit
-                has missing/malformed fields
-            KeyError: If a visit is missing required fields
-            TypeError: If a visit field has unexpected type
+            ValueError: If the helper API returns unexpected response schema
+            EndpointFetchError: If all visits are malformed and none can be processed
         """
         # Determine incremental fetch by presence of timestamp
         since = source_ref if source_ref else None
@@ -178,29 +176,44 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
         visits = self._fetch_visits(since)
 
         # Convert each visit to NormalizedContent
-        # Process without catching errors to ensure visibility of API schema changes
-        for visit in visits:
-            # Extract visit metadata - errors propagate
-            metadata = self._extract_visit_metadata(visit)
+        # Per-item errors are caught to allow processing remaining visits
+        successful_count = 0
+        for idx, visit in enumerate(visits):
+            try:
+                # Extract visit metadata
+                metadata = self._extract_visit_metadata(visit)
 
-            # Build markdown representation of visit
-            markdown = self._build_visit_markdown(visit)
+                # Build markdown representation of visit
+                markdown = self._build_visit_markdown(visit)
 
-            # Build structural hints with metadata and extra fields
-            hints = StructuralHints(
-                has_headings=False,
-                has_lists=False,
-                has_tables=False,
-                natural_boundaries=(),
-                extra_metadata=metadata.model_dump() | self._get_extra_metadata(visit),
-            )
+                # Build structural hints with metadata and extra fields
+                hints = StructuralHints(
+                    has_headings=False,
+                    has_lists=False,
+                    has_tables=False,
+                    natural_boundaries=(),
+                    extra_metadata=metadata.model_dump() | self._get_extra_metadata(visit),
+                )
 
-            # Yield normalized content
-            yield NormalizedContent(
-                markdown=markdown,
-                source_id=f"browser_history/{visit['id']}",
-                structural_hints=hints,
-                normalizer_version=self.normalizer_version,
+                # Yield normalized content
+                yield NormalizedContent(
+                    markdown=markdown,
+                    source_id=f"browser_history/{visit['id']}",
+                    structural_hints=hints,
+                    normalizer_version=self.normalizer_version,
+                )
+                successful_count += 1
+
+            except (ValueError, KeyError, TypeError) as e:
+                visit_id = visit.get("id", f"<index {idx}>") if isinstance(visit, dict) else f"<index {idx}>"
+                logger.error(f"Skipping malformed visit (ID: {visit_id}): {e}")
+                continue
+
+        # If all visits were malformed, signal complete failure
+        if visits and successful_count == 0:
+            raise EndpointFetchError(
+                f"All {len(visits)} visits from /browser/history were malformed and could not be processed. "
+                "This may indicate a helper API schema change or malformed response."
             )
 
     def _fetch_visits(self, since: str | None) -> list[dict]:

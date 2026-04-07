@@ -3,6 +3,7 @@
 import pytest
 
 from context_library.adapters.apple_browser_history import AppleBrowserHistoryAdapter
+from context_library.adapters.base import EndpointFetchError
 from context_library.storage.models import Domain, PollStrategy, NormalizedContent
 
 
@@ -318,7 +319,7 @@ class TestAppleBrowserHistoryAdapterFetch:
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_id(self, mock_httpx_client_browser_history):
-        """fetch() raises KeyError if visit is missing 'id' field."""
+        """fetch() raises EndpointFetchError if all visits are missing 'id' field."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -333,11 +334,11 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="'id'"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_visitedAt(self, mock_httpx_client_browser_history):
-        """fetch() raises KeyError if visit is missing 'visitedAt' field."""
+        """fetch() raises EndpointFetchError if all visits are missing 'visitedAt' field."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -352,11 +353,11 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="'visitedAt'"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_url(self, mock_httpx_client_browser_history):
-        """fetch() raises KeyError if visit is missing 'url' field."""
+        """fetch() raises EndpointFetchError if all visits are missing 'url' field."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -371,11 +372,11 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="'url'"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_empty_url_string_raises_error(self, mock_httpx_client_browser_history):
-        """fetch() raises ValueError if visit 'url' is an empty string."""
+        """fetch() raises EndpointFetchError if all visits have empty 'url' strings."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -390,11 +391,11 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(ValueError, match="non-empty string"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_browser(self, mock_httpx_client_browser_history):
-        """fetch() raises KeyError if visit is missing 'browser' field."""
+        """fetch() raises EndpointFetchError if all visits are missing 'browser' field."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -409,11 +410,11 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="'browser'"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_visitCount(self, mock_httpx_client_browser_history):
-        """fetch() raises KeyError if visit is missing 'visitCount' field."""
+        """fetch() raises EndpointFetchError if all visits are missing 'visitCount' field."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -428,7 +429,7 @@ class TestAppleBrowserHistoryAdapterFetch:
             }
         ])
 
-        with pytest.raises(KeyError, match="'visitCount'"):
+        with pytest.raises(EndpointFetchError, match="malformed"):
             list(adapter.fetch(""))
 
     def test_fetch_http_error_response(self, mock_httpx_client_browser_history):

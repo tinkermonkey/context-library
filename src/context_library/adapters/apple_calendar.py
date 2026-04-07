@@ -57,7 +57,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
     Domain,
     PollStrategy,
@@ -164,9 +164,9 @@ class AppleCalendarAdapter(BaseAdapter):
 
         The source_ref can optionally contain a last_fetched_at timestamp in ISO 8601
         format. If provided, only events modified after that timestamp are fetched.
-        Errors in event processing (schema mismatches, missing fields) are NOT caught —
-        they propagate to caller for visibility. This prevents silent skipping when
-        the API format changes.
+        Errors in event processing (schema mismatches, missing fields) are caught
+        and logged; the adapter continues processing remaining events. If all events
+        are malformed, raises EndpointFetchError to signal complete failure.
 
         Args:
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
@@ -176,10 +176,8 @@ class AppleCalendarAdapter(BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
-            ValueError: If the helper API returns unexpected response schema or an event
-                has missing/malformed fields
-            KeyError: If an event is missing required fields
-            TypeError: If an event field has unexpected type
+            ValueError: If the helper API returns unexpected response schema
+            EndpointFetchError: If all events are malformed and none can be processed
         """
         # Determine incremental fetch by presence of timestamp
         since = source_ref if source_ref else None
@@ -188,32 +186,47 @@ class AppleCalendarAdapter(BaseAdapter):
         events = self._fetch_events(since)
 
         # Convert each event to NormalizedContent
-        # Process without catching errors to ensure visibility of API schema changes
-        for event in events:
-            # Extract event metadata - errors propagate
-            metadata = self._extract_event_metadata(event)
+        # Per-item errors are caught to allow processing remaining events
+        successful_count = 0
+        for idx, event in enumerate(events):
+            try:
+                # Extract event metadata
+                metadata = self._extract_event_metadata(event)
 
-            # Get notes for the markdown body (may be None or empty string)
-            notes = event.get("notes") or ""
+                # Get notes for the markdown body (may be None or empty string)
+                notes = event.get("notes") or ""
 
-            # Build structural hints with metadata
-            hints = StructuralHints(
-                has_headings=False,
-                has_lists=False,
-                has_tables=False,
-                natural_boundaries=(),
-                extra_metadata=metadata.model_dump() | self._get_extra_metadata(event),
-            )
+                # Build structural hints with metadata
+                hints = StructuralHints(
+                    has_headings=False,
+                    has_lists=False,
+                    has_tables=False,
+                    natural_boundaries=(),
+                    extra_metadata=metadata.model_dump() | self._get_extra_metadata(event),
+                )
 
-            # Build markdown representation of event
-            markdown = self._build_event_markdown(event, metadata, notes)
+                # Build markdown representation of event
+                markdown = self._build_event_markdown(event, metadata, notes)
 
-            # Yield normalized content
-            yield NormalizedContent(
-                markdown=markdown,
-                source_id=f"apple_calendar/{event['id']}",
-                structural_hints=hints,
-                normalizer_version=self.normalizer_version,
+                # Yield normalized content
+                yield NormalizedContent(
+                    markdown=markdown,
+                    source_id=f"apple_calendar/{event['id']}",
+                    structural_hints=hints,
+                    normalizer_version=self.normalizer_version,
+                )
+                successful_count += 1
+
+            except (ValueError, KeyError, TypeError) as e:
+                event_id = event.get("id", f"<index {idx}>") if isinstance(event, dict) else f"<index {idx}>"
+                logger.error(f"Skipping malformed event (ID: {event_id}): {e}")
+                continue
+
+        # If all events were malformed, signal complete failure
+        if events and successful_count == 0:
+            raise EndpointFetchError(
+                f"All {len(events)} events from /calendar/events were malformed and could not be processed. "
+                "This may indicate a helper API schema change or malformed response."
             )
 
     def _fetch_events(self, since: str | None) -> list[dict]:

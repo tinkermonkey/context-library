@@ -30,7 +30,7 @@ Security:
 import logging
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.adapters.apple_music_base import AppleMusicBaseMixin
 from context_library.storage.models import (
     Domain,
@@ -94,6 +94,10 @@ class AppleMusicAdapter(AppleMusicBaseMixin, BaseAdapter):
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize Apple Music library catalog from the macOS helper API.
 
+        Errors in track processing (schema mismatches, missing fields) are caught
+        and logged; the adapter continues processing remaining tracks. If all tracks
+        are malformed, raises EndpointFetchError to signal complete failure.
+
         Args:
             source_ref: ISO 8601 timestamp for incremental ingestion, or empty string for initial
 
@@ -105,17 +109,27 @@ class AppleMusicAdapter(AppleMusicBaseMixin, BaseAdapter):
             httpx.RequestError: If a network error occurs
             json.JSONDecodeError: If the API returns invalid JSON
             ValueError: If the helper API returns unexpected response schema
+            EndpointFetchError: If all tracks are malformed and none can be processed
         """
         since = source_ref if source_ref else None
         tracks = self._fetch_tracks(self._api_url, self._api_key, since)
 
+        successful_count = 0
         for idx, track in enumerate(tracks):
             try:
                 yield self._process_track(track)
+                successful_count += 1
             except (ValueError, KeyError, TypeError) as e:
                 track_id = track.get("id", f"<index {idx}>") if isinstance(track, dict) else f"<index {idx}>"
                 logger.error(f"Skipping malformed track (ID: {track_id}): {e}")
                 continue
+
+        # If all tracks were malformed, signal complete failure
+        if tracks and successful_count == 0:
+            raise EndpointFetchError(
+                f"All {len(tracks)} tracks from /music/tracks were malformed and could not be processed. "
+                "This may indicate a helper API schema change or malformed response."
+            )
 
     def _process_track(self, track: dict[str, Any]) -> NormalizedContent:
         """Process a single track and yield a DOCUMENTS NormalizedContent.
