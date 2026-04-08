@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useChunk } from '../../hooks/useChunks';
 
@@ -17,15 +16,13 @@ interface CrossRefLinkProps {
  */
 export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
   const navigate = useNavigate();
-  const [error, setError] = useState(false);
 
   // Fetch chunk data to get its source_id and domain
   // No source_id filter allows cross-source references to be resolved
-  const { data: refChunk } = useChunk(chunkHash);
+  const { data: refChunk, isError } = useChunk(chunkHash);
 
   const handleClick = (): void => {
     if (!refChunk) {
-      setError(true);
       return;
     }
 
@@ -33,11 +30,12 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
     const refDomain = refChunk.lineage.domain;
 
     void navigate({
-      to: `/browser/view/${refDomain}/${refSourceId}`,
+      to: '/browser/view/$domain/$sourceId',
+      params: { domain: refDomain, sourceId: refSourceId },
     });
   };
 
-  if (!refChunk && !error) {
+  if (!refChunk && !isError) {
     // Still loading
     return (
       <span
@@ -49,7 +47,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
     );
   }
 
-  if (error || !refChunk) {
+  if (isError || !refChunk) {
     return (
       <span
         className="px-3 py-1 bg-red-100 text-red-700 text-xs rounded cursor-not-allowed"
