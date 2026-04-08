@@ -97,7 +97,7 @@ export function buildFileTree(sources: SourceSummary[]): FileTreeNode[] {
  * Inserts a source into the adapter's tree, creating intermediate folders as needed.
  */
 function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary): void {
-  const parts = source.source_id.split('/');
+  const parts = source.source_id.split('/').filter(Boolean);
   let currentNode = adapterRoot;
 
   // Navigate/create folders for all but the last part (the file itself)

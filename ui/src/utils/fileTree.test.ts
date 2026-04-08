@@ -169,15 +169,37 @@ describe('buildFileTree', () => {
     expect(deepFile.type).toBe('file');
   });
 
-  it('handles sources with trailing/leading slashes gracefully', () => {
-    // Edge case: source_id with unusual formatting
-    // Note: In practice, the backend should normalize these, but we should handle them
+  it('handles normal nested paths correctly', () => {
     const sources = [createSource('folder/subfolder/file.txt', 'filesystem:a')];
     const result = buildFileTree(sources);
 
     const adapterRoot = result[0];
     const folderNode = adapterRoot.children![0];
     expect(folderNode.name).toBe('folder');
+  });
+
+  it('strips leading and trailing slashes from source_id', () => {
+    const sources = [
+      createSource('/folder/file1.txt', 'filesystem:a'),
+      createSource('folder/file2.txt/', 'filesystem:a'),
+      createSource('/folder/subfolder/file3.txt/', 'filesystem:a'),
+    ];
+    const result = buildFileTree(sources);
+
+    const adapterRoot = result[0];
+    const folderNode = adapterRoot.children![0];
+    expect(folderNode.name).toBe('folder');
+    expect(folderNode.type).toBe('folder');
+
+    // All files should be under the folder, without empty-string nodes
+    const fileNames = folderNode.children!.map((child) => child.name).sort();
+    expect(fileNames).toEqual(['file1.txt', 'file2.txt', 'subfolder']);
+
+    // Deep nested path should also work correctly
+    const subfolderNode = folderNode.children!.find((child) => child.name === 'subfolder')!;
+    const deepFile = subfolderNode.children![0];
+    expect(deepFile.name).toBe('file3.txt');
+    expect(deepFile.type).toBe('file');
   });
 
   it('preserves source metadata on file nodes', () => {
