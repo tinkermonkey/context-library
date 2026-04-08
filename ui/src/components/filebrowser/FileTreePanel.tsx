@@ -9,6 +9,8 @@ import type { FileBrowserPageSearch } from '../../router';
 interface FileTreePanelProps {
   /** The selected source ID from URL, or null if no selection */
   selectedSourceId: string | null;
+  /** Optional source ID prefix for subtree loading. If provided, only sources matching this prefix are fetched. */
+  sourceIdPrefix?: string;
 }
 
 // Limit for fetching document sources from the API
@@ -23,27 +25,28 @@ const FILE_TREE_LIMIT = 5000;
  * @example
  * <FileTreePanel selectedSourceId="filesystem:///path/to/file.txt" />
  */
-export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNode {
+export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePanelProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
   // Fetch document sources with generous limit to ensure we capture all filesystem files.
-  // Filter to filesystem-based adapters client-side below to exclude non-filesystem sources
-  // (music, YouTube, etc. from document-domain adapters).
-  // Note: We currently fetch all document sources and filter client-side rather than using
-  // the backend's source_id_prefix parameter. This is simpler since we need sources from
-  // multiple adapters and would otherwise require multiple API calls.
+  // Filter to filesystem-based adapters by checking adapter_id prefix to exclude non-filesystem
+  // sources (music, YouTube, etc. from document-domain adapters).
+  // If sourceIdPrefix is provided, use backend filtering for efficient subtree loading.
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
+    source_id_prefix: sourceIdPrefix,
     limit: FILE_TREE_LIMIT,
   });
 
   // Filter to only filesystem-based adapters
   const allSources = sourcesData?.sources ?? [];
   const sources = allSources.filter((source) => {
-    // Accept adapters with adapter_type starting with "Filesystem" (FilesystemAdapter,
-    // FilesystemHelperAdapter, RichFilesystemAdapter, etc.)
-    return source.adapter_type.startsWith('Filesystem');
+    // Accept adapters whose adapter_id starts with "filesystem" (filesystem:...,
+    // filesystem_helper:..., filesystem_rich:..., etc.)
+    // This correctly identifies filesystem adapters by their unique identifier rather than
+    // relying on the adapter_type field (class name), which could be incorrect.
+    return source.adapter_id.startsWith('filesystem');
   });
 
   // Build file tree from sources
