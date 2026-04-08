@@ -125,12 +125,12 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   };
 
   const handleFileClick = (node: FileTreeNode) => {
-    if (node.source) {
+    if (node.type === 'file') {
       // Navigate and update URL with selected file
       navigate({
         search: (prev: FileBrowserPageSearch) => ({
           ...prev,
-          file: node.source!.source_id,
+          file: node.source.source_id,
         }),
       });
     }
@@ -139,7 +139,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const renderNode = (node: FileTreeNode, level: number = 0): ReactNode => {
     const isFolder = node.type === 'folder';
     const isExpanded = expandedFolders.has(node.path);
-    const isSelected = node.type === 'file' && selectedSourceId === node.source?.source_id;
+    const isSelected = node.type === 'file' && selectedSourceId === node.source.source_id;
 
     return (
       <div key={node.path}>
@@ -170,7 +170,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
           <span className="truncate text-gray-900">{node.name}</span>
         </div>
 
-        {isFolder && isExpanded && node.children && (
+        {isFolder && isExpanded && (
           <div>
             {node.children.map((child) => renderNode(child, level + 1))}
           </div>

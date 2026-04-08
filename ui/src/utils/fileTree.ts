@@ -6,16 +6,32 @@
 import type { SourceSummary } from '../types/api';
 
 /**
- * Represents a node in the file tree structure.
- * Can be either a folder (with children) or a file (leaf node).
+ * A folder node in the file tree structure.
+ * Always has children (may be empty) and never has source.
  */
-export interface FileTreeNode {
+export interface FolderNode {
   name: string;
   path: string;
-  type: 'folder' | 'file';
-  children?: FileTreeNode[];
-  source?: SourceSummary;
+  type: 'folder';
+  children: FileTreeNode[];
 }
+
+/**
+ * A file node in the file tree structure.
+ * Always has source and never has children.
+ */
+export interface FileNode {
+  name: string;
+  path: string;
+  type: 'file';
+  source: SourceSummary;
+}
+
+/**
+ * Represents a node in the file tree structure.
+ * Discriminated union of FolderNode and FileNode to eliminate invalid states.
+ */
+export type FileTreeNode = FolderNode | FileNode;
 
 /**
  * Builds a hierarchical file tree from a flat list of sources.
@@ -65,14 +81,17 @@ export function buildFileTree(sources: SourceSummary[]): FileTreeNode[] {
     if (!adapterMap.has(source.adapter_id)) {
       adapterMap.set(source.adapter_id, []);
     }
-    adapterMap.get(source.adapter_id)!.push(source);
+    const sources_list = adapterMap.get(source.adapter_id);
+    if (sources_list) {
+      sources_list.push(source);
+    }
   }
 
   // Build tree for each adapter
   const rootNodes: FileTreeNode[] = [];
 
   for (const [adapterId, adapterSources] of adapterMap) {
-    const adapterRootNode: FileTreeNode = {
+    const adapterRootNode: FolderNode = {
       name: adapterId,
       path: adapterId,
       type: 'folder',
@@ -96,18 +115,17 @@ export function buildFileTree(sources: SourceSummary[]): FileTreeNode[] {
 /**
  * Inserts a source into the adapter's tree, creating intermediate folders as needed.
  */
-function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary): void {
+function insertSourceIntoTree(adapterRoot: FolderNode, source: SourceSummary): void {
   const parts = source.source_id.split('/').filter(Boolean);
 
   // Handle empty source_id by placing it directly under adapter root
   if (parts.length === 0) {
-    const fileNode: FileTreeNode = {
+    const fileNode: FileNode = {
       name: source.source_id || '(unnamed)',
       path: `${adapterRoot.path}/(unnamed)`,
       type: 'file',
       source,
     };
-    adapterRoot.children = adapterRoot.children || [];
     adapterRoot.children.push(fileNode);
     return;
   }
@@ -119,9 +137,9 @@ function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary):
     const part = parts[i];
     const folderPath = `${currentNode.path}/${part}`;
 
-    let childNode = currentNode.children?.find(
+    let childNode = currentNode.children.find(
       (child) => child.name === part && child.type === 'folder'
-    );
+    ) as FolderNode | undefined;
 
     if (!childNode) {
       childNode = {
@@ -130,7 +148,6 @@ function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary):
         type: 'folder',
         children: [],
       };
-      currentNode.children = currentNode.children || [];
       currentNode.children.push(childNode);
     }
 
@@ -141,14 +158,13 @@ function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary):
   const fileName = parts[parts.length - 1];
   const filePath = `${currentNode.path}/${fileName}`;
 
-  const fileNode: FileTreeNode = {
+  const fileNode: FileNode = {
     name: fileName,
     path: filePath,
     type: 'file',
     source,
   };
 
-  currentNode.children = currentNode.children || [];
   currentNode.children.push(fileNode);
 }
 
@@ -156,9 +172,7 @@ function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary):
  * Recursively sorts children of a node for consistent tree output.
  * Folders come before files, and both are sorted alphabetically by name.
  */
-function sortTreeChildren(node: FileTreeNode): void {
-  if (!node.children) return;
-
+function sortTreeChildren(node: FolderNode): void {
   node.children.sort((a, b) => {
     // Folders before files
     if (a.type !== b.type) {
@@ -168,8 +182,10 @@ function sortTreeChildren(node: FileTreeNode): void {
     return a.name.localeCompare(b.name);
   });
 
-  // Recursively sort children
+  // Recursively sort children (only folders have children)
   for (const child of node.children) {
-    sortTreeChildren(child);
+    if (child.type === 'folder') {
+      sortTreeChildren(child);
+    }
   }
 }
