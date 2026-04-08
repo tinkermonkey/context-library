@@ -280,13 +280,14 @@ export interface ChunkQueryParams {
 /**
  * Document domain metadata structure.
  * Extracted from chunk domain_metadata for documents.
- * Field names match backend DocumentMetadata model in storage/models.py.
+ * Mirrors backend DocumentMetadata model in storage/models.py.
  */
 export interface DocumentMetadata {
   document_id: string;
   title: string;
   document_type: string;
   source_type: string;
+  date_first_observed: string | null;
   created_at: string | null;
   modified_at: string | null;
   file_size_bytes: number | null;
@@ -321,6 +322,7 @@ export function extractDocumentMetadata(domainMetadata: Record<string, unknown>)
     title: typeof domainMetadata.title === 'string' ? domainMetadata.title : 'Untitled',
     document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
     source_type: typeof domainMetadata.source_type === 'string' ? domainMetadata.source_type : 'unknown',
+    date_first_observed: typeof domainMetadata.date_first_observed === 'string' ? domainMetadata.date_first_observed : null,
     created_at: typeof domainMetadata.created_at === 'string' ? domainMetadata.created_at : null,
     modified_at: typeof domainMetadata.modified_at === 'string' ? domainMetadata.modified_at : null,
     file_size_bytes: typeof domainMetadata.file_size_bytes === 'number' ? domainMetadata.file_size_bytes : null,
