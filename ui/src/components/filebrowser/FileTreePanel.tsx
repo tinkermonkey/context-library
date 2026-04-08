@@ -11,6 +11,9 @@ interface FileTreePanelProps {
   selectedSourceId: string | null;
 }
 
+// Limit for fetching document sources from the API
+const FILE_TREE_LIMIT = 5000;
+
 /**
  * Left panel component that displays a hierarchical file tree.
  * Fetches all document sources, builds a tree structure, and allows navigation.
@@ -24,14 +27,15 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch document sources with generous limit (5000) to ensure we capture all filesystem files
+  // Fetch document sources with generous limit to ensure we capture all filesystem files.
   // Filter to filesystem-based adapters client-side below to exclude non-filesystem sources
-  // (music, YouTube, etc. from document-domain adapters)
-  // TODO: Could optimize with source_id_prefix per-adapter for very large collections, but
-  // currently fetching all documents and filtering is simpler given we need all adapters
+  // (music, YouTube, etc. from document-domain adapters).
+  // Note: We currently fetch all document sources and filter client-side rather than using
+  // the backend's source_id_prefix parameter. This is simpler since we need sources from
+  // multiple adapters and would otherwise require multiple API calls.
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
-    limit: 5000,
+    limit: FILE_TREE_LIMIT,
   });
 
   // Filter to only filesystem-based adapters
@@ -79,7 +83,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // so we must check against the limit/length, not against sourcesData.total directly
   const isTruncated =
     allSources.length > 0 &&
-    allSources.length === (sourcesData?.limit ?? 0) &&
+    allSources.length === (sourcesData?.limit ?? FILE_TREE_LIMIT) &&
     (sourcesData?.total ?? 0) > ((sourcesData?.offset ?? 0) + allSources.length);
 
   if (isLoading) {
@@ -180,7 +184,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
       {isTruncated && (
         <div className="p-3 bg-yellow-50 border-b border-yellow-200">
           <p className="text-yellow-800 text-xs">
-            Showing {sources.length} filesystem files (limit: {sourcesData?.limit ?? 5000}). More are available.
+            Showing {sources.length} filesystem files. More are available.
           </p>
         </div>
       )}
