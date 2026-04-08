@@ -44,10 +44,10 @@ function detectDomain(chunks: ChunkResponse[]): 'notes' | 'documents' | 'unknown
 
   if (hasHeadingLevel) return 'notes';
 
-  // Check for documents-specific metadata (document_type, file_size, etc.)
+  // Check for documents-specific metadata (document_type, file_size_bytes, etc.)
   const hasDocumentMetadata = chunks.some((c) => {
     const meta = c.domain_metadata as Record<string, unknown> | null;
-    return meta && (typeof meta.document_type === 'string' || typeof meta.file_size === 'number');
+    return meta && (typeof meta.document_type === 'string' || typeof meta.file_size_bytes === 'number');
   });
 
   if (hasDocumentMetadata) return 'documents';
@@ -280,9 +280,9 @@ function DocumentMetadataHeader({
 }): ReactNode {
   if (!metadata) return null;
 
-  const formattedSize = metadata.file_size !== null ? formatFileSize(metadata.file_size) : null;
-  const formattedDate = metadata.modified_date ? (
-    <Timestamp value={metadata.modified_date} granularity="date" />
+  const formattedSize = metadata.file_size_bytes !== null ? formatFileSize(metadata.file_size_bytes) : null;
+  const formattedDate = metadata.modified_at ? (
+    <Timestamp value={metadata.modified_at} granularity="date" />
   ) : null;
 
   return (
