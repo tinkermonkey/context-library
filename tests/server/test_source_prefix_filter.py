@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 import pytest
 import tempfile
 import os
-from context_library.server.app import create_app
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     AdapterConfig,
@@ -15,41 +14,9 @@ from context_library.storage.models import (
     PollStrategy,
     compute_chunk_hash,
 )
-from unittest.mock import MagicMock
-from contextlib import asynccontextmanager
-from typing import Generator, AsyncGenerator, Any
+from typing import Generator
 
-
-def _create_app_with_store(ds: DocumentStore) -> Generator[TestClient, None, None]:
-    """Helper to create a FastAPI TestClient with document store."""
-    mock_embedder = MagicMock()
-    mock_embedder.model_id = "all-MiniLM-L6-v2"
-    mock_embedder.dimension = 384
-    mock_embedder.embed_query.return_value = [0.1] * 384
-
-    mock_vector_store = MagicMock()
-    mock_vector_store.count.return_value = 0
-    mock_vector_store.search.return_value = []
-
-    @asynccontextmanager
-    async def noop_lifespan(app: Any) -> AsyncGenerator[None, None]:
-        mock_config = MagicMock()
-        mock_config.webhook_secret = None
-        app.state.document_store = ds
-        app.state.embedder = mock_embedder
-        app.state.vector_store = mock_vector_store
-        app.state.pipeline = MagicMock()
-        app.state.reranker = None
-        app.state.config = mock_config
-        app.state.helper_adapters = []
-        app.state.helper_health_cache = None
-        yield
-
-    app = create_app()
-    app.router.lifespan_context = noop_lifespan
-
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+from .conftest import _create_app_with_store
 
 
 @pytest.fixture()
@@ -70,7 +37,7 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
     )
     store.register_adapter(config)
 
-    # Create sources with hierarchical paths
+    # Create sources with hierarchical paths, including ones with SQL wildcard characters
     test_sources = [
         "projects/alpha/doc1.md",
         "projects/alpha/doc2.md",
@@ -79,6 +46,7 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
         "projects/beta/subfolder/doc5.md",
         "notes/personal/doc6.md",
         "notes/work/doc7.md",
+        "projects_test/doc.md",  # Source with underscore for wildcard injection test
     ]
 
     for source_id in test_sources:
@@ -202,8 +170,8 @@ class TestSourceIdPrefixFilter:
         resp = client_with_hierarchical_sources.get("/sources")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 7
-        assert len(data["sources"]) == 7
+        assert data["total"] == 8
+        assert len(data["sources"]) == 8
 
     def test_prefix_filter_with_domain_filter(
         self, client_with_hierarchical_sources: TestClient
@@ -281,12 +249,20 @@ class TestSourceIdPrefixFilter:
         assert resp.status_code == 200
         data = resp.json()
         # Empty string matches everything (all sources start with empty string)
-        assert data["total"] == 7
+        assert data["total"] == 8
 
     def test_prefix_case_insensitive(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
-        """Test that prefix matching is case-insensitive (SQLite LIKE behavior)."""
+        """Test that prefix matching is case-insensitive (SQLite LIKE behavior).
+
+        NOTE: This behavior is INTENTIONAL. SQLite's LIKE operator is case-insensitive
+        for ASCII characters by default. This is acceptable for file paths on Unix-like
+        systems where paths are case-sensitive at the filesystem level, as it provides
+        more user-friendly matching (users often type "Projects/" not "projects/").
+        If case-sensitive matching becomes required, PRAGMA case_sensitive_like must be
+        set or GLOB operator should be used instead of LIKE.
+        """
         resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=Projects/")
         assert resp.status_code == 200
         data = resp.json()
@@ -315,3 +291,48 @@ class TestSourceIdPrefixFilter:
         source_ids = [s["source_id"] for s in data["sources"]]
         # Verify ordering
         assert source_ids == sorted(source_ids)
+
+    def test_prefix_with_sql_wildcards_escaped(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that SQL wildcard characters in prefix are properly escaped.
+
+        This is a regression test for SQL wildcard injection vulnerability.
+        Prefixes containing _ (underscore) should be escaped and not treated as wildcards.
+        The test source "projects_test/doc.md" should only match the exact prefix,
+        not match "projects/" via wildcard matching on the underscore character.
+        """
+        # Search for exact prefix with underscore - should only match the specific source
+        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects_test/")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match "projects_test/" not "projects/alpha/" or "projects/beta/"
+        # If _ were treated as a wildcard, it would match "projects/test/", etc.
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "projects_test/doc.md"
+
+    def test_prefix_with_underscore_exact_match(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that underscore in prefix doesn't introduce unexpected matches.
+
+        Regression test for SQL wildcard injection. In SQL LIKE, underscore (_) is a
+        wildcard that matches any single character. This test verifies that underscores
+        in the prefix parameter are escaped so they match only the literal underscore.
+        """
+        # Search for exact prefix with underscore
+        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects_test/")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match the source with actual underscore, not other "projects/" sources
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "projects_test/doc.md"
+
+        # Verify that "projects/" prefix matches multiple sources
+        resp2 = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects/")
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        # Should match projects/alpha and projects/beta sources (5 total)
+        assert data2["total"] == 5
+        project_sources = [s["source_id"] for s in data2["sources"]]
+        assert "projects_test/doc.md" not in project_sources  # Underscore source not included

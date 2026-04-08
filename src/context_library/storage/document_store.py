@@ -2002,8 +2002,11 @@ class DocumentStore:
             where_clauses.append("s.adapter_id = ?")
             filter_params.append(adapter_id)
         if source_id_prefix is not None:
-            where_clauses.append("s.source_id LIKE ? || '%'")
-            filter_params.append(source_id_prefix)
+            # Escape SQL wildcards in the prefix to prevent injection.
+            # Replace backslash first, then escape _ and % with backslash.
+            escaped_prefix = source_id_prefix.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%")
+            where_clauses.append("s.source_id LIKE ? || '%' ESCAPE '\\'")
+            filter_params.append(escaped_prefix)
         where_sql = " AND ".join(where_clauses)
 
         # Total count of matching sources (without LIMIT/OFFSET)
