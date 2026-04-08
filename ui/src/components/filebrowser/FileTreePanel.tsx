@@ -71,9 +71,10 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // Combine manually expanded folders with auto-expanded ancestors
   const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
 
-  // Check if filesystem sources are truncated (total documents > filtered filesystem sources)
-  // Note: sourcesData.total includes all document sources, but we only show filesystem ones
-  const isTruncated = (sourcesData?.total ?? 0) > sources.length;
+  // Check if API results are truncated (total documents > returned documents)
+  // Compare against allSources (unfiltered) to determine if API truncated results
+  // Note: sourcesData.total includes all document sources, we filter to filesystem ones for display
+  const isTruncated = (sourcesData?.total ?? 0) > (allSources?.length ?? 0);
 
   if (isLoading) {
     return (
