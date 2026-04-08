@@ -48,6 +48,7 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
         "notes/work/doc7.md",
         "projects_test/doc.md",  # Source with underscore for wildcard injection test
         "reports%archive/doc8.md",  # Source with % character for wildcard injection test
+        "data[0]/file.md",  # Source with brackets for GLOB escape sequence test
     ]
 
     for source_id in test_sources:
@@ -171,8 +172,8 @@ class TestSourceIdPrefixFilter:
         resp = client_with_hierarchical_sources.get("/sources")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 9
-        assert len(data["sources"]) == 9
+        assert data["total"] == 10
+        assert len(data["sources"]) == 10
 
     def test_prefix_filter_with_domain_filter(
         self, client_with_hierarchical_sources: TestClient
@@ -250,7 +251,7 @@ class TestSourceIdPrefixFilter:
         assert resp.status_code == 200
         data = resp.json()
         # Empty string matches everything (all sources start with empty string)
-        assert data["total"] == 9
+        assert data["total"] == 10
 
     def test_prefix_case_sensitive(
         self, client_with_hierarchical_sources: TestClient
@@ -356,8 +357,8 @@ class TestSourceIdPrefixFilter:
         special, but we still need to test that sources with literal % characters can
         be found by prefix matching.
         """
-        # Search for prefix with % character
-        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=reports%archive/")
+        # Search for prefix with % character, using params kwarg for proper URL encoding
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "reports%archive/"})
         assert resp.status_code == 200
         data = resp.json()
         # Should only match the source with actual % character
@@ -371,10 +372,28 @@ class TestSourceIdPrefixFilter:
 
         Verify that prefix matching works correctly even with special characters in source names.
         """
-        # Search for prefix without the % character
-        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=reports")
+        # Search for prefix without the % character, using params kwarg for proper URL encoding
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "reports"})
         assert resp.status_code == 200
         data = resp.json()
         # Should match the source with % in its name
         assert data["total"] == 1
         assert data["sources"][0]["source_id"] == "reports%archive/doc8.md"
+
+    def test_prefix_with_bracket_characters_escaped(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that bracket characters in prefix are properly escaped for GLOB.
+
+        Regression test for GLOB escape sequence correctness. Brackets have special meaning
+        in GLOB patterns (they define character classes), so they must be escaped properly.
+        The single-pass escaping approach ensures that characters introduced by earlier
+        replacements are not re-escaped in subsequent steps.
+        """
+        # Search for prefix with bracket character
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "data[0]/"})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match the source with actual bracket characters
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "data[0]/file.md"

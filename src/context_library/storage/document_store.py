@@ -2008,12 +2008,9 @@ class DocumentStore:
             # - ? (any single char) → [?]
             # - [ (char class start) → [[]
             # - ] (char class end) → []]
-            escaped_prefix = (
-                source_id_prefix.replace("[", "[[]")
-                .replace("]", "[]]")
-                .replace("*", "[*]")
-                .replace("?", "[?]")
-            )
+            # Use single-pass escaping to avoid re-escaping characters introduced by earlier replacements.
+            _GLOB_SPECIAL = frozenset('[]*?')
+            escaped_prefix = ''.join(f'[{c}]' if c in _GLOB_SPECIAL else c for c in source_id_prefix)
             where_clauses.append("s.source_id GLOB ? || '*'")
             filter_params.append(escaped_prefix)
         where_sql = " AND ".join(where_clauses)
