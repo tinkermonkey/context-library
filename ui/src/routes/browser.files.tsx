@@ -10,11 +10,12 @@ import { FileTreePanel } from '../components/filebrowser/FileTreePanel';
 import { FileContentPanel } from '../components/filebrowser/FileContentPanel';
 import { FileMetadataPanel } from '../components/filebrowser/FileMetadataPanel';
 import { useSourceChunks } from '../hooks/useChunks';
-import type { FileBrowserPageSearch } from '../router';
+import { fileBrowserSearchSchema } from '../routes-config';
 
 function FileBrowserPage() {
   const routerState = useRouterState();
-  const { file } = routerState.location.search as FileBrowserPageSearch;
+  const parseResult = fileBrowserSearchSchema.safeParse(routerState.location.search);
+  const { file } = parseResult.success ? parseResult.data : { file: undefined };
   const selectedSourceId = file ?? null;
 
   // Fetch chunks once at parent level to share between child panels
