@@ -36,14 +36,15 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // When selectedSourceId changes, expand its ancestors
   useEffect(() => {
     if (selectedSourceId) {
-      const newExpanded = new Set(expandedFolders);
       // Extract path to selected file and expand all ancestor folders
       const parts = selectedSourceId.split('/');
+      const newExpanded = new Set<string>();
       let currentPath = '';
       for (let i = 0; i < parts.length - 1; i++) {
         currentPath += (currentPath ? '/' : '') + parts[i];
         newExpanded.add(currentPath);
       }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpandedFolders(newExpanded);
     }
   }, [selectedSourceId]);
