@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useChunk } from '../../hooks/useChunks';
 
@@ -10,32 +10,39 @@ interface CrossRefLinkProps {
 /**
  * Single cross-reference link with eager chunk lookup.
  * Fetches chunk metadata on mount and navigates to its location when clicked.
+ * Includes loading and error states with visual feedback.
  *
  * @example
  * <CrossRefLink chunkHash="abc123..." />
  */
 export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   // Fetch chunk data to get its source_id and domain
   // No source_id filter allows cross-source references to be resolved
-  const { data: refChunk, isError } = useChunk(chunkHash);
+  const { data: refChunk } = useChunk(chunkHash);
 
   const handleClick = (): void => {
     if (!refChunk) {
+      setError(true);
       return;
     }
 
+    setIsLoading(true);
     const refSourceId = refChunk.lineage.source_id;
     const refDomain = refChunk.lineage.domain;
 
     void navigate({
       to: '/browser/view/$domain/$sourceId',
       params: { domain: refDomain, sourceId: refSourceId },
+    }).finally(() => {
+      setIsLoading(false);
     });
   };
 
-  if (!refChunk && !isError) {
+  if (!refChunk && !error) {
     // Still loading
     return (
       <span
@@ -47,7 +54,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
     );
   }
 
-  if (isError || !refChunk) {
+  if (error || !refChunk) {
     return (
       <span
         className="px-3 py-1 bg-red-100 text-red-700 text-xs rounded cursor-not-allowed"
@@ -61,7 +68,8 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
   return (
     <button
       onClick={handleClick}
-      className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer"
+      disabled={isLoading}
+      className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       title={chunkHash}
     >
       {refChunk.lineage.domain}: {chunkHash.substring(0, 8)}…

@@ -1,0 +1,84 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+[PR Feedback] Chunk Rendering (ChunkContent)
+
+**Description**:
+Based on consolidated PR review, address the following in **Chunk Rendering (ChunkContent)**:
+
+- **`ChunkContent.tsx` handles `table_part` but backend emits `table`**: The switch statement at `ui/src/components/shared/ChunkContent.tsx:41` handles `case 'table_part':` but the backend notes domain (`src/context_library/domains/notes.py:231`) emits `ChunkType.TABLE` (value `"table"`). All table chunks fall through to the default case and render as plain markdown instead of formatted HTML tables — affecting both the existing document browser and the new file browser. Fix: change `case 'table_part':` to `case 'table':` (or handle both).
+- **`CrossRefLink` silently downgrades existing functionality**: The new shared `ui/src/components/shared/CrossRefLink.tsx` removes the loading state and disabled-button logic from the original inline implementation in `DocumentView.tsx`. The architect spec stated cross-refs should "work identically" — but `DocumentView.tsx` now also uses the simplified version, meaning existing behavior was silently reduced.
+
+---
+_Created by PR Review Stage - Consolidation Phase_
+
+---
+
+## Concurrent Fix Issues (Same Review Cycle)
+
+The following issues are being fixed simultaneously in this review cycle. Check these issues for any files they modify before making your own changes to avoid introducing conflicts:
+
+- #410: [PR Feedback] Filesystem Source Filtering
+- #411: [PR Feedback] Backend Schema and Query Layer
+- #412: [PR Feedback] FileMetadataPanel
+- #413: [PR Feedback] Frontend Type Definitions
+
+### Previous Work
+
+
+## Pipeline Context Files
+
+Prior stage outputs are available at `/pipeline_context/`:
+
+- `software_architect_output.md` — Software Architect output
+- `initial_request.md` — original issue
+
+Read the relevant files before starting your analysis.
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.

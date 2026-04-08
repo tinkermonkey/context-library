@@ -14,7 +14,7 @@ interface ChunkContentProps {
  *
  * Handles three chunk types:
  * - `code`: Renders as a plain text code block
- * - `table_part`: Parses and renders as a formatted HTML table
+ * - `table`: Parses and renders as a formatted HTML table
  * - default (prose): Renders as markdown
  *
  * Includes type badge for all chunks and cross-reference links when present.
@@ -38,7 +38,7 @@ export function ChunkContent({ chunk }: ChunkContentProps): ReactNode {
       );
       break;
 
-    case 'table_part':
+    case 'table':
       // Parse and render as HTML table
       mainContent = renderTable(content);
       break;
