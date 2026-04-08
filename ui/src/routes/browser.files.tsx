@@ -15,7 +15,7 @@ function FileBrowserPage() {
   const selectedSourceId = file ?? null;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="flex flex-col bg-gray-50">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 bg-white">
         <h1 className="text-3xl font-bold text-gray-900">File Browser</h1>
@@ -24,7 +24,7 @@ function FileBrowserPage() {
       {/* Three-column layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left panel: File tree (~250px) */}
-        <div className="w-64 border-r border-gray-200 bg-white overflow-y-auto">
+        <div className="w-64 border-r border-gray-200 bg-white">
           <FileTreePanel selectedSourceId={selectedSourceId} />
         </div>
 

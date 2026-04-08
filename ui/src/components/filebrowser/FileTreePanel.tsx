@@ -38,14 +38,14 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
     if (selectedSourceId) {
       // Extract path to selected file and expand all ancestor folders
       const parts = selectedSourceId.split('/');
-      const newExpanded = new Set<string>();
       let currentPath = '';
+      const ancestorPaths: string[] = [];
       for (let i = 0; i < parts.length - 1; i++) {
         currentPath += (currentPath ? '/' : '') + parts[i];
-        newExpanded.add(currentPath);
+        ancestorPaths.push(currentPath);
       }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setExpandedFolders(newExpanded);
+      // Merge ancestor paths into existing expanded folders
+      setExpandedFolders((prev) => new Set([...prev, ...ancestorPaths]));
     }
   }, [selectedSourceId]);
 
@@ -141,7 +141,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   };
 
   return (
-    <div className="h-full overflow-y-auto border-r border-gray-200 bg-white">
+    <div className="h-full">
       {fileTree.map((node) => renderNode(node))}
     </div>
   );
