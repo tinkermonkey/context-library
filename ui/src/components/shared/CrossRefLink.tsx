@@ -8,8 +8,8 @@ interface CrossRefLinkProps {
 }
 
 /**
- * Single cross-reference link with lazy chunk lookup.
- * Fetches chunk metadata and navigates to its location when clicked.
+ * Single cross-reference link with eager chunk lookup.
+ * Fetches chunk metadata on mount and navigates to its location when clicked.
  *
  * @example
  * <CrossRefLink chunkHash="abc123..." />

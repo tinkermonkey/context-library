@@ -27,6 +27,10 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# Characters that have special meaning in SQLite GLOB patterns
+# and need to be escaped by wrapping in brackets
+_GLOB_SPECIAL = frozenset('[]*?')
+
 
 class DocumentStore:
     """SQLite document store for managing source versions, chunks, and lineage.
@@ -2009,7 +2013,6 @@ class DocumentStore:
             # - [ (char class start) → [[]
             # - ] (char class end) → []]
             # Use single-pass escaping to avoid re-escaping characters introduced by earlier replacements.
-            _GLOB_SPECIAL = frozenset('[]*?')
             escaped_prefix = ''.join(f'[{c}]' if c in _GLOB_SPECIAL else c for c in source_id_prefix)
             where_clauses.append("s.source_id GLOB ? || '*'")
             filter_params.append(escaped_prefix)

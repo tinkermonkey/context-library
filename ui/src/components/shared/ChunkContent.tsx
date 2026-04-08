@@ -13,7 +13,7 @@ interface ChunkContentProps {
  * Renders chunk content based on chunk_type.
  *
  * Handles three chunk types:
- * - `code`: Renders as a syntax-highlighted code block
+ * - `code`: Renders as a plain text code block
  * - `table_part`: Parses and renders as a formatted HTML table
  * - default (prose): Renders as markdown
  *
@@ -30,7 +30,7 @@ export function ChunkContent({ chunk }: ChunkContentProps): ReactNode {
 
   switch (chunk_type) {
     case 'code':
-      // Render code block with syntax highlighting via monospace
+      // Render plain text code block
       mainContent = (
         <pre className="bg-gray-900 text-gray-100 rounded p-4 overflow-x-auto my-3">
           <code className="font-mono text-sm whitespace-pre-wrap break-words">{content}</code>
