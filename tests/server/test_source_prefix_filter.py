@@ -47,6 +47,7 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
         "notes/personal/doc6.md",
         "notes/work/doc7.md",
         "projects_test/doc.md",  # Source with underscore for wildcard injection test
+        "reports%archive/doc8.md",  # Source with % character for wildcard injection test
     ]
 
     for source_id in test_sources:
@@ -170,8 +171,8 @@ class TestSourceIdPrefixFilter:
         resp = client_with_hierarchical_sources.get("/sources")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 8
-        assert len(data["sources"]) == 8
+        assert data["total"] == 9
+        assert len(data["sources"]) == 9
 
     def test_prefix_filter_with_domain_filter(
         self, client_with_hierarchical_sources: TestClient
@@ -249,24 +250,32 @@ class TestSourceIdPrefixFilter:
         assert resp.status_code == 200
         data = resp.json()
         # Empty string matches everything (all sources start with empty string)
-        assert data["total"] == 8
+        assert data["total"] == 9
 
-    def test_prefix_case_insensitive(
+    def test_prefix_case_sensitive(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
-        """Test that prefix matching is case-insensitive (SQLite LIKE behavior).
+        """Test that prefix matching is case-sensitive (GLOB behavior).
 
-        NOTE: This behavior is INTENTIONAL. SQLite's LIKE operator is case-insensitive
-        for ASCII characters by default. This is acceptable for file paths on Unix-like
-        systems where paths are case-sensitive at the filesystem level, as it provides
-        more user-friendly matching (users often type "Projects/" not "projects/").
-        If case-sensitive matching becomes required, PRAGMA case_sensitive_like must be
-        set or GLOB operator should be used instead of LIKE.
+        SQLite GLOB operator is case-sensitive by default, which matches Unix filesystem
+        semantics where file paths are case-sensitive. A search for "Projects/" should not
+        match "projects/" entries.
         """
         resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=Projects/")
         assert resp.status_code == 200
         data = resp.json()
-        # SQLite LIKE is case-insensitive by default
+        # GLOB is case-sensitive, so uppercase "Projects/" should not match lowercase "projects/"
+        assert data["total"] == 0
+        assert data["sources"] == []
+
+    def test_prefix_case_sensitive_with_lowercase(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that lowercase prefix correctly matches lowercase sources."""
+        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects/")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Lowercase prefix matches lowercase sources
         assert data["total"] == 5
         source_ids = [s["source_id"] for s in data["sources"]]
         assert all(s.lower().startswith("projects/") for s in source_ids)
@@ -336,3 +345,36 @@ class TestSourceIdPrefixFilter:
         assert data2["total"] == 5
         project_sources = [s["source_id"] for s in data2["sources"]]
         assert "projects_test/doc.md" not in project_sources  # Underscore source not included
+
+    def test_prefix_with_percent_wildcard_escaped(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that % wildcard character in prefix is properly escaped.
+
+        Regression test for SQL LIKE wildcard injection. In SQL LIKE, % is a wildcard
+        that matches any sequence of characters. When switching to GLOB, % is no longer
+        special, but we still need to test that sources with literal % characters can
+        be found by prefix matching.
+        """
+        # Search for prefix with % character
+        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=reports%archive/")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match the source with actual % character
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "reports%archive/doc8.md"
+
+    def test_prefix_partial_match_percent_source(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test partial prefix matching on sources with % characters.
+
+        Verify that prefix matching works correctly even with special characters in source names.
+        """
+        # Search for prefix without the % character
+        resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=reports")
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should match the source with % in its name
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "reports%archive/doc8.md"
