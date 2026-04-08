@@ -38,6 +38,7 @@ export function ChunkContent({ chunk }: ChunkContentProps): ReactNode {
       );
       break;
 
+    case 'table_part':
     case 'table':
       // Parse and render as HTML table
       mainContent = renderTable(content);

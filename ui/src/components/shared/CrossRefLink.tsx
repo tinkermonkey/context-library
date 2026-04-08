@@ -22,7 +22,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
 
   // Fetch chunk data to get its source_id and domain
   // No source_id filter allows cross-source references to be resolved
-  const { data: refChunk } = useChunk(chunkHash);
+  const { data: refChunk, isError } = useChunk(chunkHash);
 
   const handleClick = (): void => {
     if (!refChunk) {
@@ -42,7 +42,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
     });
   };
 
-  if (!refChunk && !error) {
+  if (!refChunk && !isError && !error) {
     // Still loading
     return (
       <span
@@ -54,7 +54,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
     );
   }
 
-  if (error || !refChunk) {
+  if (isError || error || !refChunk) {
     return (
       <span
         className="px-3 py-1 bg-red-100 text-red-700 text-xs rounded cursor-not-allowed"
