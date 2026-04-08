@@ -14,6 +14,7 @@ interface FileMetadataPanelProps {
  * - title: string
  * - document_type: string
  * - file_size_bytes: number
+ * - created_at: ISO 8601 timestamp string
  * - modified_at: ISO 8601 timestamp string
  *
  * Renders only fields that are present in domain_metadata; omits absent fields entirely.
@@ -58,9 +59,10 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
   // Show error state
   if (isError) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full bg-red-50">
         <div className="text-center">
-          <p className="text-sm text-red-600">Failed to load metadata</p>
+          <p className="text-lg font-semibold text-red-700 mb-2">Failed to load metadata</p>
+          <p className="text-sm text-red-600">Please try selecting a different file</p>
         </div>
       </div>
     );
@@ -85,6 +87,7 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
   const title = domainMetadata.title;
   const documentType = domainMetadata.document_type;
   const fileSizeBytes = domainMetadata.file_size_bytes;
+  const createdAt = domainMetadata.created_at;
   const modifiedAt = domainMetadata.modified_at;
 
   return (
@@ -92,6 +95,12 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
       {title !== undefined && title !== null && <MetadataField label="Title" value={title} />}
       {documentType !== undefined && documentType !== null && <MetadataField label="Type" value={documentType} />}
       {fileSizeBytes !== undefined && fileSizeBytes !== null && typeof fileSizeBytes === 'number' && <MetadataField label="Size" value={formatBytes(fileSizeBytes)} />}
+      {createdAt !== undefined && createdAt !== null && typeof createdAt === 'string' && (
+        <div className="flex justify-between items-start py-1">
+          <span className="text-sm font-semibold text-gray-700">Created:</span>
+          <Timestamp value={createdAt} granularity="datetime" />
+        </div>
+      )}
       {modifiedAt !== undefined && modifiedAt !== null && typeof modifiedAt === 'string' && (
         <div className="flex justify-between items-start py-1">
           <span className="text-sm font-semibold text-gray-700">Modified:</span>
