@@ -9,11 +9,12 @@ export const useSources = (params: SourceQueryParams) =>
     staleTime: 10_000,
   });
 
-export const useSource = (sourceId: string) =>
+export const useSource = (sourceId: string, enabled = true) =>
   useQuery({
     queryKey: ['source', sourceId],
     queryFn: () => fetchSource(sourceId),
     staleTime: 10_000,
+    enabled: enabled && !!sourceId,
   });
 
 export const useVersionHistory = (sourceId: string) =>

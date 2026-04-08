@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ChunkResponse } from '../../types/api';
 import { useSource } from '../../hooks/useSources';
+import { extractDocumentMetadata } from '../../types/api';
 import { MetadataField } from '../shared/MetadataField';
 import { Timestamp } from '../shared/Timestamp';
 
@@ -34,12 +35,12 @@ interface FileMetadataPanelProps {
  * <FileMetadataPanel selectedSourceId="filesystem:///path/to/file.txt" chunks={chunks} isLoading={isLoading} isError={isError} />
  */
 export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError }: FileMetadataPanelProps): ReactNode {
-  // Fetch source-level metadata
+  // Fetch source-level metadata (only when a source is selected)
   const {
     data: sourceData,
     isLoading: isSourceLoading,
     isError: isSourceError,
-  } = useSource(selectedSourceId ?? '');
+  } = useSource(selectedSourceId ?? '', !!selectedSourceId);
   const source = sourceData && selectedSourceId ? sourceData : null;
   // Show placeholder when no source is selected
   if (!selectedSourceId) {
@@ -90,16 +91,17 @@ export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError
   const chunksToRender = chunks ?? [];
 
   // Extract chunk-level metadata from the first chunk's domain_metadata
-  const domainMetadata = chunksToRender.length > 0 ? chunksToRender[0].domain_metadata : null;
+  const rawDomainMetadata = chunksToRender.length > 0 ? chunksToRender[0].domain_metadata : null;
 
-  // Extract metadata fields from chunk-level domain_metadata, only if they exist
-  const title = domainMetadata?.title;
-  const documentType = domainMetadata?.document_type;
-  const fileSizeBytes = domainMetadata?.file_size_bytes;
-  const createdAt = domainMetadata?.created_at;
-  const modifiedAt = domainMetadata?.modified_at;
-  const author = domainMetadata?.author;
-  const tags = Array.isArray(domainMetadata?.tags) ? domainMetadata.tags : [];
+  // Extract and type metadata fields from chunk-level domain_metadata
+  const metadata = rawDomainMetadata ? extractDocumentMetadata(rawDomainMetadata) : null;
+  const title = metadata?.title;
+  const documentType = metadata?.document_type;
+  const fileSizeBytes = metadata?.file_size_bytes;
+  const createdAt = metadata?.created_at;
+  const modifiedAt = metadata?.modified_at;
+  const author = metadata?.author;
+  const tags = metadata?.tags ?? [];
 
   return (
     <div className="space-y-6">
@@ -131,7 +133,7 @@ export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError
       </div>
 
       {/* Chunk-level metadata section (from domain_metadata) */}
-      {domainMetadata && (
+      {metadata && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-gray-700 border-b pb-2">Document</h3>
           {title !== undefined && title !== null && <MetadataField label="Title" value={title} />}
@@ -158,8 +160,8 @@ export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError
             <div className="py-1">
               <span className="text-sm font-semibold text-gray-700 block mb-1">Tags:</span>
               <div className="flex flex-wrap gap-1">
-                {tags.map((tag) => (
-                  <span key={tag} className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
+                {tags.map((tag, index) => (
+                  <span key={`${tag}-${index}`} className="inline-block px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
                     {tag}
                   </span>
                 ))}
