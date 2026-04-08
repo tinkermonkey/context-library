@@ -50,7 +50,9 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
         "reports%archive/doc8.md",  # Source with % character (not special in GLOB)
         "data[0]/file.md",  # Source with brackets for GLOB escape sequence test
         "files*/archive/doc9.md",  # Source with GLOB wildcard * character
+        "filesX/archive/doc10.md",  # Control source for * escaping test
         "docs?/report.md",  # Source with GLOB wildcard ? character
+        "docsX/report2.md",  # Control source for ? escaping test
     ]
 
     for source_id in test_sources:
@@ -174,8 +176,8 @@ class TestSourceIdPrefixFilter:
         resp = client_with_hierarchical_sources.get("/sources")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 12
-        assert len(data["sources"]) == 12
+        assert data["total"] == 14
+        assert len(data["sources"]) == 14
 
     def test_prefix_filter_with_domain_filter(
         self, client_with_hierarchical_sources: TestClient
@@ -253,7 +255,7 @@ class TestSourceIdPrefixFilter:
         assert resp.status_code == 200
         data = resp.json()
         # Empty string matches everything (all sources start with empty string)
-        assert data["total"] == 12
+        assert data["total"] == 14
 
     def test_prefix_case_sensitive(
         self, client_with_hierarchical_sources: TestClient
@@ -438,52 +440,53 @@ class TestSourceIdPrefixFilter:
     ) -> None:
         """Test that * wildcard is properly escaped and not treated as a GLOB wildcard.
 
-        This test demonstrates that when * is escaped in the prefix, it matches only
-        the literal * character. If * were treated as a wildcard, searching for a prefix
-        before the * would match the source with *. By verifying that only the exact
-        "files*/" prefix matches, we confirm * is escaped.
+        This test verifies escaping works by using control sources. The prefix "files*/"
+        should match only "files*/archive/doc9.md" and NOT "filesX/archive/doc10.md".
+        If * were not properly escaped, it would act as a wildcard matching any single
+        character, causing "files*/" to match both sources.
         """
-        # Verify that "files*/" prefix works correctly and matches the source with literal *
+        # Search for exact prefix with * character (escaped)
         resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "files*/"})
         assert resp.status_code == 200
         data = resp.json()
-        # Should match the source with * in its name
+        # Should match only the source with literal * character
         assert data["total"] == 1
-        assert data["sources"][0]["source_id"] == "files*/archive/doc9.md"
+        source_id = data["sources"][0]["source_id"]
+        assert source_id == "files*/archive/doc9.md"
+        # Verify it does NOT match the control source "filesX/archive/doc10.md"
+        # (which proves * is not being treated as a wildcard matching any character)
 
-        # Now verify that "files" prefix also matches (it's a valid prefix of the source)
-        # but "filesx/" would NOT match (because the source is "files*", not "filesx")
-        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "files"})
+        # Verify the control source exists but is not matched by "files*/" prefix
+        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "filesX/"})
         assert resp2.status_code == 200
         data2 = resp2.json()
-        # "files" is a prefix of "files*/archive/doc9.md", so it should match
         assert data2["total"] == 1
-        assert data2["sources"][0]["source_id"] == "files*/archive/doc9.md"
+        assert data2["sources"][0]["source_id"] == "filesX/archive/doc10.md"
 
     def test_prefix_glob_question_not_treated_as_wildcard(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
         """Test that ? wildcard is properly escaped and not treated as a GLOB wildcard.
 
-        This test demonstrates that when ? is escaped in the prefix, it matches only
-        the literal ? character. If ? were treated as a wildcard, searching for a prefix
-        before the ? would match the source with ?. By verifying that the exact
-        "docs?/" prefix matches, we confirm ? is escaped.
+        This test verifies escaping works by using control sources. The prefix "docs?/"
+        should match only "docs?/report.md" and NOT "docsX/report2.md".
+        If ? were not properly escaped, it would act as a wildcard matching any single
+        character, causing "docs?/" to match both sources.
         """
-        # Verify that "docs?/" prefix works correctly and matches the source with literal ?
+        # Search for exact prefix with ? character (escaped)
         resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docs?/"})
         assert resp.status_code == 200
         data = resp.json()
-        # Should match the source with ? in its name
+        # Should match only the source with literal ? character
         assert data["total"] == 1
-        assert data["sources"][0]["source_id"] == "docs?/report.md"
+        source_id = data["sources"][0]["source_id"]
+        assert source_id == "docs?/report.md"
+        # Verify it does NOT match the control source "docsX/report2.md"
+        # (which proves ? is not being treated as a wildcard matching any character)
 
-        # Now verify that "docs" prefix also matches (it's a valid prefix of the source)
-        # This confirms that the ? character is properly escaped - if it were treated as
-        # a wildcard matching any single character, "docs" would also match through the wildcard
-        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docs"})
+        # Verify the control source exists but is not matched by "docs?/" prefix
+        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docsX/"})
         assert resp2.status_code == 200
         data2 = resp2.json()
-        # "docs" is a prefix of "docs?/report.md", so it should match
         assert data2["total"] == 1
-        assert data2["sources"][0]["source_id"] == "docs?/report.md"
+        assert data2["sources"][0]["source_id"] == "docsX/report2.md"
