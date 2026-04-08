@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildFileTree } from './fileTree';
 import type { SourceSummary } from '../types/api';
+import type { FolderNode, FileNode, FileTreeNode } from './fileTree';
 
 /**
  * Helper function to create a minimal SourceSummary for testing.
@@ -27,6 +28,26 @@ function createSource(sourceId: string, adapterId: string = 'adapter:default'): 
   };
 }
 
+/**
+ * Assertion function to narrow a node to FolderNode.
+ * Throws if the node is not a folder.
+ */
+function assertFolder(node: FileTreeNode): asserts node is FolderNode {
+  if (node.type !== 'folder') {
+    throw new Error(`Expected folder node, got ${node.type}`);
+  }
+}
+
+/**
+ * Assertion function to narrow a node to FileNode.
+ * Throws if the node is not a file.
+ */
+function assertFile(node: FileTreeNode): asserts node is FileNode {
+  if (node.type !== 'file') {
+    throw new Error(`Expected file node, got ${node.type}`);
+  }
+}
+
 describe('buildFileTree', () => {
   it('returns empty array for empty input', () => {
     const result = buildFileTree([]);
@@ -45,8 +66,10 @@ describe('buildFileTree', () => {
     });
 
     const adapterRoot = result[0];
+    assertFolder(adapterRoot);
     expect(adapterRoot.children).toHaveLength(1);
-    expect(adapterRoot.children![0]).toMatchObject({
+    const fileNode = adapterRoot.children[0];
+    expect(fileNode).toMatchObject({
       name: 'file.txt',
       path: 'filesystem:a/file.txt',
       type: 'file',
@@ -60,21 +83,25 @@ describe('buildFileTree', () => {
     expect(result).toHaveLength(1);
     const adapterRoot = result[0];
     expect(adapterRoot.name).toBe('filesystem:a');
+    assertFolder(adapterRoot);
 
     // Navigate the tree: filesystem:a -> projects -> alpha -> design.md
-    const projectsFolder = adapterRoot.children![0];
+    const projectsFolder = adapterRoot.children[0];
     expect(projectsFolder.name).toBe('projects');
     expect(projectsFolder.type).toBe('folder');
+    assertFolder(projectsFolder);
 
-    const alphaFolder = projectsFolder.children![0];
+    const alphaFolder = projectsFolder.children[0];
     expect(alphaFolder.name).toBe('alpha');
     expect(alphaFolder.type).toBe('folder');
+    assertFolder(alphaFolder);
 
-    const designFile = alphaFolder.children![0];
+    const designFile = alphaFolder.children[0];
     expect(designFile.name).toBe('design.md');
     expect(designFile.type).toBe('file');
+    assertFile(designFile);
     expect(designFile.source).toBeDefined();
-    expect(designFile.source!.source_id).toBe('projects/alpha/design.md');
+    expect(designFile.source.source_id).toBe('projects/alpha/design.md');
   });
 
   it('synthesizes intermediate folder nodes without direct file children', () => {
@@ -85,24 +112,28 @@ describe('buildFileTree', () => {
     const result = buildFileTree(sources);
 
     const adapterRoot = result[0];
-    const aFolder = adapterRoot.children![0];
+    assertFolder(adapterRoot);
+    const aFolder = adapterRoot.children[0];
     expect(aFolder.name).toBe('a');
     expect(aFolder.type).toBe('folder');
+    assertFolder(aFolder);
     // aFolder should only have one child (b folder), not the files
-    expect(aFolder.children!.length).toBe(1);
+    expect(aFolder.children.length).toBe(1);
 
-    const bFolder = aFolder.children![0];
+    const bFolder = aFolder.children[0];
     expect(bFolder.name).toBe('b');
     expect(bFolder.type).toBe('folder');
+    assertFolder(bFolder);
 
-    const cFolder = bFolder.children![0];
+    const cFolder = bFolder.children[0];
     expect(cFolder.name).toBe('c');
     expect(cFolder.type).toBe('folder');
+    assertFolder(cFolder);
 
     // cFolder should have both files
-    expect(cFolder.children!.length).toBe(2);
-    expect(cFolder.children![0].name).toBe('file1.txt');
-    expect(cFolder.children![1].name).toBe('file2.txt');
+    expect(cFolder.children.length).toBe(2);
+    expect(cFolder.children[0].name).toBe('file1.txt');
+    expect(cFolder.children[1].name).toBe('file2.txt');
   });
 
   it('groups sources by adapter_id at root level', () => {
@@ -119,10 +150,12 @@ describe('buildFileTree', () => {
 
     // adapter:a should have 2 files
     const adapterA = result.find((n) => n.name === 'adapter:a')!;
+    assertFolder(adapterA);
     expect(adapterA.children).toHaveLength(2);
 
     // adapter:b should have 1 file
     const adapterB = result.find((n) => n.name === 'adapter:b')!;
+    assertFolder(adapterB);
     expect(adapterB.children).toHaveLength(1);
   });
 
@@ -136,7 +169,8 @@ describe('buildFileTree', () => {
     const result = buildFileTree(sources);
 
     const adapterRoot = result[0];
-    const children = adapterRoot.children!;
+    assertFolder(adapterRoot);
+    const children = adapterRoot.children;
 
     // Folders should come first
     expect(children[0].type).toBe('folder');
@@ -155,16 +189,18 @@ describe('buildFileTree', () => {
 
     let current = result[0];
     expect(current.name).toBe('filesystem:a');
+    assertFolder(current);
 
     for (const expectedName of ['a', 'b', 'c', 'd', 'e', 'f']) {
-      const next = current.children![0];
+      const next = current.children[0];
       expect(next.name).toBe(expectedName);
       expect(next.type).toBe('folder');
+      assertFolder(next);
       current = next;
     }
 
     // Final child should be the file
-    const deepFile = current.children![0];
+    const deepFile = current.children[0];
     expect(deepFile.name).toBe('deep.txt');
     expect(deepFile.type).toBe('file');
   });
@@ -174,7 +210,8 @@ describe('buildFileTree', () => {
     const result = buildFileTree(sources);
 
     const adapterRoot = result[0];
-    const folderNode = adapterRoot.children![0];
+    assertFolder(adapterRoot);
+    const folderNode = adapterRoot.children[0];
     expect(folderNode.name).toBe('folder');
   });
 
@@ -187,17 +224,20 @@ describe('buildFileTree', () => {
     const result = buildFileTree(sources);
 
     const adapterRoot = result[0];
-    const folderNode = adapterRoot.children![0];
+    assertFolder(adapterRoot);
+    const folderNode = adapterRoot.children[0];
     expect(folderNode.name).toBe('folder');
     expect(folderNode.type).toBe('folder');
+    assertFolder(folderNode);
 
     // All files should be under the folder, without empty-string nodes
-    const fileNames = folderNode.children!.map((child) => child.name).sort();
+    const fileNames = folderNode.children.map((child) => child.name).sort();
     expect(fileNames).toEqual(['file1.txt', 'file2.txt', 'subfolder']);
 
     // Deep nested path should also work correctly
-    const subfolderNode = folderNode.children!.find((child) => child.name === 'subfolder')!;
-    const deepFile = subfolderNode.children![0];
+    const subfolderNode = folderNode.children.find((child) => child.name === 'subfolder')!;
+    assertFolder(subfolderNode);
+    const deepFile = subfolderNode.children[0];
     expect(deepFile.name).toBe('file3.txt');
     expect(deepFile.type).toBe('file');
   });
@@ -222,11 +262,14 @@ describe('buildFileTree', () => {
     ];
 
     const result = buildFileTree(sources);
-    const fileNode = result[0].children![0];
+    const adapterRoot = result[0];
+    assertFolder(adapterRoot);
+    const fileNode = adapterRoot.children[0];
+    assertFile(fileNode);
 
     expect(fileNode.source).toEqual(sources[0]);
-    expect(fileNode.source!.display_name).toBe('Test Document');
-    expect(fileNode.source!.current_version).toBe(42);
+    expect(fileNode.source.display_name).toBe('Test Document');
+    expect(fileNode.source.current_version).toBe(42);
   });
 
   it('builds correct paths for all nodes', () => {
@@ -235,14 +278,17 @@ describe('buildFileTree', () => {
 
     const adapterRoot = result[0];
     expect(adapterRoot.path).toBe('adapter:a');
+    assertFolder(adapterRoot);
 
-    const dir = adapterRoot.children![0];
+    const dir = adapterRoot.children[0];
     expect(dir.path).toBe('adapter:a/dir');
+    assertFolder(dir);
 
-    const subdir = dir.children![0];
+    const subdir = dir.children[0];
     expect(subdir.path).toBe('adapter:a/dir/subdir');
+    assertFolder(subdir);
 
-    const file = subdir.children![0];
+    const file = subdir.children[0];
     expect(file.path).toBe('adapter:a/dir/subdir/file.txt');
   });
 
@@ -253,14 +299,16 @@ describe('buildFileTree', () => {
     expect(result).toHaveLength(1);
     const adapterRoot = result[0];
     expect(adapterRoot.name).toBe('adapter:a');
+    assertFolder(adapterRoot);
 
     // Empty source_id should create a file node with default name
     expect(adapterRoot.children).toHaveLength(1);
-    const fileNode = adapterRoot.children![0];
+    const fileNode = adapterRoot.children[0];
     expect(fileNode.name).toBe('(unnamed)');
     expect(fileNode.path).toBe('adapter:a/(unnamed)');
     expect(fileNode.type).toBe('file');
+    assertFile(fileNode);
     expect(fileNode.source).toBeDefined();
-    expect(fileNode.source!.source_id).toBe('');
+    expect(fileNode.source.source_id).toBe('');
   });
 });

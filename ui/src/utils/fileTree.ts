@@ -137,11 +137,14 @@ function insertSourceIntoTree(adapterRoot: FolderNode, source: SourceSummary): v
     const part = parts[i];
     const folderPath = `${currentNode.path}/${part}`;
 
-    let childNode = currentNode.children.find(
-      (child) => child.name === part && child.type === 'folder'
-    ) as FolderNode | undefined;
+    let foundChild = currentNode.children.find(
+      (child) => child.name === part && isFolderNode(child)
+    );
 
-    if (!childNode) {
+    let childNode: FolderNode;
+    if (foundChild && isFolderNode(foundChild)) {
+      childNode = foundChild;
+    } else {
       childNode = {
         name: part,
         path: folderPath,
@@ -166,6 +169,14 @@ function insertSourceIntoTree(adapterRoot: FolderNode, source: SourceSummary): v
   };
 
   currentNode.children.push(fileNode);
+}
+
+/**
+ * Type predicate to narrow a FileTreeNode to FolderNode.
+ * Used with array.find() to safely narrow types.
+ */
+function isFolderNode(node: FileTreeNode): node is FolderNode {
+  return node.type === 'folder';
 }
 
 /**
