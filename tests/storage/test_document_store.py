@@ -4255,6 +4255,249 @@ class TestListSources:
         assert total2 == 1   # total is full match count, not page count
         assert len(rows2) == 0
 
+    def test_source_id_prefix_filter_basic(self, store: DocumentStore) -> None:
+        """Test basic source_id_prefix filtering at the storage layer."""
+        # Register adapter
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create sources with hierarchical paths
+        test_sources = [
+            "projects/alpha/doc1.md",
+            "projects/beta/doc2.md",
+            "notes/doc3.md",
+        ]
+        for source_id in test_sources:
+            store.register_source(
+                source_id=source_id,
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{source_id}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Test prefix matching
+        rows, total = store.list_sources(source_id_prefix="projects/")
+        assert total == 2
+        assert len(rows) == 2
+        assert rows[0]["source_id"] == "projects/alpha/doc1.md"
+        assert rows[1]["source_id"] == "projects/beta/doc2.md"
+
+    def test_source_id_prefix_filter_no_matches(self, store: DocumentStore) -> None:
+        """Test source_id_prefix filtering with no matching sources."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        store.register_source(
+            source_id="projects/doc.md",
+            adapter_id="fs-adapter",
+            domain=Domain.DOCUMENTS,
+            origin_ref="/fs/projects/doc.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        # Test non-matching prefix
+        rows, total = store.list_sources(source_id_prefix="notes/")
+        assert total == 0
+        assert rows == []
+
+    def test_source_id_prefix_glob_star_escaped(self, store: DocumentStore) -> None:
+        """Test that * (asterisk) GLOB wildcard is properly escaped in source_id_prefix."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create sources with * in the source_id
+        test_sources = [
+            "files*/archive/doc1.md",
+            "filesX/archive/doc2.md",
+        ]
+        for source_id in test_sources:
+            store.register_source(
+                source_id=source_id,
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{source_id}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Search for exact prefix with * - should match the source with literal *
+        rows, total = store.list_sources(source_id_prefix="files*/")
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "files*/archive/doc1.md"
+
+        # Verify that "files" prefix matches both sources (it's a prefix of both)
+        # This demonstrates that * is properly escaped - the prefix matching works correctly
+        rows2, total2 = store.list_sources(source_id_prefix="files")
+        assert total2 == 2
+        source_ids = [r["source_id"] for r in rows2]
+        assert "files*/archive/doc1.md" in source_ids
+        assert "filesX/archive/doc2.md" in source_ids
+
+    def test_source_id_prefix_glob_question_escaped(self, store: DocumentStore) -> None:
+        """Test that ? (question mark) GLOB wildcard is properly escaped in source_id_prefix."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create sources with ? in the source_id
+        test_sources = [
+            "docs?/report.md",
+            "docsX/report2.md",
+        ]
+        for source_id in test_sources:
+            store.register_source(
+                source_id=source_id,
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{source_id}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Search for exact prefix with ? - should match the source with literal ?
+        rows, total = store.list_sources(source_id_prefix="docs?/")
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "docs?/report.md"
+
+        # Verify that "docs" prefix matches both sources (it's a prefix of both)
+        # This demonstrates that ? is properly escaped - the prefix matching works correctly
+        rows2, total2 = store.list_sources(source_id_prefix="docs")
+        assert total2 == 2
+        source_ids = [r["source_id"] for r in rows2]
+        assert "docs?/report.md" in source_ids
+        assert "docsX/report2.md" in source_ids
+
+    def test_source_id_prefix_brackets_escaped(self, store: DocumentStore) -> None:
+        """Test that [ and ] GLOB character class delimiters are properly escaped."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create sources with brackets in the source_id
+        test_sources = [
+            "data[0]/file.md",
+            "datax/file3.md",
+        ]
+        for source_id in test_sources:
+            store.register_source(
+                source_id=source_id,
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{source_id}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Search for prefix with literal brackets - should only match the source with brackets
+        rows, total = store.list_sources(source_id_prefix="data[0]/")
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "data[0]/file.md"
+
+        # "data[" as a prefix should only match sources starting with "data[" (not "datax")
+        # If brackets were treated as character class [01], searching for "data[" would match
+        # both "data[0]" and other sources, but since they're escaped it only matches "data["
+        rows2, total2 = store.list_sources(source_id_prefix="data[")
+        assert total2 == 1
+        assert rows2[0]["source_id"] == "data[0]/file.md"
+
+    def test_source_id_prefix_with_pagination(self, store: DocumentStore) -> None:
+        """Test that source_id_prefix works with pagination parameters."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create multiple sources with the same prefix
+        for i in range(5):
+            store.register_source(
+                source_id=f"projects/doc{i}.md",
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/projects/doc{i}.md",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Test pagination with prefix filter
+        rows, total = store.list_sources(source_id_prefix="projects/", limit=2, offset=0)
+        assert total == 5  # Total matching count
+        assert len(rows) == 2  # Page size
+        assert rows[0]["source_id"] == "projects/doc0.md"
+        assert rows[1]["source_id"] == "projects/doc1.md"
+
+        # Test second page
+        rows2, total2 = store.list_sources(source_id_prefix="projects/", limit=2, offset=2)
+        assert total2 == 5
+        assert len(rows2) == 2
+        assert rows2[0]["source_id"] == "projects/doc2.md"
+
+    def test_source_id_prefix_case_sensitive(self, store: DocumentStore) -> None:
+        """Test that source_id_prefix matching is case-sensitive (GLOB behavior)."""
+        config = AdapterConfig(
+            adapter_id="fs-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Create sources with different cases
+        test_sources = [
+            "projects/doc.md",
+            "Projects/doc.md",
+        ]
+        for source_id in test_sources:
+            store.register_source(
+                source_id=source_id,
+                adapter_id="fs-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{source_id}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+
+        # Lowercase prefix should only match lowercase sources
+        rows, total = store.list_sources(source_id_prefix="projects/")
+        assert total == 1
+        assert rows[0]["source_id"] == "projects/doc.md"
+
+        # Uppercase prefix should only match uppercase sources
+        rows2, total2 = store.list_sources(source_id_prefix="Projects/")
+        assert total2 == 1
+        assert rows2[0]["source_id"] == "Projects/doc.md"
+
 
 class TestGetSourceDetail:
     """Tests for DocumentStore.get_source_detail()."""

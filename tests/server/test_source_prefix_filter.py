@@ -37,7 +37,7 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
     )
     store.register_adapter(config)
 
-    # Create sources with hierarchical paths, including ones with SQL wildcard characters
+    # Create sources with hierarchical paths, including ones with GLOB wildcard characters
     test_sources = [
         "projects/alpha/doc1.md",
         "projects/alpha/doc2.md",
@@ -46,9 +46,11 @@ def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
         "projects/beta/subfolder/doc5.md",
         "notes/personal/doc6.md",
         "notes/work/doc7.md",
-        "projects_test/doc.md",  # Source with underscore for wildcard injection test
-        "reports%archive/doc8.md",  # Source with % character for wildcard injection test
+        "projects_test/doc.md",  # Source with underscore (not special in GLOB)
+        "reports%archive/doc8.md",  # Source with % character (not special in GLOB)
         "data[0]/file.md",  # Source with brackets for GLOB escape sequence test
+        "files*/archive/doc9.md",  # Source with GLOB wildcard * character
+        "docs?/report.md",  # Source with GLOB wildcard ? character
     ]
 
     for source_id in test_sources:
@@ -172,8 +174,8 @@ class TestSourceIdPrefixFilter:
         resp = client_with_hierarchical_sources.get("/sources")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 10
-        assert len(data["sources"]) == 10
+        assert data["total"] == 12
+        assert len(data["sources"]) == 12
 
     def test_prefix_filter_with_domain_filter(
         self, client_with_hierarchical_sources: TestClient
@@ -251,7 +253,7 @@ class TestSourceIdPrefixFilter:
         assert resp.status_code == 200
         data = resp.json()
         # Empty string matches everything (all sources start with empty string)
-        assert data["total"] == 10
+        assert data["total"] == 12
 
     def test_prefix_case_sensitive(
         self, client_with_hierarchical_sources: TestClient
@@ -305,30 +307,28 @@ class TestSourceIdPrefixFilter:
     def test_prefix_with_sql_wildcards_escaped(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
-        """Test that SQL wildcard characters in prefix are properly escaped.
+        """Test that special characters in prefix are properly handled by GLOB.
 
-        This is a regression test for SQL wildcard injection vulnerability.
-        Prefixes containing _ (underscore) should be escaped and not treated as wildcards.
-        The test source "projects_test/doc.md" should only match the exact prefix,
-        not match "projects/" via wildcard matching on the underscore character.
+        In GLOB, underscore (_) and percent (%) are not wildcards (they are literal characters),
+        unlike in SQL LIKE where they have special meaning. This test ensures that sources
+        with literal underscore characters can be found by exact prefix matching.
         """
         # Search for exact prefix with underscore - should only match the specific source
         resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects_test/")
         assert resp.status_code == 200
         data = resp.json()
         # Should only match "projects_test/" not "projects/alpha/" or "projects/beta/"
-        # If _ were treated as a wildcard, it would match "projects/test/", etc.
+        # In GLOB, _ is literal, not a wildcard
         assert data["total"] == 1
         assert data["sources"][0]["source_id"] == "projects_test/doc.md"
 
     def test_prefix_with_underscore_exact_match(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
-        """Test that underscore in prefix doesn't introduce unexpected matches.
+        """Test that underscore in prefix matches literal underscore characters.
 
-        Regression test for SQL wildcard injection. In SQL LIKE, underscore (_) is a
-        wildcard that matches any single character. This test verifies that underscores
-        in the prefix parameter are escaped so they match only the literal underscore.
+        In GLOB, underscore (_) is not a wildcard (unlike SQL LIKE). This test verifies
+        that prefixes containing underscores match only sources with literal underscores.
         """
         # Search for exact prefix with underscore
         resp = client_with_hierarchical_sources.get("/sources?source_id_prefix=projects_test/")
@@ -350,12 +350,11 @@ class TestSourceIdPrefixFilter:
     def test_prefix_with_percent_wildcard_escaped(
         self, client_with_hierarchical_sources: TestClient
     ) -> None:
-        """Test that % wildcard character in prefix is properly escaped.
+        """Test that % character in prefix matches literal % characters.
 
-        Regression test for SQL LIKE wildcard injection. In SQL LIKE, % is a wildcard
-        that matches any sequence of characters. When switching to GLOB, % is no longer
-        special, but we still need to test that sources with literal % characters can
-        be found by prefix matching.
+        In GLOB, percent (%) is not a wildcard (unlike SQL LIKE where it matches any
+        sequence of characters). This test verifies that sources with literal % characters
+        can be found by exact prefix matching.
         """
         # Search for prefix with % character, using params kwarg for proper URL encoding
         resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "reports%archive/"})
@@ -397,3 +396,94 @@ class TestSourceIdPrefixFilter:
         # Should only match the source with actual bracket characters
         assert data["total"] == 1
         assert data["sources"][0]["source_id"] == "data[0]/file.md"
+
+    def test_prefix_with_glob_star_wildcard_escaped(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that * (asterisk) wildcard character in prefix is properly escaped.
+
+        Regression test for GLOB escape sequence correctness. In GLOB patterns, * is a
+        wildcard matching any sequence of characters. This test verifies that sources with
+        literal * characters can be found by exact prefix matching, not by treating * as
+        a wildcard that matches multiple characters.
+        """
+        # Search for prefix with * character, using params kwarg for proper URL encoding
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "files*/"})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match the source with actual * character
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "files*/archive/doc9.md"
+
+    def test_prefix_with_glob_question_wildcard_escaped(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that ? (question mark) wildcard character in prefix is properly escaped.
+
+        Regression test for GLOB escape sequence correctness. In GLOB patterns, ? is a
+        wildcard matching any single character. This test verifies that sources with
+        literal ? characters can be found by exact prefix matching, not by treating ? as
+        a wildcard that matches a single character.
+        """
+        # Search for prefix with ? character, using params kwarg for proper URL encoding
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docs?/"})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should only match the source with actual ? character
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "docs?/report.md"
+
+    def test_prefix_glob_star_not_treated_as_wildcard(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that * wildcard is properly escaped and not treated as a GLOB wildcard.
+
+        This test demonstrates that when * is escaped in the prefix, it matches only
+        the literal * character. If * were treated as a wildcard, searching for a prefix
+        before the * would match the source with *. By verifying that only the exact
+        "files*/" prefix matches, we confirm * is escaped.
+        """
+        # Verify that "files*/" prefix works correctly and matches the source with literal *
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "files*/"})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should match the source with * in its name
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "files*/archive/doc9.md"
+
+        # Now verify that "files" prefix also matches (it's a valid prefix of the source)
+        # but "filesx/" would NOT match (because the source is "files*", not "filesx")
+        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "files"})
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        # "files" is a prefix of "files*/archive/doc9.md", so it should match
+        assert data2["total"] == 1
+        assert data2["sources"][0]["source_id"] == "files*/archive/doc9.md"
+
+    def test_prefix_glob_question_not_treated_as_wildcard(
+        self, client_with_hierarchical_sources: TestClient
+    ) -> None:
+        """Test that ? wildcard is properly escaped and not treated as a GLOB wildcard.
+
+        This test demonstrates that when ? is escaped in the prefix, it matches only
+        the literal ? character. If ? were treated as a wildcard, searching for a prefix
+        before the ? would match the source with ?. By verifying that the exact
+        "docs?/" prefix matches, we confirm ? is escaped.
+        """
+        # Verify that "docs?/" prefix works correctly and matches the source with literal ?
+        resp = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docs?/"})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should match the source with ? in its name
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "docs?/report.md"
+
+        # Now verify that "docs" prefix also matches (it's a valid prefix of the source)
+        # This confirms that the ? character is properly escaped - if it were treated as
+        # a wildcard matching any single character, "docs" would also match through the wildcard
+        resp2 = client_with_hierarchical_sources.get("/sources", params={"source_id_prefix": "docs"})
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        # "docs" is a prefix of "docs?/report.md", so it should match
+        assert data2["total"] == 1
+        assert data2["sources"][0]["source_id"] == "docs?/report.md"
