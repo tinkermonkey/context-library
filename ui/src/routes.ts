@@ -9,6 +9,7 @@ import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
 import BrowserPage from './routes/browser'
 import BrowserVersionsPage from './routes/browser.versions.$sourceId'
+import BrowserFilesPage from './routes/browser.files'
 import SearchPage from './routes/search'
 import {
   indexSearchSchema,
@@ -16,6 +17,7 @@ import {
   domainViewSearchSchema,
   domainCatalogSearchSchema,
   searchSearchSchema,
+  fileBrowserSearchSchema,
 } from './routes-config'
 
 // Lazy load DomainViewPage to enable code splitting
@@ -48,6 +50,13 @@ const browserVersionsRoute = createRoute({
   component: BrowserVersionsPage,
 })
 
+const browserFilesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/browser/files',
+  component: BrowserFilesPage,
+  validateSearch: (search: unknown) => fileBrowserSearchSchema.parse(search),
+})
+
 const domainViewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/browser/view/$domain/$sourceId',
@@ -71,7 +80,7 @@ const searchRoute = createRoute({
   validateSearch: (search: unknown) => searchSearchSchema.parse(search),
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, domainViewRoute, domainCatalogRoute, searchRoute])
+const routeTree = rootRoute.addChildren([indexRoute, browserRoute, browserVersionsRoute, browserFilesRoute, domainViewRoute, domainCatalogRoute, searchRoute])
 
 export const router = createRouter({ routeTree })
 

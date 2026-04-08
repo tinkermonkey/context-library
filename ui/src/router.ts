@@ -7,5 +7,6 @@ export type {
   BrowserPageSearch,
   DomainViewPageSearch,
   SearchPageSearch,
+  FileBrowserPageSearch,
 } from './routes-config'
 export { router } from './routes'

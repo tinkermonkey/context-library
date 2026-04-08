@@ -261,6 +261,7 @@ export interface QueryResponse {
 export interface SourceQueryParams {
   adapter_id?: string;
   domain?: string;
+  source_id_prefix?: string;
   limit?: number;
   offset?: number;
 }
