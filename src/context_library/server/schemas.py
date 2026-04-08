@@ -188,6 +188,16 @@ class AdapterListResponse(BaseModel):
 # ── Sources ─────────────────────────────────────────────────────────
 
 
+class SourceQueryParams(BaseModel):
+    """Query parameters for GET /sources endpoint."""
+
+    adapter_id: str | None = None
+    domain: str | None = None
+    source_id_prefix: str | None = None
+    limit: int = 50
+    offset: int = 0
+
+
 class SourceSummary(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

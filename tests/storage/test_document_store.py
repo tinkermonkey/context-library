@@ -4463,8 +4463,8 @@ class TestListSources:
         assert len(rows2) == 2
         assert rows2[0]["source_id"] == "projects/doc2.md"
 
-    def test_source_id_prefix_case_sensitive(self, store: DocumentStore) -> None:
-        """Test that source_id_prefix matching is case-sensitive (GLOB behavior)."""
+    def test_source_id_prefix_case_insensitive(self, store: DocumentStore) -> None:
+        """Test that source_id_prefix matching is case-insensitive (LIKE behavior)."""
         config = AdapterConfig(
             adapter_id="fs-adapter",
             adapter_type="filesystem",
@@ -4488,15 +4488,17 @@ class TestListSources:
                 poll_interval_sec=3600,
             )
 
-        # Lowercase prefix should only match lowercase sources
+        # Lowercase prefix should match both lowercase and uppercase sources
         rows, total = store.list_sources(source_id_prefix="projects/")
-        assert total == 1
-        assert rows[0]["source_id"] == "projects/doc.md"
+        assert total == 2
+        source_ids = {r["source_id"] for r in rows}
+        assert source_ids == {"projects/doc.md", "Projects/doc.md"}
 
-        # Uppercase prefix should only match uppercase sources
+        # Uppercase prefix should also match both (case-insensitive)
         rows2, total2 = store.list_sources(source_id_prefix="Projects/")
-        assert total2 == 1
-        assert rows2[0]["source_id"] == "Projects/doc.md"
+        assert total2 == 2
+        source_ids2 = {r["source_id"] for r in rows2}
+        assert source_ids2 == {"projects/doc.md", "Projects/doc.md"}
 
 
 class TestGetSourceDetail:
