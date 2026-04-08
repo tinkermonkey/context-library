@@ -1975,6 +1975,7 @@ class DocumentStore:
         self,
         domain: Optional[str] = None,
         adapter_id: Optional[str] = None,
+        source_id_prefix: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
@@ -1983,6 +1984,7 @@ class DocumentStore:
         Args:
             domain: Optional domain filter.
             adapter_id: Optional adapter_id filter.
+            source_id_prefix: Optional prefix filter on source_id.
             limit: Maximum number of results to return.
             offset: Number of results to skip.
 
@@ -1999,6 +2001,9 @@ class DocumentStore:
         if adapter_id is not None:
             where_clauses.append("s.adapter_id = ?")
             filter_params.append(adapter_id)
+        if source_id_prefix is not None:
+            where_clauses.append("s.source_id LIKE ? || '%'")
+            filter_params.append(source_id_prefix)
         where_sql = " AND ".join(where_clauses)
 
         # Total count of matching sources (without LIMIT/OFFSET)
