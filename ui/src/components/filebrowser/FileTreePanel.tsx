@@ -24,25 +24,45 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch all document sources
-  const { data: sourcesData, isLoading, isError } = useSources({
+  // Fetch all document sources, filtering to filesystem adapters only with a high limit
+  // to avoid silent truncation at the default 50 sources
+  const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
+    limit: 5000,
+  });
+
+  // Filter to only filesystem-based adapters
+  const allSources = sourcesData?.sources ?? [];
+  const sources = allSources.filter((source) => {
+    // Accept adapters with adapter_type starting with "Filesystem" (FilesystemAdapter,
+    // FilesystemHelperAdapter, RichFilesystemAdapter, etc.)
+    return source.adapter_type.startsWith('Filesystem');
   });
 
   // Build file tree from sources
-  const sources = sourcesData?.sources ?? [];
   const fileTree = buildFileTree(sources);
 
   // Compute ancestor paths of selected file for auto-expansion
   const getSelectedFileAncestors = (): string[] => {
     if (!selectedSourceId) return [];
-    const parts = selectedSourceId.split('/');
-    let currentPath = '';
-    const ancestorPaths: string[] = [];
+
+    // Find the first filesystem source to determine its adapter_id
+    // All filesystem sources from the same adapter will have the same prefix
+    const matchingSource = sources.find((s) => s.source_id === selectedSourceId);
+    if (!matchingSource) return [];
+
+    const adapterId = matchingSource.adapter_id;
+
+    // Build paths with adapter_id prefix, matching tree node structure
+    const parts = selectedSourceId.split('/').filter(Boolean);
+    let currentPath = adapterId;
+    const ancestorPaths: string[] = [adapterId]; // Include root adapter node
+
     for (let i = 0; i < parts.length - 1; i++) {
-      currentPath += (currentPath ? '/' : '') + parts[i];
+      currentPath += '/' + parts[i];
       ancestorPaths.push(currentPath);
     }
+
     return ancestorPaths;
   };
 
@@ -58,9 +78,10 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   }
 
   if (isError) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to load file tree';
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded">
-        <p className="text-red-900 font-semibold text-sm">Failed to load file tree</p>
+        <p className="text-red-900 font-semibold text-sm">{errorMessage}</p>
       </div>
     );
   }
