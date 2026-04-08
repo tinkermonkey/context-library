@@ -21,7 +21,11 @@ export function FileContentPanel({ selectedSourceId }: FileContentPanelProps): R
   // Always call the hook at the top level (even if selectedSourceId is null)
   // The hook will be disabled when selectedSourceId is null
   const { data: chunksData, isLoading, isError, error } = useSourceChunks(
-    selectedSourceId ?? ''
+    selectedSourceId ?? '',
+    undefined,
+    undefined,
+    undefined,
+    !!selectedSourceId
   );
 
   // Show placeholder when no source is selected

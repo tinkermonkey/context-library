@@ -24,7 +24,13 @@ interface FileMetadataPanelProps {
 export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps): ReactNode {
   // Always call the hook at the top level (even if selectedSourceId is null)
   // The hook will be disabled when selectedSourceId is null
-  const { data: chunksData } = useSourceChunks(selectedSourceId ?? '');
+  const { data: chunksData, isLoading, isError } = useSourceChunks(
+    selectedSourceId ?? '',
+    undefined,
+    undefined,
+    undefined,
+    !!selectedSourceId
+  );
 
   // Show placeholder when no source is selected
   if (!selectedSourceId) {
@@ -33,6 +39,28 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
         <div className="text-center">
           <p className="text-lg">No file selected</p>
           <p className="text-sm mt-2">Select a file to view its metadata</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while metadata is being fetched
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-400">
+        <div className="text-center">
+          <p className="text-sm">Loading metadata…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (isError) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-400">
+        <div className="text-center">
+          <p className="text-sm text-red-600">Failed to load metadata</p>
         </div>
       </div>
     );
@@ -63,11 +91,11 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
     <div className="space-y-4">
       {title !== undefined && title !== null && <MetadataField label="Title" value={title} />}
       {documentType !== undefined && documentType !== null && <MetadataField label="Type" value={documentType} />}
-      {fileSizeBytes !== undefined && fileSizeBytes !== null && <MetadataField label="Size" value={formatBytes(fileSizeBytes as number)} />}
-      {modifiedAt !== undefined && modifiedAt !== null && (
+      {fileSizeBytes !== undefined && fileSizeBytes !== null && typeof fileSizeBytes === 'number' && <MetadataField label="Size" value={formatBytes(fileSizeBytes)} />}
+      {modifiedAt !== undefined && modifiedAt !== null && typeof modifiedAt === 'string' && (
         <div className="flex justify-between items-start py-1">
           <span className="text-sm font-semibold text-gray-700">Modified:</span>
-          <Timestamp value={modifiedAt as string} granularity="datetime" />
+          <Timestamp value={modifiedAt} granularity="datetime" />
         </div>
       )}
     </div>
@@ -76,13 +104,15 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
 
 /**
  * Format bytes into human-readable file size (e.g., "1.5 MB").
+ * Handles edge cases: negative numbers, zero, and values beyond GB.
  */
 function formatBytes(bytes: number): string {
+  if (bytes < 0) return '0 B';
   if (bytes === 0) return '0 B';
 
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
 
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
