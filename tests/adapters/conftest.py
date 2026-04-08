@@ -1,7 +1,6 @@
 """Fixtures and configuration for adapter tests."""
 
 import sys
-import gc
 from unittest.mock import MagicMock
 
 import httpx
