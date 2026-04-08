@@ -137,7 +137,7 @@ function insertSourceIntoTree(adapterRoot: FolderNode, source: SourceSummary): v
     const part = parts[i];
     const folderPath = `${currentNode.path}/${part}`;
 
-    let foundChild = currentNode.children.find(
+    const foundChild = currentNode.children.find(
       (child) => child.name === part && isFolderNode(child)
     );
 

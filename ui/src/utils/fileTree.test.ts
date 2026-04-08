@@ -192,7 +192,11 @@ describe('buildFileTree', () => {
     assertFolder(current);
 
     for (const expectedName of ['a', 'b', 'c', 'd', 'e', 'f']) {
-      const next = current.children[0];
+      // Narrow current to FolderNode for safe access to children
+      if (current.type !== 'folder') {
+        throw new Error('Expected folder node in traversal');
+      }
+      const next: FileTreeNode = current.children[0];
       expect(next.name).toBe(expectedName);
       expect(next.type).toBe('folder');
       assertFolder(next);
@@ -200,6 +204,9 @@ describe('buildFileTree', () => {
     }
 
     // Final child should be the file
+    if (current.type !== 'folder') {
+      throw new Error('Expected folder node at end of traversal');
+    }
     const deepFile = current.children[0];
     expect(deepFile.name).toBe('deep.txt');
     expect(deepFile.type).toBe('file');
