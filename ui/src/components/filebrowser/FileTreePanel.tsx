@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Spinner } from 'flowbite-react';
 import { ChevronRightIcon, ChevronDownIcon, FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
@@ -22,7 +22,7 @@ interface FileTreePanelProps {
  */
 export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/files' });
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
   // Fetch all document sources
   const { data: sourcesData, isLoading, isError } = useSources({
@@ -33,21 +33,21 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const sources = sourcesData?.sources ?? [];
   const fileTree = buildFileTree(sources);
 
-  // When selectedSourceId changes, expand its ancestors
-  useEffect(() => {
-    if (selectedSourceId) {
-      // Extract path to selected file and expand all ancestor folders
-      const parts = selectedSourceId.split('/');
-      let currentPath = '';
-      const ancestorPaths: string[] = [];
-      for (let i = 0; i < parts.length - 1; i++) {
-        currentPath += (currentPath ? '/' : '') + parts[i];
-        ancestorPaths.push(currentPath);
-      }
-      // Merge ancestor paths into existing expanded folders
-      setExpandedFolders((prev) => new Set([...prev, ...ancestorPaths]));
+  // Compute ancestor paths of selected file for auto-expansion
+  const getSelectedFileAncestors = (): string[] => {
+    if (!selectedSourceId) return [];
+    const parts = selectedSourceId.split('/');
+    let currentPath = '';
+    const ancestorPaths: string[] = [];
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath += (currentPath ? '/' : '') + parts[i];
+      ancestorPaths.push(currentPath);
     }
-  }, [selectedSourceId]);
+    return ancestorPaths;
+  };
+
+  // Combine manually expanded folders with auto-expanded ancestors
+  const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
 
   if (isLoading) {
     return (
@@ -76,13 +76,13 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   }
 
   const toggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders);
+    const newExpanded = new Set(manuallyExpandedFolders);
     if (newExpanded.has(path)) {
       newExpanded.delete(path);
     } else {
       newExpanded.add(path);
     }
-    setExpandedFolders(newExpanded);
+    setManuallyExpandedFolders(newExpanded);
   };
 
   const handleFileClick = (node: FileTreeNode) => {
