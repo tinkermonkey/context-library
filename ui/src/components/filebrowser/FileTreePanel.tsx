@@ -24,12 +24,14 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch document sources with maximum allowed limit (backend max is 1000)
+  // Fetch document sources with generous limit (5000) to ensure we capture all filesystem files
   // Filter to filesystem-based adapters client-side below to exclude non-filesystem sources
   // (music, YouTube, etc. from document-domain adapters)
+  // TODO: Could optimize with source_id_prefix per-adapter for very large collections, but
+  // currently fetching all documents and filtering is simpler given we need all adapters
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
-    limit: 1000,
+    limit: 5000,
   });
 
   // Filter to only filesystem-based adapters
@@ -71,10 +73,14 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // Combine manually expanded folders with auto-expanded ancestors
   const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
 
-  // Check if API results are truncated (total documents > returned documents)
-  // Compare against allSources (unfiltered) to determine if API truncated results
-  // Note: sourcesData.total includes all document sources, we filter to filesystem ones for display
-  const isTruncated = (sourcesData?.total ?? 0) > (allSources?.length ?? 0);
+  // Check if API results are truncated by examining whether we hit the limit
+  // If allSources.length equals the limit and total is higher, we got a full page with more available
+  // Note: sourcesData.total includes ALL document sources (music, YouTube, etc.), not just filesystem ones,
+  // so we must check against the limit/length, not against sourcesData.total directly
+  const isTruncated =
+    allSources.length > 0 &&
+    allSources.length === (sourcesData?.limit ?? 0) &&
+    (sourcesData?.total ?? 0) > ((sourcesData?.offset ?? 0) + allSources.length);
 
   if (isLoading) {
     return (
@@ -174,7 +180,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
       {isTruncated && (
         <div className="p-3 bg-yellow-50 border-b border-yellow-200">
           <p className="text-yellow-800 text-xs">
-            Showing {sources.length} of {sourcesData?.total ?? sources.length} files. List is truncated.
+            Showing {sources.length} filesystem files (limit: {sourcesData?.limit ?? 5000}). More are available.
           </p>
         </div>
       )}

@@ -61,7 +61,7 @@ async def list_sources(
     domain: Domain | None = Query(default=None),
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
-    limit: int = Query(default=50, gt=0, le=1000),
+    limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> SourceListResponse:
     ds = request.app.state.document_store
