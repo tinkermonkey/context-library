@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import type { ChunkResponse } from '../../types/api';
 import { MarkdownContent } from './MarkdownContent';
+import { ChunkTypeBadge } from './ChunkTypeBadge';
+import { CrossRefLink } from './CrossRefLink';
 
 interface ChunkContentProps {
   /** The chunk to render */
@@ -12,36 +14,65 @@ interface ChunkContentProps {
  *
  * Handles three chunk types:
  * - `code`: Renders as a syntax-highlighted code block
- * - `table`: Parses and renders as a formatted HTML table
+ * - `table_part`: Parses and renders as a formatted HTML table
  * - default (prose): Renders as markdown
+ *
+ * Includes type badge for all chunks and cross-reference links when present.
  *
  * @example
  * <ChunkContent chunk={chunk} />
  */
 export function ChunkContent({ chunk }: ChunkContentProps): ReactNode {
-  const { chunk_type, content } = chunk;
+  const { chunk_type, content, cross_refs } = chunk;
+
+  // Render the main content based on chunk type
+  let mainContent: ReactNode;
 
   switch (chunk_type) {
     case 'code':
       // Render code block with syntax highlighting via monospace
-      return (
+      mainContent = (
         <pre className="bg-gray-900 text-gray-100 rounded p-4 overflow-x-auto my-3">
           <code className="font-mono text-sm whitespace-pre-wrap break-words">{content}</code>
         </pre>
       );
+      break;
 
-    case 'table':
+    case 'table_part':
       // Parse and render as HTML table
-      return renderTable(content);
+      mainContent = renderTable(content);
+      break;
 
     default:
       // Standard prose - render as markdown
-      return (
+      mainContent = (
         <div className="prose prose-sm max-w-none">
           <MarkdownContent content={content} />
         </div>
       );
   }
+
+  // Render cross-references if present
+  const crossRefsElement = cross_refs && cross_refs.length > 0 ? (
+    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+      <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Content</h4>
+      <div className="flex flex-wrap gap-2">
+        {cross_refs.map((chunkHash, idx) => (
+          <CrossRefLink key={idx} chunkHash={chunkHash} />
+        ))}
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <div>
+      <div className="mb-2">
+        <ChunkTypeBadge type={chunk_type} />
+      </div>
+      {mainContent}
+      {crossRefsElement}
+    </div>
+  );
 }
 
 /**
