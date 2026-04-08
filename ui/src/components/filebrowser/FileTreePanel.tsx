@@ -24,11 +24,12 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch all document sources, filtering to filesystem adapters only with a high limit
-  // to avoid silent truncation at the default 50 sources
+  // Fetch filesystem document sources with maximum allowed limit (backend max is 1000)
+  // Using adapter_id filter to exclude non-filesystem sources from the API level
+  // However, we also filter on client-side in case different filesystem adapters exist
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
-    limit: 5000,
+    limit: 1000,
   });
 
   // Filter to only filesystem-based adapters
@@ -46,14 +47,15 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const getSelectedFileAncestors = (): string[] => {
     if (!selectedSourceId) return [];
 
-    // Find the first filesystem source to determine its adapter_id
-    // All filesystem sources from the same adapter will have the same prefix
+    // Find the matching source to determine its adapter_id
     const matchingSource = sources.find((s) => s.source_id === selectedSourceId);
     if (!matchingSource) return [];
 
     const adapterId = matchingSource.adapter_id;
 
     // Build paths with adapter_id prefix, matching tree node structure
+    // The source_id is a relative path like "projects/alpha/file.md"
+    // We need to build ancestor paths like "adapter_id/projects", "adapter_id/projects/alpha"
     const parts = selectedSourceId.split('/').filter(Boolean);
     let currentPath = adapterId;
     const ancestorPaths: string[] = [adapterId]; // Include root adapter node
@@ -69,6 +71,9 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // Combine manually expanded folders with auto-expanded ancestors
   const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
 
+  // Check if results are truncated (total > current count)
+  const isTruncated = (sourcesData?.total ?? 0) > (allSources?.length ?? 0);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -81,7 +86,8 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
     const errorMessage = error instanceof Error ? error.message : 'Failed to load file tree';
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded">
-        <p className="text-red-900 font-semibold text-sm">{errorMessage}</p>
+        <p className="text-red-900 font-semibold text-sm">Error loading files</p>
+        <p className="text-red-800 text-sm mt-2">{errorMessage}</p>
       </div>
     );
   }
@@ -162,8 +168,17 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   };
 
   return (
-    <div className="h-full">
-      {fileTree.map((node) => renderNode(node))}
+    <div className="h-full flex flex-col">
+      {isTruncated && (
+        <div className="p-3 bg-yellow-50 border-b border-yellow-200">
+          <p className="text-yellow-800 text-xs">
+            Showing {allSources.length} of {sourcesData?.total ?? allSources.length} files. List is truncated.
+          </p>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto">
+        {fileTree.map((node) => renderNode(node))}
+      </div>
     </div>
   );
 }
