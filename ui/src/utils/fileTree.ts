@@ -98,6 +98,20 @@ export function buildFileTree(sources: SourceSummary[]): FileTreeNode[] {
  */
 function insertSourceIntoTree(adapterRoot: FileTreeNode, source: SourceSummary): void {
   const parts = source.source_id.split('/').filter(Boolean);
+
+  // Handle empty source_id by placing it directly under adapter root
+  if (parts.length === 0) {
+    const fileNode: FileTreeNode = {
+      name: source.source_id || '(unnamed)',
+      path: `${adapterRoot.path}/(unnamed)`,
+      type: 'file',
+      source,
+    };
+    adapterRoot.children = adapterRoot.children || [];
+    adapterRoot.children.push(fileNode);
+    return;
+  }
+
   let currentNode = adapterRoot;
 
   // Navigate/create folders for all but the last part (the file itself)

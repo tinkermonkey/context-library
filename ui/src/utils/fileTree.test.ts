@@ -245,4 +245,22 @@ describe('buildFileTree', () => {
     const file = subdir.children![0];
     expect(file.path).toBe('adapter:a/dir/subdir/file.txt');
   });
+
+  it('handles empty source_id gracefully', () => {
+    const sources = [createSource('', 'adapter:a')];
+    const result = buildFileTree(sources);
+
+    expect(result).toHaveLength(1);
+    const adapterRoot = result[0];
+    expect(adapterRoot.name).toBe('adapter:a');
+
+    // Empty source_id should create a file node with default name
+    expect(adapterRoot.children).toHaveLength(1);
+    const fileNode = adapterRoot.children![0];
+    expect(fileNode.name).toBe('(unnamed)');
+    expect(fileNode.path).toBe('adapter:a/(unnamed)');
+    expect(fileNode.type).toBe('file');
+    expect(fileNode.source).toBeDefined();
+    expect(fileNode.source!.source_id).toBe('');
+  });
 });
