@@ -1,18 +1,32 @@
 /**
  * File browser page component.
  * Displays a three-column layout: file tree (left), content (center), and metadata (right).
+ *
+ * Fetches chunks once at the parent level to avoid duplicate requests in child panels.
  */
 
 import { useRouterState } from '@tanstack/react-router';
 import { FileTreePanel } from '../components/filebrowser/FileTreePanel';
 import { FileContentPanel } from '../components/filebrowser/FileContentPanel';
 import { FileMetadataPanel } from '../components/filebrowser/FileMetadataPanel';
+import { useSourceChunks } from '../hooks/useChunks';
 import type { FileBrowserPageSearch } from '../router';
 
 function FileBrowserPage() {
   const routerState = useRouterState();
   const { file } = routerState.location.search as FileBrowserPageSearch;
   const selectedSourceId = file ?? null;
+
+  // Fetch chunks once at parent level to share between child panels
+  const { data: chunksData, isLoading, isError, error } = useSourceChunks(
+    selectedSourceId ?? '',
+    undefined,
+    undefined,
+    undefined,
+    !!selectedSourceId
+  );
+
+  const chunks = chunksData?.chunks;
 
   return (
     <div className="flex flex-col bg-gray-50">
@@ -30,7 +44,13 @@ function FileBrowserPage() {
 
         {/* Center panel: File content (flex-1) */}
         <div className="flex-1 overflow-y-auto bg-white p-6">
-          <FileContentPanel selectedSourceId={selectedSourceId} />
+          <FileContentPanel
+            selectedSourceId={selectedSourceId}
+            chunks={chunks}
+            isLoading={isLoading}
+            isError={isError}
+            error={error instanceof Error ? error : null}
+          />
         </div>
 
         {/* Right panel: Metadata (~280px) */}
@@ -39,7 +59,12 @@ function FileBrowserPage() {
             <h2 className="text-lg font-semibold text-gray-900">Metadata</h2>
             <p className="text-sm text-gray-500">File information and details</p>
           </div>
-          <FileMetadataPanel selectedSourceId={selectedSourceId} />
+          <FileMetadataPanel
+            selectedSourceId={selectedSourceId}
+            chunks={chunks}
+            isLoading={isLoading}
+            isError={isError}
+          />
         </div>
       </div>
     </div>

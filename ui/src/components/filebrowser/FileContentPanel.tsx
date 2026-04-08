@@ -1,33 +1,34 @@
 import type { ReactNode } from 'react';
 import { Spinner } from 'flowbite-react';
-import { useSourceChunks } from '../../hooks/useChunks';
+import type { ChunkResponse } from '../../types/api';
 import { ChunkContent } from '../shared/ChunkContent';
 import { ChunkBoundary } from '../shared/ChunkBoundary';
 
 interface FileContentPanelProps {
   /** The selected source ID, or null if no source is selected */
   selectedSourceId: string | null;
+  /** Chunks for the selected source */
+  chunks: ChunkResponse[] | undefined;
+  /** Whether chunks are currently loading */
+  isLoading: boolean;
+  /** Whether an error occurred while loading chunks */
+  isError: boolean;
+  /** The error object if isError is true */
+  error: Error | null;
 }
 
 /**
  * Center panel component that displays the full content of a selected file.
- * Fetches chunks from the selected source, renders them in ascending chunk_index order,
- * and displays them as a continuous document using ChunkContent with ChunkBoundary separators.
+ * Renders chunks in ascending chunk_index order and displays them as a continuous document
+ * using ChunkContent with ChunkBoundary separators.
+ *
+ * Chunks, loading state, and error state are managed by the parent component to avoid
+ * duplicate data fetching when multiple panels need the same data.
  *
  * @example
- * <FileContentPanel selectedSourceId="filesystem:///path/to/file.txt" />
+ * <FileContentPanel selectedSourceId="filesystem:///path/to/file.txt" chunks={chunks} isLoading={isLoading} isError={isError} error={error} />
  */
-export function FileContentPanel({ selectedSourceId }: FileContentPanelProps): ReactNode {
-  // Always call the hook at the top level (even if selectedSourceId is null)
-  // The hook will be disabled when selectedSourceId is null
-  const { data: chunksData, isLoading, isError, error } = useSourceChunks(
-    selectedSourceId ?? '',
-    undefined,
-    undefined,
-    undefined,
-    !!selectedSourceId
-  );
-
+export function FileContentPanel({ selectedSourceId, chunks, isLoading, isError, error }: FileContentPanelProps): ReactNode {
   // Show placeholder when no source is selected
   if (!selectedSourceId) {
     return (
@@ -64,11 +65,11 @@ export function FileContentPanel({ selectedSourceId }: FileContentPanelProps): R
     );
   }
 
-  // Extract chunks from response
-  const chunks = chunksData?.chunks ?? [];
+  // Extract chunks from props
+  const chunksToRender = chunks ?? [];
 
   // Show explicit empty-content message when source has zero chunks
-  if (chunks.length === 0) {
+  if (chunksToRender.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400">
         <div className="text-center">
@@ -80,7 +81,7 @@ export function FileContentPanel({ selectedSourceId }: FileContentPanelProps): R
   }
 
   // Sort chunks by chunk_index in ascending order
-  const sortedChunks = [...chunks].sort((a, b) => a.chunk_index - b.chunk_index);
+  const sortedChunks = [...chunksToRender].sort((a, b) => a.chunk_index - b.chunk_index);
 
   // Render chunks in order with boundaries between them
   return (

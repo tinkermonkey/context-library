@@ -1,7 +1,8 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo } from 'react';
-import type { ChunkResponse } from '../types/api';
+import type { ChunkResponse, DocumentMetadata } from '../types/api';
+import { extractDocumentMetadata } from '../types/api';
 import type { DomainViewProps } from './registry';
 import { ChunkContent } from '../components/shared/ChunkContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
@@ -17,17 +18,6 @@ interface NoteMetadata {
   aliases?: string[];
   wikilinks?: string[];
   backlinks?: string[];
-}
-
-/**
- * Document domain metadata structure.
- */
-interface DocumentMetadata {
-  document_type: string;
-  author: string | null;
-  tags: string[];
-  file_size: number | null;
-  modified_date: string | null;
 }
 
 /**
@@ -77,26 +67,6 @@ function extractNoteMetadata(domainMetadata: Record<string, unknown> | null): No
     aliases: Array.isArray(domainMetadata.aliases) ? (domainMetadata.aliases as string[]) : undefined,
     wikilinks: Array.isArray(domainMetadata.wikilinks) ? (domainMetadata.wikilinks as string[]) : undefined,
     backlinks: Array.isArray(domainMetadata.backlinks) ? (domainMetadata.backlinks as string[]) : undefined,
-  };
-}
-
-/**
- * Extract document metadata from domain_metadata with safety checks.
- */
-function extractDocumentMetadata(domainMetadata: Record<string, unknown>): DocumentMetadata {
-  let tags: string[] = [];
-  if (Array.isArray(domainMetadata.tags)) {
-    tags = domainMetadata.tags.every((item) => typeof item === 'string')
-      ? (domainMetadata.tags as string[])
-      : [];
-  }
-
-  return {
-    document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
-    author: typeof domainMetadata.author === 'string' ? domainMetadata.author : null,
-    tags,
-    file_size: typeof domainMetadata.file_size === 'number' ? domainMetadata.file_size : null,
-    modified_date: typeof domainMetadata.modified_date === 'string' ? domainMetadata.modified_date : null,
   };
 }
 

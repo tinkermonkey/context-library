@@ -274,3 +274,37 @@ export interface ChunkQueryParams {
   offset?: number;
   metadata_filter?: Record<string, string>;
 }
+
+// ── Domain-Specific Metadata ────────────────────────────────────
+
+/**
+ * Document domain metadata structure.
+ * Extracted from chunk domain_metadata for documents.
+ */
+export interface DocumentMetadata {
+  document_type: string;
+  author: string | null;
+  tags: string[];
+  file_size: number | null;
+  modified_date: string | null;
+}
+
+/**
+ * Extract document metadata from domain_metadata with safety checks.
+ */
+export function extractDocumentMetadata(domainMetadata: Record<string, unknown>): DocumentMetadata {
+  let tags: string[] = [];
+  if (Array.isArray(domainMetadata.tags)) {
+    tags = domainMetadata.tags.every((item) => typeof item === 'string')
+      ? (domainMetadata.tags as string[])
+      : [];
+  }
+
+  return {
+    document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
+    author: typeof domainMetadata.author === 'string' ? domainMetadata.author : null,
+    tags,
+    file_size: typeof domainMetadata.file_size === 'number' ? domainMetadata.file_size : null,
+    modified_date: typeof domainMetadata.modified_date === 'string' ? domainMetadata.modified_date : null,
+  };
+}

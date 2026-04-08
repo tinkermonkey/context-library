@@ -1,16 +1,22 @@
 import type { ReactNode } from 'react';
-import { useSourceChunks } from '../../hooks/useChunks';
+import type { ChunkResponse } from '../../types/api';
 import { MetadataField } from '../shared/MetadataField';
 import { Timestamp } from '../shared/Timestamp';
 
 interface FileMetadataPanelProps {
   /** The selected source ID, or null if no source is selected */
   selectedSourceId: string | null;
+  /** Chunks for the selected source */
+  chunks: ChunkResponse[] | undefined;
+  /** Whether chunks are currently loading */
+  isLoading: boolean;
+  /** Whether an error occurred while loading chunks */
+  isError: boolean;
 }
 
 /**
  * Right panel component that displays metadata about the selected file.
- * Extracts metadata fields from domain_metadata on the fetched chunks:
+ * Extracts metadata fields from domain_metadata on the chunks:
  * - title: string
  * - document_type: string
  * - file_size_bytes: number
@@ -19,20 +25,13 @@ interface FileMetadataPanelProps {
  *
  * Renders only fields that are present in domain_metadata; omits absent fields entirely.
  *
+ * Chunks, loading state, and error state are managed by the parent component to avoid
+ * duplicate data fetching when multiple panels need the same data.
+ *
  * @example
- * <FileMetadataPanel selectedSourceId="filesystem:///path/to/file.txt" />
+ * <FileMetadataPanel selectedSourceId="filesystem:///path/to/file.txt" chunks={chunks} isLoading={isLoading} isError={isError} />
  */
-export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps): ReactNode {
-  // Always call the hook at the top level (even if selectedSourceId is null)
-  // The hook will be disabled when selectedSourceId is null
-  const { data: chunksData, isLoading, isError } = useSourceChunks(
-    selectedSourceId ?? '',
-    undefined,
-    undefined,
-    undefined,
-    !!selectedSourceId
-  );
-
+export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError }: FileMetadataPanelProps): ReactNode {
   // Show placeholder when no source is selected
   if (!selectedSourceId) {
     return (
@@ -68,10 +67,10 @@ export function FileMetadataPanel({ selectedSourceId }: FileMetadataPanelProps):
     );
   }
 
-  const chunks = chunksData?.chunks ?? [];
+  const chunksToRender = chunks ?? [];
 
   // Extract metadata from the first chunk (domain_metadata should be consistent across chunks for a source)
-  const domainMetadata = chunks.length > 0 ? chunks[0].domain_metadata : null;
+  const domainMetadata = chunksToRender.length > 0 ? chunksToRender[0].domain_metadata : null;
 
   if (!domainMetadata) {
     return (
