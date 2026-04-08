@@ -24,9 +24,9 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   const navigate = useNavigate({ from: '/browser/files' });
   const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch filesystem document sources with maximum allowed limit (backend max is 1000)
-  // Using adapter_id filter to exclude non-filesystem sources from the API level
-  // However, we also filter on client-side in case different filesystem adapters exist
+  // Fetch document sources with maximum allowed limit (backend max is 1000)
+  // Filter to filesystem-based adapters client-side below to exclude non-filesystem sources
+  // (music, YouTube, etc. from document-domain adapters)
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
     limit: 1000,
@@ -71,8 +71,9 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
   // Combine manually expanded folders with auto-expanded ancestors
   const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
 
-  // Check if results are truncated (total > current count)
-  const isTruncated = (sourcesData?.total ?? 0) > (allSources?.length ?? 0);
+  // Check if filesystem sources are truncated (total documents > filtered filesystem sources)
+  // Note: sourcesData.total includes all document sources, but we only show filesystem ones
+  const isTruncated = (sourcesData?.total ?? 0) > sources.length;
 
   if (isLoading) {
     return (
@@ -172,7 +173,7 @@ export function FileTreePanel({ selectedSourceId }: FileTreePanelProps): ReactNo
       {isTruncated && (
         <div className="p-3 bg-yellow-50 border-b border-yellow-200">
           <p className="text-yellow-800 text-xs">
-            Showing {allSources.length} of {sourcesData?.total ?? allSources.length} files. List is truncated.
+            Showing {sources.length} of {sourcesData?.total ?? sources.length} files. List is truncated.
           </p>
         </div>
       )}
