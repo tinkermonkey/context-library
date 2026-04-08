@@ -65,6 +65,7 @@ function FileBrowserPage() {
             chunks={chunks}
             isLoading={isLoading}
             isError={isError}
+            error={error instanceof Error ? error : null}
           />
         </div>
       </div>

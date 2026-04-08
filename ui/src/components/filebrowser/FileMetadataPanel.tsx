@@ -14,6 +14,8 @@ interface FileMetadataPanelProps {
   isLoading: boolean;
   /** Whether an error occurred while loading chunks */
   isError: boolean;
+  /** The error object if isError is true */
+  error: Error | null;
 }
 
 /**
@@ -34,7 +36,7 @@ interface FileMetadataPanelProps {
  * @example
  * <FileMetadataPanel selectedSourceId="filesystem:///path/to/file.txt" chunks={chunks} isLoading={isLoading} isError={isError} />
  */
-export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError }: FileMetadataPanelProps): ReactNode {
+export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError, error }: FileMetadataPanelProps): ReactNode {
   // Fetch source-level metadata (only when a source is selected)
   const {
     data: sourceData,
@@ -68,11 +70,11 @@ export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError
   // Show error state
   if (isError || isSourceError) {
     return (
-      <div className="flex items-center justify-center h-full bg-red-50">
-        <div className="text-center">
-          <p className="text-lg font-semibold text-red-700 mb-2">Failed to load metadata</p>
-          <p className="text-sm text-red-600">Please try selecting a different file</p>
-        </div>
+      <div className="p-6 bg-red-50 border border-red-200 rounded">
+        <p className="text-red-900 font-semibold">Failed to load metadata</p>
+        <p className="text-red-800 text-sm mt-2">
+          {error instanceof Error ? error.message : 'An unexpected error occurred'}
+        </p>
       </div>
     );
   }
@@ -90,8 +92,11 @@ export function FileMetadataPanel({ selectedSourceId, chunks, isLoading, isError
 
   const chunksToRender = chunks ?? [];
 
+  // Sort chunks by chunk_index in ascending order
+  const sortedChunks = [...chunksToRender].sort((a, b) => a.chunk_index - b.chunk_index);
+
   // Extract chunk-level metadata from the first chunk's domain_metadata
-  const rawDomainMetadata = chunksToRender.length > 0 ? chunksToRender[0].domain_metadata : null;
+  const rawDomainMetadata = sortedChunks.length > 0 ? sortedChunks[0].domain_metadata : null;
 
   // Extract and type metadata fields from chunk-level domain_metadata
   const metadata = rawDomainMetadata ? extractDocumentMetadata(rawDomainMetadata) : null;
