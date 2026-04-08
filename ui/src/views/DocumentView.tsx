@@ -7,7 +7,6 @@ import { ChunkContent } from '../components/shared/ChunkContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
 import { Timestamp } from '../components/shared/Timestamp';
 import { MetadataField } from '../components/shared/MetadataField';
-import { CrossRefLink } from '../components/shared/CrossRefLink';
 
 /**
  * Notes domain metadata structure.
@@ -340,29 +339,6 @@ function DocumentMetadataHeader({
 }
 
 /**
- * Render cross-reference links for a chunk.
- * Cross-refs are chunk hashes that reference other chunks (possibly in other sources).
- */
-function CrossReferences({
-  crossRefs,
-}: {
-  crossRefs: string[];
-}): ReactNode {
-  if (!crossRefs || crossRefs.length === 0) return null;
-
-  return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-      <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Content</h4>
-      <div className="flex flex-wrap gap-2">
-        {crossRefs.map((chunkHash, idx) => (
-          <CrossRefLink key={idx} chunkHash={chunkHash} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
  * Render a single chunk with heading hierarchy and context.
  */
 function DocumentChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
@@ -375,11 +351,8 @@ function DocumentChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
         </div>
       )}
 
-      {/* Chunk content */}
+      {/* Chunk content - includes cross-references rendering */}
       <ChunkContent chunk={chunk} />
-
-      {/* Cross-references */}
-      <CrossReferences crossRefs={chunk.cross_refs} />
     </div>
   );
 }

@@ -84,7 +84,7 @@ function renderTable(content: string): ReactNode {
   if (lines.length < 3) return <div>{content}</div>;
 
   // Check if this looks like a markdown table (separator row with dashes and pipes)
-  const separatorMatch = lines[1]?.match(/^\|?[\s|-]+\|[\s|-]*\|?$/);
+  const separatorMatch = lines[1]?.match(/^\|?[-\s|]+\|[-\s|]*\|?$/);
   if (!separatorMatch) {
     return <div>{content}</div>;
   }

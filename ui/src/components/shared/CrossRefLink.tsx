@@ -16,8 +16,7 @@ interface CrossRefLinkProps {
  * <CrossRefLink chunkHash="abc123..." />
  */
 export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
-  const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
-  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
   const [error, setError] = useState(false);
 
   // Fetch chunk data to get its source_id and domain
@@ -30,15 +29,11 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
       return;
     }
 
-    setIsLoading(true);
     const refSourceId = refChunk.lineage.source_id;
     const refDomain = refChunk.lineage.domain;
 
     void navigate({
-      to: '/browser/view/$domain/$sourceId',
-      params: { domain: refDomain, sourceId: refSourceId },
-    }).finally(() => {
-      setIsLoading(false);
+      to: `/browser/view/${refDomain}/${refSourceId}`,
     });
   };
 
@@ -68,8 +63,7 @@ export function CrossRefLink({ chunkHash }: CrossRefLinkProps): ReactNode {
   return (
     <button
       onClick={handleClick}
-      disabled={isLoading}
-      className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+      className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer"
       title={chunkHash}
     >
       {refChunk.lineage.domain}: {chunkHash.substring(0, 8)}…
