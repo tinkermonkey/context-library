@@ -11,15 +11,19 @@ pip install -e ".[dev]"
 # Install with specific adapter extras
 pip install -e ".[server,obsidian,email,apple-reminders,apple-imessage,apple-notes,apple-health,apple-music,caldav]"
 
-# Run all tests
-pytest
+# Run all tests (use python -m pytest, NOT bare pytest, to ensure src/ is on the path)
+# WARNING: the full suite takes ~100 minutes. Run in foreground only — background task
+# output files are not reliably written until the process exits, so polling them mid-run
+# will show partial/empty output. Use foreground for single files, background + long sleep
+# for the full suite.
+python -m pytest tests/ -q --tb=short
 
-# Run tests for a specific module
-pytest tests/storage/
-pytest tests/core/test_pipeline.py
+# Run tests for a specific module (fast, safe to run in foreground)
+python -m pytest tests/storage/
+python -m pytest tests/core/test_pipeline.py
 
 # Run a single test
-pytest tests/storage/test_document_store.py::test_init_memory_database -v
+python -m pytest tests/storage/test_document_store.py::test_init_memory_database -v
 
 # Lint
 ruff check src/ tests/
