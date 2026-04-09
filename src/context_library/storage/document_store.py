@@ -27,6 +27,10 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+# Characters that have special meaning in SQLite LIKE patterns
+# and need to be escaped with backslash
+_LIKE_SPECIAL = frozenset('%_')
+
 
 class DocumentStore:
     """SQLite document store for managing source versions, chunks, and lineage.
@@ -1975,6 +1979,7 @@ class DocumentStore:
         self,
         domain: Optional[str] = None,
         adapter_id: Optional[str] = None,
+        source_id_prefix: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[dict], int]:
@@ -1983,6 +1988,7 @@ class DocumentStore:
         Args:
             domain: Optional domain filter.
             adapter_id: Optional adapter_id filter.
+            source_id_prefix: Optional prefix filter on source_id.
             limit: Maximum number of results to return.
             offset: Number of results to skip.
 
@@ -1999,6 +2005,13 @@ class DocumentStore:
         if adapter_id is not None:
             where_clauses.append("s.adapter_id = ?")
             filter_params.append(adapter_id)
+        if source_id_prefix is not None:
+            # Use LIKE for case-insensitive prefix matching (standard SQL semantics).
+            # LIKE uses % as wildcard for any sequence of characters.
+            # Special characters % and _ need to be escaped with backslash to match literally.
+            escaped_prefix = ''.join(f'\\{c}' if c in _LIKE_SPECIAL else c for c in source_id_prefix)
+            where_clauses.append("s.source_id LIKE ? || '%' ESCAPE '\\'")
+            filter_params.append(escaped_prefix)
         where_sql = " AND ".join(where_clauses)
 
         # Total count of matching sources (without LIMIT/OFFSET)

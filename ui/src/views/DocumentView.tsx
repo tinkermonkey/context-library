@@ -1,13 +1,13 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import type { ChunkResponse } from '../types/api';
+import { useEffect, useMemo } from 'react';
+import type { ChunkResponse, DocumentMetadata } from '../types/api';
+import { extractDocumentMetadata } from '../types/api';
 import type { DomainViewProps } from './registry';
-import { MarkdownContent } from '../components/shared/MarkdownContent';
+import { ChunkContent } from '../components/shared/ChunkContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
 import { Timestamp } from '../components/shared/Timestamp';
 import { MetadataField } from '../components/shared/MetadataField';
-import { useChunk } from '../hooks/useChunks';
 
 /**
  * Notes domain metadata structure.
@@ -18,17 +18,6 @@ interface NoteMetadata {
   aliases?: string[];
   wikilinks?: string[];
   backlinks?: string[];
-}
-
-/**
- * Document domain metadata structure.
- */
-interface DocumentMetadata {
-  document_type: string;
-  author: string | null;
-  tags: string[];
-  file_size: number | null;
-  modified_date: string | null;
 }
 
 /**
@@ -55,10 +44,10 @@ function detectDomain(chunks: ChunkResponse[]): 'notes' | 'documents' | 'unknown
 
   if (hasHeadingLevel) return 'notes';
 
-  // Check for documents-specific metadata (document_type, file_size, etc.)
+  // Check for documents-specific metadata (document_type, file_size_bytes, etc.)
   const hasDocumentMetadata = chunks.some((c) => {
     const meta = c.domain_metadata as Record<string, unknown> | null;
-    return meta && (typeof meta.document_type === 'string' || typeof meta.file_size === 'number');
+    return meta && (typeof meta.document_type === 'string' || typeof meta.file_size_bytes === 'number');
   });
 
   if (hasDocumentMetadata) return 'documents';
@@ -78,26 +67,6 @@ function extractNoteMetadata(domainMetadata: Record<string, unknown> | null): No
     aliases: Array.isArray(domainMetadata.aliases) ? (domainMetadata.aliases as string[]) : undefined,
     wikilinks: Array.isArray(domainMetadata.wikilinks) ? (domainMetadata.wikilinks as string[]) : undefined,
     backlinks: Array.isArray(domainMetadata.backlinks) ? (domainMetadata.backlinks as string[]) : undefined,
-  };
-}
-
-/**
- * Extract document metadata from domain_metadata with safety checks.
- */
-function extractDocumentMetadata(domainMetadata: Record<string, unknown>): DocumentMetadata {
-  let tags: string[] = [];
-  if (Array.isArray(domainMetadata.tags)) {
-    tags = domainMetadata.tags.every((item) => typeof item === 'string')
-      ? (domainMetadata.tags as string[])
-      : [];
-  }
-
-  return {
-    document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
-    author: typeof domainMetadata.author === 'string' ? domainMetadata.author : null,
-    tags,
-    file_size: typeof domainMetadata.file_size === 'number' ? domainMetadata.file_size : null,
-    modified_date: typeof domainMetadata.modified_date === 'string' ? domainMetadata.modified_date : null,
   };
 }
 
@@ -174,86 +143,6 @@ function formatFileSize(bytes: number): string {
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
-/**
- * Parse markdown table and render as HTML table.
- * Simple table format: pipe-delimited rows with separator row.
- */
-function renderTable(content: string): ReactNode {
-  const lines = content.trim().split('\n');
-  if (lines.length < 3) return <div>{content}</div>;
-
-  // Check if this looks like a markdown table (separator row with dashes and pipes)
-  const separatorMatch = lines[1]?.match(/^\|?[\s|-]+\|[\s|-]*\|?$/);
-  if (!separatorMatch) {
-    return <div>{content}</div>;
-  }
-
-  const parseRow = (line: string): string[] => {
-    return line
-      .split('|')
-      .map((cell) => cell.trim())
-      .filter((cell) => cell.length > 0);
-  };
-
-  const headerCells = parseRow(lines[0]);
-  const bodyRows = lines.slice(2).map(parseRow);
-
-  return (
-    <div className="overflow-x-auto my-3">
-      <table className="border-collapse w-full text-sm">
-        <thead>
-          <tr>
-            {headerCells.map((cell, idx) => (
-              <th key={idx} className="border border-gray-300 bg-gray-100 px-3 py-2 text-left font-semibold">
-                {cell}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {bodyRows.map((row, rowIdx) => (
-            <tr key={rowIdx}>
-              {row.map((cell, cellIdx) => (
-                <td key={cellIdx} className="border border-gray-300 px-3 py-2">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/**
- * Render chunk content based on chunk_type.
- */
-function renderChunkContent(chunk: ChunkResponse): ReactNode {
-  const { chunk_type, content } = chunk;
-
-  switch (chunk_type) {
-    case 'code':
-      // Render code block with syntax highlighting via monospace
-      return (
-        <pre className="bg-gray-900 text-gray-100 rounded p-4 overflow-x-auto my-3">
-          <code className="font-mono text-sm whitespace-pre-wrap break-words">{content}</code>
-        </pre>
-      );
-
-    case 'table':
-      // Parse and render as HTML table
-      return renderTable(content);
-
-    default:
-      // Standard prose - render as markdown
-      return (
-        <div className="prose prose-sm max-w-none">
-          <MarkdownContent content={content} />
-        </div>
-      );
-  }
-}
 
 /**
  * Render table of contents as a hierarchical list.
@@ -391,9 +280,9 @@ function DocumentMetadataHeader({
 }): ReactNode {
   if (!metadata) return null;
 
-  const formattedSize = metadata.file_size !== null ? formatFileSize(metadata.file_size) : null;
-  const formattedDate = metadata.modified_date ? (
-    <Timestamp value={metadata.modified_date} granularity="date" />
+  const formattedSize = metadata.file_size_bytes !== null ? formatFileSize(metadata.file_size_bytes) : null;
+  const formattedDate = metadata.modified_at ? (
+    <Timestamp value={metadata.modified_at} granularity="date" />
   ) : null;
 
   return (
@@ -420,98 +309,6 @@ function DocumentMetadataHeader({
 }
 
 /**
- * Single cross-reference link with lazy chunk lookup.
- */
-function CrossRefLink({
-  chunkHash,
-}: {
-  chunkHash: string;
-}): ReactNode {
-  const navigate = useNavigate({ from: '/browser/view/$domain/$sourceId' });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(false);
-
-  // Fetch chunk data to get its source_id and domain
-  // No source_id filter allows cross-source references to be resolved
-  const { data: refChunk } = useChunk(chunkHash);
-
-  const handleClick = (): void => {
-    if (!refChunk) {
-      setError(true);
-      return;
-    }
-
-    setIsLoading(true);
-    const refSourceId = refChunk.lineage.source_id;
-    const refDomain = refChunk.lineage.domain;
-
-    void navigate({
-      to: '/browser/view/$domain/$sourceId',
-      params: { domain: refDomain, sourceId: refSourceId },
-    }).finally(() => {
-      setIsLoading(false);
-    });
-  };
-
-  if (!refChunk && !error) {
-    // Still loading
-    return (
-      <span
-        className="px-3 py-1 bg-gray-200 text-gray-700 text-xs rounded"
-        title={chunkHash}
-      >
-        {chunkHash.substring(0, 8)}…
-      </span>
-    );
-  }
-
-  if (error || !refChunk) {
-    return (
-      <span
-        className="px-3 py-1 bg-red-100 text-red-700 text-xs rounded cursor-not-allowed"
-        title={`Failed to resolve: ${chunkHash}`}
-      >
-        {chunkHash.substring(0, 8)}… (broken)
-      </span>
-    );
-  }
-
-  return (
-    <button
-      onClick={handleClick}
-      disabled={isLoading}
-      className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-      title={chunkHash}
-    >
-      {refChunk.lineage.domain}: {chunkHash.substring(0, 8)}…
-    </button>
-  );
-}
-
-/**
- * Render cross-reference links for a chunk.
- * Cross-refs are chunk hashes that reference other chunks (possibly in other sources).
- */
-function CrossReferences({
-  crossRefs,
-}: {
-  crossRefs: string[];
-}): ReactNode {
-  if (!crossRefs || crossRefs.length === 0) return null;
-
-  return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-      <h4 className="text-xs font-semibold text-blue-900 uppercase mb-2">Related Content</h4>
-      <div className="flex flex-wrap gap-2">
-        {crossRefs.map((chunkHash, idx) => (
-          <CrossRefLink key={idx} chunkHash={chunkHash} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
  * Render a single chunk with heading hierarchy and context.
  */
 function DocumentChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
@@ -524,11 +321,8 @@ function DocumentChunk({ chunk }: { chunk: ChunkResponse }): ReactNode {
         </div>
       )}
 
-      {/* Chunk content */}
-      {renderChunkContent(chunk)}
-
-      {/* Cross-references */}
-      <CrossReferences crossRefs={chunk.cross_refs} />
+      {/* Chunk content - includes cross-references rendering */}
+      <ChunkContent chunk={chunk} />
     </div>
   );
 }

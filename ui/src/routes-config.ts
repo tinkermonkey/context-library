@@ -108,3 +108,9 @@ export const searchSearchSchema = z.object({
 });
 
 export type SearchPageSearch = z.infer<typeof searchSearchSchema>;
+
+export const fileBrowserSearchSchema = z.object({
+  file: z.string().optional(), // URL-encoded source_id of selected file
+});
+
+export type FileBrowserPageSearch = z.infer<typeof fileBrowserSearchSchema>;

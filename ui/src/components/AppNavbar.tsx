@@ -42,6 +42,9 @@ export function AppNavbar() {
         <NavbarLinkRouter to="/browser" active={isActive('/browser')}>
           Data Browser
         </NavbarLinkRouter>
+        <NavbarLinkRouter to="/browser/files" active={isActive('/browser/files')}>
+          Files
+        </NavbarLinkRouter>
         <NavbarLinkRouter to="/search" active={isActive('/search')}>
           Semantic Search
         </NavbarLinkRouter>

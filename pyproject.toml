@@ -39,7 +39,7 @@ obsidian-helper   = ["httpx"]
 vcard = ["vobject"]
 youtube = ["youtube-transcript-api"]
 server = ["fastapi>=0.100", "uvicorn[standard]", "pydantic-settings>=2.0"]
-dev = ["ruff", "mypy", "pytest", "pytest-asyncio", "types-PyYAML", "watchdog", "watchfiles", "vobject", "html2text", "httpx", "obsidiantools", "python-frontmatter", "PyYAML"]
+dev = ["ruff", "mypy", "pytest", "pytest-asyncio", "pytest-xdist", "types-PyYAML", "watchdog", "watchfiles", "vobject", "html2text", "httpx", "obsidiantools", "python-frontmatter", "PyYAML"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -114,6 +114,7 @@ ignore_missing_imports = true
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-n auto --ignore=tests/adapters/test_watching.py"
 markers = [
     "requires_fs_watch: marks tests that require active filesystem watching (may be skipped if inotify resources are exhausted)",
 ]

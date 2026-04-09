@@ -261,6 +261,7 @@ export interface QueryResponse {
 export interface SourceQueryParams {
   adapter_id?: string;
   domain?: string;
+  source_id_prefix?: string;
   limit?: number;
   offset?: number;
 }
@@ -272,4 +273,69 @@ export interface ChunkQueryParams {
   limit?: number;
   offset?: number;
   metadata_filter?: Record<string, string>;
+}
+
+// ── Domain-Specific Metadata ────────────────────────────────────
+
+/**
+ * Document domain metadata structure.
+ * Extracted from chunk domain_metadata for documents.
+ * Mirrors backend DocumentMetadata model in storage/models.py.
+ */
+export interface DocumentMetadata {
+  document_id: string;
+  title: string;
+  document_type: string;
+  source_type: string;
+  date_first_observed: string | null;
+  created_at: string | null;
+  modified_at: string | null;
+  file_size_bytes: number | null;
+  author: string | null;
+  tags: string[];
+  // Music-specific metadata
+  album: string | null;
+  genre: string | null;
+  play_count: number | null;
+  duration_minutes: number | null;
+  // YouTube-specific metadata
+  video_id: string | null;
+  channel: string | null;
+  channel_id: string | null;
+  url: string | null;
+  published_at: string | null;
+}
+
+/**
+ * Extract document metadata from domain_metadata with safety checks.
+ */
+export function extractDocumentMetadata(domainMetadata: Record<string, unknown>): DocumentMetadata {
+  let tags: string[] = [];
+  if (Array.isArray(domainMetadata.tags)) {
+    tags = domainMetadata.tags.every((item) => typeof item === 'string')
+      ? (domainMetadata.tags as string[])
+      : [];
+  }
+
+  return {
+    document_id: typeof domainMetadata.document_id === 'string' ? domainMetadata.document_id : '',
+    title: typeof domainMetadata.title === 'string' ? domainMetadata.title : 'Untitled',
+    document_type: typeof domainMetadata.document_type === 'string' ? domainMetadata.document_type : 'unknown',
+    source_type: typeof domainMetadata.source_type === 'string' ? domainMetadata.source_type : 'unknown',
+    date_first_observed: typeof domainMetadata.date_first_observed === 'string' ? domainMetadata.date_first_observed : null,
+    created_at: typeof domainMetadata.created_at === 'string' ? domainMetadata.created_at : null,
+    modified_at: typeof domainMetadata.modified_at === 'string' ? domainMetadata.modified_at : null,
+    file_size_bytes: typeof domainMetadata.file_size_bytes === 'number' ? domainMetadata.file_size_bytes : null,
+    author: typeof domainMetadata.author === 'string' ? domainMetadata.author : null,
+    tags,
+    album: typeof domainMetadata.album === 'string' ? domainMetadata.album : null,
+    genre: typeof domainMetadata.genre === 'string' ? domainMetadata.genre : null,
+    play_count: typeof domainMetadata.play_count === 'number' ? domainMetadata.play_count : null,
+    duration_minutes: typeof domainMetadata.duration_minutes === 'number' ? domainMetadata.duration_minutes : null,
+    video_id: typeof domainMetadata.video_id === 'string' ? domainMetadata.video_id : null,
+    channel: typeof domainMetadata.channel === 'string' ? domainMetadata.channel : null,
+    channel_id: typeof domainMetadata.channel_id === 'string' ? domainMetadata.channel_id : null,
+    url: typeof domainMetadata.url === 'string' ? domainMetadata.url : null,
+    published_at: typeof domainMetadata.published_at === 'string' ? domainMetadata.published_at : null,
+  };
 }
