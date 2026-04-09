@@ -316,7 +316,7 @@ class OuraAdapter(BaseAdapter):
 
         # Fetch heart rate separately (requires windowing by hour)
         try:
-            yield from self._fetch_heart_rate(since, headers)
+            yield from self._fetch_heart_rate(params, headers)
         except httpx.HTTPStatusError:
             # Auth errors already logged and re-raised by _fetch_heart_rate
             raise
@@ -416,13 +416,13 @@ class OuraAdapter(BaseAdapter):
 
     def _fetch_heart_rate(
         self,
-        since: str | None,
+        params: dict[str, Any],
         headers: dict[str, str],
     ) -> Iterator[NormalizedContent]:
         """Fetch heart rate samples and group into hourly windows.
 
         Args:
-            since: Optional ISO 8601 timestamp for incremental fetch
+            params: Query parameters (including "since" if incremental)
             headers: HTTP headers (including Authorization)
 
         Yields:
@@ -438,7 +438,6 @@ class OuraAdapter(BaseAdapter):
             Logs and raises EndpointFetchError for endpoint-level failures.
             Auth errors (401/403) are immediately re-raised to signal credential issues.
         """
-        params = {"since": since} if since else {}
 
         try:
             response = httpx.get(
