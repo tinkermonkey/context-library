@@ -433,3 +433,84 @@ class TestResetAdapter:
         )
         active_chunks = cursor.fetchone()["count"]
         assert active_chunks == 0, "All chunks should be retired after reset"
+
+    def test_returns_207_when_adapter_not_registered(self, client: TestClient) -> None:
+        """Test that AdapterNotRegisteredError returns 207 with warning message."""
+        from context_library.scheduler.exceptions import AdapterNotRegisteredError
+
+        # Create a mock adapter that succeeds
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock poller to raise AdapterNotRegisteredError
+        poller = MagicMock()
+        poller.trigger_immediate_ingest.side_effect = AdapterNotRegisteredError("Adapter not registered")
+        client.app.state.poller = poller
+
+        resp = client.post("/adapters/test-adapter/reset")
+        # Endpoint returns 207 Partial Success if library reset succeeded but re-ingestion failed
+        assert resp.status_code == 207
+        data = resp.json()
+        assert data["adapter_id"] == "test-adapter"
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert isinstance(data["library_reset"]["sources_reset"], int)
+        assert data["reingestion_triggered"] is False
+        assert any("Adapter is not registered" in err for err in data["errors"])
+
+    def test_returns_207_when_no_sources_found(self, client: TestClient) -> None:
+        """Test that NoSourcesError returns 207 with warning message."""
+        from context_library.scheduler.exceptions import NoSourcesError
+
+        # Create a mock adapter that succeeds
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock poller to raise NoSourcesError
+        poller = MagicMock()
+        poller.trigger_immediate_ingest.side_effect = NoSourcesError("No sources found")
+        client.app.state.poller = poller
+
+        resp = client.post("/adapters/test-adapter/reset")
+        # Endpoint returns 207 Partial Success if library reset succeeded but re-ingestion failed
+        assert resp.status_code == 207
+        data = resp.json()
+        assert data["adapter_id"] == "test-adapter"
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert isinstance(data["library_reset"]["sources_reset"], int)
+        assert data["reingestion_triggered"] is False
+        assert any("No sources found" in err for err in data["errors"])
+
+    def test_returns_207_when_ingest_already_in_progress(self, client: TestClient) -> None:
+        """Test that IngestAlreadyInProgressError returns 207 with warning message."""
+        from context_library.scheduler.exceptions import IngestAlreadyInProgressError
+
+        # Create a mock adapter that succeeds
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock poller to raise IngestAlreadyInProgressError
+        poller = MagicMock()
+        poller.trigger_immediate_ingest.side_effect = IngestAlreadyInProgressError("Ingest already in progress")
+        client.app.state.poller = poller
+
+        resp = client.post("/adapters/test-adapter/reset")
+        # Endpoint returns 207 Partial Success if library reset succeeded but re-ingestion failed
+        assert resp.status_code == 207
+        data = resp.json()
+        assert data["adapter_id"] == "test-adapter"
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert isinstance(data["library_reset"]["sources_reset"], int)
+        assert data["reingestion_triggered"] is False
+        assert any("Ingest is already in progress" in err for err in data["errors"])

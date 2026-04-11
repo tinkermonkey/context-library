@@ -1290,3 +1290,26 @@ class TestRemoteAdapterReset:
         request = mock_httpx_client.requests[0]
         assert request["method"] == "POST"
         assert request["url"] == reset_url
+
+    def test_reset_raises_on_connection_error(self, mock_httpx_client, monkeypatch):
+        """reset() raises httpx.RequestError on connection failures (timeout, refused, etc.)."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        # Mock the post method to raise RequestError
+        def failing_post(url, json=None, headers=None, timeout=None):
+            raise httpx.RequestError("Connection refused")
+
+        monkeypatch.setattr(mock_httpx_client, "post", failing_post)
+
+        with pytest.raises(httpx.RequestError) as exc_info:
+            adapter.reset()
+        assert "Connection refused" in str(exc_info.value)
