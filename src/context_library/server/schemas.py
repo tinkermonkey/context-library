@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from context_library.storage.models import Domain, StructuralHints
 
@@ -396,17 +396,43 @@ class AdapterStatsResponse(BaseModel):
 # ── Adapter reset ────────────────────────────────────────────────────
 
 class HelperResetInfo(BaseModel):
-    """Helper reset result with status and cleared state names."""
+    """Helper reset result with status and cleared state names.
 
-    ok: bool
+    Attributes:
+        ok: Reset operation result for helper service.
+            - True: Reset was performed and succeeded
+            - False: Reset was performed and failed
+            - None: Adapter is not a helper adapter; reset was not applicable
+        cleared: List of state items that were cleared (e.g., "push_cursor:obsidian").
+            Only populated when ok=True.
+    """
+
+    ok: bool | None = None
     cleared: list[str] = Field(default_factory=list)
 
 
 class LibraryResetInfo(BaseModel):
-    """Library reset result with source and chunk counts."""
+    """Library reset result with source and chunk counts.
+
+    Both `sources_reset` and `chunks_retired` must be either both None or both int,
+    ensuring consistent representation of reset completion state.
+    """
 
     sources_reset: int | None = None
     chunks_retired: int | None = None
+
+    @model_validator(mode='after')
+    def check_co_nullability(self) -> 'LibraryResetInfo':
+        """Enforce that sources_reset and chunks_retired are both None or both int."""
+        is_sources_none = self.sources_reset is None
+        is_chunks_none = self.chunks_retired is None
+
+        if is_sources_none != is_chunks_none:
+            raise ValueError(
+                "sources_reset and chunks_retired must both be None or both be int; "
+                f"got sources_reset={self.sources_reset}, chunks_retired={self.chunks_retired}"
+            )
+        return self
 
 
 class AdapterResetResponse(BaseModel):

@@ -407,24 +407,30 @@ class TestYouTubeWatchHistoryAdapterReset:
         with pytest.raises(ValueError):
             adapter.reset()
 
-    def test_reset_raises_on_missing_fields(self):
-        """reset() raises ValidationError when response is missing required fields."""
+    def test_reset_computes_ok_when_missing_in_response(self):
+        """reset() computes ok field when missing from response."""
         adapter = _make_adapter()
-        # Missing 'ok' field
+        # Missing 'ok' field; will be computed from errors
         adapter._client.post.return_value = _make_mock_response(
             {"cleared": [], "errors": []}
         )
-        
-        with pytest.raises(ValidationError):
-            adapter.reset()
 
-    def test_reset_raises_on_invalid_field_types(self):
-        """reset() raises ValidationError when response fields have wrong types."""
+        result = adapter.reset()
+        # ok is computed as True when errors is empty
+        assert result.ok is True
+        assert result.cleared == []
+        assert result.errors == []
+
+    def test_reset_ignores_invalid_ok_type_in_response(self):
+        """reset() ignores invalid 'ok' type in response and computes ok correctly."""
         adapter = _make_adapter()
-        # ok should be bool, not list
+        # ok as list is ignored; will be computed from errors
         adapter._client.post.return_value = _make_mock_response(
             {"ok": [], "cleared": [], "errors": []}
         )
 
-        with pytest.raises(ValidationError):
-            adapter.reset()
+        result = adapter.reset()
+        # ok is computed as True when errors is empty, regardless of response value
+        assert result.ok is True
+        assert result.cleared == []
+        assert result.errors == []

@@ -118,14 +118,14 @@ async def reset_adapter(adapter_id: str, request: Request):
             break
 
     errors: list[str] = []
-    helper_reset = False
+    helper_reset_ok: bool | None = None  # True=success, False=failure, None=not applicable
     cleared: list[str] = []
 
     if adapter is not None:
         try:
             reset_result = await asyncio.to_thread(adapter.reset)
             if reset_result.ok:
-                helper_reset = True
+                helper_reset_ok = True
                 cleared = reset_result.cleared
             else:
                 # Helper reset failed
@@ -150,8 +150,9 @@ async def reset_adapter(adapter_id: str, request: Request):
             )
     else:
         # Adapter not in helper_adapters (may be webhook or other non-helper adapter)
-        # For non-helper adapters, skip the helper reset step
+        # For non-helper adapters, reset is not applicable; ok=None explicitly indicates this
         logger.info("Adapter %s not in helper adapters, skipping helper reset", adapter_id)
+        helper_reset_ok = None
 
     # Step 3: Call document_store.reset_adapter()
     library_reset = False
@@ -170,7 +171,7 @@ async def reset_adapter(adapter_id: str, request: Request):
         )
     except Exception as e:
         error_msg = f"Library reset error: {type(e).__name__}: {e}"
-        if helper_reset:
+        if helper_reset_ok is True:
             error_msg += " (Note: helper was already reset)"
         logger.error("Reset adapter %s failed at step 3: %s", adapter_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)
@@ -221,7 +222,7 @@ async def reset_adapter(adapter_id: str, request: Request):
     # Step 6: Return response (200 on success, 207 if re-ingestion unavailable and needed)
     response = AdapterResetResponse(
         adapter_id=adapter_id,
-        helper_reset=HelperResetInfo(ok=helper_reset, cleared=cleared),
+        helper_reset=HelperResetInfo(ok=helper_reset_ok, cleared=cleared),
         library_reset=LibraryResetInfo(sources_reset=sources_reset, chunks_retired=chunks_retired),
         reingestion_triggered=reingestion_triggered,
         errors=errors,

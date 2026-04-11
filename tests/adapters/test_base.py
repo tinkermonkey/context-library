@@ -250,18 +250,22 @@ class TestBaseAdapterReset:
         adapter.reset()
 
     def test_reset_model_validation(self):
-        """ResetResult properly validates fields."""
-        # Valid instance
-        result = ResetResult(ok=True, cleared=["item1", "item2"], errors=["error1"])
-        assert result.ok is True
+        """ResetResult properly validates fields and enforces ok/errors consistency."""
+        # ok is computed from errors: True iff errors is empty
+        result = ResetResult(cleared=["item1", "item2"], errors=["error1"])
+        assert result.ok is False  # ok computed as False because errors is not empty
         assert result.cleared == ["item1", "item2"]
         assert result.errors == ["error1"]
 
-    def test_reset_result_with_empty_lists(self):
-        """ResetResult works with empty lists."""
-        result = ResetResult(ok=True, cleared=[], errors=[])
+        # ok is True when errors is empty
+        result2 = ResetResult(cleared=["item1"], errors=[])
+        assert result2.ok is True  # ok computed as True because errors is empty
 
-        assert result.ok is True
+    def test_reset_result_with_empty_lists(self):
+        """ResetResult works with empty lists and computes ok=True."""
+        result = ResetResult(cleared=[], errors=[])
+
+        assert result.ok is True  # ok computed as True when errors is empty
         assert len(result.cleared) == 0
         assert len(result.errors) == 0
 
@@ -270,11 +274,11 @@ class TestBaseAdapterReset:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            ResetResult(ok=True, cleared="item", errors=[])  # String instead of list
+            ResetResult(cleared="item", errors=[])  # String instead of list
 
     def test_reset_result_pydantic_validation_strict_errors_field(self):
         """ResetResult validates errors field is list."""
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            ResetResult(ok=True, cleared=[], errors="error")  # String instead of list
+            ResetResult(cleared=[], errors="error")  # String instead of list

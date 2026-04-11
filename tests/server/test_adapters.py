@@ -84,7 +84,7 @@ class TestResetAdapter:
         # Create a mock adapter that fails on reset
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=False, cleared=[], errors=["Connection failed"])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=["Connection failed"])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -102,7 +102,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds on reset
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -125,7 +125,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -155,7 +155,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=["push_cursor"], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=["push_cursor"], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -200,7 +200,7 @@ class TestResetAdapter:
 
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"]["ok"] is False  # Not found, so False
+        assert data["helper_reset"]["ok"] is None  # Not a helper adapter, so ok=None (not applicable)
         assert data["library_reset"]["sources_reset"] is not None
         assert data["reingestion_triggered"] is True
         assert data["errors"] == []
@@ -225,7 +225,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -312,7 +312,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -345,7 +345,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -379,7 +379,7 @@ class TestResetAdapter:
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+        mock_adapter.reset.return_value = ResetResult(cleared=[], errors=[])
 
         client.app.state.helper_adapters = [mock_adapter]
 

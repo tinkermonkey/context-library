@@ -1192,8 +1192,8 @@ class TestRemoteAdapterReset:
             adapter.reset()
         assert "JSON" in str(exc_info.value) or "Expecting value" in str(exc_info.value)
 
-    def test_reset_raises_on_missing_ok_field(self, mock_httpx_client):
-        """reset() raises ValidationError when response is missing 'ok' field."""
+    def test_reset_computes_ok_when_missing_in_response(self, mock_httpx_client):
+        """reset() computes ok field when missing from response."""
         class TestRemoteAdapter(RemoteAdapter):
             @property
             def _collector_name(self) -> str:
@@ -1208,15 +1208,17 @@ class TestRemoteAdapterReset:
         reset_url = "http://localhost:8000/collectors/test_collector/reset"
         mock_httpx_client.set_response(
             reset_url,
-            {"cleared": [], "errors": []},  # Missing 'ok' field
+            {"cleared": [], "errors": []},  # Missing 'ok' field; will be computed
         )
 
-        with pytest.raises(ValidationError) as exc_info:
-            adapter.reset()
-        assert "ok" in str(exc_info.value)
+        result = adapter.reset()
+        # ok is computed as True when errors is empty
+        assert result.ok is True
+        assert result.cleared == []
+        assert result.errors == []
 
-    def test_reset_raises_on_invalid_ok_type(self, mock_httpx_client):
-        """reset() raises ValidationError when 'ok' field is not a valid boolean type."""
+    def test_reset_ignores_invalid_ok_type_in_response(self, mock_httpx_client):
+        """reset() ignores invalid 'ok' type in response and computes ok correctly."""
         class TestRemoteAdapter(RemoteAdapter):
             @property
             def _collector_name(self) -> str:
@@ -1231,12 +1233,14 @@ class TestRemoteAdapterReset:
         reset_url = "http://localhost:8000/collectors/test_collector/reset"
         mock_httpx_client.set_response(
             reset_url,
-            {"ok": [], "cleared": [], "errors": []},  # ok should be bool, not list
+            {"ok": [], "cleared": [], "errors": []},  # ok as list is ignored; will be computed from errors
         )
 
-        with pytest.raises(ValidationError) as exc_info:
-            adapter.reset()
-        assert "ok" in str(exc_info.value).lower()
+        result = adapter.reset()
+        # ok is computed as True when errors is empty, regardless of what was in response
+        assert result.ok is True
+        assert result.cleared == []
+        assert result.errors == []
 
     def test_reset_raises_on_invalid_cleared_type(self, mock_httpx_client):
         """reset() raises ValidationError when 'cleared' field is not a list."""
