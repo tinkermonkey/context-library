@@ -654,19 +654,23 @@ class TestTriggerImmediateIngest:
     """Tests for trigger_immediate_ingest() method."""
 
     def test_trigger_returns_false_if_poller_stopped(self, pipeline, document_store):
-        """trigger_immediate_ingest() should return False if poller is stopped."""
+        """trigger_immediate_ingest() should raise PollerNotRunningError if poller is stopped."""
+        from context_library.scheduler.exceptions import PollerNotRunningError
+
         poller = Poller(pipeline, document_store)
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller.register(adapter, chunker)
 
-        # Poller not started, so should return False
-        result = poller.trigger_immediate_ingest("test-adapter")
-        assert result is False
+        # Poller not started, so should raise PollerNotRunningError
+        with pytest.raises(PollerNotRunningError):
+            poller.trigger_immediate_ingest("test-adapter")
 
     def test_trigger_returns_false_if_adapter_not_registered(self, pipeline, document_store):
-        """trigger_immediate_ingest() should return False for unknown adapter."""
+        """trigger_immediate_ingest() should raise AdapterNotRegisteredError for unknown adapter."""
+        from context_library.scheduler.exceptions import AdapterNotRegisteredError
+
         poller = Poller(pipeline, document_store, tick_interval=0.5)
 
         with patch.object(
@@ -675,13 +679,15 @@ class TestTriggerImmediateIngest:
             poller.start()
 
             try:
-                result = poller.trigger_immediate_ingest("unknown-adapter")
-                assert result is False
+                with pytest.raises(AdapterNotRegisteredError):
+                    poller.trigger_immediate_ingest("unknown-adapter")
             finally:
                 poller.stop()
 
     def test_trigger_returns_false_if_no_sources(self, pipeline, document_store):
-        """trigger_immediate_ingest() should return False if adapter has no sources."""
+        """trigger_immediate_ingest() should raise NoSourcesError if adapter has no sources."""
+        from context_library.scheduler.exceptions import NoSourcesError
+
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
@@ -697,8 +703,8 @@ class TestTriggerImmediateIngest:
                 poller.start()
 
                 try:
-                    result = poller.trigger_immediate_ingest("test-adapter")
-                    assert result is False
+                    with pytest.raises(NoSourcesError):
+                        poller.trigger_immediate_ingest("test-adapter")
                 finally:
                     poller.stop()
 
@@ -867,7 +873,9 @@ class TestTriggerImmediateIngest:
                 poller.stop()
 
     def test_trigger_returns_false_when_ingest_already_in_progress(self, pipeline, document_store):
-        """trigger_immediate_ingest() should return False if ingest already in progress for same adapter."""
+        """trigger_immediate_ingest() should raise IngestAlreadyInProgressError if ingest already in progress."""
+        from context_library.scheduler.exceptions import IngestAlreadyInProgressError
+
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
@@ -895,14 +903,16 @@ class TestTriggerImmediateIngest:
                 result1 = poller.trigger_immediate_ingest("test-adapter")
                 assert result1 is True
 
-                # Second call while first is still in progress should return False
-                result2 = poller.trigger_immediate_ingest("test-adapter")
-                assert result2 is False
+                # Second call while first is still in progress should raise IngestAlreadyInProgressError
+                with pytest.raises(IngestAlreadyInProgressError):
+                    poller.trigger_immediate_ingest("test-adapter")
             finally:
                 poller.stop()
 
     def test_trigger_race_condition_protection_with_lock(self, pipeline, document_store):
         """trigger_immediate_ingest() check-and-set should be atomic (protected by lock)."""
+        from context_library.scheduler.exceptions import IngestAlreadyInProgressError
+
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
@@ -940,9 +950,9 @@ class TestTriggerImmediateIngest:
                 with condition:
                     condition.wait_for(lambda: call_count["count"] > 0, timeout=1.0)
 
-                # Second call should be rejected (not spawn another thread)
-                result2 = poller.trigger_immediate_ingest("test-adapter")
-                assert result2 is False
+                # Second call should raise IngestAlreadyInProgressError (not spawn another thread)
+                with pytest.raises(IngestAlreadyInProgressError):
+                    poller.trigger_immediate_ingest("test-adapter")
 
                 # Wait for background threads to finish
                 time.sleep(0.6)

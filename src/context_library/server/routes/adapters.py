@@ -8,6 +8,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from context_library.server.schemas import AdapterListResponse, AdapterResponse, AdapterResetResponse
+from context_library.scheduler.exceptions import (
+    PollerNotRunningError,
+    AdapterNotRegisteredError,
+    NoSourcesError,
+    IngestAlreadyInProgressError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,15 +156,24 @@ async def reset_adapter(adapter_id: str, request: Request):
         raise HTTPException(status_code=500, detail=error_msg)
 
     # Step 4: Trigger immediate re-ingestion
-    # Note: trigger_immediate_ingest returns False on expected failures (poller unavailable,
-    # adapter not registered, ingest already in progress) and does not raise exceptions.
+    # trigger_immediate_ingest raises specific exceptions for different failure modes,
+    # allowing the caller to provide actionable error messages.
     # Programming errors inside the background thread are logged but do not propagate to caller.
-    # Programming errors in the synchronous preamble (before thread spawn) would propagate,
-    # but trigger_immediate_ingest is designed to return False for all expected failures.
-    reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
-    if not reingestion_triggered:
-        errors.append("Poller unavailable, adapter not registered, or ingest already in progress; re-ingestion will not occur immediately")
-        logger.warning("Reset adapter %s: re-ingestion trigger failed (poller unavailable, adapter not registered, or ingest already in progress)", adapter_id)
+    reingestion_triggered = False
+    try:
+        reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
+    except PollerNotRunningError:
+        errors.append("Poller is not running; re-ingestion will not occur immediately")
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (poller not running)", adapter_id)
+    except AdapterNotRegisteredError:
+        errors.append("Adapter is not registered with poller; re-ingestion will not occur immediately")
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (adapter not registered)", adapter_id)
+    except NoSourcesError:
+        errors.append("No sources found for adapter; re-ingestion will not occur immediately")
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (no sources)", adapter_id)
+    except IngestAlreadyInProgressError:
+        errors.append("Ingest is already in progress for adapter; re-ingestion will not occur immediately")
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (ingest already in progress)", adapter_id)
 
     # Step 5: Determine if re-ingestion is needed by checking source poll strategies
     # For push-only adapters, re-ingestion via poller is not applicable.

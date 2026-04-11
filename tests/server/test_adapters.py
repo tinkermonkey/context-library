@@ -120,6 +120,8 @@ class TestResetAdapter:
 
     def test_returns_207_when_poller_unavailable(self, client: TestClient) -> None:
         """Test that poller unavailability returns 207 with warning message."""
+        from context_library.scheduler.exceptions import PollerNotRunningError
+
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
@@ -127,9 +129,9 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock poller to return False (unavailable)
+        # Mock poller to raise PollerNotRunningError (unavailable)
         poller = MagicMock()
-        poller.trigger_immediate_ingest.return_value = False
+        poller.trigger_immediate_ingest.side_effect = PollerNotRunningError("Poller is not running")
         client.app.state.poller = poller
 
         resp = client.post("/adapters/test-adapter/reset")
@@ -140,7 +142,7 @@ class TestResetAdapter:
         assert data["helper_reset"] is True
         assert data["library_reset"] is True
         assert data["reingestion_triggered"] is False
-        assert any("Poller unavailable" in err for err in data["errors"])
+        assert any("Poller is not running" in err for err in data["errors"])
         # Verify new response fields
         assert "sources_reset" in data
         assert isinstance(data["sources_reset"], int)
@@ -210,6 +212,7 @@ class TestResetAdapter:
         should not result in 207 Partial Success — the reset fully succeeded.
         """
         from context_library.storage.models import PollStrategy
+        from context_library.scheduler.exceptions import PollerNotRunningError
 
         # Update the existing source to use PUSH strategy instead of PULL
         cursor = ds.conn.cursor()
@@ -226,9 +229,9 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock poller to return False (unavailable)
+        # Mock poller to raise PollerNotRunningError (unavailable)
         poller = MagicMock()
-        poller.trigger_immediate_ingest.return_value = False
+        poller.trigger_immediate_ingest.side_effect = PollerNotRunningError("Poller is not running")
         client.app.state.poller = poller
 
         resp = client.post("/adapters/test-adapter/reset")
@@ -240,7 +243,7 @@ class TestResetAdapter:
         assert data["library_reset"] is True
         assert data["reingestion_triggered"] is False
         # Should have error about poller, but still 200 because push-only
-        assert any("Poller unavailable" in err for err in data["errors"])
+        assert any("Poller is not running" in err for err in data["errors"])
 
     def test_returns_502_when_adapter_reset_raises_exception(self, client: TestClient) -> None:
         """Test that connection-level exceptions from adapter.reset() return 502 and abort step 3.

@@ -6,6 +6,12 @@ from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
+from context_library.scheduler.exceptions import (
+    PollerNotRunningError,
+    AdapterNotRegisteredError,
+    NoSourcesError,
+    IngestAlreadyInProgressError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +99,8 @@ class Poller:
         self._ingest_in_progress: dict[str, bool] = {}
         # Track background ingest threads for graceful shutdown
         self._background_threads: set[threading.Thread] = set()
+        # Map from background thread to adapter_id for selective flag clearing
+        self._ingest_thread_adapters: dict[threading.Thread, str] = {}
         # Lock for thread-safe management of background threads
         self._threads_lock = threading.Lock()
 
@@ -156,15 +164,18 @@ class Poller:
                 logger.error(
                     "Poller: background ingest thread did not exit within timeout (5.0s). "
                     "It may still be running a network call or database operation. "
-                    "Removing from tracking set; adapter may remain locked until thread exits."
+                    "Adapter may remain locked until thread exits."
                 )
+            else:
+                # Only clear the in-progress flag if the thread actually exited
+                with self._threads_lock:
+                    adapter_id = self._ingest_thread_adapters.get(thread)
+                    if adapter_id:
+                        self._ingest_in_progress.pop(adapter_id, None)
             # Always remove from tracking set, whether thread exited or not
             with self._threads_lock:
                 self._background_threads.discard(thread)
-
-        # Clear any stale _ingest_in_progress flags to avoid permanent adapter lockout
-        with self._threads_lock:
-            self._ingest_in_progress.clear()
+                self._ingest_thread_adapters.pop(thread, None)
 
     def _run(self) -> None:
         """Main background loop (internal).
@@ -296,7 +307,7 @@ class Poller:
         in a background thread, allowing the HTTP response to return immediately.
 
         Prevents concurrent ingest of the same adapter using a busy flag. If an ingest
-        is already in progress for this adapter, returns False.
+        is already in progress for this adapter, raises IngestAlreadyInProgressError.
 
         Background threads are tracked and joined during shutdown to ensure graceful
         cleanup. Failures in the background thread are logged but do not propagate.
@@ -305,25 +316,27 @@ class Poller:
             adapter_id: The adapter ID to trigger ingest for
 
         Returns:
-            True if a background ingest thread was successfully spawned, False if:
-            - The adapter is not registered with the poller
-            - The poller is stopped or not running
-            - No sources are registered to the adapter
-            - An ingest is already in progress for this adapter (race condition prevention)
+            True if a background ingest thread was successfully spawned
+
+        Raises:
+            PollerNotRunningError: If the poller is stopped or not running
+            AdapterNotRegisteredError: If the adapter is not registered with the poller
+            NoSourcesError: If no sources are registered to the adapter
+            IngestAlreadyInProgressError: If an ingest is already in progress for this adapter
         """
-        # Return False if poller is stopped or not started
+        # Raise if poller is stopped or not started
         if self._thread is None or not self._thread.is_alive() or self._stop_event.is_set():
-            return False
+            raise PollerNotRunningError("Poller is not running")
 
         # Find the adapter
         adapter, chunker = self._find_adapter(adapter_id)
         if adapter is None or chunker is None:
-            return False
+            raise AdapterNotRegisteredError(f"Adapter '{adapter_id}' is not registered")
 
         # Get all sources for this adapter
         sources = self._document_store.get_sources_for_adapter(adapter_id)
         if not sources:
-            return False
+            raise NoSourcesError(f"No sources found for adapter '{adapter_id}'")
 
         # Check-and-set the ingest_in_progress flag atomically
         # This prevents TOCTOU race where two threads could both pass the check
@@ -333,7 +346,9 @@ class Poller:
                     "trigger_immediate_ingest: ingest already in progress for adapter %s",
                     adapter_id,
                 )
-                return False
+                raise IngestAlreadyInProgressError(
+                    f"Ingest is already in progress for adapter '{adapter_id}'"
+                )
             # Mark this adapter as having an ingest in progress
             self._ingest_in_progress[adapter_id] = True
 
@@ -367,14 +382,17 @@ class Poller:
                         )
             finally:
                 # Always clear the in-progress flag and remove thread from tracking
-                self._ingest_in_progress[adapter_id] = False
+                # CRITICAL: Clear flag inside lock to prevent race conditions
                 with self._threads_lock:
+                    self._ingest_in_progress[adapter_id] = False
                     self._background_threads.discard(threading.current_thread())
+                    self._ingest_thread_adapters.pop(threading.current_thread(), None)
 
         # Use non-daemon threads and track them for graceful shutdown
         thread = threading.Thread(target=process_sources, daemon=False)
         with self._threads_lock:
             self._background_threads.add(thread)
+            self._ingest_thread_adapters[thread] = adapter_id
         thread.start()
 
         return True
