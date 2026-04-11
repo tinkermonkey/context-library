@@ -44,11 +44,11 @@ def _make_adapter(**kwargs) -> ObsidianHelperAdapter:
 class TestObsidianHelperAdapterInitialization:
     def test_init_stores_api_url(self):
         adapter = _make_adapter(api_url="http://192.168.1.50:7123")
-        assert adapter._api_url == "http://192.168.1.50:7123"
+        assert adapter._service_url == "http://192.168.1.50:7123"
 
     def test_init_strips_trailing_slash(self):
         adapter = _make_adapter(api_url="http://192.168.1.50:7123/")
-        assert adapter._api_url == "http://192.168.1.50:7123"
+        assert adapter._service_url == "http://192.168.1.50:7123"
 
     def test_init_stores_api_key(self):
         adapter = _make_adapter(api_key="my-secret")

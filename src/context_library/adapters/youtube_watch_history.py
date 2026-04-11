@@ -42,8 +42,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter, ResetResult
-from context_library.adapters.remote import _post_reset_to_helper
+from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (
     Domain,
     EventMetadata,
@@ -63,7 +62,7 @@ except ImportError:
     pass
 
 
-class YouTubeWatchHistoryAdapter(BaseAdapter):
+class YouTubeWatchHistoryAdapter(RemoteAdapter):
     """Ingests YouTube watch history from the macOS helper's /youtube/history endpoint.
 
     Each watched video is emitted as an EVENTS-domain NormalizedContent item.
@@ -100,27 +99,22 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
         if not api_key:
             raise ValueError("api_key is required for YouTubeWatchHistoryAdapter")
 
-        self._api_url = api_url.rstrip("/")
-        self._api_key = api_key
         self._account_id = account_id
         # yt-dlp has an internal 120s timeout; give the helper a comfortable margin.
-        self._client = httpx.Client(timeout=150.0)
-
-    @property
-    def adapter_id(self) -> str:
-        return f"youtube_watch_history:{self._account_id}"
-
-    @property
-    def domain(self) -> Domain:
-        return Domain.EVENTS
+        # Call parent constructor with required parameters.
+        # The parent will set up _service_url, _api_key, _client.
+        super().__init__(
+            service_url=api_url.rstrip("/"),
+            domain=Domain.EVENTS,
+            adapter_id=f"youtube_watch_history:{account_id}",
+            normalizer_version="1.1.0",
+            api_key=api_key,
+            timeout=150.0,
+        )
 
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
-
-    @property
-    def normalizer_version(self) -> str:
-        return "1.1.0"
 
     @property
     def _collector_name(self) -> str:
@@ -175,7 +169,7 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
 
         try:
             response = self._client.get(
-                f"{self._api_url}/youtube/history",
+                f"{self._service_url}/youtube/history",
                 params=params,
                 headers=headers,
             )
@@ -209,7 +203,7 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
         except httpx.RequestError as exc:
             logger.error(
                 "Network error connecting to YouTube history helper at %s/youtube/history: %s",
-                self._api_url,
+                self._service_url,
                 exc,
             )
             raise
@@ -268,28 +262,6 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
                 extra_metadata=extra_metadata,
             ),
             normalizer_version=self.normalizer_version,
-        )
-
-    def reset(self) -> ResetResult:
-        """Reset the YouTube helper's delivery state.
-
-        Sends a POST request to the helper's reset endpoint and deserializes
-        the response into a ResetResult.
-
-        Returns:
-            ResetResult with ok, cleared, and errors fields from the helper.
-
-        Raises:
-            httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
-            httpx.RequestError: If the request fails (connection, timeout, etc.).
-            ValueError: If the response body cannot be parsed as JSON.
-            ValidationError: If the response is missing required fields or has invalid types.
-        """
-        return _post_reset_to_helper(
-            client=self._client,
-            base_url=self._api_url,
-            collector_name=self._collector_name,
-            api_key=self._api_key,
         )
 
 

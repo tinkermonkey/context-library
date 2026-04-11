@@ -32,8 +32,7 @@ Expected endpoint contract:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter, ResetResult
-from context_library.adapters.remote import _post_reset_to_helper
+from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -51,7 +50,7 @@ except ImportError:
     pass
 
 
-class ObsidianHelperAdapter(BaseAdapter):
+class ObsidianHelperAdapter(RemoteAdapter):
     """Adapter that ingests an Obsidian vault served by a context-helpers bridge service."""
 
     def __init__(
@@ -68,26 +67,21 @@ class ObsidianHelperAdapter(BaseAdapter):
         if not api_key:
             raise ValueError("api_key is required for ObsidianHelperAdapter")
 
-        self._api_url = api_url.rstrip("/")
-        self._api_key = api_key
         self._vault_id = vault_id
-        self._client = httpx.Client(timeout=60.0)
-
-    @property
-    def adapter_id(self) -> str:
-        return f"obsidian_helper:{self._vault_id}"
-
-    @property
-    def domain(self) -> Domain:
-        return Domain.NOTES
+        # Call parent constructor with required parameters.
+        # The parent will set up _api_url, _api_key, _client.
+        super().__init__(
+            service_url=api_url.rstrip("/"),
+            domain=Domain.NOTES,
+            adapter_id=f"obsidian_helper:{vault_id}",
+            normalizer_version="1.0.0",
+            api_key=api_key,
+            timeout=60.0,
+        )
 
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
-
-    @property
-    def normalizer_version(self) -> str:
-        return "1.0.0"
 
     @property
     def _collector_name(self) -> str:
@@ -101,7 +95,7 @@ class ObsidianHelperAdapter(BaseAdapter):
             params["since"] = since
 
         response = self._client.get(
-            f"{self._api_url}/obsidian/vault-notes",
+            f"{self._service_url}/obsidian/vault-notes",
             headers=headers,
             params=params,
         )
@@ -144,25 +138,3 @@ class ObsidianHelperAdapter(BaseAdapter):
             except (KeyError, ValueError) as e:
                 logger.warning("Skipping malformed note from helper: %s", e)
                 continue
-
-    def reset(self) -> ResetResult:
-        """Reset the Obsidian helper's delivery state.
-
-        Sends a POST request to the helper's reset endpoint and deserializes
-        the response into a ResetResult.
-
-        Returns:
-            ResetResult with ok, cleared, and errors fields from the helper.
-
-        Raises:
-            httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
-            httpx.RequestError: If the request fails (connection, timeout, etc.).
-            ValueError: If the response body cannot be parsed as JSON.
-            ValidationError: If the response is missing required fields or has invalid types.
-        """
-        return _post_reset_to_helper(
-            client=self._client,
-            base_url=self._api_url,
-            collector_name=self._collector_name,
-            api_key=self._api_key,
-        )
