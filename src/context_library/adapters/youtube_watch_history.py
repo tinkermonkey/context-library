@@ -104,7 +104,7 @@ class YouTubeWatchHistoryAdapter(RemoteAdapter):
         # Call parent constructor with required parameters.
         # The parent will set up _service_url, _api_key, _client.
         super().__init__(
-            service_url=api_url.rstrip("/"),
+            service_url=api_url,
             domain=Domain.EVENTS,
             adapter_id=f"youtube_watch_history:{account_id}",
             normalizer_version="1.1.0",
@@ -119,17 +119,6 @@ class YouTubeWatchHistoryAdapter(RemoteAdapter):
     @property
     def _collector_name(self) -> str:
         return "youtube"
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._client.close()
-        return False
-
-    def __del__(self) -> None:
-        if hasattr(self, "_client"):
-            self._client.close()
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch watch history from the helper API and yield NormalizedContent.

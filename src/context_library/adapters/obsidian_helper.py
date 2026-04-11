@@ -69,9 +69,9 @@ class ObsidianHelperAdapter(RemoteAdapter):
 
         self._vault_id = vault_id
         # Call parent constructor with required parameters.
-        # The parent will set up _api_url, _api_key, _client.
+        # The parent will set up _service_url, _api_key, _client.
         super().__init__(
-            service_url=api_url.rstrip("/"),
+            service_url=api_url,
             domain=Domain.NOTES,
             adapter_id=f"obsidian_helper:{vault_id}",
             normalizer_version="1.0.0",
