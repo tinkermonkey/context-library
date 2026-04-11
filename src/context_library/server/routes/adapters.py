@@ -80,14 +80,17 @@ async def get_adapter(adapter_id: str, request: Request) -> AdapterResponse:
 async def reset_adapter(adapter_id: str, request: Request):
     """Reset an adapter: reset helper state, retire library data, and trigger re-ingest.
 
-    Orchestrates a coordinated reset across three phases in strict abort-on-failure order:
+    Orchestrates a coordinated reset across six steps in strict abort-on-failure order:
     1. Validate adapter exists (404 if not found)
     2. Reset adapter state in helper service (502 if fails — do NOT proceed to step 3)
     3. Retire all chunks and reset fetch state in library (500 if fails)
-    4. Trigger immediate re-ingestion (207 partial success if unavailable)
+    4. Trigger immediate re-ingestion (may fail if poller unavailable — non-fatal)
+    5. Determine if re-ingestion is needed by checking source poll strategies
+    6. Return response (200 on success, 207 if library reset succeeded but re-ingestion failed)
 
-    This ordering ensures the system never enters a state where library data is cleared
-    but re-ingestion is impossible to trigger.
+    Critical ordering: Steps 1-3 use abort-on-failure semantics (earlier failures prevent
+    later steps). Step 4 failures are non-fatal after Step 3 succeeds — library data is
+    retired but re-ingestion may be deferred or require manual trigger if poller is unavailable.
     """
     ds = request.app.state.document_store
     config = request.app.state.config
