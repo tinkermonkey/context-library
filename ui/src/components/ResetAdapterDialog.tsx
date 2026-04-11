@@ -45,6 +45,7 @@ export function ResetAdapterDialog({
     if (!resetMutation.isPending) {
       setShowResult(false);
       setResult(null);
+      resetMutation.reset();
       onClose();
     }
   };
@@ -150,19 +151,28 @@ export function ResetAdapterDialog({
                     <div className="text-sm">
                       <p className="text-gray-700">
                         <span className="font-semibold">Helper Reset:</span>{' '}
-                        {result.helper_reset ? '✓ Yes' : '✗ Skipped'}
+                        {result.helper_reset.ok ? '✓ Yes' : '✗ Skipped'}
                       </p>
                     </div>
-                    <div className="text-sm">
-                      <p className="text-gray-700">
-                        <span className="font-semibold">Library Reset:</span>{' '}
-                        {result.library_reset ? '✓ Yes' : '✗ No'}
-                      </p>
-                    </div>
-                    {result.chunks_retired !== null && (
+                    {result.helper_reset.cleared.length > 0 && (
                       <div className="text-sm">
                         <p className="text-gray-700">
-                          <span className="font-semibold">Chunks Retired:</span> {result.chunks_retired}
+                          <span className="font-semibold">Cleared States:</span>{' '}
+                          {result.helper_reset.cleared.join(', ')}
+                        </p>
+                      </div>
+                    )}
+                    {result.library_reset.sources_reset !== null && (
+                      <div className="text-sm">
+                        <p className="text-gray-700">
+                          <span className="font-semibold">Sources Reset:</span> {result.library_reset.sources_reset}
+                        </p>
+                      </div>
+                    )}
+                    {result.library_reset.chunks_retired !== null && (
+                      <div className="text-sm">
+                        <p className="text-gray-700">
+                          <span className="font-semibold">Chunks Retired:</span> {result.library_reset.chunks_retired}
                         </p>
                       </div>
                     )}

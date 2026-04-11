@@ -277,13 +277,20 @@ export interface ChunkQueryParams {
 
 // ── Adapter Reset ───────────────────────────────────────────────
 
-export interface AdapterResetResponse {
-  adapter_id: string;
-  helper_reset: boolean;
-  library_reset: boolean;
+export interface HelperResetInfo {
+  ok: boolean;
+  cleared: string[];
+}
+
+export interface LibraryResetInfo {
   sources_reset: number | null;
   chunks_retired: number | null;
-  cleared: string[];
+}
+
+export interface AdapterResetResponse {
+  adapter_id: string;
+  helper_reset: HelperResetInfo;
+  library_reset: LibraryResetInfo;
   reingestion_triggered: boolean;
   errors: string[];
 }
