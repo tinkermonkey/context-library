@@ -2,6 +2,9 @@
 
 import logging
 import threading
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
 from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
@@ -14,6 +17,66 @@ from context_library.scheduler.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_programming_error(exc: Exception) -> bool:
+    """Detect programming bugs that should escalate to ERROR level immediately.
+
+    Programming errors are indicative of bugs in the code (adapter, domain, pipeline)
+    rather than transient network or system issues. These should be surfaced at ERROR
+    level immediately, not after 6+ retries.
+
+    Examples:
+    - TypeError: Wrong argument type passed to a function
+    - AttributeError: Accessing a non-existent attribute (e.g., missing adapter method)
+    - KeyError: Missing key in dictionary (e.g., missing field in normalized content)
+    - IndexError: Accessing out-of-bounds list index
+    - ValueError: Invalid value for a function parameter
+    - NotImplementedError: Method not implemented
+    - AssertionError: Assertion failed in code
+
+    Transient errors (retried normally):
+    - Network errors (httpx, requests, urllib)
+    - Database errors (sqlite3.OperationalError for lock/I/O)
+    - MemoryError (already handled separately)
+    """
+    error_types = (
+        TypeError,
+        AttributeError,
+        KeyError,
+        IndexError,
+        ValueError,
+        NotImplementedError,
+        AssertionError,
+    )
+    return isinstance(exc, error_types)
+
+
+@dataclass
+class IngestResult:
+    """Result of a background ingest operation.
+
+    Tracks success/failure counts and the time the ingest completed.
+    Per-source exceptions are logged but not stored (to avoid keeping references
+    to large error objects in memory).
+    """
+
+    adapter_id: str
+    sources_attempted: int = 0
+    sources_succeeded: int = 0
+    sources_failed: int = 0
+    completed_at: Optional[datetime] = None
+    had_programming_errors: bool = False  # True if any programming errors were detected
+
+    @property
+    def overall_success(self) -> bool:
+        """True if all sources succeeded (zero failures)."""
+        return self.sources_attempted > 0 and self.sources_failed == 0
+
+    @property
+    def partial_success(self) -> bool:
+        """True if some sources succeeded but not all."""
+        return self.sources_succeeded > 0 and self.sources_failed > 0
 
 
 class SourceErrorTracker:
@@ -103,6 +166,25 @@ class Poller:
         self._ingest_thread_adapters: dict[threading.Thread, str] = {}
         # Lock for thread-safe management of background threads
         self._threads_lock = threading.Lock()
+        # Store the last ingest result per adapter_id (keyed by adapter_id)
+        self._ingest_results: dict[str, IngestResult] = {}
+        # Lock for thread-safe access to ingest results
+        self._results_lock = threading.Lock()
+
+    def get_ingest_result(self, adapter_id: str) -> Optional[IngestResult]:
+        """Retrieve the result of the last background ingest for an adapter.
+
+        Returns the IngestResult from the most recent call to trigger_immediate_ingest()
+        for the given adapter, or None if no ingest has been triggered yet.
+
+        Args:
+            adapter_id: The adapter ID to query
+
+        Returns:
+            IngestResult if an ingest has been triggered, otherwise None
+        """
+        with self._results_lock:
+            return self._ingest_results.get(adapter_id)
 
     def register(self, adapter: BaseAdapter, domain_chunker: BaseDomain) -> None:
         """Register an adapter and domain chunker for polling.
@@ -265,8 +347,18 @@ class Poller:
                 error_msg = f"ingest failed: {e}"
                 error_tracker.record_failure()
 
-                # Log at escalated level based on failure count
-                if error_tracker.should_log_at_error_level():
+                # Programming bugs (TypeError, AttributeError, etc.) indicate code issues
+                # that won't be fixed by retrying. Log them at ERROR level immediately
+                # rather than waiting for 6+ cycles.
+                if _is_programming_error(e):
+                    logger.error(
+                        "Poller: source %s encountered a programming error (escalated immediately): %s",
+                        source_id,
+                        error_msg,
+                        exc_info=True,
+                    )
+                # Log at escalated level based on consecutive failure count for transient errors
+                elif error_tracker.should_log_at_error_level():
                     logger.error(
                         "Poller: source %s has failed %d times (ERROR level): %s",
                         source_id,
@@ -310,7 +402,8 @@ class Poller:
         is already in progress for this adapter, raises IngestAlreadyInProgressError.
 
         Background threads are tracked and joined during shutdown to ensure graceful
-        cleanup. Failures in the background thread are logged but do not propagate.
+        cleanup. Per-source failures are logged with exc_info and the result is stored
+        in _ingest_results for querying (via get_ingest_result).
 
         Args:
             adapter_id: The adapter ID to trigger ingest for
@@ -354,6 +447,7 @@ class Poller:
 
         # Spawn a background thread to process sources immediately (non-blocking)
         def process_sources() -> None:
+            result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
             try:
                 for source in sources:
                     source_id = source["source_id"]
@@ -361,6 +455,7 @@ class Poller:
                         self._pipeline.ingest(
                             adapter, chunker, source_ref=source["origin_ref"]
                         )
+                        result.sources_succeeded += 1
                         # Update last_fetched_at on successful ingest
                         try:
                             self._document_store.update_last_fetched_at(source_id)
@@ -375,12 +470,28 @@ class Poller:
                         # System-level memory exhaustion is fatal; propagate immediately
                         raise
                     except Exception as e:
-                        logger.exception(
-                            "trigger_immediate_ingest: ingest failed for source %s: %s",
-                            source_id,
-                            e,
-                        )
+                        result.sources_failed += 1
+                        # Detect programming errors and flag them
+                        if _is_programming_error(e):
+                            result.had_programming_errors = True
+                            logger.error(
+                                "trigger_immediate_ingest: source %s encountered a programming error: %s",
+                                source_id,
+                                e,
+                                exc_info=True,
+                            )
+                        else:
+                            logger.exception(
+                                "trigger_immediate_ingest: ingest failed for source %s: %s",
+                                source_id,
+                                e,
+                            )
             finally:
+                # Mark result as completed and store it
+                result.completed_at = datetime.now()
+                with self._results_lock:
+                    self._ingest_results[adapter_id] = result
+
                 # Always clear the in-progress flag and remove thread from tracking
                 # CRITICAL: Clear flag inside lock to prevent race conditions
                 with self._threads_lock:
