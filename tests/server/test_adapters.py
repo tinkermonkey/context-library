@@ -139,16 +139,16 @@ class TestResetAdapter:
         assert resp.status_code == 207
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"] is True
-        assert data["library_reset"] is True
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert isinstance(data["library_reset"]["sources_reset"], int)
         assert data["reingestion_triggered"] is False
         assert any("Poller is not running" in err for err in data["errors"])
-        # Verify new response fields
-        assert "sources_reset" in data
-        assert isinstance(data["sources_reset"], int)
-        assert "chunks_retired" in data
-        assert isinstance(data["chunks_retired"], int)
-        assert data["cleared"] == []
+        # Verify response structure
+        assert "sources_reset" in data["library_reset"]
+        assert "chunks_retired" in data["library_reset"]
+        assert isinstance(data["library_reset"]["chunks_retired"], int)
+        assert data["helper_reset"]["cleared"] == []
 
     def test_happy_path_returns_200(self, client: TestClient) -> None:
         """Test happy path: all steps succeed and returns 200."""
@@ -169,16 +169,16 @@ class TestResetAdapter:
 
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"] is True
-        assert data["library_reset"] is True
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert isinstance(data["library_reset"]["sources_reset"], int)
         assert data["reingestion_triggered"] is True
         assert data["errors"] == []
-        # Verify new response fields
-        assert "sources_reset" in data
-        assert isinstance(data["sources_reset"], int)
-        assert "chunks_retired" in data
-        assert isinstance(data["chunks_retired"], int)
-        assert data["cleared"] == ["push_cursor"]
+        # Verify response structure
+        assert "sources_reset" in data["library_reset"]
+        assert "chunks_retired" in data["library_reset"]
+        assert isinstance(data["library_reset"]["chunks_retired"], int)
+        assert data["helper_reset"]["cleared"] == ["push_cursor"]
 
         # Verify that helper reset was called
         mock_adapter.reset.assert_called_once()
@@ -200,8 +200,8 @@ class TestResetAdapter:
 
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"] is False  # Not found, so False
-        assert data["library_reset"] is True
+        assert data["helper_reset"]["ok"] is False  # Not found, so False
+        assert data["library_reset"]["sources_reset"] is not None
         assert data["reingestion_triggered"] is True
         assert data["errors"] == []
 
@@ -239,8 +239,8 @@ class TestResetAdapter:
         assert resp.status_code == 200
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"] is True
-        assert data["library_reset"] is True
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
         assert data["reingestion_triggered"] is False
         # Should have error about poller, but still 200 because push-only
         assert any("Poller is not running" in err for err in data["errors"])
@@ -329,6 +329,9 @@ class TestResetAdapter:
         # Verify the error is captured
         assert len(data["errors"]) > 0
         assert any("Unexpected error while triggering re-ingestion" in error for error in data["errors"])
+        # Verify response structure is correct even with errors
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
 
     def test_sqlite_operational_error_from_trigger_ingest_returns_207(self, client: TestClient) -> None:
         """Test that sqlite3.OperationalError from trigger_immediate_ingest is handled gracefully.
@@ -357,7 +360,7 @@ class TestResetAdapter:
         assert resp.status_code == 207
         data = resp.json()
         # Verify library reset succeeded
-        assert data["library_reset"] is True
+        assert data["library_reset"]["sources_reset"] is not None
         # Verify the DB error is captured in errors
         assert len(data["errors"]) > 0
         assert any("Database error" in error for error in data["errors"])
@@ -397,6 +400,11 @@ class TestResetAdapter:
         # Call reset
         resp = client.post("/adapters/test-adapter/reset")
         assert resp.status_code == 200
+        data = resp.json()
+        # Verify response structure
+        assert data["helper_reset"]["ok"] is True
+        assert data["library_reset"]["sources_reset"] is not None
+        assert data["library_reset"]["chunks_retired"] is not None
 
         # Verify source_versions are still there after reset
         cursor.execute(

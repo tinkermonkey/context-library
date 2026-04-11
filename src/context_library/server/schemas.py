@@ -395,16 +395,27 @@ class AdapterStatsResponse(BaseModel):
 
 # ── Adapter reset ────────────────────────────────────────────────────
 
+class HelperResetInfo(BaseModel):
+    """Helper reset result with status and cleared state names."""
+
+    ok: bool
+    cleared: list[str] = Field(default_factory=list)
+
+
+class LibraryResetInfo(BaseModel):
+    """Library reset result with source and chunk counts."""
+
+    sources_reset: int | None = None
+    chunks_retired: int | None = None
+
+
 class AdapterResetResponse(BaseModel):
     """Response from POST /adapters/{adapter_id}/reset endpoint.
 
     Contains details of the reset operation across helper, library, and re-ingestion phases.
     """
     adapter_id: str
-    helper_reset: bool
-    library_reset: bool
-    sources_reset: int | None = None
-    chunks_retired: int | None = None
-    cleared: list[str] = Field(default_factory=list)
+    helper_reset: HelperResetInfo
+    library_reset: LibraryResetInfo
     reingestion_triggered: bool
     errors: list[str] = Field(default_factory=list)

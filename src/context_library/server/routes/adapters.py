@@ -8,7 +8,13 @@ import sqlite3
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from context_library.server.schemas import AdapterListResponse, AdapterResponse, AdapterResetResponse
+from context_library.server.schemas import (
+    AdapterListResponse,
+    AdapterResponse,
+    AdapterResetResponse,
+    HelperResetInfo,
+    LibraryResetInfo,
+)
 from context_library.scheduler.exceptions import (
     PollerNotRunningError,
     AdapterNotRegisteredError,
@@ -212,11 +218,8 @@ async def reset_adapter(adapter_id: str, request: Request):
     # Step 6: Return response (200 on success, 207 if re-ingestion unavailable and needed)
     response = AdapterResetResponse(
         adapter_id=adapter_id,
-        helper_reset=helper_reset,
-        library_reset=library_reset,
-        sources_reset=sources_reset,
-        chunks_retired=chunks_retired,
-        cleared=cleared,
+        helper_reset=HelperResetInfo(ok=helper_reset, cleared=cleared),
+        library_reset=LibraryResetInfo(sources_reset=sources_reset, chunks_retired=chunks_retired),
         reingestion_triggered=reingestion_triggered,
         errors=errors,
     )
