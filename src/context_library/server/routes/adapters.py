@@ -161,11 +161,12 @@ async def reset_adapter(adapter_id: str, request: Request):
         logger.error("Reset adapter %s failed at step 4: %s", adapter_id, e, exc_info=True)
 
     # Step 5: Determine if re-ingestion is needed by checking source poll strategies
-    # For push-only adapters, re-ingestion via poller is not applicable
-    # For pull/webhook adapters, 207 indicates library reset succeeded but re-ingestion failed
+    # For push-only adapters, re-ingestion via poller is not applicable.
+    # For pull/webhook adapters, 207 indicates library reset succeeded but re-ingestion failed.
+    # This check applies to all adapters (helper and non-helper) that have pull/webhook sources.
     needs_poller_reingestion = False
-    if adapter is not None and library_reset:
-        # Check if this adapter has any non-push sources
+    if library_reset:
+        # Check if this adapter has any non-push sources requiring poller-driven re-ingestion
         needs_poller_reingestion = await asyncio.to_thread(ds.has_non_push_sources, adapter_id)
 
     # Step 6: Return response (200 on success, 207 if re-ingestion unavailable and needed)

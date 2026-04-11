@@ -1389,6 +1389,127 @@ class TestAdapterReset:
         assert result["sources_reset"] == 1
 
 
+class TestHasNonPushSources:
+    """Tests for has_non_push_sources method."""
+
+    def test_adapter_with_only_push_sources_returns_false(self, store: DocumentStore) -> None:
+        """Test that adapter with only push sources returns False."""
+        config = AdapterConfig(
+            adapter_id="push-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with PUSH strategy
+        store.register_source(
+            source_id="push-source-1",
+            adapter_id="push-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://push-source-1",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        result = store.has_non_push_sources("push-adapter")
+        assert result is False
+
+    def test_adapter_with_pull_sources_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with pull sources returns True."""
+        config = AdapterConfig(
+            adapter_id="pull-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with PULL strategy
+        store.register_source(
+            source_id="pull-source-1",
+            adapter_id="pull-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://pull-source-1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        result = store.has_non_push_sources("pull-adapter")
+        assert result is True
+
+    def test_adapter_with_webhook_sources_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with webhook sources returns True."""
+        config = AdapterConfig(
+            adapter_id="webhook-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with WEBHOOK strategy
+        store.register_source(
+            source_id="webhook-source-1",
+            adapter_id="webhook-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://webhook-source-1",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        result = store.has_non_push_sources("webhook-adapter")
+        assert result is True
+
+    def test_adapter_with_mixed_strategies_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with mixed push and non-push sources returns True."""
+        config = AdapterConfig(
+            adapter_id="mixed-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register push source
+        store.register_source(
+            source_id="mixed-push-1",
+            adapter_id="mixed-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://mixed-push-1",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Register pull source
+        store.register_source(
+            source_id="mixed-pull-1",
+            adapter_id="mixed-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://mixed-pull-1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        result = store.has_non_push_sources("mixed-adapter")
+        assert result is True
+
+    def test_adapter_with_no_sources_returns_false(self, store: DocumentStore) -> None:
+        """Test that adapter with no sources returns False."""
+        config = AdapterConfig(
+            adapter_id="empty-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        result = store.has_non_push_sources("empty-adapter")
+        assert result is False
+
+    def test_nonexistent_adapter_returns_false(self, store: DocumentStore) -> None:
+        """Test that querying nonexistent adapter returns False."""
+        result = store.has_non_push_sources("nonexistent-adapter")
+        assert result is False
+
+
 class TestChunksBySource:
     """Tests for retrieving chunks by source."""
 

@@ -141,6 +141,12 @@ class TestResetAdapter:
         assert data["library_reset"] is True
         assert data["reingestion_triggered"] is False
         assert any("Poller unavailable" in err for err in data["errors"])
+        # Verify new response fields
+        assert "sources_reset" in data
+        assert isinstance(data["sources_reset"], int)
+        assert "chunks_retired" in data
+        assert isinstance(data["chunks_retired"], int)
+        assert data["cleared"] == []
 
     def test_happy_path_returns_200(self, client: TestClient) -> None:
         """Test happy path: all steps succeed and returns 200."""
@@ -165,6 +171,12 @@ class TestResetAdapter:
         assert data["library_reset"] is True
         assert data["reingestion_triggered"] is True
         assert data["errors"] == []
+        # Verify new response fields
+        assert "sources_reset" in data
+        assert isinstance(data["sources_reset"], int)
+        assert "chunks_retired" in data
+        assert isinstance(data["chunks_retired"], int)
+        assert data["cleared"] == ["push_cursor"]
 
         # Verify that helper reset was called
         mock_adapter.reset.assert_called_once()
@@ -190,3 +202,42 @@ class TestResetAdapter:
         assert data["library_reset"] is True
         assert data["reingestion_triggered"] is True
         assert data["errors"] == []
+
+    def test_push_only_adapter_returns_200_when_poller_unavailable(self, client: TestClient, ds) -> None:
+        """Test that push-only adapters return 200 even when poller unavailable.
+
+        Push-only adapters don't need poller-driven re-ingestion, so unavailability
+        should not result in 207 Partial Success — the reset fully succeeded.
+        """
+        from context_library.storage.models import PollStrategy
+
+        # Update the existing source to use PUSH strategy instead of PULL
+        cursor = ds.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET poll_strategy = ? WHERE adapter_id = ?",
+            (PollStrategy.PUSH.value, "test-adapter"),
+        )
+        ds.conn.commit()
+
+        # Create a mock adapter that succeeds
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock poller to return False (unavailable)
+        poller = MagicMock()
+        poller.trigger_immediate_ingest.return_value = False
+        client.app.state.poller = poller
+
+        resp = client.post("/adapters/test-adapter/reset")
+        # Should return 200 (success) since push-only adapters don't need poller-driven re-ingestion
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["adapter_id"] == "test-adapter"
+        assert data["helper_reset"] is True
+        assert data["library_reset"] is True
+        assert data["reingestion_triggered"] is False
+        # Should have error about poller, but still 200 because push-only
+        assert any("Poller unavailable" in err for err in data["errors"])
