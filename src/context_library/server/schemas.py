@@ -391,3 +391,17 @@ class AdapterStats(BaseModel):
 
 class AdapterStatsResponse(BaseModel):
     adapters: list[AdapterStats]
+
+
+# ── Adapter reset ────────────────────────────────────────────────────
+
+class AdapterResetResponse(BaseModel):
+    """Response from POST /adapters/{adapter_id}/reset endpoint.
+
+    Contains details of the reset operation across helper, library, and re-ingestion phases.
+    """
+    adapter_id: str
+    helper_reset: bool
+    library_reset: bool
+    reingestion_triggered: bool
+    errors: list[str] = Field(default_factory=list)
