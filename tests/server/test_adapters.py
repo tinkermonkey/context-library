@@ -294,11 +294,11 @@ class TestResetAdapter:
         # are logged but should not propagate. However, since we're calling it
         # directly (not in a background thread), the exception will propagate.
         # This test documents that behavior.
-        with patch("context_library.server.routes.adapters.logger") as mock_logger:
+        with patch("context_library.server.routes.adapters.logger"):
             with patch.object(poller, "trigger_immediate_ingest", side_effect=RuntimeError("Poller error")):
                 # The exception should propagate since it's in the main thread
                 try:
-                    resp = client.post("/adapters/test-adapter/reset")
+                    client.post("/adapters/test-adapter/reset")
                     # If we get here, the exception was swallowed (wrapped in try-except upstream)
                     # This would be in the case where the poller call is wrapped
                     # But looking at the code, the exception would propagate
@@ -314,7 +314,6 @@ class TestResetAdapter:
         - All source_versions for the adapter are preserved
         - Chunks are retired but versions remain
         """
-        from context_library.storage.models import PollStrategy
 
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
