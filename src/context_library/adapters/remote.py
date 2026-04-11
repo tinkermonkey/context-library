@@ -43,7 +43,6 @@ This adapter:
 - Raises on malformed responses (missing/invalid normalized_contents)
 """
 
-import abc
 import logging
 import time
 from typing import Iterator
