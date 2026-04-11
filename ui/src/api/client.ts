@@ -32,7 +32,22 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(`API error ${res.status}: ${errorText}`);
+    let errorMessage = `API error ${res.status}`;
+
+    // Try to parse error response and extract detail field
+    try {
+      const errorData = JSON.parse(errorText);
+      if (errorData.detail) {
+        errorMessage += `: ${errorData.detail}`;
+      } else {
+        errorMessage += `: ${errorText}`;
+      }
+    } catch {
+      // If JSON parsing fails, use raw error text
+      errorMessage += `: ${errorText}`;
+    }
+
+    throw new Error(errorMessage);
   }
   return res.json();
 }

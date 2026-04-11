@@ -111,19 +111,33 @@ def _post_reset_to_helper(
         try:
             data = response.json()
         except ValueError as e:
-            logger.error(f"Failed to parse JSON response from helper reset endpoint: {e}")
+            logger.error(
+                f"Failed to parse JSON response from helper reset endpoint: {e} "
+                f"(collector_name={collector_name}, base_url={base_url})"
+            )
             raise
 
         # Deserialize into ResetResult via Pydantic validation
-        return ResetResult.model_validate(data)
+        try:
+            return ResetResult.model_validate(data)
+        except ValidationError as e:
+            logger.error(
+                f"Failed to validate helper reset response: {e} "
+                f"(collector_name={collector_name}, base_url={base_url})"
+            )
+            raise
 
     except httpx.HTTPStatusError as e:
         logger.error(
-            f"HTTP error from helper reset endpoint: {e.response.status_code} {e.response.text}"
+            f"HTTP error from helper reset endpoint: {e.response.status_code} {e.response.text} "
+            f"(collector_name={collector_name}, base_url={base_url})"
         )
         raise
     except httpx.RequestError as e:
-        logger.error(f"Request error connecting to helper reset endpoint: {e}")
+        logger.error(
+            f"Request error connecting to helper reset endpoint: {e} "
+            f"(collector_name={collector_name}, base_url={base_url})"
+        )
         raise
 
 
