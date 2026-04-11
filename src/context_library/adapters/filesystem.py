@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Try to import MarkItDown (optional dependency)
 HAS_MARKITDOWN = False
-MarkItDown: type | None = None
+MarkItDown = None  # type: ignore[assignment]
 try:
-    from markitdown import MarkItDown
+    from markitdown import MarkItDown  # type: ignore[no-redef]
     HAS_MARKITDOWN = True
 except ImportError:
     pass
@@ -209,15 +209,14 @@ class FilesystemAdapter(BaseAdapter):
                 logger.warning("Failed to decode file as UTF-8: %s", file_path)
                 return
         else:
-            markdown = _convert_with_markitdown(file_path)
-            if markdown is None:
-                markdown = _convert_with_pandoc(file_path)
-            if markdown is None:
+            converted = _convert_with_markitdown(file_path) or _convert_with_pandoc(file_path)
+            if converted is None:
                 logger.warning(
                     "Could not convert %s to markdown (MarkItDown and Pandoc both failed)",
                     file_path,
                 )
                 return
+            markdown = converted
 
         stat = file_path.stat()
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()

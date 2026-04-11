@@ -2,10 +2,7 @@
 
 import subprocess
 from pathlib import Path
-from datetime import datetime
 from unittest.mock import patch, MagicMock
-
-import pytest
 
 from context_library.adapters.filesystem import (
     FilesystemAdapter,
@@ -13,7 +10,6 @@ from context_library.adapters.filesystem import (
     _convert_with_pandoc,
 )
 from context_library.storage.models import (
-    Domain,
     NormalizedContent,
     PollStrategy,
 )
