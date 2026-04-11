@@ -19,7 +19,7 @@ import subprocess
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, cast
+from typing import Any, Iterator, cast
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileEvent, FileSystemWatcher
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import MarkItDown (optional dependency)
 HAS_MARKITDOWN = False
-MarkItDown = None  # type: ignore[assignment]
+MarkItDown: Any = None
 try:
     from markitdown import MarkItDown  # type: ignore[no-redef]
     HAS_MARKITDOWN = True
