@@ -275,6 +275,16 @@ export interface ChunkQueryParams {
   metadata_filter?: Record<string, string>;
 }
 
+// ── Adapter Reset ───────────────────────────────────────────────
+
+export interface AdapterResetResponse {
+  adapter_id: string;
+  helper_reset: boolean;
+  library_reset: boolean;
+  reingestion_triggered: boolean;
+  errors: string[];
+}
+
 // ── Domain-Specific Metadata ────────────────────────────────────
 
 /**
