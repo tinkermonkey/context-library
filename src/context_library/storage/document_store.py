@@ -1971,7 +1971,7 @@ class DocumentStore:
             (adapter_id,),
         )
         row = cursor.fetchone()
-        return row["count"] > 0
+        return bool(row["count"] > 0)
 
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.
