@@ -1127,6 +1127,270 @@ class TestChunkRetirement:
         assert count == 0
 
 
+class TestAdapterReset:
+    """Tests for adapter reset functionality."""
+
+    def _setup_adapter_with_sources_and_chunks(
+        self, store: DocumentStore, adapter_id: str, num_sources: int = 2, seed: int = 0
+    ) -> tuple[list[str], list[str]]:
+        """Helper to set up an adapter with multiple sources and chunks.
+
+        Args:
+            store: DocumentStore instance
+            adapter_id: ID for the adapter
+            num_sources: Number of sources to create
+            seed: Seed for hash generation (to ensure uniqueness across calls)
+
+        Returns:
+            Tuple of (source_ids, chunk_hashes)
+        """
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        source_ids = []
+        chunk_hashes = []
+
+        for i in range(num_sources):
+            source_id = f"{adapter_id}-source-{i}"
+            source_ids.append(source_id)
+            store.register_source(
+                source_id=source_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                origin_ref=f"test://{source_id}",
+            )
+
+            # Create version with 2 chunks per source
+            # Use letters a-f to ensure valid hex, cycling through them
+            hash_chars = 'abcdef'
+            hash1 = _make_hash(hash_chars[(seed * 2 + i * 2) % len(hash_chars)])
+            hash2 = _make_hash(hash_chars[(seed * 2 + i * 2 + 1) % len(hash_chars)])
+
+            # Use version number (1) not rowid for the version parameter
+            store.create_source_version(
+                source_id=source_id,
+                version=1,
+                markdown=f"# Content {i}",
+                chunk_hashes=[hash1, hash2],
+                adapter_id=adapter_id,
+                normalizer_version="1.0.0",
+                fetch_timestamp="2025-03-02T10:00:00Z",
+            )
+
+            chunk_hashes.extend([hash1, hash2])
+
+            chunks = [
+                Chunk(chunk_hash=hash1, content=f"Chunk {source_id}-0", chunk_index=0),
+                Chunk(chunk_hash=hash2, content=f"Chunk {source_id}-1", chunk_index=1),
+            ]
+
+            lineage = [
+                LineageRecord(
+                    chunk_hash=h,
+                    source_id=source_id,
+                    source_version_id=1,  # Use version number, not rowid
+                    adapter_id=adapter_id,
+                    domain=Domain.NOTES,
+                    normalizer_version="1.0.0",
+                    embedding_model_id="test-model",
+                )
+                for h in [hash1, hash2]
+            ]
+
+            store.write_chunks(chunks, lineage)
+
+        return source_ids, chunk_hashes
+
+    def test_reset_adapter_retires_chunks(self, store: DocumentStore) -> None:
+        """Test that reset_adapter retires all chunks for the adapter."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        result = store.reset_adapter("adapter-1")
+
+        # Verify return value
+        assert result["sources_reset"] == 2
+        assert result["chunks_retired"] == 4
+
+        # Verify all chunks are retired
+        for chunk_hash in chunk_hashes:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+    def test_reset_adapter_writes_sync_log_entries(self, store: DocumentStore) -> None:
+        """Test that reset_adapter writes DELETE entries to lancedb_sync_log."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify sync log entries for each chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'delete' AND chunk_hash IN (" +
+            ",".join("?" * len(chunk_hashes)) + ")",
+            chunk_hashes,
+        )
+        count = cursor.fetchone()[0]
+        assert count == 4
+
+    def test_reset_adapter_clears_last_fetched_at(self, store: DocumentStore) -> None:
+        """Test that reset_adapter clears last_fetched_at for all sources."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        # Set last_fetched_at for all sources
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE adapter_id = ?",
+            (now, "adapter-1"),
+        )
+
+        # Verify they are set
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE adapter_id = ? AND last_fetched_at IS NOT NULL",
+            ("adapter-1",),
+        )
+        count_before = cursor.fetchone()[0]
+        assert count_before == 2
+
+        # Reset adapter
+        store.reset_adapter("adapter-1")
+
+        # Verify last_fetched_at is NULL for all sources
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE adapter_id = ? AND last_fetched_at IS NULL",
+            ("adapter-1",),
+        )
+        count_after = cursor.fetchone()[0]
+        assert count_after == 2
+
+    def test_reset_adapter_preserves_source_rows(self, store: DocumentStore) -> None:
+        """Test that reset_adapter preserves source registration."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify sources still exist
+        for source_id in source_ids:
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT source_id FROM sources WHERE source_id = ?", (source_id,))
+            assert cursor.fetchone() is not None
+
+    def test_reset_adapter_preserves_adapter_row(self, store: DocumentStore) -> None:
+        """Test that reset_adapter preserves adapter registration."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify adapter still exists
+        adapter = store.get_adapter("adapter-1")
+        assert adapter is not None
+        assert adapter.adapter_id == "adapter-1"
+
+    def test_reset_adapter_no_sources(self, store: DocumentStore) -> None:
+        """Test that reset_adapter handles adapter with no sources."""
+        config = AdapterConfig(
+            adapter_id="empty-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        result = store.reset_adapter("empty-adapter")
+
+        assert result["sources_reset"] == 0
+        assert result["chunks_retired"] == 0
+
+    def test_reset_adapter_unknown_adapter(self, store: DocumentStore) -> None:
+        """Test that reset_adapter on unknown adapter returns zero counts."""
+        result = store.reset_adapter("nonexistent-adapter")
+
+        assert result["sources_reset"] == 0
+        assert result["chunks_retired"] == 0
+
+    def test_reset_adapter_idempotent(self, store: DocumentStore) -> None:
+        """Test that reset_adapter is idempotent.
+
+        Idempotency means that calling it twice produces the same end state:
+        - First call retires all non-retired chunks
+        - Second call finds 0 chunks to retire (all already retired) but counts sources
+        """
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        # First reset - retires 4 chunks for 2 sources
+        result1 = store.reset_adapter("adapter-1")
+        assert result1["sources_reset"] == 2
+        assert result1["chunks_retired"] == 4
+
+        # Second reset - no non-retired chunks to retire, but sources still count
+        result2 = store.reset_adapter("adapter-1")
+        assert result2["sources_reset"] == 2
+        assert result2["chunks_retired"] == 0
+
+        # Verify end state is stable: all chunks remain retired
+        for chunk_hash in chunk_hashes:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+    def test_reset_adapter_does_not_affect_other_adapters(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter only affects the specified adapter."""
+        # Setup two adapters with different seeds to avoid hash collisions
+        source_ids_1, chunk_hashes_1 = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1, seed=1
+        )
+        source_ids_2, chunk_hashes_2 = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-2", num_sources=1, seed=2
+        )
+
+        # Reset adapter-1
+        store.reset_adapter("adapter-1")
+
+        # Verify adapter-1 chunks are retired
+        for chunk_hash in chunk_hashes_1:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+        # Verify adapter-2 chunks are NOT retired
+        for chunk_hash in chunk_hashes_2:
+            assert store.is_chunk_retired(chunk_hash) is False
+
+    def test_reset_adapter_excludes_already_retired_chunks(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter only counts non-retired chunks."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        # Manually retire one chunk
+        store.retire_chunks(
+            {chunk_hashes[0]}, source_id=source_ids[0], source_version=1
+        )
+
+        # Reset adapter
+        result = store.reset_adapter("adapter-1")
+
+        # Should only retire the 1 non-retired chunk (not the already-retired one)
+        assert result["chunks_retired"] == 1
+        assert result["sources_reset"] == 1
+
+
 class TestChunksBySource:
     """Tests for retrieving chunks by source."""
 

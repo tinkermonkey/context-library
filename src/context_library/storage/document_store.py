@@ -1785,6 +1785,82 @@ class DocumentStore:
             config=config_dict,
         )
 
+    def reset_adapter(self, adapter_id: str) -> dict:
+        """Reset all data for an adapter: retire chunks and clear fetch state.
+
+        Performs a soft reset of all sources belonging to an adapter, retiring all
+        non-retired chunks and clearing the last_fetched_at timestamp so that the
+        next ingest cycle treats every source as new. Preserves all source rows,
+        source_version history, and adapter registration in the database.
+
+        The operation is idempotent: calling it twice produces the same end state
+        (chunks already retired remain retired, last_fetched_at remains NULL).
+
+        Implementation:
+        - Soft-deletes all non-retired chunks for sources of adapter_id by setting
+          retired_at to current UTC timestamp (does not delete rows)
+        - Writes lancedb_sync_log DELETE entries for each retired chunk so the
+          vector store deletion path picks them up on sync
+        - Resets last_fetched_at to NULL on all sources of adapter_id so the next
+          poll cycle treats every source as fresh
+
+        Args:
+            adapter_id: ID of the adapter to reset.
+
+        Returns:
+            Dictionary with reset counts:
+            {
+                "sources_reset": number of sources belonging to this adapter,
+                "chunks_retired": number of non-retired chunks that were retired
+            }
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self._write_lock, self.conn:
+            cursor = self.conn.cursor()
+
+            # Query all sources belonging to this adapter
+            cursor.execute(
+                "SELECT source_id FROM sources WHERE adapter_id = ?",
+                (adapter_id,),
+            )
+            source_rows = cursor.fetchall()
+            sources = [row["source_id"] for row in source_rows]
+            sources_reset = len(sources)
+
+            # Get all non-retired chunks belonging to this adapter
+            cursor.execute(
+                "SELECT chunk_hash FROM chunks WHERE adapter_id = ? AND retired_at IS NULL",
+                (adapter_id,),
+            )
+            chunk_rows = cursor.fetchall()
+            chunk_hashes = [row["chunk_hash"] for row in chunk_rows]
+            chunks_retired = len(chunk_hashes)
+
+            # Update all non-retired chunks for this adapter to set retired_at
+            if chunk_hashes:
+                cursor.execute(
+                    "UPDATE chunks SET retired_at = ? WHERE adapter_id = ? AND retired_at IS NULL",
+                    (now, adapter_id),
+                )
+
+                # Write DELETE entries to lancedb_sync_log for each retired chunk
+                # Uses INSERT OR REPLACE to ensure idempotence
+                for chunk_hash in chunk_hashes:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation) VALUES (?, 'delete')",
+                        (chunk_hash,),
+                    )
+
+            # Reset last_fetched_at for all sources of this adapter
+            # This marks all sources as ready for fresh fetching on next poll
+            cursor.execute(
+                "UPDATE sources SET last_fetched_at = NULL WHERE adapter_id = ?",
+                (adapter_id,),
+            )
+
+            return {"sources_reset": sources_reset, "chunks_retired": chunks_retired}
+
     def update_last_fetched_at(self, source_id: str) -> None:
         """Update the last_fetched_at timestamp for a source.
 
