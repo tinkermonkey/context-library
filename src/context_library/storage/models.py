@@ -10,7 +10,7 @@ import hashlib
 import re
 from datetime import date
 from enum import Enum
-from typing import Annotated, ClassVar, NamedTuple
+from typing import Annotated, ClassVar, NamedTuple, TypedDict
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
@@ -1325,6 +1325,16 @@ class ChunkProvenance(BaseModel):
                 f"Expected chunk_hash {self.chunk.chunk_hash!r}, "
                 f"but version_chain[-1].chunk_hash is {self.version_chain[-1].chunk_hash!r}"
             )
+
+
+class ResetAdapterResult(TypedDict):
+    """Result of a DocumentStore.reset_adapter() operation.
+
+    Contains counts of sources reset and chunks retired during adapter reset.
+    """
+
+    sources_reset: int
+    chunks_retired: int
 
 
 def compute_chunk_hash(content: str) -> str:

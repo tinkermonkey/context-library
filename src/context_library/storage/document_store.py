@@ -18,6 +18,7 @@ from .models import (
     EntityLink,
     LineageRecord,
     PollStrategy,
+    ResetAdapterResult,
     Sha256Hash,
     SourceInfo,
     SourceVersion,
@@ -1785,7 +1786,7 @@ class DocumentStore:
             config=config_dict,
         )
 
-    def reset_adapter(self, adapter_id: str) -> dict:
+    def reset_adapter(self, adapter_id: str) -> ResetAdapterResult:
         """Reset all data for an adapter: retire chunks and clear fetch state.
 
         Performs a soft reset of all sources belonging to an adapter, retiring all
@@ -1800,11 +1801,9 @@ class DocumentStore:
             adapter_id: ID of the adapter to reset.
 
         Returns:
-            Dictionary with reset counts:
-            {
-                "sources_reset": number of sources belonging to this adapter,
-                "chunks_retired": number of non-retired chunks that were retired
-            }
+            ResetAdapterResult with reset counts:
+            - sources_reset: number of sources belonging to this adapter
+            - chunks_retired: number of non-retired chunks that were retired
         """
         now = datetime.now(timezone.utc).isoformat()
 

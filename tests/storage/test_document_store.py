@@ -1388,6 +1388,29 @@ class TestAdapterReset:
         assert result["chunks_retired"] == 1
         assert result["sources_reset"] == 1
 
+    def test_reset_adapter_preserves_source_versions(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter preserves source_version history."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        # Verify source version exists before reset
+        source_id = source_ids[0]
+        history_before = store.get_version_history(source_id)
+        assert len(history_before) == 1
+        assert history_before[0].version == 1
+
+        # Reset adapter
+        store.reset_adapter("adapter-1")
+
+        # Verify source_version history is preserved after reset
+        history_after = store.get_version_history(source_id)
+        assert len(history_after) == 1
+        assert history_after[0].version == 1
+        assert history_after[0].markdown == "# Content 0"
+
 
 class TestHasNonPushSources:
     """Tests for has_non_push_sources method."""
