@@ -50,7 +50,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
@@ -152,6 +152,21 @@ class RemoteAdapter(BaseAdapter):
     def normalizer_version(self) -> str:
         """Return the normalizer version."""
         return self._normalizer_version
+
+    @property
+    def _collector_name(self) -> str:
+        """Return the name of the collector on the helper service.
+
+        This is used to construct the reset endpoint URL:
+        POST {service_url}/collectors/{_collector_name}/reset
+
+        Subclasses must override this property and return a collector name
+        that matches the helper service's collector registry.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must define _collector_name property. "
+            f"This should match the collector name in the context-helpers registry."
+        )
 
     def __enter__(self):
         """Context manager entry: return self for use in with statement."""
@@ -305,3 +320,74 @@ class RemoteAdapter(BaseAdapter):
                 # On final attempt, log and re-raise
                 logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
                 raise
+
+    def reset(self) -> ResetResult:
+        """Reset the helper service's delivery state for this collector.
+
+        Sends a POST request to the helper service's reset endpoint and
+        deserializes the response into a ResetResult.
+
+        Returns:
+            ResetResult with ok, cleared, and errors fields from the helper.
+
+        Raises:
+            httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
+            httpx.RequestError: If the request fails (connection, timeout, etc.).
+            ValueError: If the response body cannot be parsed as JSON.
+            KeyError: If the response is missing required fields.
+        """
+        # Build headers with bearer token if api_key is set
+        headers = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        try:
+            response = self._client.post(
+                f"{self._service_url}/collectors/{self._collector_name}/reset",
+                headers=headers,
+            )
+
+            # Propagate HTTP errors (4xx, 5xx)
+            response.raise_for_status()
+
+            # Parse JSON response
+            try:
+                data = response.json()
+            except ValueError as e:
+                logger.error(f"Failed to parse JSON response from helper reset endpoint: {e}")
+                raise
+
+            # Validate required fields in response
+            if not isinstance(data, dict):
+                raise ValueError(f"Reset response must be a dict, got {type(data).__name__}")
+
+            required_fields = ["ok", "cleared", "errors"]
+            missing_fields = [f for f in required_fields if f not in data]
+            if missing_fields:
+                raise KeyError(f"Reset response missing required fields: {missing_fields}")
+
+            # Validate field types
+            if not isinstance(data["ok"], bool):
+                raise ValueError(f"'ok' must be a boolean, got {type(data['ok']).__name__}")
+            if not isinstance(data["cleared"], list):
+                raise ValueError(f"'cleared' must be a list, got {type(data['cleared']).__name__}")
+            if not isinstance(data["errors"], list):
+                raise ValueError(f"'errors' must be a list, got {type(data['errors']).__name__}")
+
+            # Deserialize into ResetResult
+            try:
+                result = ResetResult.model_validate(data)
+            except Exception as e:
+                logger.error(f"Failed to validate reset response: {e}")
+                raise
+
+            return result
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"HTTP error from helper reset endpoint: {e.response.status_code} {e.response.text}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error connecting to helper reset endpoint: {e}")
+            raise

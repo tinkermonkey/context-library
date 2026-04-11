@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import (
     AdapterConfig,
     Domain,
@@ -198,3 +198,83 @@ class TestBaseAdapterRegister:
 
             config = mock_store.register_adapter.call_args[0][0]
             assert config.domain == domain
+
+
+class TestBaseAdapterReset:
+    """Tests for the reset() concrete method."""
+
+    def test_reset_returns_reset_result_instance(self):
+        """reset() returns a ResetResult instance."""
+        adapter = ConcreteAdapter()
+        result = adapter.reset()
+
+        assert isinstance(result, ResetResult)
+
+    def test_reset_returns_ok_true_by_default(self):
+        """reset() returns ok=True by default."""
+        adapter = ConcreteAdapter()
+        result = adapter.reset()
+
+        assert result.ok is True
+
+    def test_reset_returns_empty_cleared_list_by_default(self):
+        """reset() returns empty cleared list by default."""
+        adapter = ConcreteAdapter()
+        result = adapter.reset()
+
+        assert result.cleared == []
+
+    def test_reset_returns_empty_errors_list_by_default(self):
+        """reset() returns empty errors list by default."""
+        adapter = ConcreteAdapter()
+        result = adapter.reset()
+
+        assert result.errors == []
+
+    def test_reset_is_idempotent(self):
+        """reset() can be called multiple times safely."""
+        adapter = ConcreteAdapter()
+
+        result1 = adapter.reset()
+        result2 = adapter.reset()
+
+        assert result1.ok is True
+        assert result2.ok is True
+        assert result1 == result2
+
+    def test_reset_does_not_raise(self):
+        """reset() does not raise any exceptions by default."""
+        adapter = ConcreteAdapter()
+
+        # Should not raise
+        adapter.reset()
+
+    def test_reset_model_validation(self):
+        """ResetResult properly validates fields."""
+        # Valid instance
+        result = ResetResult(ok=True, cleared=["item1", "item2"], errors=["error1"])
+        assert result.ok is True
+        assert result.cleared == ["item1", "item2"]
+        assert result.errors == ["error1"]
+
+    def test_reset_result_with_empty_lists(self):
+        """ResetResult works with empty lists."""
+        result = ResetResult(ok=True, cleared=[], errors=[])
+
+        assert result.ok is True
+        assert len(result.cleared) == 0
+        assert len(result.errors) == 0
+
+    def test_reset_result_pydantic_validation_strict_cleared_field(self):
+        """ResetResult validates cleared field is list."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ResetResult(ok=True, cleared="item", errors=[])  # String instead of list
+
+    def test_reset_result_pydantic_validation_strict_errors_field(self):
+        """ResetResult validates errors field is list."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ResetResult(ok=True, cleared=[], errors="error")  # String instead of list

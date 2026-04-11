@@ -42,7 +42,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import (
     Domain,
     EventMetadata,
@@ -264,6 +264,47 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
             ),
             normalizer_version=self.normalizer_version,
         )
+
+    def reset(self) -> ResetResult:
+        """Reset the YouTube helper's delivery state.
+
+        Sends a POST request to the helper's reset endpoint and deserializes
+        the response into a ResetResult.
+
+        Returns:
+            ResetResult with ok, cleared, and errors fields from the helper.
+
+        Raises:
+            httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
+            httpx.RequestError: If the request fails (connection, timeout, etc.).
+            ValueError: If the response body cannot be parsed as JSON.
+        """
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+
+        try:
+            response = self._client.post(
+                f"{self._api_url}/collectors/youtube/reset",
+                headers=headers,
+            )
+
+            response.raise_for_status()
+
+            try:
+                data = response.json()
+            except ValueError as e:
+                logger.error(f"Failed to parse JSON response from YouTube reset endpoint: {e}")
+                raise
+
+            return ResetResult.model_validate(data)
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"HTTP error from YouTube reset endpoint: {e.response.status_code} {e.response.text}"
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error(f"Request error connecting to YouTube reset endpoint: {e}")
+            raise
 
 
 # ── Module-level helpers ────────────────────────────────────────────────────

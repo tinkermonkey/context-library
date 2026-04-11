@@ -5,6 +5,7 @@ import pytest
 import httpx
 
 from context_library.adapters.remote import RemoteAdapter
+from context_library.adapters.base import ResetResult
 from context_library.storage.models import Domain, NormalizedContent
 from tests.adapters.conftest import MockResponse
 
@@ -990,3 +991,301 @@ class TestRemoteAdapterImportError:
             # Restore original values
             remote_module.HAS_HTTPX = original_has_httpx
             remote_module._IMPORT_ERROR = original_import_error
+
+
+class TestRemoteAdapterCollectorName:
+    """Tests for RemoteAdapter._collector_name property."""
+
+    def test_collector_name_must_be_implemented(self):
+        """RemoteAdapter._collector_name raises NotImplementedError for base class."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        with pytest.raises(NotImplementedError) as exc_info:
+            _ = adapter._collector_name
+
+        assert "_collector_name" in str(exc_info.value)
+        assert "RemoteAdapter" in str(exc_info.value)
+
+
+class TestRemoteAdapterReset:
+    """Tests for RemoteAdapter.reset() method."""
+
+    def test_reset_requires_collector_name_implementation(self, mock_httpx_client):
+        """reset() raises NotImplementedError if _collector_name is not implemented."""
+        adapter = RemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        with pytest.raises(NotImplementedError):
+            adapter.reset()
+
+    def test_reset_success_with_cleared_items(self, mock_httpx_client):
+        """reset() returns ResetResult with cleared items on success."""
+        # Create a concrete subclass that implements _collector_name
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {
+                "ok": True,
+                "cleared": ["push_cursor:test_collector", "in_memory_push_state"],
+                "errors": [],
+            },
+        )
+
+        result = adapter.reset()
+
+        assert isinstance(result, ResetResult)
+        assert result.ok is True
+        assert result.cleared == ["push_cursor:test_collector", "in_memory_push_state"]
+        assert result.errors == []
+
+    def test_reset_with_api_key_sends_bearer_auth(self, mock_httpx_client):
+        """reset() sends Authorization: Bearer header when api_key is set."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+            api_key="secret_token",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"ok": True, "cleared": [], "errors": []},
+        )
+
+        adapter.reset()
+
+        assert len(mock_httpx_client.requests) == 1
+        request = mock_httpx_client.requests[0]
+        assert request["headers"]["Authorization"] == "Bearer secret_token"
+
+    def test_reset_without_api_key_no_auth_header(self, mock_httpx_client):
+        """reset() omits Authorization header when api_key is None."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+            api_key=None,
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"ok": True, "cleared": [], "errors": []},
+        )
+
+        adapter.reset()
+
+        request = mock_httpx_client.requests[0]
+        assert "Authorization" not in request["headers"]
+
+    def test_reset_with_errors_returns_ok_false(self, mock_httpx_client):
+        """reset() returns ResetResult with ok=False when helper returns errors."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {
+                "ok": False,
+                "cleared": [],
+                "errors": ["Failed to delete cursor file", "Permissions denied"],
+            },
+        )
+
+        result = adapter.reset()
+
+        assert result.ok is False
+        assert result.cleared == []
+        assert len(result.errors) == 2
+        assert "Permissions denied" in result.errors
+
+    def test_reset_raises_on_http_4xx_error(self, mock_httpx_client):
+        """reset() raises httpx.HTTPStatusError on 4xx response."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(reset_url, {"error": "Not found"}, status_code=404)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            adapter.reset()
+
+    def test_reset_raises_on_http_5xx_error(self, mock_httpx_client):
+        """reset() raises httpx.HTTPStatusError on 5xx response."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(reset_url, {"error": "Server error"}, status_code=502)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            adapter.reset()
+
+    def test_reset_raises_on_malformed_json(self, mock_httpx_client):
+        """reset() raises ValueError when response is not valid JSON."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_raw_response(reset_url, "<html>Error Page</html>")
+
+        with pytest.raises(ValueError) as exc_info:
+            adapter.reset()
+        assert "JSON" in str(exc_info.value) or "Expecting value" in str(exc_info.value)
+
+    def test_reset_raises_on_missing_ok_field(self, mock_httpx_client):
+        """reset() raises KeyError when response is missing 'ok' field."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"cleared": [], "errors": []},  # Missing 'ok' field
+        )
+
+        with pytest.raises(KeyError) as exc_info:
+            adapter.reset()
+        assert "ok" in str(exc_info.value)
+
+    def test_reset_raises_on_invalid_ok_type(self, mock_httpx_client):
+        """reset() raises ValueError when 'ok' field is not a boolean."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"ok": "yes", "cleared": [], "errors": []},  # ok should be bool, not str
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            adapter.reset()
+        assert "ok" in str(exc_info.value).lower()
+
+    def test_reset_raises_on_invalid_cleared_type(self, mock_httpx_client):
+        """reset() raises ValueError when 'cleared' field is not a list."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "test_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:8000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:8000/collectors/test_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"ok": True, "cleared": "push_cursor", "errors": []},  # cleared should be list
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            adapter.reset()
+        assert "cleared" in str(exc_info.value).lower()
+
+    def test_reset_post_request_to_correct_endpoint(self, mock_httpx_client):
+        """reset() sends POST request to correct endpoint."""
+        class TestRemoteAdapter(RemoteAdapter):
+            @property
+            def _collector_name(self) -> str:
+                return "my_collector"
+
+        adapter = TestRemoteAdapter(
+            service_url="http://localhost:9000",
+            domain=Domain.NOTES,
+            adapter_id="test",
+        )
+
+        reset_url = "http://localhost:9000/collectors/my_collector/reset"
+        mock_httpx_client.set_response(
+            reset_url,
+            {"ok": True, "cleared": [], "errors": []},
+        )
+
+        adapter.reset()
+
+        assert len(mock_httpx_client.requests) == 1
+        request = mock_httpx_client.requests[0]
+        assert request["method"] == "POST"
+        assert request["url"] == reset_url
