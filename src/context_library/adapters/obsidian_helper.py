@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 HAS_HTTPX = False
 try:
-    import httpx
+    import httpx  # noqa: F401
+
     HAS_HTTPX = True
 except ImportError:
     pass
@@ -87,7 +88,7 @@ class ObsidianHelperAdapter(RemoteAdapter):
     def _collector_name(self) -> str:
         return "obsidian"
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         since = source_ref if source_ref else None
         headers = {"Authorization": f"Bearer {self._api_key}"}
         params: dict = {}

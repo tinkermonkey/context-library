@@ -120,11 +120,12 @@ class YouTubeWatchHistoryAdapter(RemoteAdapter):
     def _collector_name(self) -> str:
         return "youtube"
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         """Fetch watch history from the helper API and yield NormalizedContent.
 
         Args:
             source_ref: ISO 8601 lower-bound for incremental fetch, or ``""`` for all.
+            extra_body: Optional additional fields merged into the JSON request body
 
         Yields:
             NormalizedContent (domain=EVENTS) for each watched video.
