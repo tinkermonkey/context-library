@@ -3,6 +3,7 @@
 import pytest
 
 import httpx
+from pydantic import ValidationError
 
 from context_library.adapters.remote import RemoteAdapter
 from context_library.adapters.base import ResetResult
@@ -1015,15 +1016,11 @@ class TestRemoteAdapterReset:
     """Tests for RemoteAdapter.reset() method."""
 
     def test_reset_requires_collector_name_implementation(self, mock_httpx_client):
-        """reset() raises NotImplementedError if _collector_name is not implemented."""
-        adapter = RemoteAdapter(
-            service_url="http://localhost:8000",
-            domain=Domain.NOTES,
-            adapter_id="test",
-        )
-
-        with pytest.raises(NotImplementedError):
-            adapter.reset()
+        """Subclass of RemoteAdapter must define _collector_name at definition time."""
+        # Creating a subclass without _collector_name raises TypeError at class definition time.
+        with pytest.raises(TypeError, match="must define _collector_name"):
+            class BadRemoteAdapter(RemoteAdapter):
+                pass
 
     def test_reset_success_with_cleared_items(self, mock_httpx_client):
         """reset() returns ResetResult with cleared items on success."""
@@ -1196,7 +1193,7 @@ class TestRemoteAdapterReset:
         assert "JSON" in str(exc_info.value) or "Expecting value" in str(exc_info.value)
 
     def test_reset_raises_on_missing_ok_field(self, mock_httpx_client):
-        """reset() raises KeyError when response is missing 'ok' field."""
+        """reset() raises ValidationError when response is missing 'ok' field."""
         class TestRemoteAdapter(RemoteAdapter):
             @property
             def _collector_name(self) -> str:
@@ -1214,12 +1211,12 @@ class TestRemoteAdapterReset:
             {"cleared": [], "errors": []},  # Missing 'ok' field
         )
 
-        with pytest.raises(KeyError) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             adapter.reset()
         assert "ok" in str(exc_info.value)
 
     def test_reset_raises_on_invalid_ok_type(self, mock_httpx_client):
-        """reset() raises ValueError when 'ok' field is not a boolean."""
+        """reset() raises ValidationError when 'ok' field is not a valid boolean type."""
         class TestRemoteAdapter(RemoteAdapter):
             @property
             def _collector_name(self) -> str:
@@ -1234,15 +1231,15 @@ class TestRemoteAdapterReset:
         reset_url = "http://localhost:8000/collectors/test_collector/reset"
         mock_httpx_client.set_response(
             reset_url,
-            {"ok": "yes", "cleared": [], "errors": []},  # ok should be bool, not str
+            {"ok": [], "cleared": [], "errors": []},  # ok should be bool, not list
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             adapter.reset()
         assert "ok" in str(exc_info.value).lower()
 
     def test_reset_raises_on_invalid_cleared_type(self, mock_httpx_client):
-        """reset() raises ValueError when 'cleared' field is not a list."""
+        """reset() raises ValidationError when 'cleared' field is not a list."""
         class TestRemoteAdapter(RemoteAdapter):
             @property
             def _collector_name(self) -> str:
@@ -1257,10 +1254,10 @@ class TestRemoteAdapterReset:
         reset_url = "http://localhost:8000/collectors/test_collector/reset"
         mock_httpx_client.set_response(
             reset_url,
-            {"ok": True, "cleared": "push_cursor", "errors": []},  # cleared should be list
+            {"ok": True, "cleared": {"cursor": "push"}, "errors": []},  # cleared should be list, not dict
         )
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             adapter.reset()
         assert "cleared" in str(exc_info.value).lower()
 

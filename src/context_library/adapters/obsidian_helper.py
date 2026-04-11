@@ -33,6 +33,7 @@ import logging
 from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter, ResetResult
+from context_library.adapters.remote import _post_reset_to_helper
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -153,30 +154,11 @@ class ObsidianHelperAdapter(BaseAdapter):
             httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
             httpx.RequestError: If the request fails (connection, timeout, etc.).
             ValueError: If the response body cannot be parsed as JSON.
+            ValidationError: If the response is missing required fields or has invalid types.
         """
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-
-        try:
-            response = self._client.post(
-                f"{self._api_url}/collectors/obsidian/reset",
-                headers=headers,
-            )
-
-            response.raise_for_status()
-
-            try:
-                data = response.json()
-            except ValueError as e:
-                logger.error(f"Failed to parse JSON response from Obsidian reset endpoint: {e}")
-                raise
-
-            return ResetResult.model_validate(data)
-
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error from Obsidian reset endpoint: {e.response.status_code} {e.response.text}"
-            )
-            raise
-        except httpx.RequestError as e:
-            logger.error(f"Request error connecting to Obsidian reset endpoint: {e}")
-            raise
+        return _post_reset_to_helper(
+            client=self._client,
+            base_url=self._api_url,
+            collector_name="obsidian",
+            api_key=self._api_key,
+        )
