@@ -88,9 +88,14 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        resp = client.post("/adapters/test-adapter/reset")
-        assert resp.status_code == 502
-        assert "Helper reset failed" in resp.json()["detail"]
+        # Mock document_store.reset_adapter to verify it's not called
+        ds = client.app.state.document_store
+        with patch.object(ds, "reset_adapter") as mock_reset_adapter:
+            resp = client.post("/adapters/test-adapter/reset")
+            assert resp.status_code == 502
+            assert "Helper reset failed" in resp.json()["detail"]
+            # Verify abort-on-failure: Step 3 (document_store.reset_adapter) should NOT be called
+            mock_reset_adapter.assert_not_called()
 
     def test_returns_500_when_library_reset_fails(self, client: TestClient) -> None:
         """Test that library reset failure returns 500 with warning about helper."""
@@ -101,22 +106,17 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock document_store.reset_adapter to raise an error
+        # Mock document_store.reset_adapter to raise an error using context manager
         ds = client.app.state.document_store
-        original_reset = ds.reset_adapter
 
         def failing_reset(adapter_id):
             raise RuntimeError("Database error")
 
-        ds.reset_adapter = failing_reset
-
-        resp = client.post("/adapters/test-adapter/reset")
-        assert resp.status_code == 500
-        assert "Library reset error" in resp.json()["detail"]
-        assert "Note: helper was already reset" in resp.json()["detail"]
-
-        # Restore original method
-        ds.reset_adapter = original_reset
+        with patch.object(ds, "reset_adapter", side_effect=failing_reset):
+            resp = client.post("/adapters/test-adapter/reset")
+            assert resp.status_code == 500
+            assert "Library reset error" in resp.json()["detail"]
+            assert "Note: helper was already reset" in resp.json()["detail"]
 
     def test_returns_207_when_poller_unavailable(self, client: TestClient) -> None:
         """Test that poller unavailability returns 207 with warning message."""

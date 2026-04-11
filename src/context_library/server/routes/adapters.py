@@ -101,12 +101,12 @@ async def reset_adapter(adapter_id: str, request: Request):
 
     if adapter is not None:
         try:
-            result = await asyncio.to_thread(adapter.reset)
-            if result.ok:
+            reset_result = await asyncio.to_thread(adapter.reset)
+            if reset_result.ok:
                 helper_reset = True
             else:
                 # Helper reset failed
-                error_detail = "; ".join(result.errors) if result.errors else "Reset failed"
+                error_detail = "; ".join(reset_result.errors) if reset_result.errors else "Reset failed"
                 raise HTTPException(
                     status_code=502,
                     detail=f"Helper reset failed: {error_detail}"
@@ -128,13 +128,13 @@ async def reset_adapter(adapter_id: str, request: Request):
     # Step 3: Call document_store.reset_adapter()
     library_reset = False
     try:
-        result = await asyncio.to_thread(ds.reset_adapter, adapter_id)
+        library_result = await asyncio.to_thread(ds.reset_adapter, adapter_id)
         library_reset = True
         logger.info(
             "Reset adapter %s: %d sources, %d chunks retired",
             adapter_id,
-            result["sources_reset"],
-            result["chunks_retired"],
+            library_result["sources_reset"],
+            library_result["chunks_retired"],
         )
     except Exception as e:
         error_msg = f"Library reset error: {type(e).__name__}: {e}"
@@ -164,8 +164,11 @@ async def reset_adapter(adapter_id: str, request: Request):
         errors=errors,
     )
 
-    # Return 207 Partial Success if library reset succeeded but re-ingestion failed
-    if not reingestion_triggered and library_reset:
+    # Return 207 Partial Success if library reset succeeded but re-ingestion failed.
+    # Only applies to helper adapters where re-ingestion is applicable.
+    # For non-helper adapters (where adapter is None), re-ingestion is not applicable,
+    # so return 200 even if trigger_immediate_ingest returned False.
+    if not reingestion_triggered and library_reset and adapter is not None:
         return JSONResponse(
             status_code=207,
             content=response.model_dump(),
