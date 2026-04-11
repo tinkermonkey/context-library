@@ -2,6 +2,7 @@
 import os
 
 import tempfile
+import threading
 import time
 from unittest.mock import Mock, patch
 
@@ -864,3 +865,230 @@ class TestTriggerImmediateIngest:
                 assert elapsed < 0.2
             finally:
                 poller.stop()
+
+    def test_trigger_returns_false_when_ingest_already_in_progress(self, pipeline, document_store):
+        """trigger_immediate_ingest() should return False if ingest already in progress for same adapter."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=0.5)
+        poller.register(adapter, chunker)
+
+        # Create sources with slow ingest to allow us to call trigger before completion
+        sources = [
+            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
+        ]
+
+        def slow_ingest(*args, **kwargs):
+            time.sleep(0.5)  # Slow enough to trigger second call before completion
+
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller.start()
+
+            try:
+                # First call should succeed
+                result1 = poller.trigger_immediate_ingest("test-adapter")
+                assert result1 is True
+
+                # Second call while first is still in progress should return False
+                result2 = poller.trigger_immediate_ingest("test-adapter")
+                assert result2 is False
+            finally:
+                poller.stop()
+
+    def test_trigger_race_condition_protection_with_lock(self, pipeline, document_store):
+        """trigger_immediate_ingest() check-and-set should be atomic (protected by lock)."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=0.5)
+        poller.register(adapter, chunker)
+
+        sources = [
+            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
+        ]
+
+        call_count = {"count": 0}
+        condition = threading.Condition()
+
+        def slow_ingest(*args, **kwargs):
+            # Signal that we're about to process
+            with condition:
+                call_count["count"] += 1
+                condition.notify()
+            time.sleep(0.5)
+
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller.start()
+
+            try:
+                # First call should succeed
+                result1 = poller.trigger_immediate_ingest("test-adapter")
+                assert result1 is True
+
+                # Wait briefly for first ingest to start
+                with condition:
+                    condition.wait_for(lambda: call_count["count"] > 0, timeout=1.0)
+
+                # Second call should be rejected (not spawn another thread)
+                result2 = poller.trigger_immediate_ingest("test-adapter")
+                assert result2 is False
+
+                # Wait for background threads to finish
+                time.sleep(0.6)
+
+                # Only one ingest should have been called (not two)
+                assert call_count["count"] == 1
+            finally:
+                poller.stop()
+
+    def test_stop_joins_background_threads(self, pipeline, document_store):
+        """stop() should wait for background ingest threads to complete."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=0.5)
+        poller.register(adapter, chunker)
+
+        sources = [
+            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
+        ]
+
+        ingest_started = threading.Event()
+        ingest_finished = threading.Event()
+
+        def slow_ingest(*args, **kwargs):
+            ingest_started.set()
+            time.sleep(0.3)  # Simulate work
+            ingest_finished.set()
+
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller.start()
+            try:
+                # Trigger background ingest
+                result = poller.trigger_immediate_ingest("test-adapter")
+                assert result is True
+
+                # Wait for ingest to start
+                assert ingest_started.wait(timeout=2.0), "Ingest did not start"
+
+                # Stop should wait for thread to finish
+                poller.stop()
+
+                # After stop returns, thread should have completed
+                assert ingest_finished.is_set(), "Background thread was not waited for"
+                assert len(poller._background_threads) == 0, "Background thread not removed from set"
+            finally:
+                if poller._thread and poller._thread.is_alive():
+                    poller.stop()
+
+    def test_tick_skips_sources_when_background_ingest_in_progress(self, pipeline, document_store):
+        """_tick() should skip sources when a background ingest is in progress for that adapter."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=0.1)
+        poller.register(adapter, chunker)
+
+        # Set up a due source
+        due_source = {
+            "source_id": "source-1",
+            "adapter_id": "test-adapter",
+            "origin_ref": "/path/to/source",
+            "poll_interval_sec": 60,
+            "last_fetched_at": None,
+        }
+
+        ingest_started = threading.Event()
+
+        def slow_ingest(*args, **kwargs):
+            ingest_started.set()
+            time.sleep(0.5)  # Hold ingest lock for a while
+
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[due_source]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=[due_source]),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller.start()
+            try:
+                # Trigger background ingest
+                result = poller.trigger_immediate_ingest("test-adapter")
+                assert result is True
+
+                # Wait for background ingest to start
+                assert ingest_started.wait(timeout=2.0), "Background ingest did not start"
+
+                # Now tick while ingest is in progress
+                # The tick should skip this source since _ingest_in_progress is set
+                initial_ingest_calls = pipeline.ingest.call_count
+
+                poller._tick()
+
+                # Should not have called ingest again (would be initial_ingest_calls + 1)
+                # since the background ingest is in progress
+                assert pipeline.ingest.call_count == initial_ingest_calls
+            finally:
+                if poller._thread and poller._thread.is_alive():
+                    poller.stop()
+
+    def test_stop_clears_stale_ingest_in_progress_flags(self, pipeline, document_store):
+        """stop() should clear stale _ingest_in_progress flags after shutdown."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=0.5)
+        poller.register(adapter, chunker)
+
+        sources = [
+            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
+        ]
+
+        ingest_started = threading.Event()
+
+        def slow_ingest(*args, **kwargs):
+            ingest_started.set()
+            time.sleep(0.3)
+
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller.start()
+            try:
+                # Trigger background ingest
+                result = poller.trigger_immediate_ingest("test-adapter")
+                assert result is True
+
+                # Wait for ingest to start so flag is set
+                assert ingest_started.wait(timeout=2.0), "Ingest did not start"
+
+                # Verify flag is set while ingest is running
+                assert poller._ingest_in_progress.get("test-adapter", False) is True
+
+                # Stop should clear the flag
+                poller.stop()
+
+                # Flag should be cleared after stop
+                assert poller._ingest_in_progress.get("test-adapter", False) is False
+            finally:
+                if poller._thread and poller._thread.is_alive():
+                    poller.stop()

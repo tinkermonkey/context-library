@@ -155,11 +155,16 @@ class Poller:
             if thread.is_alive():
                 logger.error(
                     "Poller: background ingest thread did not exit within timeout (5.0s). "
-                    "It may still be running a network call or database operation."
+                    "It may still be running a network call or database operation. "
+                    "Removing from tracking set; adapter may remain locked until thread exits."
                 )
-            else:
-                with self._threads_lock:
-                    self._background_threads.discard(thread)
+            # Always remove from tracking set, whether thread exited or not
+            with self._threads_lock:
+                self._background_threads.discard(thread)
+
+        # Clear any stale _ingest_in_progress flags to avoid permanent adapter lockout
+        with self._threads_lock:
+            self._ingest_in_progress.clear()
 
     def _run(self) -> None:
         """Main background loop (internal).
@@ -216,13 +221,14 @@ class Poller:
             adapter_id = source["adapter_id"]
 
             # Skip if a background ingest is already in progress for this adapter
-            if self._ingest_in_progress.get(adapter_id, False):
-                logger.debug(
-                    "Poller: skipping source %s; background ingest in progress for adapter %s",
-                    source_id,
-                    adapter_id,
-                )
-                continue
+            with self._threads_lock:
+                if self._ingest_in_progress.get(adapter_id, False):
+                    logger.debug(
+                        "Poller: skipping source %s; background ingest in progress for adapter %s",
+                        source_id,
+                        adapter_id,
+                    )
+                    continue
 
             adapter, chunker = self._find_adapter(adapter_id)
             if adapter is None or chunker is None:
@@ -309,14 +315,6 @@ class Poller:
         if self._thread is None or not self._thread.is_alive() or self._stop_event.is_set():
             return False
 
-        # Return False if an ingest is already in progress for this adapter
-        if self._ingest_in_progress.get(adapter_id, False):
-            logger.warning(
-                "trigger_immediate_ingest: ingest already in progress for adapter %s",
-                adapter_id,
-            )
-            return False
-
         # Find the adapter
         adapter, chunker = self._find_adapter(adapter_id)
         if adapter is None or chunker is None:
@@ -327,8 +325,17 @@ class Poller:
         if not sources:
             return False
 
-        # Mark this adapter as having an ingest in progress
-        self._ingest_in_progress[adapter_id] = True
+        # Check-and-set the ingest_in_progress flag atomically
+        # This prevents TOCTOU race where two threads could both pass the check
+        with self._threads_lock:
+            if self._ingest_in_progress.get(adapter_id, False):
+                logger.warning(
+                    "trigger_immediate_ingest: ingest already in progress for adapter %s",
+                    adapter_id,
+                )
+                return False
+            # Mark this adapter as having an ingest in progress
+            self._ingest_in_progress[adapter_id] = True
 
         # Spawn a background thread to process sources immediately (non-blocking)
         def process_sources() -> None:

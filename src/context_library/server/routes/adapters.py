@@ -152,7 +152,9 @@ async def reset_adapter(adapter_id: str, request: Request):
     # Step 4: Trigger immediate re-ingestion
     # Note: trigger_immediate_ingest returns False on expected failures (poller unavailable,
     # adapter not registered, ingest already in progress) and does not raise exceptions.
-    # Programming errors will propagate naturally.
+    # Programming errors inside the background thread are logged but do not propagate to caller.
+    # Programming errors in the synchronous preamble (before thread spawn) would propagate,
+    # but trigger_immediate_ingest is designed to return False for all expected failures.
     reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
     if not reingestion_triggered:
         errors.append("Poller unavailable, adapter not registered, or ingest already in progress; re-ingestion will not occur immediately")
