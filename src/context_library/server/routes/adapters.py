@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import secrets
+import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -14,6 +15,11 @@ from context_library.scheduler.exceptions import (
     NoSourcesError,
     IngestAlreadyInProgressError,
 )
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +129,14 @@ async def reset_adapter(adapter_id: str, request: Request):
             # Re-raise HTTPException (our 502 error)
             raise
         except Exception as e:
-            # Unexpected error during reset
+            # Distinguish between legitimate network errors (502) and internal bugs (500)
+            is_network_error = False
+            if httpx is not None:
+                is_network_error = isinstance(e, (httpx.HTTPStatusError, httpx.RequestError))
+
+            status_code = 502 if is_network_error else 500
             raise HTTPException(
-                status_code=502,
+                status_code=status_code,
                 detail=f"Helper reset error: {type(e).__name__}: {e}"
             )
     else:
@@ -159,6 +170,8 @@ async def reset_adapter(adapter_id: str, request: Request):
     # trigger_immediate_ingest raises specific exceptions for different failure modes,
     # allowing the caller to provide actionable error messages.
     # Programming errors inside the background thread are logged but do not propagate to caller.
+    # Transient DB errors (e.g., sqlite3.OperationalError) are caught here and reported as
+    # non-fatal failures since library reset has already succeeded.
     reingestion_triggered = False
     try:
         reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
@@ -174,6 +187,18 @@ async def reset_adapter(adapter_id: str, request: Request):
     except IngestAlreadyInProgressError:
         errors.append("Ingest is already in progress for adapter; re-ingestion will not occur immediately")
         logger.warning("Reset adapter %s: re-ingestion trigger failed (ingest already in progress)", adapter_id)
+    except sqlite3.OperationalError as e:
+        # Transient DB error (e.g., database locked, I/O error)
+        # Library reset already succeeded, so report this as a non-fatal warning
+        error_msg = f"Database error while triggering re-ingestion: {e}"
+        errors.append(error_msg)
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (DB error): %s", adapter_id, e)
+    except Exception as e:
+        # Unexpected error during re-ingestion trigger
+        # Library reset already succeeded, so report this as a non-fatal warning
+        error_msg = f"Unexpected error while triggering re-ingestion: {type(e).__name__}: {e}"
+        errors.append(error_msg)
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (unexpected error): %s", adapter_id, e)
 
     # Step 5: Determine if re-ingestion is needed by checking source poll strategies
     # For push-only adapters, re-ingestion via poller is not applicable.

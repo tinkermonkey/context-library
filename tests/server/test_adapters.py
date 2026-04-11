@@ -245,17 +245,48 @@ class TestResetAdapter:
         # Should have error about poller, but still 200 because push-only
         assert any("Poller is not running" in err for err in data["errors"])
 
-    def test_returns_502_when_adapter_reset_raises_exception(self, client: TestClient) -> None:
-        """Test that connection-level exceptions from adapter.reset() return 502 and abort step 3.
+    def test_returns_500_when_adapter_reset_raises_programming_bug(self, client: TestClient) -> None:
+        """Test that programming bugs from adapter.reset() return 500 and abort step 3.
 
-        This tests the except Exception branch (lines 119-124) that handles unexpected
-        errors like httpx.RequestError during adapter.reset(), not just ResetResult(ok=False).
+        RuntimeError and other non-network exceptions are internal bugs, not legitimate
+        502 (bad gateway) errors from the helper service. These should return 500.
         Step 3 (document_store.reset_adapter) should NOT be called due to abort-on-failure.
         """
-        # Create a mock adapter that raises an exception during reset
+        # Create a mock adapter that raises a programming bug during reset
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
-        mock_adapter.reset.side_effect = RuntimeError("Network connection failed")
+        mock_adapter.reset.side_effect = RuntimeError("Unexpected internal error")
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock document_store.reset_adapter to verify it's NOT called
+        ds = client.app.state.document_store
+        with patch.object(ds, "reset_adapter") as mock_reset_adapter:
+            resp = client.post("/adapters/test-adapter/reset")
+            assert resp.status_code == 500
+            detail = resp.json()["detail"]
+            assert "Helper reset error" in detail
+            assert "RuntimeError" in detail
+            # Verify abort-on-failure: Step 3 should NOT be called
+            mock_reset_adapter.assert_not_called()
+
+    def test_returns_502_when_adapter_reset_raises_network_error(self, client: TestClient) -> None:
+        """Test that httpx network errors from adapter.reset() return 502 and abort step 3.
+
+        httpx.HTTPStatusError and httpx.RequestError are legitimate network errors from
+        the helper service, warranting a 502 (bad gateway) response.
+        Step 3 (document_store.reset_adapter) should NOT be called due to abort-on-failure.
+        """
+        try:
+            import httpx
+        except ImportError:
+            # Skip if httpx not available
+            return
+
+        # Create a mock adapter that raises httpx.RequestError during reset
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.side_effect = httpx.RequestError("Connection failed")
 
         client.app.state.helper_adapters = [mock_adapter]
 
@@ -266,19 +297,17 @@ class TestResetAdapter:
             assert resp.status_code == 502
             detail = resp.json()["detail"]
             assert "Helper reset error" in detail
-            assert "RuntimeError" in detail
+            assert "RequestError" in detail
             # Verify abort-on-failure: Step 3 should NOT be called
             mock_reset_adapter.assert_not_called()
 
     def test_poller_trigger_immediate_ingest_exception_is_handled(self, client: TestClient) -> None:
         """Test that exceptions from poller.trigger_immediate_ingest are handled gracefully.
 
-        Per docstring (lines 153-157), trigger_immediate_ingest is designed to return
-        False for expected failures and not raise exceptions. This test verifies that
-        if an unexpected exception does occur, it doesn't crash the endpoint.
-
-        Note: This is a defensive test. In normal operation, the method should return False,
-        not raise. But if it does raise, the error should be caught.
+        When trigger_immediate_ingest raises an unexpected exception (not a known poller
+        exception), the error should be caught and added to the response's errors list.
+        Since library reset has already succeeded, this returns 207 (partial success) with
+        the error logged but not crashing the endpoint.
         """
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
@@ -287,27 +316,53 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock poller.trigger_immediate_ingest to raise an exception
-        # This shouldn't happen in normal operation, but we test the safety net
+        # Mock poller.trigger_immediate_ingest to raise an unexpected exception
         poller = MagicMock()
         poller.trigger_immediate_ingest.side_effect = RuntimeError("Unexpected poller error")
         client.app.state.poller = poller
 
-        # According to docstring, programming errors in trigger_immediate_ingest
-        # are logged but should not propagate. However, since we're calling it
-        # directly (not in a background thread), the exception will propagate.
-        # This test documents that behavior.
-        with patch("context_library.server.routes.adapters.logger"):
-            with patch.object(poller, "trigger_immediate_ingest", side_effect=RuntimeError("Poller error")):
-                # The exception should propagate since it's in the main thread
-                try:
-                    client.post("/adapters/test-adapter/reset")
-                    # If we get here, the exception was swallowed (wrapped in try-except upstream)
-                    # This would be in the case where the poller call is wrapped
-                    # But looking at the code, the exception would propagate
-                except RuntimeError:
-                    # This is expected - the exception propagates to the caller
-                    pass
+        # The exception should be caught and added to the errors list, returning 207
+        # because library reset succeeded but re-ingestion failed
+        resp = client.post("/adapters/test-adapter/reset")
+        assert resp.status_code == 207
+        data = resp.json()
+        # Verify the error is captured
+        assert len(data["errors"]) > 0
+        assert any("Unexpected error while triggering re-ingestion" in error for error in data["errors"])
+
+    def test_sqlite_operational_error_from_trigger_ingest_returns_207(self, client: TestClient) -> None:
+        """Test that sqlite3.OperationalError from trigger_immediate_ingest is handled gracefully.
+
+        Transient DB errors (e.g., database locked, I/O error) during re-ingestion trigger
+        should not crash the endpoint. Since library reset has already succeeded, this returns
+        207 (partial success) with the error logged.
+        """
+        import sqlite3
+
+        # Create a mock adapter that succeeds
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "test-adapter"
+        mock_adapter.reset.return_value = ResetResult(ok=True, cleared=[], errors=[])
+
+        client.app.state.helper_adapters = [mock_adapter]
+
+        # Mock poller.trigger_immediate_ingest to raise sqlite3.OperationalError
+        poller = MagicMock()
+        poller.trigger_immediate_ingest.side_effect = sqlite3.OperationalError("database is locked")
+        client.app.state.poller = poller
+
+        # The exception should be caught and added to the errors list, returning 207
+        # because library reset succeeded but re-ingestion failed
+        resp = client.post("/adapters/test-adapter/reset")
+        assert resp.status_code == 207
+        data = resp.json()
+        # Verify library reset succeeded
+        assert data["library_reset"] is True
+        # Verify the DB error is captured in errors
+        assert len(data["errors"]) > 0
+        assert any("Database error" in error for error in data["errors"])
+        # Verify re-ingestion was not triggered
+        assert data["reingestion_triggered"] is False
 
     def test_source_versions_survive_reset(self, client: TestClient, ds) -> None:
         """Test that reset_adapter preserves source_version history.
