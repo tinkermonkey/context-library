@@ -19,7 +19,7 @@ from context_library.scheduler.exceptions import (
 try:
     import httpx
 except ImportError:
-    httpx = None
+    httpx = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
