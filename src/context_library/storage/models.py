@@ -616,6 +616,7 @@ class DocumentMetadata(BaseModel):
     file_size_bytes: int | None = None
     author: str | None = None
     tags: tuple[str, ...] = ()
+    directory_hierarchy: tuple[str, ...] = ()  # Path components from root to parent dir
 
     # Music-specific metadata (Apple Music library adapter)
     album: str | None = None

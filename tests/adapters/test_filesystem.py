@@ -112,15 +112,32 @@ class TestFilesystemAdapterFetch:
         assert any("subdir" in sid for sid in source_ids)
         assert any("nested" in sid for sid in source_ids)
 
-    def test_fetch_excludes_non_markdown_files(self, tmp_path):
-        """fetch() does not yield non-.md files."""
+    def test_fetch_extension_filter_markdown_only(self, tmp_path):
+        """When extensions={'.md'}, fetch() only yields markdown files."""
+        from unittest.mock import patch
+
         (tmp_path / "file.md").write_text("Markdown", encoding="utf-8")
         (tmp_path / "file.txt").write_text("Text", encoding="utf-8")
         (tmp_path / "file.py").write_text("Python", encoding="utf-8")
-        (tmp_path / "README").write_text("No extension", encoding="utf-8")
+
+        adapter = FilesystemAdapter(tmp_path, extensions={".md"})
+        results = list(adapter.fetch("unused"))
+
+        assert len(results) == 1
+        assert results[0].source_id == "file.md"
+
+    def test_fetch_unconvertible_files_skipped(self, tmp_path):
+        """fetch() skips non-.md files when both converters return None."""
+        from unittest.mock import patch
+
+        (tmp_path / "file.md").write_text("Markdown", encoding="utf-8")
+        (tmp_path / "file.xyz").write_text("Unknown", encoding="utf-8")
 
         adapter = FilesystemAdapter(tmp_path)
-        results = list(adapter.fetch("unused"))
+
+        with patch("context_library.adapters.filesystem._convert_with_markitdown", return_value=None), \
+             patch("context_library.adapters.filesystem._convert_with_pandoc", return_value=None):
+            results = list(adapter.fetch("unused"))
 
         assert len(results) == 1
         assert results[0].source_id == "file.md"
@@ -479,6 +496,8 @@ class TestFilesystemAdapterIntegration:
 
     def test_complex_directory_structure(self, tmp_path):
         """fetch() works with complex nested directory structure."""
+        from unittest.mock import patch
+
         # Create complex structure
         (tmp_path / "notes").mkdir()
         (tmp_path / "notes" / "personal.md").write_text("Personal", encoding="utf-8")
@@ -494,7 +513,11 @@ class TestFilesystemAdapterIntegration:
         (tmp_path / "setup.py").write_text("Setup", encoding="utf-8")
 
         adapter = FilesystemAdapter(tmp_path)
-        results = list(adapter.fetch("unused"))
+
+        # Prevent setup.py from being converted by available system tools
+        with patch("context_library.adapters.filesystem._convert_with_markitdown", return_value=None), \
+             patch("context_library.adapters.filesystem._convert_with_pandoc", return_value=None):
+            results = list(adapter.fetch("unused"))
 
         assert len(results) == 4
         source_ids = {r.source_id for r in results}

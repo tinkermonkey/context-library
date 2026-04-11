@@ -19,7 +19,7 @@ email = ["httpx", "html2text"]
 gmail = ["google-api-python-client", "google-auth-oauthlib"]
 spotify = ["spotipy"]
 todoist = ["todoist-api-python"]
-rich-fs = ["markitdown", "watchdog"]
+rich-fs = ["markitdown>=0.1.5", "watchdog"]
 obsidian = ["obsidiantools", "python-frontmatter", "PyYAML", "watchdog"]
 caldav = ["caldav", "icalendar"]
 apple-reminders = ["httpx"]
@@ -104,6 +104,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "vobject.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "markitdown.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
