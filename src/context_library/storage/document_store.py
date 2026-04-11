@@ -1949,6 +1949,30 @@ class DocumentStore:
 
         return result
 
+    def has_non_push_sources(self, adapter_id: str) -> bool:
+        """Check if an adapter has any sources that use non-push poll strategy.
+
+        Used to determine if an adapter requires poller-driven re-ingestion.
+        Push-only adapters don't need poller-driven re-ingestion because they
+        receive updates via their push mechanism.
+
+        Args:
+            adapter_id: The adapter ID to check
+
+        Returns:
+            True if any source uses 'pull' or 'webhook' strategy, False if all are 'push' or no sources exist.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) as count FROM sources
+            WHERE adapter_id = ? AND poll_strategy != 'push'
+            """,
+            (adapter_id,),
+        )
+        row = cursor.fetchone()
+        return row["count"] > 0
+
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.
 

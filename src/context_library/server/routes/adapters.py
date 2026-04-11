@@ -98,12 +98,14 @@ async def reset_adapter(adapter_id: str, request: Request):
 
     errors: list[str] = []
     helper_reset = False
+    cleared: list[str] = []
 
     if adapter is not None:
         try:
             reset_result = await asyncio.to_thread(adapter.reset)
             if reset_result.ok:
                 helper_reset = True
+                cleared = reset_result.cleared
             else:
                 # Helper reset failed
                 error_detail = "; ".join(reset_result.errors) if reset_result.errors else "Reset failed"
@@ -127,22 +129,23 @@ async def reset_adapter(adapter_id: str, request: Request):
 
     # Step 3: Call document_store.reset_adapter()
     library_reset = False
+    sources_reset = None
     chunks_retired = None
     try:
         library_result = await asyncio.to_thread(ds.reset_adapter, adapter_id)
         library_reset = True
+        sources_reset = library_result["sources_reset"]
         chunks_retired = library_result["chunks_retired"]
         logger.info(
             "Reset adapter %s: %d sources, %d chunks retired",
             adapter_id,
-            library_result["sources_reset"],
+            sources_reset,
             chunks_retired,
         )
     except Exception as e:
         error_msg = f"Library reset error: {type(e).__name__}: {e}"
         if helper_reset:
             error_msg += " (Note: helper was already reset)"
-        errors.append(error_msg)
         logger.error("Reset adapter %s failed at step 3: %s", adapter_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)
 
@@ -157,21 +160,30 @@ async def reset_adapter(adapter_id: str, request: Request):
         errors.append(f"Re-ingestion trigger error: {type(e).__name__}: {e}")
         logger.error("Reset adapter %s failed at step 4: %s", adapter_id, e, exc_info=True)
 
-    # Step 5: Return response (200 on success, 207 if re-ingestion unavailable)
+    # Step 5: Determine if re-ingestion is needed by checking source poll strategies
+    # For push-only adapters, re-ingestion via poller is not applicable
+    # For pull/webhook adapters, 207 indicates library reset succeeded but re-ingestion failed
+    needs_poller_reingestion = False
+    if adapter is not None and library_reset:
+        # Check if this adapter has any non-push sources
+        needs_poller_reingestion = await asyncio.to_thread(ds.has_non_push_sources, adapter_id)
+
+    # Step 6: Return response (200 on success, 207 if re-ingestion unavailable and needed)
     response = AdapterResetResponse(
         adapter_id=adapter_id,
         helper_reset=helper_reset,
         library_reset=library_reset,
+        sources_reset=sources_reset,
         chunks_retired=chunks_retired,
+        cleared=cleared,
         reingestion_triggered=reingestion_triggered,
         errors=errors,
     )
 
-    # Return 207 Partial Success if library reset succeeded but re-ingestion failed.
-    # Only applies to helper adapters where re-ingestion is applicable.
-    # For non-helper adapters (where adapter is None), re-ingestion is not applicable,
-    # so return 200 even if trigger_immediate_ingest returned False.
-    if not reingestion_triggered and library_reset and adapter is not None:
+    # Return 207 Partial Success if library reset succeeded but re-ingestion failed
+    # and the adapter needs poller-driven re-ingestion (i.e., has non-push sources).
+    # Push-only adapters return 200 because re-ingestion happens via push mechanism.
+    if not reingestion_triggered and library_reset and needs_poller_reingestion:
         return JSONResponse(
             status_code=207,
             content=response.model_dump(),
