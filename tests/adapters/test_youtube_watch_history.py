@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import httpx
-from pydantic import ValidationError
 
 from context_library.adapters.youtube_watch_history import (
     YouTubeWatchHistoryAdapter,
