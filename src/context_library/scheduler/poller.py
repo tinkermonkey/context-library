@@ -89,6 +89,12 @@ class Poller:
         self._thread: threading.Thread | None = None
         # Track per-source error state for escalation
         self._error_tracker: dict[str, SourceErrorTracker] = {}
+        # Prevent concurrent ingest of the same adapter
+        self._ingest_in_progress: dict[str, bool] = {}
+        # Track background ingest threads for graceful shutdown
+        self._background_threads: set[threading.Thread] = set()
+        # Lock for thread-safe management of background threads
+        self._threads_lock = threading.Lock()
 
     def register(self, adapter: BaseAdapter, domain_chunker: BaseDomain) -> None:
         """Register an adapter and domain chunker for polling.
@@ -118,13 +124,16 @@ class Poller:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop the polling background thread.
+        """Stop the polling background thread and wait for background ingest threads to complete.
 
-        Sets the stop event and waits for the thread to exit via join() with a timeout.
-        If the thread does not exit within the timeout, logs an error and does not clear the reference.
+        Sets the stop event and waits for the main poller thread to exit via join() with a timeout.
+        Also waits for all background ingest threads to complete.
+        If threads do not exit within the timeout, logs an error and continues.
         Safe to call before start() or multiple times (no error).
         """
         self._stop_event.set()
+
+        # Stop the main poller thread
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             if self._thread.is_alive():
@@ -136,6 +145,21 @@ class Poller:
             else:
                 # Only clear the reference if the thread actually exited
                 self._thread = None
+
+        # Wait for background ingest threads to complete
+        with self._threads_lock:
+            threads_to_wait = list(self._background_threads)
+
+        for thread in threads_to_wait:
+            thread.join(timeout=5.0)
+            if thread.is_alive():
+                logger.error(
+                    "Poller: background ingest thread did not exit within timeout (5.0s). "
+                    "It may still be running a network call or database operation."
+                )
+            else:
+                with self._threads_lock:
+                    self._background_threads.discard(thread)
 
     def _run(self) -> None:
         """Main background loop (internal).
@@ -189,11 +213,22 @@ class Poller:
 
         for source in due_sources:
             source_id = source["source_id"]
-            adapter, chunker = self._find_adapter(source["adapter_id"])
+            adapter_id = source["adapter_id"]
+
+            # Skip if a background ingest is already in progress for this adapter
+            if self._ingest_in_progress.get(adapter_id, False):
+                logger.debug(
+                    "Poller: skipping source %s; background ingest in progress for adapter %s",
+                    source_id,
+                    adapter_id,
+                )
+                continue
+
+            adapter, chunker = self._find_adapter(adapter_id)
             if adapter is None or chunker is None:
                 logger.warning(
                     "Poller: no registered adapter found for adapter_id=%s",
-                    source["adapter_id"],
+                    adapter_id,
                 )
                 continue
 
@@ -254,17 +289,32 @@ class Poller:
         bypassing the normal poll-interval gate. The ingest runs asynchronously
         in a background thread, allowing the HTTP response to return immediately.
 
+        Prevents concurrent ingest of the same adapter using a busy flag. If an ingest
+        is already in progress for this adapter, returns False.
+
+        Background threads are tracked and joined during shutdown to ensure graceful
+        cleanup. Failures in the background thread are logged but do not propagate.
+
         Args:
             adapter_id: The adapter ID to trigger ingest for
 
         Returns:
-            True if at least one source was scheduled for ingestion, False if:
+            True if a background ingest thread was successfully spawned, False if:
             - The adapter is not registered with the poller
             - The poller is stopped or not running
             - No sources are registered to the adapter
+            - An ingest is already in progress for this adapter (race condition prevention)
         """
         # Return False if poller is stopped or not started
         if self._thread is None or not self._thread.is_alive() or self._stop_event.is_set():
+            return False
+
+        # Return False if an ingest is already in progress for this adapter
+        if self._ingest_in_progress.get(adapter_id, False):
+            logger.warning(
+                "trigger_immediate_ingest: ingest already in progress for adapter %s",
+                adapter_id,
+            )
             return False
 
         # Find the adapter
@@ -277,35 +327,47 @@ class Poller:
         if not sources:
             return False
 
+        # Mark this adapter as having an ingest in progress
+        self._ingest_in_progress[adapter_id] = True
+
         # Spawn a background thread to process sources immediately (non-blocking)
         def process_sources() -> None:
-            for source in sources:
-                source_id = source["source_id"]
-                try:
-                    self._pipeline.ingest(
-                        adapter, chunker, source_ref=source["origin_ref"]
-                    )
-                    # Update last_fetched_at on successful ingest
+            try:
+                for source in sources:
+                    source_id = source["source_id"]
                     try:
-                        self._document_store.update_last_fetched_at(source_id)
+                        self._pipeline.ingest(
+                            adapter, chunker, source_ref=source["origin_ref"]
+                        )
+                        # Update last_fetched_at on successful ingest
+                        try:
+                            self._document_store.update_last_fetched_at(source_id)
+                        except Exception as e:
+                            logger.exception(
+                                "trigger_immediate_ingest: failed to update last_fetched_at "
+                                "for source %s: %s",
+                                source_id,
+                                e,
+                            )
+                    except MemoryError:
+                        # System-level memory exhaustion is fatal; propagate immediately
+                        raise
                     except Exception as e:
                         logger.exception(
-                            "trigger_immediate_ingest: failed to update last_fetched_at "
-                            "for source %s: %s",
+                            "trigger_immediate_ingest: ingest failed for source %s: %s",
                             source_id,
                             e,
                         )
-                except MemoryError:
-                    # System-level memory exhaustion is fatal; propagate immediately
-                    raise
-                except Exception as e:
-                    logger.exception(
-                        "trigger_immediate_ingest: ingest failed for source %s: %s",
-                        source_id,
-                        e,
-                    )
+            finally:
+                # Always clear the in-progress flag and remove thread from tracking
+                self._ingest_in_progress[adapter_id] = False
+                with self._threads_lock:
+                    self._background_threads.discard(threading.current_thread())
 
-        thread = threading.Thread(target=process_sources, daemon=True)
+        # Use non-daemon threads and track them for graceful shutdown
+        thread = threading.Thread(target=process_sources, daemon=False)
+        with self._threads_lock:
+            self._background_threads.add(thread)
         thread.start()
 
         return True

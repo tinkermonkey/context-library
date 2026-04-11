@@ -150,15 +150,13 @@ async def reset_adapter(adapter_id: str, request: Request):
         raise HTTPException(status_code=500, detail=error_msg)
 
     # Step 4: Trigger immediate re-ingestion
-    reingestion_triggered = False
-    try:
-        reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
-        if not reingestion_triggered:
-            errors.append("Poller unavailable or adapter not registered; re-ingestion will not occur immediately")
-            logger.warning("Reset adapter %s: re-ingestion trigger failed (poller unavailable or adapter not registered)", adapter_id)
-    except Exception as e:
-        errors.append(f"Re-ingestion trigger error: {type(e).__name__}: {e}")
-        logger.error("Reset adapter %s failed at step 4: %s", adapter_id, e, exc_info=True)
+    # Note: trigger_immediate_ingest returns False on expected failures (poller unavailable,
+    # adapter not registered, ingest already in progress) and does not raise exceptions.
+    # Programming errors will propagate naturally.
+    reingestion_triggered = poller.trigger_immediate_ingest(adapter_id)
+    if not reingestion_triggered:
+        errors.append("Poller unavailable, adapter not registered, or ingest already in progress; re-ingestion will not occur immediately")
+        logger.warning("Reset adapter %s: re-ingestion trigger failed (poller unavailable, adapter not registered, or ingest already in progress)", adapter_id)
 
     # Step 5: Determine if re-ingestion is needed by checking source poll strategies
     # For push-only adapters, re-ingestion via poller is not applicable.
