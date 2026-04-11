@@ -1796,14 +1796,6 @@ class DocumentStore:
         The operation is idempotent: calling it twice produces the same end state
         (chunks already retired remain retired, last_fetched_at remains NULL).
 
-        Implementation:
-        - Soft-deletes all non-retired chunks for sources of adapter_id by setting
-          retired_at to current UTC timestamp (does not delete rows)
-        - Writes lancedb_sync_log DELETE entries for each retired chunk so the
-          vector store deletion path picks them up on sync
-        - Resets last_fetched_at to NULL on all sources of adapter_id so the next
-          poll cycle treats every source as fresh
-
         Args:
             adapter_id: ID of the adapter to reset.
 
@@ -1825,8 +1817,7 @@ class DocumentStore:
                 (adapter_id,),
             )
             source_rows = cursor.fetchall()
-            sources = [row["source_id"] for row in source_rows]
-            sources_reset = len(sources)
+            sources_reset = len(source_rows)
 
             # Get all non-retired chunks belonging to this adapter
             cursor.execute(
@@ -1846,11 +1837,10 @@ class DocumentStore:
 
                 # Write DELETE entries to lancedb_sync_log for each retired chunk
                 # Uses INSERT OR REPLACE to ensure idempotence
-                for chunk_hash in chunk_hashes:
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation) VALUES (?, 'delete')",
-                        (chunk_hash,),
-                    )
+                cursor.executemany(
+                    "INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation) VALUES (?, 'delete')",
+                    [(h,) for h in chunk_hashes],
+                )
 
             # Reset last_fetched_at for all sources of this adapter
             # This marks all sources as ready for fresh fetching on next poll

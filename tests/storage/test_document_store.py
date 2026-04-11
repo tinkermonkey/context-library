@@ -1131,7 +1131,7 @@ class TestAdapterReset:
     """Tests for adapter reset functionality."""
 
     def _setup_adapter_with_sources_and_chunks(
-        self, store: DocumentStore, adapter_id: str, num_sources: int = 2, seed: int = 0
+        self, store: DocumentStore, adapter_id: str, num_sources: int = 2
     ) -> tuple[list[str], list[str]]:
         """Helper to set up an adapter with multiple sources and chunks.
 
@@ -1139,7 +1139,6 @@ class TestAdapterReset:
             store: DocumentStore instance
             adapter_id: ID for the adapter
             num_sources: Number of sources to create
-            seed: Seed for hash generation (to ensure uniqueness across calls)
 
         Returns:
             Tuple of (source_ids, chunk_hashes)
@@ -1166,10 +1165,9 @@ class TestAdapterReset:
             )
 
             # Create version with 2 chunks per source
-            # Use letters a-f to ensure valid hex, cycling through them
-            hash_chars = 'abcdef'
-            hash1 = _make_hash(hash_chars[(seed * 2 + i * 2) % len(hash_chars)])
-            hash2 = _make_hash(hash_chars[(seed * 2 + i * 2 + 1) % len(hash_chars)])
+            # Use adapter_id and source index to guarantee unique hashes by construction
+            hash1 = compute_chunk_hash(f"{adapter_id}-{i}-0")
+            hash2 = compute_chunk_hash(f"{adapter_id}-{i}-1")
 
             # Use version number (1) not rowid for the version parameter
             store.create_source_version(
@@ -1353,10 +1351,10 @@ class TestAdapterReset:
         """Test that reset_adapter only affects the specified adapter."""
         # Setup two adapters with different seeds to avoid hash collisions
         source_ids_1, chunk_hashes_1 = self._setup_adapter_with_sources_and_chunks(
-            store, "adapter-1", num_sources=1, seed=1
+            store, "adapter-1", num_sources=1
         )
         source_ids_2, chunk_hashes_2 = self._setup_adapter_with_sources_and_chunks(
-            store, "adapter-2", num_sources=1, seed=2
+            store, "adapter-2", num_sources=1
         )
 
         # Reset adapter-1
