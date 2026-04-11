@@ -716,29 +716,25 @@ class TestTriggerImmediateIngest:
             {"source_id": "source-3", "adapter_id": "test-adapter", "origin_ref": "/path/3"},
         ]
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest"),
+            patch.object(document_store, "update_last_fetched_at"),
         ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                with patch.object(pipeline, "ingest"):
-                    with patch.object(
-                        document_store, "update_last_fetched_at"
-                    ):
-                        poller.start()
+            poller.start()
 
-                        try:
-                            result = poller.trigger_immediate_ingest("test-adapter")
-                            assert result is True
+            try:
+                result = poller.trigger_immediate_ingest("test-adapter")
+                assert result is True
 
-                            # Wait for background thread to process
-                            time.sleep(0.2)
+                # Wait for background thread to process
+                time.sleep(0.2)
 
-                            # Should have called ingest 3 times (once per source)
-                            assert pipeline.ingest.call_count == 3
-                        finally:
-                            poller.stop()
+                # Should have called ingest 3 times (once per source)
+                assert pipeline.ingest.call_count == 3
+            finally:
+                poller.stop()
 
     def test_trigger_passes_correct_source_ref(self, pipeline, document_store):
         """trigger_immediate_ingest() should pass origin_ref as source_ref to ingest."""
@@ -752,26 +748,24 @@ class TestTriggerImmediateIngest:
             {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/specific/path"},
         ]
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest") as mock_ingest,
+            patch.object(document_store, "update_last_fetched_at"),
         ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                with patch.object(pipeline, "ingest") as mock_ingest:
-                    with patch.object(document_store, "update_last_fetched_at"):
-                        poller.start()
+            poller.start()
 
-                        try:
-                            poller.trigger_immediate_ingest("test-adapter")
-                            time.sleep(0.2)
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                time.sleep(0.2)
 
-                            # Verify ingest was called with correct source_ref
-                            mock_ingest.assert_called_once_with(
-                                adapter, chunker, source_ref="/specific/path"
-                            )
-                        finally:
-                            poller.stop()
+                # Verify ingest was called with correct source_ref
+                mock_ingest.assert_called_once_with(
+                    adapter, chunker, source_ref="/specific/path"
+                )
+            finally:
+                poller.stop()
 
     def test_trigger_updates_last_fetched_at_on_success(self, pipeline, document_store):
         """trigger_immediate_ingest() should update last_fetched_at after successful ingest."""
@@ -785,26 +779,22 @@ class TestTriggerImmediateIngest:
             {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
         ]
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest"),
+            patch.object(document_store, "update_last_fetched_at") as mock_update,
         ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                with patch.object(pipeline, "ingest"):
-                    with patch.object(
-                        document_store, "update_last_fetched_at"
-                    ) as mock_update:
-                        poller.start()
+            poller.start()
 
-                        try:
-                            poller.trigger_immediate_ingest("test-adapter")
-                            time.sleep(0.2)
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                time.sleep(0.2)
 
-                            # Should have called update_last_fetched_at for the source
-                            mock_update.assert_called_once_with("source-1")
-                        finally:
-                            poller.stop()
+                # Should have called update_last_fetched_at for the source
+                mock_update.assert_called_once_with("source-1")
+            finally:
+                poller.stop()
 
     def test_trigger_handles_ingest_failure_gracefully(self, pipeline, document_store):
         """trigger_immediate_ingest() should continue on ingest failure (per-source isolation)."""
@@ -819,57 +809,25 @@ class TestTriggerImmediateIngest:
             {"source_id": "source-2", "adapter_id": "test-adapter", "origin_ref": "/path/2"},
         ]
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            # Make first ingest fail, second succeed
+            patch.object(pipeline, "ingest", side_effect=[Exception("Test error"), None]),
+            patch.object(document_store, "update_last_fetched_at") as mock_update,
         ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                # Make first ingest fail, second succeed
-                with patch.object(pipeline, "ingest", side_effect=[Exception("Test error"), None]):
-                    with patch.object(
-                        document_store, "update_last_fetched_at"
-                    ) as mock_update:
-                        poller.start()
+            poller.start()
 
-                        try:
-                            poller.trigger_immediate_ingest("test-adapter")
-                            time.sleep(0.2)
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                time.sleep(0.2)
 
-                            # Both sources should have been attempted
-                            assert pipeline.ingest.call_count == 2
-                            # Only second source should have been updated
-                            mock_update.assert_called_once_with("source-2")
-                        finally:
-                            poller.stop()
-
-    def test_trigger_returns_true_on_success(self, pipeline, document_store):
-        """trigger_immediate_ingest() should return True if sources were scheduled."""
-        adapter = MockAdapter("test-adapter", Domain.NOTES)
-        chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
-
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                with patch.object(pipeline, "ingest"):
-                    with patch.object(document_store, "update_last_fetched_at"):
-                        poller.start()
-
-                        try:
-                            result = poller.trigger_immediate_ingest("test-adapter")
-                            assert result is True
-                        finally:
-                            poller.stop()
+                # Both sources should have been attempted
+                assert pipeline.ingest.call_count == 2
+                # Only second source should have been updated
+                mock_update.assert_called_once_with("source-2")
+            finally:
+                poller.stop()
 
     def test_trigger_non_blocking(self, pipeline, document_store):
         """trigger_immediate_ingest() should return immediately (non-blocking)."""
@@ -887,24 +845,22 @@ class TestTriggerImmediateIngest:
         def slow_ingest(*args, **kwargs):
             time.sleep(0.5)  # Simulate slow ingest
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
+            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
+            patch.object(pipeline, "ingest", side_effect=slow_ingest),
+            patch.object(document_store, "update_last_fetched_at"),
         ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=sources
-            ):
-                with patch.object(pipeline, "ingest", side_effect=slow_ingest):
-                    with patch.object(document_store, "update_last_fetched_at"):
-                        poller.start()
+            poller.start()
 
-                        try:
-                            # trigger_immediate_ingest should return quickly
-                            start_time = time.time()
-                            result = poller.trigger_immediate_ingest("test-adapter")
-                            elapsed = time.time() - start_time
+            try:
+                # trigger_immediate_ingest should return quickly
+                start_time = time.time()
+                result = poller.trigger_immediate_ingest("test-adapter")
+                elapsed = time.time() - start_time
 
-                            assert result is True
-                            # Should return almost immediately (much less than the 0.5s ingest time)
-                            assert elapsed < 0.2
-                        finally:
-                            poller.stop()
+                assert result is True
+                # Should return almost immediately (much less than the 0.5s ingest time)
+                assert elapsed < 0.2
+            finally:
+                poller.stop()

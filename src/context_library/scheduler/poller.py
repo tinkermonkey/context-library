@@ -295,6 +295,9 @@ class Poller:
                             source_id,
                             e,
                         )
+                except MemoryError:
+                    # System-level memory exhaustion is fatal; propagate immediately
+                    raise
                 except Exception as e:
                     logger.exception(
                         "trigger_immediate_ingest: ingest failed for source %s: %s",
