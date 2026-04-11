@@ -102,6 +102,7 @@ def _post_reset_to_helper(
         response = client.post(
             f"{base_url}/collectors/{collector_name}/reset",
             headers=headers,
+            timeout=10.0,
         )
 
         # Propagate HTTP errors (4xx, 5xx)

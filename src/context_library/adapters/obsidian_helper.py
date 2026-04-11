@@ -89,6 +89,10 @@ class ObsidianHelperAdapter(BaseAdapter):
     def normalizer_version(self) -> str:
         return "1.0.0"
 
+    @property
+    def _collector_name(self) -> str:
+        return "obsidian"
+
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         since = source_ref if source_ref else None
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -159,6 +163,6 @@ class ObsidianHelperAdapter(BaseAdapter):
         return _post_reset_to_helper(
             client=self._client,
             base_url=self._api_url,
-            collector_name="obsidian",
+            collector_name=self._collector_name,
             api_key=self._api_key,
         )

@@ -122,6 +122,10 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
     def normalizer_version(self) -> str:
         return "1.1.0"
 
+    @property
+    def _collector_name(self) -> str:
+        return "youtube"
+
     def __enter__(self):
         return self
 
@@ -284,7 +288,7 @@ class YouTubeWatchHistoryAdapter(BaseAdapter):
         return _post_reset_to_helper(
             client=self._client,
             base_url=self._api_url,
-            collector_name="youtube",
+            collector_name=self._collector_name,
             api_key=self._api_key,
         )
 
