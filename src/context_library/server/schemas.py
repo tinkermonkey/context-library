@@ -403,5 +403,6 @@ class AdapterResetResponse(BaseModel):
     adapter_id: str
     helper_reset: bool
     library_reset: bool
+    chunks_retired: int | None = None
     reingestion_triggered: bool
     errors: list[str] = Field(default_factory=list)

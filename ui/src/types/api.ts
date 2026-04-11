@@ -281,6 +281,7 @@ export interface AdapterResetResponse {
   adapter_id: string;
   helper_reset: boolean;
   library_reset: boolean;
+  chunks_retired: number | null;
   reingestion_triggered: boolean;
   errors: string[];
 }

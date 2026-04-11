@@ -159,6 +159,13 @@ export function ResetAdapterDialog({
                         {result.library_reset ? '✓ Yes' : '✗ No'}
                       </p>
                     </div>
+                    {result.chunks_retired !== null && (
+                      <div className="text-sm">
+                        <p className="text-gray-700">
+                          <span className="font-semibold">Chunks Retired:</span> {result.chunks_retired}
+                        </p>
+                      </div>
+                    )}
                     <div className="text-sm">
                       <p className="text-gray-700">
                         <span className="font-semibold">Re-ingestion Triggered:</span>{' '}

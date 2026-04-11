@@ -30,8 +30,7 @@ const BASE = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? '/api' 
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
-  // Accept 2xx status codes and 207 (Partial Success)
-  if (!res.ok && res.status !== 207) {
+  if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`API error ${res.status}: ${errorText}`);
   }
@@ -68,7 +67,6 @@ export const fetchAdapter = (adapterId: string) =>
 export const resetAdapter = (adapterId: string) =>
   apiFetch<AdapterResetResponse>(`/adapters/${encodeURIComponent(adapterId)}/reset`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
   });
 
 // ── Sources ──────────────────────────────────────────────────────

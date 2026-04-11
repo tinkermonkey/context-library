@@ -101,7 +101,7 @@ export default function DashboardPage() {
         ),
       },
     ],
-    []
+    [setSelectedAdapter, setResetDialogOpen]
   );
 
   // Fetch function for adapter table (memoized with useCallback to stabilize reference)

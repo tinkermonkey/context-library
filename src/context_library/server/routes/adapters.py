@@ -127,14 +127,16 @@ async def reset_adapter(adapter_id: str, request: Request):
 
     # Step 3: Call document_store.reset_adapter()
     library_reset = False
+    chunks_retired = None
     try:
         library_result = await asyncio.to_thread(ds.reset_adapter, adapter_id)
         library_reset = True
+        chunks_retired = library_result["chunks_retired"]
         logger.info(
             "Reset adapter %s: %d sources, %d chunks retired",
             adapter_id,
             library_result["sources_reset"],
-            library_result["chunks_retired"],
+            chunks_retired,
         )
     except Exception as e:
         error_msg = f"Library reset error: {type(e).__name__}: {e}"
@@ -160,6 +162,7 @@ async def reset_adapter(adapter_id: str, request: Request):
         adapter_id=adapter_id,
         helper_reset=helper_reset,
         library_reset=library_reset,
+        chunks_retired=chunks_retired,
         reingestion_triggered=reingestion_triggered,
         errors=errors,
     )
