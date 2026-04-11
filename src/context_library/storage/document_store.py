@@ -1915,6 +1915,40 @@ class DocumentStore:
 
         return result
 
+    def get_sources_for_adapter(self, adapter_id: str) -> list[dict]:
+        """Get all sources registered to a specific adapter.
+
+        Queries all sources with the given adapter_id, regardless of poll strategy
+        or poll interval status. Used by trigger_immediate_ingest() to re-ingest
+        all sources for an adapter on demand.
+
+        Args:
+            adapter_id: The adapter ID to filter sources by
+
+        Returns:
+            List of dicts with keys: source_id, adapter_id, origin_ref
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT source_id, adapter_id, origin_ref
+            FROM sources
+            WHERE adapter_id = ?
+            """,
+            (adapter_id,),
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "source_id": row["source_id"],
+                "adapter_id": row["adapter_id"],
+                "origin_ref": row["origin_ref"],
+            })
+
+        return result
+
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.
 

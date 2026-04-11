@@ -246,6 +246,67 @@ class Poller:
                     e,
                 )
 
+    def trigger_immediate_ingest(self, adapter_id: str) -> bool:
+        """Trigger an immediate, one-shot ingest run for a specific adapter.
+
+        Finds the registered (adapter, chunker) pair for the given adapter_id and
+        schedules all sources registered to that adapter for immediate re-ingestion,
+        bypassing the normal poll-interval gate. The ingest runs asynchronously
+        in a background thread, allowing the HTTP response to return immediately.
+
+        Args:
+            adapter_id: The adapter ID to trigger ingest for
+
+        Returns:
+            True if at least one source was scheduled for ingestion, False if:
+            - The adapter is not registered with the poller
+            - The poller is stopped or not running
+            - No sources are registered to the adapter
+        """
+        # Return False if poller is stopped or not started
+        if self._thread is None or not self._thread.is_alive() or self._stop_event.is_set():
+            return False
+
+        # Find the adapter
+        adapter, chunker = self._find_adapter(adapter_id)
+        if adapter is None or chunker is None:
+            return False
+
+        # Get all sources for this adapter
+        sources = self._document_store.get_sources_for_adapter(adapter_id)
+        if not sources:
+            return False
+
+        # Spawn a background thread to process sources immediately (non-blocking)
+        def process_sources() -> None:
+            for source in sources:
+                source_id = source["source_id"]
+                try:
+                    self._pipeline.ingest(
+                        adapter, chunker, source_ref=source["origin_ref"]
+                    )
+                    # Update last_fetched_at on successful ingest
+                    try:
+                        self._document_store.update_last_fetched_at(source_id)
+                    except Exception as e:
+                        logger.exception(
+                            "trigger_immediate_ingest: failed to update last_fetched_at "
+                            "for source %s: %s",
+                            source_id,
+                            e,
+                        )
+                except Exception as e:
+                    logger.exception(
+                        "trigger_immediate_ingest: ingest failed for source %s: %s",
+                        source_id,
+                        e,
+                    )
+
+        thread = threading.Thread(target=process_sources, daemon=True)
+        thread.start()
+
+        return True
+
     def _find_adapter(
         self, adapter_id: str
     ) -> tuple[BaseAdapter | None, BaseDomain | None]:

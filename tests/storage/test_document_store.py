@@ -3003,6 +3003,127 @@ class TestSourceScheduling:
         assert result["poll_interval_sec"] == 3600
         assert result["last_fetched_at"] is None
 
+    def test_get_sources_for_adapter_empty(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter returns empty list when no sources exist."""
+        result = store.get_sources_for_adapter("unknown-adapter")
+        assert result == []
+
+    def test_get_sources_for_adapter_single_source(self, store: DocumentStore) -> None:
+        """Test get_sources_for_adapter with a single source."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 1
+        assert result[0]["source_id"] == "test-source"
+        assert result[0]["adapter_id"] == "poll-adapter"
+        assert result[0]["origin_ref"] == "test://source"
+
+    def test_get_sources_for_adapter_multiple_sources(self, store: DocumentStore) -> None:
+        """Test get_sources_for_adapter with multiple sources for same adapter."""
+        self._setup_adapter(store)
+
+        # Register multiple sources for the same adapter
+        for i in range(1, 4):
+            store.register_source(
+                source_id=f"source-{i}",
+                adapter_id="poll-adapter",
+                domain=Domain.NOTES,
+                origin_ref=f"test://source-{i}",
+            )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 3
+        source_ids = {source["source_id"] for source in result}
+        assert source_ids == {"source-1", "source-2", "source-3"}
+
+        # Verify origin_refs are correct
+        origin_refs = {source["origin_ref"] for source in result}
+        assert origin_refs == {"test://source-1", "test://source-2", "test://source-3"}
+
+    def test_get_sources_for_adapter_filters_by_adapter_id(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter only returns sources for specified adapter."""
+        # Register two different adapters
+        config1 = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        config2 = AdapterConfig(
+            adapter_id="adapter-2",
+            adapter_type="test",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config1)
+        store.register_adapter(config2)
+
+        # Register sources for both adapters
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+        store.register_source(
+            source_id="source-2",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-2",
+        )
+        store.register_source(
+            source_id="source-3",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="test://source-3",
+        )
+
+        # Get sources for adapter-1
+        result = store.get_sources_for_adapter("adapter-1")
+        assert len(result) == 2
+        source_ids = {source["source_id"] for source in result}
+        assert source_ids == {"source-1", "source-2"}
+
+        # Get sources for adapter-2
+        result = store.get_sources_for_adapter("adapter-2")
+        assert len(result) == 1
+        assert result[0]["source_id"] == "source-3"
+
+    def test_get_sources_for_adapter_returns_correct_fields(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter returns all required fields."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 1
+        source = result[0]
+
+        # Verify required fields are present
+        assert "source_id" in source
+        assert "adapter_id" in source
+        assert "origin_ref" in source
+
+        # Verify values
+        assert source["source_id"] == "test-source"
+        assert source["adapter_id"] == "poll-adapter"
+        assert source["origin_ref"] == "test://source"
+
     def test_update_last_fetched_at_success(self, store: DocumentStore) -> None:
         """Test updating last_fetched_at for an existing source."""
         self._setup_adapter(store)
