@@ -19,7 +19,7 @@ import subprocess
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, cast
+from typing import Any, Iterator, cast
 
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileEvent, FileSystemWatcher
@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Try to import MarkItDown (optional dependency)
 HAS_MARKITDOWN = False
-MarkItDown: type | None = None
+MarkItDown: Any = None
 try:
-    from markitdown import MarkItDown
+    from markitdown import MarkItDown  # type: ignore[no-redef]
     HAS_MARKITDOWN = True
 except ImportError:
     pass
@@ -209,15 +209,14 @@ class FilesystemAdapter(BaseAdapter):
                 logger.warning("Failed to decode file as UTF-8: %s", file_path)
                 return
         else:
-            markdown = _convert_with_markitdown(file_path)
-            if markdown is None:
-                markdown = _convert_with_pandoc(file_path)
-            if markdown is None:
+            converted = _convert_with_markitdown(file_path) or _convert_with_pandoc(file_path)
+            if converted is None:
                 logger.warning(
                     "Could not convert %s to markdown (MarkItDown and Pandoc both failed)",
                     file_path,
                 )
                 return
+            markdown = converted
 
         stat = file_path.stat()
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()

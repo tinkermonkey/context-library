@@ -114,8 +114,6 @@ class TestFilesystemAdapterFetch:
 
     def test_fetch_extension_filter_markdown_only(self, tmp_path):
         """When extensions={'.md'}, fetch() only yields markdown files."""
-        from unittest.mock import patch
-
         (tmp_path / "file.md").write_text("Markdown", encoding="utf-8")
         (tmp_path / "file.txt").write_text("Text", encoding="utf-8")
         (tmp_path / "file.py").write_text("Python", encoding="utf-8")

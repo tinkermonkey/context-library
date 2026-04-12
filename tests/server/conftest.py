@@ -56,6 +56,7 @@ def _create_app_with_store(
         app.state.config = mock_config
         app.state.helper_adapters = []
         app.state.helper_health_cache = None
+        app.state.poller = MagicMock()
         yield
 
     app = create_app()

@@ -32,7 +32,7 @@ Expected endpoint contract:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -44,13 +44,14 @@ logger = logging.getLogger(__name__)
 
 HAS_HTTPX = False
 try:
-    import httpx
+    import httpx  # noqa: F401
+
     HAS_HTTPX = True
 except ImportError:
     pass
 
 
-class ObsidianHelperAdapter(BaseAdapter):
+class ObsidianHelperAdapter(RemoteAdapter):
     """Adapter that ingests an Obsidian vault served by a context-helpers bridge service."""
 
     def __init__(
@@ -67,28 +68,27 @@ class ObsidianHelperAdapter(BaseAdapter):
         if not api_key:
             raise ValueError("api_key is required for ObsidianHelperAdapter")
 
-        self._api_url = api_url.rstrip("/")
-        self._api_key = api_key
         self._vault_id = vault_id
-        self._client = httpx.Client(timeout=60.0)
-
-    @property
-    def adapter_id(self) -> str:
-        return f"obsidian_helper:{self._vault_id}"
-
-    @property
-    def domain(self) -> Domain:
-        return Domain.NOTES
+        # Call parent constructor with required parameters.
+        # The parent will set up _service_url, _api_key, _client.
+        super().__init__(
+            service_url=api_url,
+            domain=Domain.NOTES,
+            adapter_id=f"obsidian_helper:{vault_id}",
+            normalizer_version="1.0.0",
+            api_key=api_key,
+            timeout=60.0,
+        )
 
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
 
     @property
-    def normalizer_version(self) -> str:
-        return "1.0.0"
+    def _collector_name(self) -> str:
+        return "obsidian"
 
-    def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
+    def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         since = source_ref if source_ref else None
         headers = {"Authorization": f"Bearer {self._api_key}"}
         params: dict = {}
@@ -96,7 +96,7 @@ class ObsidianHelperAdapter(BaseAdapter):
             params["since"] = since
 
         response = self._client.get(
-            f"{self._api_url}/obsidian/vault-notes",
+            f"{self._service_url}/obsidian/vault-notes",
             headers=headers,
             params=params,
         )

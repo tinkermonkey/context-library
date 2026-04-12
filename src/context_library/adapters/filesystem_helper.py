@@ -83,6 +83,11 @@ class FilesystemHelperAdapter(RemoteAdapter):
     background_poll: bool = True
 
     @property
+    def _collector_name(self) -> str:
+        """Return the collector name for the filesystem helper service."""
+        return "filesystem"
+
+    @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
 

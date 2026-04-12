@@ -2,12 +2,81 @@
 
 import logging
 import threading
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
 from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.base import BaseDomain
+from context_library.scheduler.exceptions import (
+    PollerNotRunningError,
+    AdapterNotRegisteredError,
+    NoSourcesError,
+    IngestAlreadyInProgressError,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _is_programming_error(exc: Exception) -> bool:
+    """Detect programming bugs that should escalate to ERROR level immediately.
+
+    Programming errors are indicative of bugs in the code (adapter, domain, pipeline)
+    rather than transient network or system issues. These should be surfaced at ERROR
+    level immediately, not after 6+ retries.
+
+    Examples:
+    - TypeError: Wrong argument type passed to a function
+    - AttributeError: Accessing a non-existent attribute (e.g., missing adapter method)
+    - KeyError: Missing key in dictionary (e.g., missing field in normalized content)
+    - IndexError: Accessing out-of-bounds list index
+    - ValueError: Invalid value for a function parameter
+    - NotImplementedError: Method not implemented
+    - AssertionError: Assertion failed in code
+
+    Transient errors (retried normally):
+    - Network errors (httpx, requests, urllib)
+    - Database errors (sqlite3.OperationalError for lock/I/O)
+    - MemoryError (already handled separately)
+    """
+    error_types = (
+        TypeError,
+        AttributeError,
+        KeyError,
+        IndexError,
+        ValueError,
+        NotImplementedError,
+        AssertionError,
+    )
+    return isinstance(exc, error_types)
+
+
+@dataclass
+class IngestResult:
+    """Result of a background ingest operation.
+
+    Tracks success/failure counts and the time the ingest completed.
+    Per-source exceptions are logged but not stored (to avoid keeping references
+    to large error objects in memory).
+    """
+
+    adapter_id: str
+    sources_attempted: int = 0
+    sources_succeeded: int = 0
+    sources_failed: int = 0
+    completed_at: Optional[datetime] = None
+    had_programming_errors: bool = False  # True if any programming errors were detected
+
+    @property
+    def overall_success(self) -> bool:
+        """True if all sources succeeded (zero failures)."""
+        return self.sources_attempted > 0 and self.sources_failed == 0
+
+    @property
+    def partial_success(self) -> bool:
+        """True if some sources succeeded but not all."""
+        return self.sources_succeeded > 0 and self.sources_failed > 0
 
 
 class SourceErrorTracker:
@@ -89,6 +158,33 @@ class Poller:
         self._thread: threading.Thread | None = None
         # Track per-source error state for escalation
         self._error_tracker: dict[str, SourceErrorTracker] = {}
+        # Prevent concurrent ingest of the same adapter
+        self._ingest_in_progress: dict[str, bool] = {}
+        # Track background ingest threads for graceful shutdown
+        self._background_threads: set[threading.Thread] = set()
+        # Map from background thread to adapter_id for selective flag clearing
+        self._ingest_thread_adapters: dict[threading.Thread, str] = {}
+        # Lock for thread-safe management of background threads
+        self._threads_lock = threading.Lock()
+        # Store the last ingest result per adapter_id (keyed by adapter_id)
+        self._ingest_results: dict[str, IngestResult] = {}
+        # Lock for thread-safe access to ingest results
+        self._results_lock = threading.Lock()
+
+    def get_ingest_result(self, adapter_id: str) -> Optional[IngestResult]:
+        """Retrieve the result of the last background ingest for an adapter.
+
+        Returns the IngestResult from the most recent call to trigger_immediate_ingest()
+        for the given adapter, or None if no ingest has been triggered yet.
+
+        Args:
+            adapter_id: The adapter ID to query
+
+        Returns:
+            IngestResult if an ingest has been triggered, otherwise None
+        """
+        with self._results_lock:
+            return self._ingest_results.get(adapter_id)
 
     def register(self, adapter: BaseAdapter, domain_chunker: BaseDomain) -> None:
         """Register an adapter and domain chunker for polling.
@@ -118,13 +214,16 @@ class Poller:
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop the polling background thread.
+        """Stop the polling background thread and wait for background ingest threads to complete.
 
-        Sets the stop event and waits for the thread to exit via join() with a timeout.
-        If the thread does not exit within the timeout, logs an error and does not clear the reference.
+        Sets the stop event and waits for the main poller thread to exit via join() with a timeout.
+        Also waits for all background ingest threads to complete.
+        If threads do not exit within the timeout, logs an error and continues.
         Safe to call before start() or multiple times (no error).
         """
         self._stop_event.set()
+
+        # Stop the main poller thread
         if self._thread is not None:
             self._thread.join(timeout=5.0)
             if self._thread.is_alive():
@@ -136,6 +235,29 @@ class Poller:
             else:
                 # Only clear the reference if the thread actually exited
                 self._thread = None
+
+        # Wait for background ingest threads to complete
+        with self._threads_lock:
+            threads_to_wait = list(self._background_threads)
+
+        for thread in threads_to_wait:
+            thread.join(timeout=5.0)
+            if thread.is_alive():
+                logger.error(
+                    "Poller: background ingest thread did not exit within timeout (5.0s). "
+                    "It may still be running a network call or database operation. "
+                    "Adapter may remain locked until thread exits."
+                )
+            else:
+                # Only clear the in-progress flag if the thread actually exited
+                with self._threads_lock:
+                    adapter_id = self._ingest_thread_adapters.get(thread)
+                    if adapter_id:
+                        self._ingest_in_progress.pop(adapter_id, None)
+            # Always remove from tracking set, whether thread exited or not
+            with self._threads_lock:
+                self._background_threads.discard(thread)
+                self._ingest_thread_adapters.pop(thread, None)
 
     def _run(self) -> None:
         """Main background loop (internal).
@@ -189,11 +311,23 @@ class Poller:
 
         for source in due_sources:
             source_id = source["source_id"]
-            adapter, chunker = self._find_adapter(source["adapter_id"])
+            adapter_id = source["adapter_id"]
+
+            # Skip if a background ingest is already in progress for this adapter
+            with self._threads_lock:
+                if self._ingest_in_progress.get(adapter_id, False):
+                    logger.debug(
+                        "Poller: skipping source %s; background ingest in progress for adapter %s",
+                        source_id,
+                        adapter_id,
+                    )
+                    continue
+
+            adapter, chunker = self._find_adapter(adapter_id)
             if adapter is None or chunker is None:
                 logger.warning(
                     "Poller: no registered adapter found for adapter_id=%s",
-                    source["adapter_id"],
+                    adapter_id,
                 )
                 continue
 
@@ -213,8 +347,18 @@ class Poller:
                 error_msg = f"ingest failed: {e}"
                 error_tracker.record_failure()
 
-                # Log at escalated level based on failure count
-                if error_tracker.should_log_at_error_level():
+                # Programming bugs (TypeError, AttributeError, etc.) indicate code issues
+                # that won't be fixed by retrying. Log them at ERROR level immediately
+                # rather than waiting for 6+ cycles.
+                if _is_programming_error(e):
+                    logger.error(
+                        "Poller: source %s encountered a programming error (escalated immediately): %s",
+                        source_id,
+                        error_msg,
+                        exc_info=True,
+                    )
+                # Log at escalated level based on consecutive failure count for transient errors
+                elif error_tracker.should_log_at_error_level():
                     logger.error(
                         "Poller: source %s has failed %d times (ERROR level): %s",
                         source_id,
@@ -245,6 +389,124 @@ class Poller:
                     source_id,
                     e,
                 )
+
+    def trigger_immediate_ingest(self, adapter_id: str) -> bool:
+        """Trigger an immediate, one-shot ingest run for a specific adapter.
+
+        Finds the registered (adapter, chunker) pair for the given adapter_id and
+        schedules all sources registered to that adapter for immediate re-ingestion,
+        bypassing the normal poll-interval gate. The ingest runs asynchronously
+        in a background thread, allowing the HTTP response to return immediately.
+
+        Prevents concurrent ingest of the same adapter using a busy flag. If an ingest
+        is already in progress for this adapter, raises IngestAlreadyInProgressError.
+
+        Background threads are tracked and joined during shutdown to ensure graceful
+        cleanup. Per-source failures are logged with exc_info and the result is stored
+        in _ingest_results for querying (via get_ingest_result).
+
+        Args:
+            adapter_id: The adapter ID to trigger ingest for
+
+        Returns:
+            True if a background ingest thread was successfully spawned
+
+        Raises:
+            PollerNotRunningError: If the poller is stopped or not running
+            AdapterNotRegisteredError: If the adapter is not registered with the poller
+            NoSourcesError: If no sources are registered to the adapter
+            IngestAlreadyInProgressError: If an ingest is already in progress for this adapter
+        """
+        # Raise if poller is stopped or not started
+        if self._thread is None or not self._thread.is_alive() or self._stop_event.is_set():
+            raise PollerNotRunningError("Poller is not running")
+
+        # Find the adapter
+        adapter, chunker = self._find_adapter(adapter_id)
+        if adapter is None or chunker is None:
+            raise AdapterNotRegisteredError(f"Adapter '{adapter_id}' is not registered")
+
+        # Get all sources for this adapter
+        sources = self._document_store.get_sources_for_adapter(adapter_id)
+        if not sources:
+            raise NoSourcesError(f"No sources found for adapter '{adapter_id}'")
+
+        # Check-and-set the ingest_in_progress flag atomically
+        # This prevents TOCTOU race where two threads could both pass the check
+        with self._threads_lock:
+            if self._ingest_in_progress.get(adapter_id, False):
+                logger.warning(
+                    "trigger_immediate_ingest: ingest already in progress for adapter %s",
+                    adapter_id,
+                )
+                raise IngestAlreadyInProgressError(
+                    f"Ingest is already in progress for adapter '{adapter_id}'"
+                )
+            # Mark this adapter as having an ingest in progress
+            self._ingest_in_progress[adapter_id] = True
+
+        # Spawn a background thread to process sources immediately (non-blocking)
+        def process_sources() -> None:
+            result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
+            try:
+                for source in sources:
+                    source_id = source["source_id"]
+                    try:
+                        self._pipeline.ingest(
+                            adapter, chunker, source_ref=source["origin_ref"]
+                        )
+                        result.sources_succeeded += 1
+                        # Update last_fetched_at on successful ingest
+                        try:
+                            self._document_store.update_last_fetched_at(source_id)
+                        except Exception as e:
+                            logger.exception(
+                                "trigger_immediate_ingest: failed to update last_fetched_at "
+                                "for source %s: %s",
+                                source_id,
+                                e,
+                            )
+                    except MemoryError:
+                        # System-level memory exhaustion is fatal; propagate immediately
+                        raise
+                    except Exception as e:
+                        result.sources_failed += 1
+                        # Detect programming errors and flag them
+                        if _is_programming_error(e):
+                            result.had_programming_errors = True
+                            logger.error(
+                                "trigger_immediate_ingest: source %s encountered a programming error: %s",
+                                source_id,
+                                e,
+                                exc_info=True,
+                            )
+                        else:
+                            logger.exception(
+                                "trigger_immediate_ingest: ingest failed for source %s: %s",
+                                source_id,
+                                e,
+                            )
+            finally:
+                # Mark result as completed and store it
+                result.completed_at = datetime.now()
+                with self._results_lock:
+                    self._ingest_results[adapter_id] = result
+
+                # Always clear the in-progress flag and remove thread from tracking
+                # CRITICAL: Clear flag inside lock to prevent race conditions
+                with self._threads_lock:
+                    self._ingest_in_progress[adapter_id] = False
+                    self._background_threads.discard(threading.current_thread())
+                    self._ingest_thread_adapters.pop(threading.current_thread(), None)
+
+        # Use non-daemon threads and track them for graceful shutdown
+        thread = threading.Thread(target=process_sources, daemon=False)
+        with self._threads_lock:
+            self._background_threads.add(thread)
+            self._ingest_thread_adapters[thread] = adapter_id
+        thread.start()
+
+        return True
 
     def _find_adapter(
         self, adapter_id: str

@@ -18,6 +18,7 @@ from .models import (
     EntityLink,
     LineageRecord,
     PollStrategy,
+    ResetAdapterResult,
     Sha256Hash,
     SourceInfo,
     SourceVersion,
@@ -1785,6 +1786,70 @@ class DocumentStore:
             config=config_dict,
         )
 
+    def reset_adapter(self, adapter_id: str) -> ResetAdapterResult:
+        """Reset all data for an adapter: retire chunks and clear fetch state.
+
+        Performs a soft reset of all sources belonging to an adapter, retiring all
+        non-retired chunks and clearing the last_fetched_at timestamp so that the
+        next ingest cycle treats every source as new. Preserves all source rows,
+        source_version history, and adapter registration in the database.
+
+        The operation is idempotent: calling it twice produces the same end state
+        (chunks already retired remain retired, last_fetched_at remains NULL).
+
+        Args:
+            adapter_id: ID of the adapter to reset.
+
+        Returns:
+            ResetAdapterResult with reset counts:
+            - sources_reset: number of sources belonging to this adapter
+            - chunks_retired: number of non-retired chunks that were retired
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self._write_lock, self.conn:
+            cursor = self.conn.cursor()
+
+            # Query all sources belonging to this adapter
+            cursor.execute(
+                "SELECT source_id FROM sources WHERE adapter_id = ?",
+                (adapter_id,),
+            )
+            source_rows = cursor.fetchall()
+            sources_reset = len(source_rows)
+
+            # Get all non-retired chunks belonging to this adapter
+            cursor.execute(
+                "SELECT chunk_hash FROM chunks WHERE adapter_id = ? AND retired_at IS NULL",
+                (adapter_id,),
+            )
+            chunk_rows = cursor.fetchall()
+            chunk_hashes = [row["chunk_hash"] for row in chunk_rows]
+            chunks_retired = len(chunk_hashes)
+
+            # Update all non-retired chunks for this adapter to set retired_at
+            if chunk_hashes:
+                cursor.execute(
+                    "UPDATE chunks SET retired_at = ? WHERE adapter_id = ? AND retired_at IS NULL",
+                    (now, adapter_id),
+                )
+
+                # Write DELETE entries to lancedb_sync_log for each retired chunk
+                # Uses INSERT OR REPLACE to ensure idempotence
+                cursor.executemany(
+                    "INSERT OR REPLACE INTO lancedb_sync_log (chunk_hash, operation) VALUES (?, 'delete')",
+                    [(h,) for h in chunk_hashes],
+                )
+
+            # Reset last_fetched_at for all sources of this adapter
+            # This marks all sources as ready for fresh fetching on next poll
+            cursor.execute(
+                "UPDATE sources SET last_fetched_at = NULL WHERE adapter_id = ?",
+                (adapter_id,),
+            )
+
+            return {"sources_reset": sources_reset, "chunks_retired": chunks_retired}
+
     def update_last_fetched_at(self, source_id: str) -> None:
         """Update the last_fetched_at timestamp for a source.
 
@@ -1848,6 +1913,64 @@ class DocumentStore:
             })
 
         return result
+
+    def get_sources_for_adapter(self, adapter_id: str) -> list[dict]:
+        """Get all sources registered to a specific adapter.
+
+        Queries all sources with the given adapter_id, regardless of poll strategy
+        or poll interval status. Used by trigger_immediate_ingest() to re-ingest
+        all sources for an adapter on demand.
+
+        Args:
+            adapter_id: The adapter ID to filter sources by
+
+        Returns:
+            List of dicts with keys: source_id, adapter_id, origin_ref
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT source_id, adapter_id, origin_ref
+            FROM sources
+            WHERE adapter_id = ?
+            """,
+            (adapter_id,),
+        )
+        rows = cursor.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "source_id": row["source_id"],
+                "adapter_id": row["adapter_id"],
+                "origin_ref": row["origin_ref"],
+            })
+
+        return result
+
+    def has_non_push_sources(self, adapter_id: str) -> bool:
+        """Check if an adapter has any sources that use non-push poll strategy.
+
+        Used to determine if an adapter requires poller-driven re-ingestion.
+        Push-only adapters don't need poller-driven re-ingestion because they
+        receive updates via their push mechanism.
+
+        Args:
+            adapter_id: The adapter ID to check
+
+        Returns:
+            True if any source uses 'pull' or 'webhook' strategy, False if all are 'push' or no sources exist.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) as count FROM sources
+            WHERE adapter_id = ? AND poll_strategy != 'push'
+            """,
+            (adapter_id,),
+        )
+        row = cursor.fetchone()
+        return bool(row["count"] > 0)
 
     def get_chunks_pending_sync(self) -> list[dict]:
         """Get all chunks with 'insert' operations in the sync log.

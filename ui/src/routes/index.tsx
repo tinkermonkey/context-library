@@ -1,10 +1,11 @@
 import { useNavigate } from '@tanstack/react-router';
-import { Card, Badge } from 'flowbite-react';
-import { useMemo, useCallback } from 'react';
+import { Card, Badge, Button } from 'flowbite-react';
+import { useMemo, useCallback, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { DataTable } from '../components/DataTable';
+import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
 import type { AdapterStats } from '../types/api';
 
 // Capitalize domain name for display
@@ -46,6 +47,8 @@ const TableSkeletonRows = () => (
  */
 export default function DashboardPage() {
   const navigate = useNavigate();
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [selectedAdapter, setSelectedAdapter] = useState<AdapterStats | null>(null);
 
   // Fetch stats data
   const stats = useStats();
@@ -79,8 +82,26 @@ export default function DashboardPage() {
         header: 'Active Chunks',
         size: 150,
       },
+      {
+        id: 'actions',
+        header: 'Actions',
+        size: 100,
+        cell: ({ row }) => (
+          <Button
+            size="sm"
+            color="failure"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedAdapter(row.original);
+              setResetDialogOpen(true);
+            }}
+          >
+            Reset
+          </Button>
+        ),
+      },
     ],
-    []
+    [setSelectedAdapter, setResetDialogOpen]
   );
 
   // Fetch function for adapter table (memoized with useCallback to stabilize reference)
@@ -209,6 +230,11 @@ export default function DashboardPage() {
 
   const domainData = stats.data?.by_domain ?? [];
 
+  const handleResetDialogClose = () => {
+    setResetDialogOpen(false);
+    setSelectedAdapter(null);
+  };
+
   return (
     <div className="space-y-8 p-8">
       <div>
@@ -269,6 +295,16 @@ export default function DashboardPage() {
           <div className="text-gray-600">No adapter data available</div>
         )}
       </section>
+
+      {/* Reset Adapter Dialog */}
+      {selectedAdapter && (
+        <ResetAdapterDialog
+          adapterId={selectedAdapter.adapter_id}
+          adapterName={selectedAdapter.adapter_id}
+          isOpen={resetDialogOpen}
+          onClose={handleResetDialogClose}
+        />
+      )}
     </div>
   );
 }

@@ -50,7 +50,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,81 @@ except ImportError as e:
     _IMPORT_ERROR = str(e)
 
 
+def _post_reset_to_helper(
+    client: "httpx.Client",
+    base_url: str,
+    collector_name: str,
+    api_key: str | None = None,
+) -> ResetResult:
+    """Call the helper's reset endpoint and deserialize the response.
+
+    This helper is shared by RemoteAdapter and helper-backed adapters
+    (ObsidianHelperAdapter, YouTubeWatchHistoryAdapter) to avoid code duplication
+    when calling the POST /collectors/{name}/reset endpoint.
+
+    Args:
+        client: httpx.Client to use for the request.
+        base_url: Base URL of the helper service (e.g., "http://localhost:7123").
+        collector_name: Name of the collector (e.g., "obsidian", "youtube").
+        api_key: Optional bearer token for authentication.
+
+    Returns:
+        ResetResult with ok, cleared, and errors fields from the helper.
+
+    Raises:
+        httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
+        httpx.RequestError: If the request fails (connection, timeout, etc.).
+        ValueError: If the response body cannot be parsed as JSON.
+        ValidationError: If the response is missing required fields or has invalid types.
+    """
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        response = client.post(
+            f"{base_url}/collectors/{collector_name}/reset",
+            headers=headers,
+            timeout=10.0,
+        )
+
+        # Propagate HTTP errors (4xx, 5xx)
+        response.raise_for_status()
+
+        # Parse JSON response
+        try:
+            data = response.json()
+        except ValueError as e:
+            logger.error(
+                f"Failed to parse JSON response from helper reset endpoint: {e} "
+                f"(collector_name={collector_name}, base_url={base_url})"
+            )
+            raise
+
+        # Deserialize into ResetResult via Pydantic validation
+        try:
+            return ResetResult.model_validate(data)
+        except ValidationError as e:
+            logger.error(
+                f"Failed to validate helper reset response: {e} "
+                f"(collector_name={collector_name}, base_url={base_url})"
+            )
+            raise
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"HTTP error from helper reset endpoint: {e.response.status_code} {e.response.text} "
+            f"(collector_name={collector_name}, base_url={base_url})"
+        )
+        raise
+    except httpx.RequestError as e:
+        logger.error(
+            f"Request error connecting to helper reset endpoint: {e} "
+            f"(collector_name={collector_name}, base_url={base_url})"
+        )
+        raise
+
+
 class RemoteAdapter(BaseAdapter):
     """Adapter that consumes content from a remote adapter service via HTTP.
 
@@ -74,6 +149,22 @@ class RemoteAdapter(BaseAdapter):
     the adapter protocol, receiving NormalizedContent objects in the response.
     It acts as a bridge between the Linux backend and Mac-side adapter services.
     """
+
+    def __init_subclass__(cls, **kwargs):
+        """Validate that subclasses define _collector_name.
+
+        This check runs when a subclass is defined, catching missing implementations
+        early rather than at runtime.
+        """
+        super().__init_subclass__(**kwargs)
+        # Check that the subclass overrides _collector_name
+        if "_collector_name" not in cls.__dict__:
+            # Allow RemoteAdapter itself to not have _collector_name, but subclasses must define it
+            if cls.__name__ != "RemoteAdapter":
+                raise TypeError(
+                    f"{cls.__name__} must define _collector_name property. "
+                    f"This should match the collector name in the context-helpers registry."
+                )
 
     def __init__(
         self,
@@ -152,6 +243,22 @@ class RemoteAdapter(BaseAdapter):
     def normalizer_version(self) -> str:
         """Return the normalizer version."""
         return self._normalizer_version
+
+    @property
+    def _collector_name(self) -> str:
+        """Return the name of the collector on the helper service.
+
+        This is used to construct the reset endpoint URL:
+        POST {service_url}/collectors/{_collector_name}/reset
+
+        Subclasses must override this property and return a collector name
+        that matches the helper service's collector registry. The __init_subclass__
+        hook enforces this at subclass definition time.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must define _collector_name property. "
+            f"This should match the collector name in the context-helpers registry."
+        )
 
     def __enter__(self):
         """Context manager entry: return self for use in with statement."""
@@ -305,3 +412,25 @@ class RemoteAdapter(BaseAdapter):
                 # On final attempt, log and re-raise
                 logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
                 raise
+
+    def reset(self) -> ResetResult:
+        """Reset the helper service's delivery state for this collector.
+
+        Sends a POST request to the helper service's reset endpoint and
+        deserializes the response into a ResetResult.
+
+        Returns:
+            ResetResult with ok, cleared, and errors fields from the helper.
+
+        Raises:
+            httpx.HTTPStatusError: If the HTTP request fails with 4xx/5xx status.
+            httpx.RequestError: If the request fails (connection, timeout, etc.).
+            ValueError: If the response body cannot be parsed as JSON.
+            ValidationError: If the response is missing required fields or has invalid types.
+        """
+        return _post_reset_to_helper(
+            client=self._client,
+            base_url=self._service_url,
+            collector_name=self._collector_name,
+            api_key=self._api_key,
+        )

@@ -333,3 +333,16 @@ class TestFilesystemHelperAdapterFetch:
                 list(adapter.fetch(""))
 
         assert any("has_more=True" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _collector_name property
+# ---------------------------------------------------------------------------
+
+class TestFilesystemHelperAdapterCollectorName:
+    def test_collector_name_is_filesystem(self):
+        """Test that _collector_name returns the correct value for filesystem helper."""
+        adapter = FilesystemHelperAdapter(
+            api_url="http://host:8000", api_key="secret"
+        )
+        assert adapter._collector_name == "filesystem"

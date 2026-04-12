@@ -3,8 +3,29 @@
 from abc import ABC, abstractmethod
 from typing import Iterator
 
+from pydantic import BaseModel, computed_field
+
 from context_library.storage.models import AdapterConfig, Domain, NormalizedContent
 from context_library.storage.document_store import DocumentStore
+
+
+class ResetResult(BaseModel):
+    """Result of a reset operation on an adapter's helper service.
+
+    Attributes:
+        cleared: List of state items that were cleared (e.g., "push_cursor:obsidian", "in_memory_push_state").
+        errors: List of error messages if reset failed or encountered issues.
+        ok: Whether the reset operation succeeded. Automatically computed: True iff errors is empty.
+    """
+
+    cleared: list[str]
+    errors: list[str]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def ok(self) -> bool:
+        """Computed field: True if no errors, False otherwise."""
+        return len(self.errors) == 0
 
 
 class EndpointFetchError(Exception):
@@ -146,3 +167,15 @@ class BaseAdapter(ABC):
             config=None,
         )
         return document_store.register_adapter(config)
+
+    def reset(self) -> ResetResult:
+        """Reset the adapter's helper-side delivery state.
+
+        Default implementation returns a no-op success result. Adapters that
+        communicate with stateful helper services (e.g., RemoteAdapter subclasses)
+        should override this method to call the helper's reset endpoint.
+
+        Returns:
+            ResetResult with no errors (ok=True computed), empty cleared list.
+        """
+        return ResetResult(cleared=[], errors=[])

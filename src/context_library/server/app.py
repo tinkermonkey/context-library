@@ -1,6 +1,5 @@
 """FastAPI application factory with lifespan management."""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,6 +14,7 @@ from context_library.core.differ import Differ
 from context_library.server.helper_health import HelperHealthCache
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
+from context_library.scheduler.poller import Poller
 from context_library.server.config import ServerConfig
 from context_library.server.routes import adapters, chunks, health, ingest, retrieve, sources, stats
 from context_library.storage.chromadb_store import ChromaDBVectorStore
@@ -213,48 +213,31 @@ async def lifespan(app: FastAPI):
         vector_store.count(),
     )
 
-    # Start background poller for PULL-strategy adapters (e.g. FilesystemHelperAdapter).
-    # These adapters are not triggered by bridge pushes — the library must initiate fetches.
+    # Create and start the Poller for all adapters (helper + webhook).
+    # The poller is responsible for periodic ingestion of PULL-strategy sources and
+    # also provides trigger_immediate_ingest() for manual reset flows.
     pull_adapters = [a for a in helper_adapters if getattr(a, "background_poll", False)]
-    poll_task = None
+    poller = Poller(pipeline, document_store, tick_interval=config.helper_pull_poll_interval_sec)
+    for adapter in pull_adapters:
+        domain_chunker = get_domain_chunker(adapter.domain)
+        poller.register(adapter, domain_chunker)
+
     if pull_adapters:
-        poll_interval = config.helper_pull_poll_interval_sec
         logger.warning(
-            "Starting background poller for %d PULL adapter(s) every %ds: %s",
+            "Registered %d PULL adapter(s) with poller: %s",
             len(pull_adapters),
-            poll_interval,
             [a.adapter_id for a in pull_adapters],
         )
-        poll_task = asyncio.create_task(
-            _poll_pull_adapters(pipeline, pull_adapters, poll_interval)
-        )
+        poller.start()
+
+    # Store poller on app.state for route access (e.g., POST /adapters/{id}/reset)
+    app.state.poller = poller
 
     yield
 
-    if poll_task:
-        poll_task.cancel()
+    poller.stop()
     document_store.close()
     logger.info("Server stopped")
-
-
-async def _poll_pull_adapters(pipeline: IngestionPipeline, adapters: list[BaseAdapter], interval_sec: int) -> None:
-    """Background task: periodically ingest all PULL-strategy adapters."""
-    while True:
-        await asyncio.sleep(interval_sec)
-        for adapter in adapters:
-            chunker = get_domain_chunker(adapter.domain)
-            try:
-                result = await asyncio.to_thread(pipeline.ingest, adapter, chunker, "")
-                logger.warning(
-                    "Poll ingest %s: +%d -%d =%d chunks, %d failed",
-                    adapter.adapter_id,
-                    result["chunks_added"],
-                    result["chunks_removed"],
-                    result["chunks_unchanged"],
-                    result["sources_failed"],
-                )
-            except Exception as e:
-                logger.error("Poll ingest failed for %s: %s", adapter.adapter_id, e, exc_info=True)
 
 
 def create_app() -> FastAPI:

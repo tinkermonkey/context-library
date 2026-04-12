@@ -1127,6 +1127,412 @@ class TestChunkRetirement:
         assert count == 0
 
 
+class TestAdapterReset:
+    """Tests for adapter reset functionality."""
+
+    def _setup_adapter_with_sources_and_chunks(
+        self, store: DocumentStore, adapter_id: str, num_sources: int = 2
+    ) -> tuple[list[str], list[str]]:
+        """Helper to set up an adapter with multiple sources and chunks.
+
+        Args:
+            store: DocumentStore instance
+            adapter_id: ID for the adapter
+            num_sources: Number of sources to create
+
+        Returns:
+            Tuple of (source_ids, chunk_hashes)
+        """
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        source_ids = []
+        chunk_hashes = []
+
+        for i in range(num_sources):
+            source_id = f"{adapter_id}-source-{i}"
+            source_ids.append(source_id)
+            store.register_source(
+                source_id=source_id,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                origin_ref=f"test://{source_id}",
+            )
+
+            # Create version with 2 chunks per source
+            # Use adapter_id and source index to guarantee unique hashes by construction
+            hash1 = compute_chunk_hash(f"{adapter_id}-{i}-0")
+            hash2 = compute_chunk_hash(f"{adapter_id}-{i}-1")
+
+            # Use version number (1) not rowid for the version parameter
+            store.create_source_version(
+                source_id=source_id,
+                version=1,
+                markdown=f"# Content {i}",
+                chunk_hashes=[hash1, hash2],
+                adapter_id=adapter_id,
+                normalizer_version="1.0.0",
+                fetch_timestamp="2025-03-02T10:00:00Z",
+            )
+
+            chunk_hashes.extend([hash1, hash2])
+
+            chunks = [
+                Chunk(chunk_hash=hash1, content=f"Chunk {source_id}-0", chunk_index=0),
+                Chunk(chunk_hash=hash2, content=f"Chunk {source_id}-1", chunk_index=1),
+            ]
+
+            lineage = [
+                LineageRecord(
+                    chunk_hash=h,
+                    source_id=source_id,
+                    source_version_id=1,  # Use version number, not rowid
+                    adapter_id=adapter_id,
+                    domain=Domain.NOTES,
+                    normalizer_version="1.0.0",
+                    embedding_model_id="test-model",
+                )
+                for h in [hash1, hash2]
+            ]
+
+            store.write_chunks(chunks, lineage)
+
+        return source_ids, chunk_hashes
+
+    def test_reset_adapter_retires_chunks(self, store: DocumentStore) -> None:
+        """Test that reset_adapter retires all chunks for the adapter."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        result = store.reset_adapter("adapter-1")
+
+        # Verify return value
+        assert result["sources_reset"] == 2
+        assert result["chunks_retired"] == 4
+
+        # Verify all chunks are retired
+        for chunk_hash in chunk_hashes:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+    def test_reset_adapter_writes_sync_log_entries(self, store: DocumentStore) -> None:
+        """Test that reset_adapter writes DELETE entries to lancedb_sync_log."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify sync log entries for each chunk
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM lancedb_sync_log WHERE operation = 'delete' AND chunk_hash IN (" +
+            ",".join("?" * len(chunk_hashes)) + ")",
+            chunk_hashes,
+        )
+        count = cursor.fetchone()[0]
+        assert count == 4
+
+    def test_reset_adapter_clears_last_fetched_at(self, store: DocumentStore) -> None:
+        """Test that reset_adapter clears last_fetched_at for all sources."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        # Set last_fetched_at for all sources
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = store.conn.cursor()
+        cursor.execute(
+            "UPDATE sources SET last_fetched_at = ? WHERE adapter_id = ?",
+            (now, "adapter-1"),
+        )
+
+        # Verify they are set
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE adapter_id = ? AND last_fetched_at IS NOT NULL",
+            ("adapter-1",),
+        )
+        count_before = cursor.fetchone()[0]
+        assert count_before == 2
+
+        # Reset adapter
+        store.reset_adapter("adapter-1")
+
+        # Verify last_fetched_at is NULL for all sources
+        cursor.execute(
+            "SELECT COUNT(*) FROM sources WHERE adapter_id = ? AND last_fetched_at IS NULL",
+            ("adapter-1",),
+        )
+        count_after = cursor.fetchone()[0]
+        assert count_after == 2
+
+    def test_reset_adapter_preserves_source_rows(self, store: DocumentStore) -> None:
+        """Test that reset_adapter preserves source registration."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify sources still exist
+        for source_id in source_ids:
+            cursor = store.conn.cursor()
+            cursor.execute("SELECT source_id FROM sources WHERE source_id = ?", (source_id,))
+            assert cursor.fetchone() is not None
+
+    def test_reset_adapter_preserves_adapter_row(self, store: DocumentStore) -> None:
+        """Test that reset_adapter preserves adapter registration."""
+        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        store.reset_adapter("adapter-1")
+
+        # Verify adapter still exists
+        adapter = store.get_adapter("adapter-1")
+        assert adapter is not None
+        assert adapter.adapter_id == "adapter-1"
+
+    def test_reset_adapter_no_sources(self, store: DocumentStore) -> None:
+        """Test that reset_adapter handles adapter with no sources."""
+        config = AdapterConfig(
+            adapter_id="empty-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        result = store.reset_adapter("empty-adapter")
+
+        assert result["sources_reset"] == 0
+        assert result["chunks_retired"] == 0
+
+    def test_reset_adapter_unknown_adapter(self, store: DocumentStore) -> None:
+        """Test that reset_adapter on unknown adapter returns zero counts."""
+        result = store.reset_adapter("nonexistent-adapter")
+
+        assert result["sources_reset"] == 0
+        assert result["chunks_retired"] == 0
+
+    def test_reset_adapter_idempotent(self, store: DocumentStore) -> None:
+        """Test that reset_adapter is idempotent.
+
+        Idempotency means that calling it twice produces the same end state:
+        - First call retires all non-retired chunks
+        - Second call finds 0 chunks to retire (all already retired) but counts sources
+        """
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=2
+        )
+
+        # First reset - retires 4 chunks for 2 sources
+        result1 = store.reset_adapter("adapter-1")
+        assert result1["sources_reset"] == 2
+        assert result1["chunks_retired"] == 4
+
+        # Second reset - no non-retired chunks to retire, but sources still count
+        result2 = store.reset_adapter("adapter-1")
+        assert result2["sources_reset"] == 2
+        assert result2["chunks_retired"] == 0
+
+        # Verify end state is stable: all chunks remain retired
+        for chunk_hash in chunk_hashes:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+    def test_reset_adapter_does_not_affect_other_adapters(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter only affects the specified adapter."""
+        # Setup two adapters with different seeds to avoid hash collisions
+        source_ids_1, chunk_hashes_1 = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+        source_ids_2, chunk_hashes_2 = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-2", num_sources=1
+        )
+
+        # Reset adapter-1
+        store.reset_adapter("adapter-1")
+
+        # Verify adapter-1 chunks are retired
+        for chunk_hash in chunk_hashes_1:
+            assert store.is_chunk_retired(chunk_hash) is True
+
+        # Verify adapter-2 chunks are NOT retired
+        for chunk_hash in chunk_hashes_2:
+            assert store.is_chunk_retired(chunk_hash) is False
+
+    def test_reset_adapter_excludes_already_retired_chunks(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter only counts non-retired chunks."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        # Manually retire one chunk
+        store.retire_chunks(
+            {chunk_hashes[0]}, source_id=source_ids[0], source_version=1
+        )
+
+        # Reset adapter
+        result = store.reset_adapter("adapter-1")
+
+        # Should only retire the 1 non-retired chunk (not the already-retired one)
+        assert result["chunks_retired"] == 1
+        assert result["sources_reset"] == 1
+
+    def test_reset_adapter_preserves_source_versions(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that reset_adapter preserves source_version history."""
+        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+            store, "adapter-1", num_sources=1
+        )
+
+        # Verify source version exists before reset
+        source_id = source_ids[0]
+        history_before = store.get_version_history(source_id)
+        assert len(history_before) == 1
+        assert history_before[0].version == 1
+
+        # Reset adapter
+        store.reset_adapter("adapter-1")
+
+        # Verify source_version history is preserved after reset
+        history_after = store.get_version_history(source_id)
+        assert len(history_after) == 1
+        assert history_after[0].version == 1
+        assert history_after[0].markdown == "# Content 0"
+
+
+class TestHasNonPushSources:
+    """Tests for has_non_push_sources method."""
+
+    def test_adapter_with_only_push_sources_returns_false(self, store: DocumentStore) -> None:
+        """Test that adapter with only push sources returns False."""
+        config = AdapterConfig(
+            adapter_id="push-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with PUSH strategy
+        store.register_source(
+            source_id="push-source-1",
+            adapter_id="push-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://push-source-1",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        result = store.has_non_push_sources("push-adapter")
+        assert result is False
+
+    def test_adapter_with_pull_sources_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with pull sources returns True."""
+        config = AdapterConfig(
+            adapter_id="pull-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with PULL strategy
+        store.register_source(
+            source_id="pull-source-1",
+            adapter_id="pull-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://pull-source-1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        result = store.has_non_push_sources("pull-adapter")
+        assert result is True
+
+    def test_adapter_with_webhook_sources_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with webhook sources returns True."""
+        config = AdapterConfig(
+            adapter_id="webhook-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register a source with WEBHOOK strategy
+        store.register_source(
+            source_id="webhook-source-1",
+            adapter_id="webhook-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://webhook-source-1",
+            poll_strategy=PollStrategy.WEBHOOK,
+        )
+
+        result = store.has_non_push_sources("webhook-adapter")
+        assert result is True
+
+    def test_adapter_with_mixed_strategies_returns_true(self, store: DocumentStore) -> None:
+        """Test that adapter with mixed push and non-push sources returns True."""
+        config = AdapterConfig(
+            adapter_id="mixed-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        # Register push source
+        store.register_source(
+            source_id="mixed-push-1",
+            adapter_id="mixed-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://mixed-push-1",
+            poll_strategy=PollStrategy.PUSH,
+        )
+
+        # Register pull source
+        store.register_source(
+            source_id="mixed-pull-1",
+            adapter_id="mixed-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://mixed-pull-1",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+        result = store.has_non_push_sources("mixed-adapter")
+        assert result is True
+
+    def test_adapter_with_no_sources_returns_false(self, store: DocumentStore) -> None:
+        """Test that adapter with no sources returns False."""
+        config = AdapterConfig(
+            adapter_id="empty-adapter",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+
+        result = store.has_non_push_sources("empty-adapter")
+        assert result is False
+
+    def test_nonexistent_adapter_returns_false(self, store: DocumentStore) -> None:
+        """Test that querying nonexistent adapter returns False."""
+        result = store.has_non_push_sources("nonexistent-adapter")
+        assert result is False
+
+
 class TestChunksBySource:
     """Tests for retrieving chunks by source."""
 
@@ -2740,6 +3146,127 @@ class TestSourceScheduling:
         assert result["adapter_id"] == "poll-adapter"
         assert result["poll_interval_sec"] == 3600
         assert result["last_fetched_at"] is None
+
+    def test_get_sources_for_adapter_empty(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter returns empty list when no sources exist."""
+        result = store.get_sources_for_adapter("unknown-adapter")
+        assert result == []
+
+    def test_get_sources_for_adapter_single_source(self, store: DocumentStore) -> None:
+        """Test get_sources_for_adapter with a single source."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 1
+        assert result[0]["source_id"] == "test-source"
+        assert result[0]["adapter_id"] == "poll-adapter"
+        assert result[0]["origin_ref"] == "test://source"
+
+    def test_get_sources_for_adapter_multiple_sources(self, store: DocumentStore) -> None:
+        """Test get_sources_for_adapter with multiple sources for same adapter."""
+        self._setup_adapter(store)
+
+        # Register multiple sources for the same adapter
+        for i in range(1, 4):
+            store.register_source(
+                source_id=f"source-{i}",
+                adapter_id="poll-adapter",
+                domain=Domain.NOTES,
+                origin_ref=f"test://source-{i}",
+            )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 3
+        source_ids = {source["source_id"] for source in result}
+        assert source_ids == {"source-1", "source-2", "source-3"}
+
+        # Verify origin_refs are correct
+        origin_refs = {source["origin_ref"] for source in result}
+        assert origin_refs == {"test://source-1", "test://source-2", "test://source-3"}
+
+    def test_get_sources_for_adapter_filters_by_adapter_id(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter only returns sources for specified adapter."""
+        # Register two different adapters
+        config1 = AdapterConfig(
+            adapter_id="adapter-1",
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        )
+        config2 = AdapterConfig(
+            adapter_id="adapter-2",
+            adapter_type="test",
+            domain=Domain.MESSAGES,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config1)
+        store.register_adapter(config2)
+
+        # Register sources for both adapters
+        store.register_source(
+            source_id="source-1",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-1",
+        )
+        store.register_source(
+            source_id="source-2",
+            adapter_id="adapter-1",
+            domain=Domain.NOTES,
+            origin_ref="test://source-2",
+        )
+        store.register_source(
+            source_id="source-3",
+            adapter_id="adapter-2",
+            domain=Domain.MESSAGES,
+            origin_ref="test://source-3",
+        )
+
+        # Get sources for adapter-1
+        result = store.get_sources_for_adapter("adapter-1")
+        assert len(result) == 2
+        source_ids = {source["source_id"] for source in result}
+        assert source_ids == {"source-1", "source-2"}
+
+        # Get sources for adapter-2
+        result = store.get_sources_for_adapter("adapter-2")
+        assert len(result) == 1
+        assert result[0]["source_id"] == "source-3"
+
+    def test_get_sources_for_adapter_returns_correct_fields(self, store: DocumentStore) -> None:
+        """Test that get_sources_for_adapter returns all required fields."""
+        self._setup_adapter(store)
+
+        store.register_source(
+            source_id="test-source",
+            adapter_id="poll-adapter",
+            domain=Domain.NOTES,
+            origin_ref="test://source",
+        )
+
+        result = store.get_sources_for_adapter("poll-adapter")
+
+        assert len(result) == 1
+        source = result[0]
+
+        # Verify required fields are present
+        assert "source_id" in source
+        assert "adapter_id" in source
+        assert "origin_ref" in source
+
+        # Verify values
+        assert source["source_id"] == "test-source"
+        assert source["adapter_id"] == "poll-adapter"
+        assert source["origin_ref"] == "test://source"
 
     def test_update_last_fetched_at_success(self, store: DocumentStore) -> None:
         """Test updating last_fetched_at for an existing source."""

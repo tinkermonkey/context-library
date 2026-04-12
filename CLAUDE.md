@@ -12,11 +12,11 @@ pip install -e ".[dev]"
 pip install -e ".[server,obsidian,email,apple-reminders,apple-imessage,apple-notes,apple-health,apple-music,caldav]"
 
 # Run all tests (use python -m pytest, NOT bare pytest, to ensure src/ is on the path)
-# WARNING: the full suite takes ~100 minutes. Run in foreground only — background task
-# output files are not reliably written until the process exits, so polling them mid-run
-# will show partial/empty output. Use foreground for single files, background + long sleep
-# for the full suite.
-python -m pytest tests/ -q --tb=short
+# pytest-xdist is installed — use -n auto for parallel execution (much faster).
+# Exclude test_watching.py from parallel runs (uses real inotify with timing sleeps).
+# Background task output files are not reliably written until the process exits,
+# so poll them only after the process has had time to finish.
+python -m pytest tests/ -q --tb=short -n auto --ignore=tests/adapters/test_watching.py
 
 # Run tests for a specific module (fast, safe to run in foreground)
 python -m pytest tests/storage/
