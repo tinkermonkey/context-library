@@ -2,12 +2,58 @@
 
 @config "../tailwind.config.js";
 
-body {
+/* ── Global reset ─────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
   margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #0F0F0F;
+  color: #F9FAFB;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 code {
   font-family: ui-monospace, Consolas, monospace;
   border-radius: 4px;
   padding: 2px 6px;
+}
+
+/* ── Scrollbar styling ────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2E2E2E;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3E3E3E;
+}
+
+/* ── Domain color utilities ───────────────────────────────────── */
+:root {
+  --domain-notes: #6366F1;
+  --domain-messages: #A855F7;
+  --domain-documents: #22C55E;
+  --domain-health: #06B6D4;
+  --domain-events: #F59E0B;
+  --domain-tasks: #F97316;
+  --domain-people: #EC4899;
+  --domain-location: #14B8A6;
+  --domain-music: #F43F5E;
 }

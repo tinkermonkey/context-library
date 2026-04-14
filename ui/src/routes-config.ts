@@ -76,6 +76,7 @@ export type EventsViewPageSearch = z.infer<typeof eventsViewSearchSchema>;
 export const tasksViewSearchSchema = z.object({
   status: z.string().optional(),
   priority: z.number().optional(),
+  selectedHash: z.string().optional(),
 });
 
 export type TasksViewPageSearch = z.infer<typeof tasksViewSearchSchema>;
@@ -114,3 +115,19 @@ export const fileBrowserSearchSchema = z.object({
 });
 
 export type FileBrowserPageSearch = z.infer<typeof fileBrowserSearchSchema>;
+
+export const notesSearchSchema = z.object({
+  source_id: z.string().optional(), // selected note's source_id
+  adapter: z.string().optional(),   // filter center panel by adapter prefix (e.g. "obsidian")
+});
+
+export type NotesPageSearch = z.infer<typeof notesSearchSchema>;
+
+export const documentsSearchSchema = z.object({
+  folder: z.string().optional(),     // currently selected folder path
+  source_id: z.string().optional(),  // selected file's source_id
+  view: z.enum(['grid', 'list']).optional(), // grid or list view toggle
+  sort: z.enum(['name', 'date', 'size', 'type']).optional(), // sort key
+});
+
+export type DocumentsPageSearch = z.infer<typeof documentsSearchSchema>;
