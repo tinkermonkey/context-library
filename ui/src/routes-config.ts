@@ -131,3 +131,9 @@ export const documentsSearchSchema = z.object({
 });
 
 export type DocumentsPageSearch = z.infer<typeof documentsSearchSchema>;
+
+export const peopleViewSearchSchema = z.object({
+  contact_id: z.string().optional(), // source_id of the currently selected contact
+});
+
+export type PeopleViewPageSearch = z.infer<typeof peopleViewSearchSchema>;

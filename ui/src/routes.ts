@@ -24,6 +24,7 @@ import {
   tasksViewSearchSchema,
   healthViewSearchSchema,
   documentsSearchSchema,
+  peopleViewSearchSchema,
 } from './routes-config'
 
 // Lazy load DomainViewPage to enable code splitting
@@ -143,6 +144,7 @@ const peopleRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/people',
   component: PeoplePage,
+  validateSearch: (search: unknown) => peopleViewSearchSchema.parse(search),
 })
 
 const locationRoute = createRoute({
