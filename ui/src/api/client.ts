@@ -10,6 +10,10 @@ import type {
   AdapterResponse,
   AdapterListResponse,
   AdapterResetResponse,
+  AdminAdapterListResponse,
+  AdminConfigResponse,
+  SyncLogResponse,
+  TriggerSyncResponse,
   SourceListResponse,
   SourceDetailResponse,
   ChunkListResponse,
@@ -83,6 +87,24 @@ export const resetAdapter = (adapterId: string) =>
   apiFetch<AdapterResetResponse>(`/adapters/${encodeURIComponent(adapterId)}/reset`, {
     method: 'POST',
   });
+
+// ── Admin ────────────────────────────────────────────────────────
+
+export const fetchAdminAdapters = () =>
+  apiFetch<AdminAdapterListResponse>('/admin/adapters');
+
+export const triggerAdapterSync = (adapterId: string) =>
+  apiFetch<TriggerSyncResponse>(`/admin/adapters/${encodeURIComponent(adapterId)}/sync`, {
+    method: 'POST',
+  });
+
+export const fetchAdminConfig = () =>
+  apiFetch<AdminConfigResponse>('/admin/config');
+
+export const fetchAdminLogs = (limit = 50, offset = 0) => {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return apiFetch<SyncLogResponse>(`/admin/logs?${qs}`);
+};
 
 // ── Sources ──────────────────────────────────────────────────────
 

@@ -435,6 +435,53 @@ class LibraryResetInfo(BaseModel):
         return self
 
 
+class AdminAdapterStatus(BaseModel):
+    adapter_id: str
+    adapter_type: str
+    domain: str
+    last_run: str | None = None
+    source_count: int
+    active_chunk_count: int
+
+
+class AdminAdapterListResponse(BaseModel):
+    adapters: list[AdminAdapterStatus]
+
+
+class AdminConfigResponse(BaseModel):
+    embedding_model: str
+    reranker_model: str
+    enable_reranker: bool
+    sqlite_db_path: str
+    chromadb_path: str
+    webhook_secret_set: bool
+    helper_url_set: bool
+    helper_oura_enabled: bool
+    helper_filesystem_enabled: bool
+    youtube_enabled: bool
+    db_size_bytes: int
+
+
+class SyncLogEntry(BaseModel):
+    id: int
+    chunk_hash: str
+    operation: str
+    synced_at: str | None = None
+
+
+class SyncLogResponse(BaseModel):
+    entries: list[SyncLogEntry]
+    total: int
+    limit: int
+    offset: int
+
+
+class TriggerSyncResponse(BaseModel):
+    adapter_id: str
+    triggered: bool
+    message: str
+
+
 class AdapterResetResponse(BaseModel):
     """Response from POST /adapters/{adapter_id}/reset endpoint.
 

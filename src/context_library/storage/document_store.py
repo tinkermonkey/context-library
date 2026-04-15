@@ -2436,6 +2436,91 @@ class DocumentStore:
             for row in rows
         ]
 
+    def get_admin_adapter_status(self) -> list[dict]:
+        """Get per-adapter status including last run time and chunk counts.
+
+        Joins adapters, sources, and chunks tables to return a unified view of
+        each adapter's operational state. Adapters with no sources are included
+        with zero counts and null last_run.
+
+        Returns:
+            List of dicts with keys: adapter_id, adapter_type, domain,
+            last_run (ISO 8601 or None), source_count, active_chunk_count.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                a.adapter_id, a.adapter_type, a.domain,
+                MAX(s.last_fetched_at) AS last_run,
+                COUNT(DISTINCT s.source_id) AS source_count,
+                COUNT(DISTINCT c.chunk_hash) AS active_chunk_count
+            FROM adapters a
+            LEFT JOIN sources s ON s.adapter_id = a.adapter_id
+            LEFT JOIN chunks c
+              ON c.source_id = s.source_id
+             AND c.source_version = s.current_version
+             AND c.retired_at IS NULL
+            GROUP BY a.adapter_id, a.adapter_type, a.domain
+            ORDER BY a.adapter_id
+            """
+        )
+        return [
+            {
+                "adapter_id": row["adapter_id"],
+                "adapter_type": row["adapter_type"],
+                "domain": row["domain"],
+                "last_run": row["last_run"],
+                "source_count": row["source_count"],
+                "active_chunk_count": row["active_chunk_count"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_sync_log(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
+        """Get paginated sync log entries from lancedb_sync_log.
+
+        Returns:
+            Tuple of (entries list, total count).
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS cnt FROM lancedb_sync_log")
+        total = cursor.fetchone()["cnt"]
+        cursor.execute(
+            """
+            SELECT id, chunk_hash, operation, synced_at
+            FROM lancedb_sync_log
+            ORDER BY synced_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            [limit, offset],
+        )
+        return [
+            {
+                "id": row["id"],
+                "chunk_hash": row["chunk_hash"],
+                "operation": row["operation"],
+                "synced_at": row["synced_at"],
+            }
+            for row in cursor.fetchall()
+        ], total
+
+    def get_db_size_bytes(self) -> int:
+        """Return the SQLite database file size in bytes.
+
+        Returns 0 for in-memory databases or if the file is not accessible
+        (e.g., permissions error or path not yet materialised on first run).
+        Unexpected OS errors are logged as warnings.
+        """
+        import os
+        if self._db_path == ":memory:":
+            return 0
+        try:
+            return os.path.getsize(self._db_path)
+        except OSError as e:
+            logger.warning("Could not determine DB file size for %r: %s", self._db_path, e)
+            return 0
+
     def write_entity_links(
         self,
         links: list[EntityLink],

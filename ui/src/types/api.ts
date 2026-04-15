@@ -275,10 +275,59 @@ export interface ChunkQueryParams {
   metadata_filter?: Record<string, string>;
 }
 
+// ── Admin ────────────────────────────────────────────────────────
+
+export interface AdminAdapterStatus {
+  adapter_id: string;
+  adapter_type: string;
+  domain: string;
+  last_run: string | null;
+  source_count: number;
+  active_chunk_count: number;
+}
+
+export interface AdminAdapterListResponse {
+  adapters: AdminAdapterStatus[];
+}
+
+export interface AdminConfigResponse {
+  embedding_model: string;
+  reranker_model: string;
+  enable_reranker: boolean;
+  sqlite_db_path: string;
+  chromadb_path: string;
+  webhook_secret_set: boolean;
+  helper_url_set: boolean;
+  helper_oura_enabled: boolean;
+  helper_filesystem_enabled: boolean;
+  youtube_enabled: boolean;
+  db_size_bytes: number;
+}
+
+export interface SyncLogEntry {
+  id: number;
+  chunk_hash: string;
+  operation: string;
+  synced_at: string | null;
+}
+
+export interface SyncLogResponse {
+  entries: SyncLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface TriggerSyncResponse {
+  adapter_id: string;
+  triggered: boolean;
+  message: string;
+}
+
 // ── Adapter Reset ───────────────────────────────────────────────
 
 export interface HelperResetInfo {
-  ok: boolean;
+  ok: boolean | null;  // null = adapter is not a helper adapter; reset was not applicable
   cleared: string[];
 }
 

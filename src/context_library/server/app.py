@@ -16,7 +16,7 @@ from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.scheduler.poller import Poller
 from context_library.server.config import ServerConfig
-from context_library.server.routes import adapters, chunks, health, ingest, retrieve, sources, stats
+from context_library.server.routes import admin, adapters, chunks, health, ingest, retrieve, sources, stats
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 
@@ -249,6 +249,7 @@ def create_app() -> FastAPI:
     app.include_router(sources.router)
     app.include_router(chunks.router)
     app.include_router(stats.router)
+    app.include_router(admin.router)
 
     # Mount static SPA if built assets exist
     ui_dist = Path(__file__).parent.parent.parent.parent / "ui" / "dist"
