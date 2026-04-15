@@ -63,10 +63,14 @@ async def list_sources(
     source_id_prefix: str | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
+    sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),
+    order: str = Query(default="asc", pattern="^(asc|desc)$"),
 ) -> SourceListResponse:
     ds = request.app.state.document_store
     domain_value = domain.value if domain is not None else None
-    rows, total = await asyncio.to_thread(ds.list_sources, domain_value, adapter_id, source_id_prefix, limit, offset)
+    rows, total = await asyncio.to_thread(
+        ds.list_sources, domain_value, adapter_id, source_id_prefix, limit, offset, sort_by, order
+    )
     sources = [
         SourceSummary(
             source_id=r["source_id"],

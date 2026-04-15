@@ -5027,6 +5027,127 @@ class TestListSources:
         source_ids2 = {r["source_id"] for r in rows2}
         assert source_ids2 == {"projects/doc.md", "Projects/doc.md"}
 
+    def test_sort_by_created_at_asc(self, store: DocumentStore) -> None:
+        """sort_by=created_at order=asc returns oldest sources first."""
+        config = AdapterConfig(
+            adapter_id="sort-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        for i, sid in enumerate(["src-a", "src-b", "src-c"]):
+            store.register_source(
+                source_id=sid,
+                adapter_id="sort-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{sid}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+            # Force distinct created_at values — CURRENT_TIMESTAMP has second precision
+            # so rapid inserts share the same value without this.
+            store.conn.execute(
+                "UPDATE sources SET created_at = datetime('now', ?) WHERE source_id = ?",
+                (f"-{(2 - i) * 10} seconds", sid),
+            )
+            store.conn.commit()
+        rows, _ = store.list_sources(sort_by="created_at", order="asc")
+        timestamps = [r["created_at"] for r in rows]
+        assert len(set(timestamps)) == 3, "timestamps must be distinct for this test to be meaningful"
+        assert timestamps == sorted(timestamps)
+
+    def test_sort_by_updated_at_desc(self, store: DocumentStore) -> None:
+        """sort_by=updated_at order=desc returns newest-updated sources first."""
+        config = AdapterConfig(
+            adapter_id="sort-adapter2",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        for i, sid in enumerate(["old-src", "mid-src", "new-src"]):
+            store.register_source(
+                source_id=sid,
+                adapter_id="sort-adapter2",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{sid}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+            # Force distinct updated_at values — CURRENT_TIMESTAMP has second precision
+            # so rapid inserts share the same value without this.
+            store.conn.execute(
+                "UPDATE sources SET updated_at = datetime('now', ?) WHERE source_id = ?",
+                (f"-{(2 - i) * 10} seconds", sid),
+            )
+            store.conn.commit()
+        rows, total = store.list_sources(sort_by="updated_at", order="desc")
+        assert total == 3
+        timestamps = [r["updated_at"] for r in rows]
+        assert len(set(timestamps)) == 3, "timestamps must be distinct for this test to be meaningful"
+        assert timestamps == sorted(timestamps, reverse=True)
+
+    def test_sort_by_chunk_count_desc(self, store: DocumentStore) -> None:
+        """sort_by=chunk_count order=desc returns sources with most chunks first."""
+        from context_library.storage.models import compute_chunk_hash
+        config = AdapterConfig(
+            adapter_id="chunk-sort-adapter",
+            adapter_type="filesystem",
+            domain=Domain.DOCUMENTS,
+            normalizer_version="1.0.0",
+        )
+        store.register_adapter(config)
+        for sid in ["few-chunks", "many-chunks"]:
+            store.register_source(
+                source_id=sid,
+                adapter_id="chunk-sort-adapter",
+                domain=Domain.DOCUMENTS,
+                origin_ref=f"/fs/{sid}",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+        # Give "many-chunks" 3 chunks and "few-chunks" 1 chunk so counts are distinct.
+        for source_id, contents in [
+            ("many-chunks", ["alpha", "beta", "gamma"]),
+            ("few-chunks", ["only"]),
+        ]:
+            hashes = [compute_chunk_hash(c) for c in contents]
+            store.create_source_version(
+                source_id=source_id,
+                version=1,
+                markdown="# content",
+                chunk_hashes=hashes,
+                adapter_id="chunk-sort-adapter",
+                normalizer_version="1.0.0",
+                fetch_timestamp="2024-01-01T00:00:00+00:00",
+            )
+            for idx, (h, c) in enumerate(zip(hashes, contents)):
+                store.conn.execute(
+                    """INSERT OR IGNORE INTO chunks
+                       (chunk_hash, source_id, source_version, chunk_index, content,
+                        context_header, domain, adapter_id, fetch_timestamp,
+                        normalizer_version, embedding_model_id, retired_at)
+                       VALUES (?, ?, 1, ?, ?, '', 'documents', 'chunk-sort-adapter',
+                               '2024-01-01T00:00:00Z', '1.0.0', 'test-model', NULL)""",
+                    (h, source_id, idx, c),
+                )
+            store.conn.commit()
+        rows, _ = store.list_sources(sort_by="chunk_count", order="desc")
+        counts = [r["chunk_count"] for r in rows]
+        assert len(set(counts)) == 2, "chunk counts must be distinct for this test to be meaningful"
+        assert counts == sorted(counts, reverse=True)
+        assert counts[0] == 3
+        assert counts[1] == 1
+
+    def test_invalid_sort_by_falls_back_to_created_at(self, store: DocumentStore) -> None:
+        """Unknown sort_by values fall back to created_at without error."""
+        _setup_adapter_and_source(store)
+        # The document store silently ignores unknown sort_by and defaults to created_at
+        rows, total = store.list_sources(sort_by="nonexistent_column", order="asc")
+        assert total == 1
+        assert len(rows) == 1
+
 
 class TestGetSourceDetail:
     """Tests for DocumentStore.get_source_detail()."""

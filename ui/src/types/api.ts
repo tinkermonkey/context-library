@@ -264,6 +264,8 @@ export interface SourceQueryParams {
   source_id_prefix?: string;
   limit?: number;
   offset?: number;
+  sort_by?: 'created_at' | 'updated_at' | 'chunk_count';
+  order?: 'asc' | 'desc';
 }
 
 export interface ChunkQueryParams {

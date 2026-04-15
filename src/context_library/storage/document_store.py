@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 # and need to be escaped with backslash
 _LIKE_SPECIAL = frozenset('%_')
 
+# Allowlists for list_sources() sort parameters — resolved at module load, never interpolated from user input.
+_SOURCE_SORT_COLUMNS: dict[str, str] = {
+    "created_at": "s.created_at",
+    "updated_at": "s.updated_at",
+    "chunk_count": "chunk_count",
+}
+_SOURCE_SORT_ORDERS: dict[str, str] = {"asc": "ASC", "desc": "DESC"}
+
 
 class DocumentStore:
     """SQLite document store for managing source versions, chunks, and lineage.
@@ -2105,6 +2113,8 @@ class DocumentStore:
         source_id_prefix: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        sort_by: str = "created_at",
+        order: str = "asc",
     ) -> tuple[list[dict], int]:
         """List sources with optional filtering and pagination.
 
@@ -2114,11 +2124,16 @@ class DocumentStore:
             source_id_prefix: Optional prefix filter on source_id.
             limit: Maximum number of results to return.
             offset: Number of results to skip.
+            sort_by: Column to sort by — "created_at", "updated_at", or "chunk_count".
+            order: Sort direction — "asc" or "desc".
 
         Returns:
             Tuple of (page rows, total_matching_count). Each row dict includes
             chunk_count for the current version.
         """
+        order_col = _SOURCE_SORT_COLUMNS.get(sort_by, "s.created_at")
+        order_dir = _SOURCE_SORT_ORDERS.get(order, "ASC")
+
         cursor = self.conn.cursor()
         filter_params: list[object] = []
         where_clauses = ["1=1"]
@@ -2160,7 +2175,7 @@ class DocumentStore:
              AND c.retired_at IS NULL
             WHERE {where_sql}
             GROUP BY s.source_id
-            ORDER BY s.source_id ASC
+            ORDER BY {order_col} {order_dir}
             LIMIT ? OFFSET ?
             """,
             page_params,

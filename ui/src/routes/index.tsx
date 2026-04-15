@@ -360,10 +360,10 @@ export default function DashboardPage() {
   const adapterStats = useAdapterStats();
   const health = useHealth();
 
-  // Activity feed: fetch recent sources, sorted by updated_at desc
+  // Activity feed: fetch 20 most recently updated sources via server-side sort
   const activityQuery = useQuery({
     queryKey: ['dashboard-activity'],
-    queryFn: () => fetchSources({ limit: 100 }),
+    queryFn: () => fetchSources({ limit: 20, sort_by: 'updated_at', order: 'desc' }),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -374,13 +374,9 @@ export default function DashboardPage() {
   const adapterCount = adapterStats.data?.adapters.length ?? 0;
   const domainData = stats.data?.by_domain ?? [];
 
-  // Activity feed: sort by updated_at desc, take 20 — memoized to avoid re-sort every render
-  const { recentSources, lastSync } = useMemo(() => {
-    const sorted = [...(activityQuery.data?.sources ?? [])].sort(
-      (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-    );
-    return { recentSources: sorted.slice(0, 20), lastSync: sorted[0]?.updated_at ?? null };
-  }, [activityQuery.data]);
+  // Activity feed: already sorted by updated_at desc from the server
+  const recentSources = activityQuery.data?.sources ?? [];
+  const lastSync = recentSources[0]?.updated_at ?? null;
 
   // Health status — explicit boolean checks so undefined (loading) doesn't read as unhealthy
   const systemOk = health.data?.sqlite_ok === true && health.data?.chromadb_ok === true;
