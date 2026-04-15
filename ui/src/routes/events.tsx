@@ -335,26 +335,39 @@ function MonthView({
   );
 }
 
+// ── Week helpers ───────────────────────────────────────────────────
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function weekRangeLabel(weekStart: Date): string {
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const sm = weekStart.toLocaleDateString('en-US', { month: 'short' });
+  const em = weekEnd.toLocaleDateString('en-US', { month: 'short' });
+  if (sm === em) return `${sm} ${weekStart.getDate()} – ${weekEnd.getDate()}`;
+  return `${sm} ${weekStart.getDate()} – ${em} ${weekEnd.getDate()}`;
+}
+
 // ── Week view ──────────────────────────────────────────────────────
 
 function WeekView({
-  year,
-  month,
+  weekStart,
   eventMap,
   selectedDateKey,
   onSelectDate,
 }: {
-  year: number;
-  month: number;
+  weekStart: Date;
   eventMap: EventMap;
   selectedDateKey: string | null;
   onSelectDate: (key: string) => void;
 }): ReactNode {
   const today = new Date();
   const todayKey = isoDateKey(today);
-  const anchor = new Date(year, month, 1);
-  const weekStart = new Date(anchor);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
   const days: Date[] = [];
   for (let i = 0; i < 7; i++) {
@@ -369,7 +382,6 @@ function WeekView({
         {days.map(date => {
           const key = isoDateKey(date);
           const isToday = key === todayKey;
-          const isCurrentMonth = date.getMonth() === month;
           return (
             <div
               key={key}
@@ -387,7 +399,7 @@ function WeekView({
                   {date.getDate()}
                 </span>
               ) : (
-                <span style={{ fontSize: 13, fontWeight: 500, color: isCurrentMonth ? colors.textMuted : colors.textDim }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: colors.textMuted }}>
                   {date.getDate()}
                 </span>
               )}
@@ -605,12 +617,21 @@ export default function EventsPage(): ReactNode {
   const today = new Date();
   const [displayYear, setDisplayYear] = useState(today.getFullYear());
   const [displayMonth, setDisplayMonth] = useState(today.getMonth());
+  const [displayWeekStart, setDisplayWeekStart] = useState(() => startOfWeek(today));
 
   const todayKey = isoDateKey(today);
   const selectedDateKey = search.dateFrom ?? todayKey;
 
   function selectDate(key: string): void {
     void navigate({ to: '/events', search: (prev: Record<string, unknown>) => ({ ...prev, dateFrom: key }) });
+  }
+
+  function handleSetViewMode(mode: ViewMode): void {
+    if (mode === 'week') {
+      const selected = new Date(selectedDateKey + 'T12:00:00');
+      setDisplayWeekStart(startOfWeek(selected));
+    }
+    setViewMode(mode);
   }
 
   const { data, isLoading } = useQuery({
@@ -626,8 +647,14 @@ export default function EventsPage(): ReactNode {
     [eventMap, selectedDateKey],
   );
 
-  function prevMonth(): void {
-    if (displayMonth === 0) {
+  function handlePrev(): void {
+    if (viewMode === 'week') {
+      setDisplayWeekStart(ws => {
+        const d = new Date(ws);
+        d.setDate(d.getDate() - 7);
+        return d;
+      });
+    } else if (displayMonth === 0) {
       setDisplayYear(y => y - 1);
       setDisplayMonth(11);
     } else {
@@ -635,8 +662,14 @@ export default function EventsPage(): ReactNode {
     }
   }
 
-  function nextMonth(): void {
-    if (displayMonth === 11) {
+  function handleNext(): void {
+    if (viewMode === 'week') {
+      setDisplayWeekStart(ws => {
+        const d = new Date(ws);
+        d.setDate(d.getDate() + 7);
+        return d;
+      });
+    } else if (displayMonth === 11) {
       setDisplayYear(y => y + 1);
       setDisplayMonth(0);
     } else {
@@ -647,6 +680,7 @@ export default function EventsPage(): ReactNode {
   function goToToday(): void {
     setDisplayYear(today.getFullYear());
     setDisplayMonth(today.getMonth());
+    setDisplayWeekStart(startOfWeek(today));
     selectDate(todayKey);
   }
 
@@ -667,7 +701,7 @@ export default function EventsPage(): ReactNode {
           {(['month', 'week', 'agenda'] as ViewMode[]).map(mode => (
             <button
               key={mode}
-              onClick={() => setViewMode(mode)}
+              onClick={() => handleSetViewMode(mode)}
               className="px-3 py-1 rounded-md transition-colors"
               style={{
                 fontSize: 12,
@@ -699,10 +733,10 @@ export default function EventsPage(): ReactNode {
           Today
         </button>
 
-        {/* Month navigation */}
+        {/* Navigation */}
         <div className="flex items-center gap-1">
           <button
-            onClick={prevMonth}
+            onClick={handlePrev}
             className="p-1 rounded transition-opacity hover:opacity-75"
             style={{ color: colors.textMuted }}
           >
@@ -712,10 +746,12 @@ export default function EventsPage(): ReactNode {
             className="text-center"
             style={{ fontSize: 13, fontWeight: 600, color: colors.textPrimary, minWidth: 110 }}
           >
-            {MONTHS[displayMonth]} {displayYear}
+            {viewMode === 'week'
+              ? weekRangeLabel(displayWeekStart)
+              : `${MONTHS[displayMonth]} ${displayYear}`}
           </span>
           <button
-            onClick={nextMonth}
+            onClick={handleNext}
             className="p-1 rounded transition-opacity hover:opacity-75"
             style={{ color: colors.textMuted }}
           >
@@ -750,8 +786,7 @@ export default function EventsPage(): ReactNode {
               />
             ) : (
               <WeekView
-                year={displayYear}
-                month={displayMonth}
+                weekStart={displayWeekStart}
                 eventMap={eventMap}
                 selectedDateKey={selectedDateKey}
                 onSelectDate={selectDate}
