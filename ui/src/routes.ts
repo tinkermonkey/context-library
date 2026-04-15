@@ -25,6 +25,8 @@ import {
   healthViewSearchSchema,
   documentsSearchSchema,
   peopleViewSearchSchema,
+  locationViewSearchSchema,
+  musicViewSearchSchema,
 } from './routes-config'
 
 // Lazy load DomainViewPage to enable code splitting
@@ -151,12 +153,14 @@ const locationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/location',
   component: LocationPage,
+  validateSearch: (search: unknown) => locationViewSearchSchema.parse(search),
 })
 
 const musicRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/music',
   component: MusicPage,
+  validateSearch: (search: unknown) => musicViewSearchSchema.parse(search),
 })
 
 const adminRoute = createRoute({

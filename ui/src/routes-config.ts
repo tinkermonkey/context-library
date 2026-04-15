@@ -137,3 +137,17 @@ export const peopleViewSearchSchema = z.object({
 });
 
 export type PeopleViewPageSearch = z.infer<typeof peopleViewSearchSchema>;
+
+export const locationViewSearchSchema = z.object({
+  place_key: z.string().optional(), // URL-encoded place key for selected map pin
+  range: z.enum(['7d', '30d', '90d', 'all']).optional(), // date range filter
+});
+
+export type LocationViewPageSearch = z.infer<typeof locationViewSearchSchema>;
+
+export const musicViewSearchSchema = z.object({
+  sort: z.enum(['last_played', 'play_count', 'title', 'artist']).optional(),
+  q: z.string().optional(),
+});
+
+export type MusicViewPageSearch = z.infer<typeof musicViewSearchSchema>;
