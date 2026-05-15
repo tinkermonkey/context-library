@@ -207,7 +207,7 @@ function matchesTab(meta: TaskMeta, tab: FilterTab): boolean {
 // ── Task row ───────────────────────────────────────────────────────
 
 function TaskRow({
-  chunk,
+  chunk: _chunk,
   meta,
   isSelected,
   onClick,
@@ -528,8 +528,8 @@ export default function TasksPage(): ReactNode {
   );
 
   const countAll = allTasks.length;
-  const countActive = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'active')).length, [allTasks]);
-  const countCompleted = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'completed')).length, [allTasks]);
+  const _countActive = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'active')).length, [allTasks]);
+  const _countCompleted = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'completed')).length, [allTasks]);
 
   const isFiltered = filterTab !== 'all' || sourceFilter !== 'all';
 
