@@ -512,24 +512,6 @@ function MetaRow({ label, value }: { label: string; value: string }): ReactNode 
   );
 }
 
-// ── EmptyState ────────────────────────────────────────────────────
-
-function EmptyDetail(): ReactNode {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-3">
-      <div
-        className="flex items-center justify-center rounded-2xl"
-        style={{ width: 48, height: 48, background: `${docColor}20` }}
-      >
-        <FolderIcon style={{ width: 24, height: 24, color: docColor }} />
-      </div>
-      <p className="text-sm" style={{ color: colors.textDim }}>
-        Select a file to view details
-      </p>
-    </div>
-  );
-}
-
 // ── DocumentsPage ─────────────────────────────────────────────────
 
 export default function DocumentsPage(): ReactNode {

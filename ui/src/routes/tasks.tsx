@@ -528,8 +528,6 @@ export default function TasksPage(): ReactNode {
   );
 
   const countAll = allTasks.length;
-  const _countActive = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'active')).length, [allTasks]);
-  const _countCompleted = useMemo(() => allTasks.filter(t => matchesTab(t.meta, 'completed')).length, [allTasks]);
 
   const isFiltered = filterTab !== 'all' || sourceFilter !== 'all';
 
