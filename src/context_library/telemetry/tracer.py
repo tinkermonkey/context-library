@@ -44,10 +44,10 @@ class NoOpSpan:
     def add_link(self, link: Any) -> None:
         pass
 
-    def set_status(self, status_code: Any, description: str | None = None) -> None:
+    def set_status(self, status: Any, description: str | None = None) -> None:
         pass
 
-    def record_exception(self, exception: Exception, escaped: bool = False, attributes: dict[str, Any] | None = None, timestamp: Any = None) -> None:
+    def record_exception(self, exception: BaseException, attributes: dict[str, Any] | None = None, timestamp: Any = None, escaped: bool = False) -> None:
         pass
 
     def update_name(self, new_name: str) -> None:
@@ -71,6 +71,7 @@ class NoOpTracer:
         attributes: dict[str, Any] | None = None,
         links: list[Any] | None = None,
         start_time: Any = None,
+        **kwargs: Any,
     ) -> Generator[NoOpSpan, None, None]:
         """Context manager that yields a no-op span."""
         yield NoOpSpan(name)
@@ -82,6 +83,7 @@ class NoOpTracer:
         attributes: dict[str, Any] | None = None,
         links: list[Any] | None = None,
         start_time: Any = None,
+        **kwargs: Any,
     ) -> NoOpSpan:
         """Create a span without setting it as current."""
         return NoOpSpan(name)
