@@ -9,7 +9,6 @@ from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.retrieval.query import retrieve
 from context_library.server.schemas import QueryRequest, QueryResponse, QueryResultItem
 
-# Import OTel context for cross-thread propagation
 try:
     from opentelemetry import context as otel_context
     _otel_available = True
@@ -43,21 +42,8 @@ async def query(payload: QueryRequest, request: Request) -> QueryResponse:
             ctx = otel_context.get_current() if _otel_available else None
 
             def retrieve_with_context() -> Any:
-                if _otel_available and ctx is not None:
-                    token = otel_context.attach(ctx)
-                    try:
-                        return retrieve(
-                            query=payload.query,
-                            embedder=embedder,
-                            document_store=document_store,
-                            vector_store=vector_store,
-                            top_k=payload.top_k,
-                            domain_filter=payload.domain_filter,
-                            source_filter=payload.source_filter,
-                        )
-                    finally:
-                        otel_context.detach(token)
-                else:
+                token = otel_context.attach(ctx) if _otel_available and ctx is not None else None
+                try:
                     return retrieve(
                         query=payload.query,
                         embedder=embedder,
@@ -67,27 +53,24 @@ async def query(payload: QueryRequest, request: Request) -> QueryResponse:
                         domain_filter=payload.domain_filter,
                         source_filter=payload.source_filter,
                     )
+                finally:
+                    if token is not None:
+                        otel_context.detach(token)
 
             results = await asyncio.to_thread(retrieve_with_context)
 
             if payload.rerank and reranker is not None and results:
                 def rerank_with_context() -> Any:
-                    if _otel_available and ctx is not None:
-                        token = otel_context.attach(ctx)
-                        try:
-                            return reranker.rerank(
-                                query=payload.query,
-                                candidates=results,
-                                top_k=payload.rerank_top_k,
-                            )
-                        finally:
-                            otel_context.detach(token)
-                    else:
+                    token = otel_context.attach(ctx) if _otel_available and ctx is not None else None
+                    try:
                         return reranker.rerank(
                             query=payload.query,
                             candidates=results,
                             top_k=payload.rerank_top_k,
                         )
+                    finally:
+                        if token is not None:
+                            otel_context.detach(token)
 
                 results = await asyncio.to_thread(rerank_with_context)
 
