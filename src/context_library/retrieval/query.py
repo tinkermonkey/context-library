@@ -136,6 +136,7 @@ def retrieve(
         if source_filter is not None:
             retrieval_span.set_attribute("source_filter", source_filter)
 
+        exception_recorded = False
         try:
             if not query or not query.strip():
                 raise ValueError("query must be a non-empty string")
@@ -156,6 +157,7 @@ def retrieve(
             except Exception as e:
                 retrieval_span.set_status(StatusCode.ERROR)
                 retrieval_span.record_exception(e)
+                exception_recorded = True
                 raise
 
             # Validate query embedding
@@ -165,6 +167,7 @@ def retrieve(
             except ValueError as e:
                 retrieval_span.set_status(StatusCode.ERROR)
                 retrieval_span.record_exception(e)
+                exception_recorded = True
                 raise ValueError(f"Query embedding validation failed: {e}") from e
 
             # Step 2: Search vector store
@@ -181,6 +184,7 @@ def retrieve(
                 except Exception as e:
                     search_span.set_status(StatusCode.ERROR)
                     search_span.record_exception(e)
+                    exception_recorded = True
                     raise
 
             if not search_results:
@@ -239,6 +243,7 @@ def retrieve(
                 except Exception as e:
                     enrich_span.set_status(StatusCode.ERROR)
                     enrich_span.record_exception(e)
+                    exception_recorded = True
                     raise
 
             # Sort by similarity score (highest first)
@@ -248,4 +253,6 @@ def retrieve(
 
         except Exception as e:
             retrieval_span.set_status(StatusCode.ERROR)
+            if not exception_recorded:
+                retrieval_span.record_exception(e)
             raise
