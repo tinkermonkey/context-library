@@ -102,6 +102,7 @@ def setup_telemetry(
 
     # Create LoggingHandler (using local variable)
     logging_handler = LoggingHandler(logger_provider=logger_provider)
+    logging_handler.setLevel(logging.INFO)
 
     # All setup succeeded, assign to globals and apply configuration
     _tracer_provider = tracer_provider

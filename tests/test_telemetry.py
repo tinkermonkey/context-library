@@ -1,6 +1,7 @@
 """Tests for the telemetry subsystem."""
 
 
+import logging
 import pytest
 
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
@@ -16,6 +17,8 @@ def reset_telemetry_state():
     tel_module._logger_provider = None
     tel_module._logging_handler = None
     yield
+    if tel_module._logging_handler is not None:
+        logging.getLogger().removeHandler(tel_module._logging_handler)
     tel_module._tracer_provider = None
     tel_module._logger_provider = None
     tel_module._logging_handler = None
