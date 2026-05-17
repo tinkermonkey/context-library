@@ -299,7 +299,7 @@ class Poller:
         If ingest fails, update_last_fetched_at is NOT called, so the source remains due for re-polling
         on the next tick (allowing retry without preventing the scheduler from progressing).
         """
-        with tracer.start_as_current_span("scheduler.poll.tick") as tick_span:
+        with tracer.start_as_current_span("scheduler.poll") as tick_span:
             due_sources = self._document_store.get_sources_due_for_poll()
             due_source_ids = {source["source_id"] for source in due_sources}
 

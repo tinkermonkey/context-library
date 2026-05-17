@@ -187,8 +187,7 @@ class IngestionPipeline:
             ingest_span.set_attribute("domain", adapter.domain.value)
 
             try:
-                with tracer.start_as_current_span("adapter.fetch") as fetch_span:
-                    fetch_span.set_attribute("adapter_id", adapter.adapter_id)
+                with tracer.start_as_current_span(f"adapter.fetch {adapter.adapter_id}") as fetch_span:
                     for content in adapter.fetch(source_ref):
                         with tracer.start_as_current_span("pipeline.source") as source_span:
                             source_span.set_attribute("source_id", content.source_id)
@@ -219,7 +218,7 @@ class IngestionPipeline:
                                     prev_version = self.document_store.get_latest_version(content.source_id)
 
                                     # Chunk the current content
-                                    with tracer.start_as_current_span("domain.chunk") as chunk_span:
+                                    with tracer.start_as_current_span(f"domain.chunk {effective_domain.value}") as chunk_span:
                                         chunks = effective_chunker.chunk(content)
                                         chunk_span.set_attribute("chunk_count", len(chunks))
 

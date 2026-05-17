@@ -134,7 +134,7 @@ class Watcher:
         Returns:
             True if ingestion succeeded, False if failed and queued for retry
         """
-        with tracer.start_as_current_span("scheduler.watch.event") as event_span:
+        with tracer.start_as_current_span("scheduler.watch") as event_span:
             event_span.set_attribute("adapter_id", adapter.adapter_id)
             event_span.set_attribute("trigger", "watch")
             event_span.set_attribute("source_ref", source_ref)
