@@ -67,3 +67,50 @@ def test_shutdown_telemetry_safe_when_not_initialized():
     """shutdown_telemetry is safe to call even if setup_telemetry was never called."""
     # Should not raise
     shutdown_telemetry()
+
+
+def test_setup_telemetry_resource_has_service_version():
+    """The OTLP Resource includes service.version from package metadata."""
+    config = TelemetryConfig(
+        otel_enabled=True,
+        otlp_endpoint="http://localhost:4317",
+        otel_service_name="test-service",
+        otel_environment="test",
+    )
+    tp, lp = setup_telemetry(config=config)
+
+    # Verify tracer provider and resource exist
+    assert tp is not None
+    assert lp is not None
+    assert tp.resource is not None
+
+    # Verify service.version is in resource attributes
+    attributes = tp.resource.attributes
+    assert "service.version" in attributes
+    # Version should be either a real package version or "unknown"
+    assert isinstance(attributes["service.version"], str)
+    assert len(attributes["service.version"]) > 0
+
+    # Verify other attributes
+    assert attributes["service.name"] == "test-service"
+    assert attributes["deployment.environment"] == "test"
+
+    shutdown_telemetry()
+
+
+def test_setup_telemetry_resource_has_service_version_override():
+    """The OTLP Resource respects optional service_version override."""
+    config = TelemetryConfig(
+        otel_enabled=True,
+        otlp_endpoint="http://localhost:4317",
+        otel_service_name="test-service",
+        otel_environment="test",
+        otel_service_version="1.2.3-custom",
+    )
+    tp, lp = setup_telemetry(config=config)
+
+    assert tp is not None
+    attributes = tp.resource.attributes
+    assert attributes["service.version"] == "1.2.3-custom"
+
+    shutdown_telemetry()

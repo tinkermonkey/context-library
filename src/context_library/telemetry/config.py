@@ -29,3 +29,7 @@ class TelemetryConfig(BaseSettings):
 
     # Deployment environment exported in the OTLP Resource
     otel_environment: str = "production"
+
+    # Service version exported in the OTLP Resource
+    # If unset, automatically sourced from package metadata
+    otel_service_version: str = ""

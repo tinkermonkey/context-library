@@ -58,11 +58,14 @@ def setup_telemetry(
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
     from opentelemetry.sdk._logs import LoggingHandler
 
-    # Get service version from package metadata
-    try:
-        service_version = importlib.metadata.version("context-library")
-    except importlib.metadata.PackageNotFoundError:
-        service_version = "unknown"
+    # Get service version: use config override if provided, otherwise read from package metadata
+    if config.otel_service_version:
+        service_version = config.otel_service_version
+    else:
+        try:
+            service_version = importlib.metadata.version("context-library")
+        except importlib.metadata.PackageNotFoundError:
+            service_version = "unknown"
 
     # Create OTLP Resource with service metadata
     resource = Resource.create({
