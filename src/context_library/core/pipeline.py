@@ -188,10 +188,12 @@ class IngestionPipeline:
             ingest_span.set_attribute("domain", adapter.domain.value)
 
             try:
-                for content in adapter.fetch(source_ref):
-                    with tracer.start_as_current_span("pipeline.source") as source_span:
-                        source_span.set_attribute("source_id", content.source_id)
-                        source_span.set_attribute("adapter_id", adapter.adapter_id)
+                with tracer.start_as_current_span("adapter.fetch") as fetch_span:
+                    fetch_span.set_attribute("adapter_id", adapter.adapter_id)
+                    for content in adapter.fetch(source_ref):
+                        with tracer.start_as_current_span("pipeline.source") as source_span:
+                            source_span.set_attribute("source_id", content.source_id)
+                            source_span.set_attribute("adapter_id", adapter.adapter_id)
 
                         try:
                             sources_processed += 1
@@ -402,8 +404,10 @@ class IngestionPipeline:
                                 # Retire removed chunks from SQLite first
                                 # Note: retire chunks from the old version (prev_version), not the new one
                                 if diff_result.removed_hashes:
-                                    old_version = prev_version.version if prev_version else 1
-                                    self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
+                                    with tracer.start_as_current_span("document_store.retire_chunks") as retire_span:
+                                        old_version = prev_version.version if prev_version else 1
+                                        self.document_store.retire_chunks(set(diff_result.removed_hashes), content.source_id, old_version)
+                                        retire_span.set_attribute("chunk_count", len(diff_result.removed_hashes))
                                     removed_list = list(diff_result.removed_hashes)
                                     # Record pending delete operations before attempting LanceDB deletes
                                     self.document_store.delete_sync_log(removed_list)
@@ -551,6 +555,8 @@ class IngestionPipeline:
                     f"Affected endpoints: {', '.join(e.failed_endpoints)}. "
                     f"Continuing with data from successful endpoints."
                 )
+                ingest_span.set_status(StatusCode.ERROR)
+                ingest_span.record_exception(e)
                 errors.append({
                     "source_id": None,  # Adapter-level failure, not source-level
                     "error_type": "PartialFetchError",
@@ -563,6 +569,8 @@ class IngestionPipeline:
                 logger.error(
                     f"All endpoints failed for adapter {adapter.adapter_id}: {e}"
                 )
+                ingest_span.set_status(StatusCode.ERROR)
+                ingest_span.record_exception(e)
                 errors.append({
                     "source_id": None,  # Adapter-level failure, not source-level
                     "error_type": "AllEndpointsFailedError",
@@ -576,6 +584,8 @@ class IngestionPipeline:
                 logger.error(
                     f"Contact ID collision in adapter {adapter.adapter_id}: {e}"
                 )
+                ingest_span.set_status(StatusCode.ERROR)
+                ingest_span.record_exception(e)
                 errors.append({
                     "source_id": None,  # Adapter-level failure, not source-level
                     "error_type": "ContactIDCollisionError",
@@ -589,12 +599,13 @@ class IngestionPipeline:
                 sources_failed += 1
                 # Continue to next adapter; collision prevents further processing
 
-        # Raise if all sources failed
-        if sources_failed > 0 and sources_processed == 0:
-            raise AllSourcesFailedError(
-                f"All sources failed to process. {sources_failed} sources had errors. "
-                f"Check errors list for details."
-            )
+            # Raise if all sources failed
+            if sources_failed > 0 and sources_processed == 0:
+                ingest_span.set_status(StatusCode.ERROR)
+                raise AllSourcesFailedError(
+                    f"All sources failed to process. {sources_failed} sources had errors. "
+                    f"Check errors list for details."
+                )
 
         return {
             "sources_processed": sources_processed,
