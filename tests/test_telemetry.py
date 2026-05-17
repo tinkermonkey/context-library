@@ -1,6 +1,5 @@
 """Tests for the telemetry subsystem."""
 
-import logging
 
 import pytest
 

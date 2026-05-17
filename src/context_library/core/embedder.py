@@ -40,7 +40,7 @@ class Embedder:
         dim = self._model.get_sentence_embedding_dimension()
         if dim is None:
             raise ValueError(f"Model {self._model_name} did not report an embedding dimension")
-        return dim
+        return cast(int, dim)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of texts using the model.
