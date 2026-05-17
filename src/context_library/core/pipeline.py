@@ -190,10 +190,12 @@ class IngestionPipeline:
             try:
                 with tracer.start_as_current_span("adapter.fetch") as fetch_span:
                     fetch_span.set_attribute("adapter_id", adapter.adapter_id)
-                    for content in adapter.fetch(source_ref):
-                        with tracer.start_as_current_span("pipeline.source") as source_span:
-                            source_span.set_attribute("source_id", content.source_id)
-                            source_span.set_attribute("adapter_id", adapter.adapter_id)
+                    contents = list(adapter.fetch(source_ref))
+
+                for content in contents:
+                    with tracer.start_as_current_span("pipeline.source") as source_span:
+                        source_span.set_attribute("source_id", content.source_id)
+                        source_span.set_attribute("adapter_id", adapter.adapter_id)
 
                         try:
                             sources_processed += 1
@@ -601,11 +603,13 @@ class IngestionPipeline:
 
             # Raise if all sources failed
             if sources_failed > 0 and sources_processed == 0:
-                ingest_span.set_status(StatusCode.ERROR)
-                raise AllSourcesFailedError(
+                error = AllSourcesFailedError(
                     f"All sources failed to process. {sources_failed} sources had errors. "
                     f"Check errors list for details."
                 )
+                ingest_span.set_status(StatusCode.ERROR)
+                ingest_span.record_exception(error)
+                raise error
 
         return {
             "sources_processed": sources_processed,
