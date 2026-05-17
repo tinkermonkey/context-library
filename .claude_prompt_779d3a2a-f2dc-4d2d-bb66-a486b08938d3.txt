@@ -1,0 +1,87 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+Phase 3: Background scheduler span instrumentation
+
+**Description**:
+Add root trace spans to the Poller scheduler so that scheduled background ingestion activity is independently observable in SigNoz, decoupled from HTTP request traffic. Each poller tick produces a root `scheduler.poll.tick` span; each source processed within a tick produces a `scheduler.poll.source` child span that parents the pipeline spans from Phase 2.
+
+## Requirements
+- Add module-level `tracer = trace.get_tracer(__name__)` in `scheduler/poller.py`
+- Wrap `_tick()` body in a root span `scheduler.poll.tick` (context=None or use_span with no_attach=False so it becomes a root) with attributes: `sources_due_count`, `adapters_registered`
+- Wrap the per-source body inside `_tick()` in a `scheduler.poll.source` child span with attributes: `source_id`, `adapter_id`
+- For `trigger_immediate_ingest()` (called from the adapter reset route), create a root span `scheduler.poll.immediate` — do not inherit the HTTP request context since the HTTP request returns 202 immediately
+- On per-source exception: `span.set_status(StatusCode.ERROR)`, `span.record_exception(exc)`, `span.set_attribute("error.consecutive_failures", count)`
+- FR-8, US-7
+
+## Design Guidance
+Implements Phase 3 (Scheduler and Background Task Spans) from the architecture design. The span structure for `_tick()` and `trigger_immediate_ingest()` is defined in the architecture document. The root span context propagation note (background thread, no HTTP parent) is described in the Phase 3 section.
+
+## Acceptance Criteria
+- [ ] After the poller executes a scheduled tick, a root `scheduler.poll.tick` span appears in SigNoz with no HTTP parent
+- [ ] The tick span contains a `scheduler.poll.source` child span for each source processed, which in turn parents the `pipeline.ingest` spans from Phase 2
+- [ ] `adapter_id` and `trigger` attributes are present on scheduler spans
+- [ ] When a scheduler-triggered ingestion fails, the span status is ERROR
+- [ ] `trigger_immediate_ingest()` produces a root span not parented to the initiating HTTP request
+- [ ] `python -m pytest tests/ -q -n auto --ignore=tests/adapters/test_watching.py` passes with zero failures
+- [ ] `ruff check src/ tests/` and `mypy src/context_library/` pass
+
+## Dependencies
+Phase 1: Telemetry foundation — package, configuration, SDK initialization, and log bridge, Phase 2: Pipeline ingestion span instrumentation
+
+## Parent Issue
+Part of #TBD
+
+## Discussion
+See the architecture design document provided as a pipeline context file.
+
+### Previous Work
+
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.

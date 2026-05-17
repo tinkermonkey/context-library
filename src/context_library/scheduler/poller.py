@@ -5,6 +5,10 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
+
 from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
@@ -17,6 +21,7 @@ from context_library.scheduler.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _is_programming_error(exc: Exception) -> bool:
@@ -295,100 +300,112 @@ class Poller:
         If ingest fails, update_last_fetched_at is NOT called, so the source remains due for re-polling
         on the next tick (allowing retry without preventing the scheduler from progressing).
         """
-        due_sources = self._document_store.get_sources_due_for_poll()
-        due_source_ids = {source["source_id"] for source in due_sources}
+        with tracer.start_as_current_span("scheduler.poll.tick") as tick_span:
+            due_sources = self._document_store.get_sources_due_for_poll()
+            due_source_ids = {source["source_id"] for source in due_sources}
 
-        # Clean up error tracker entries for sources no longer due for polling.
-        # Note: A source that just succeeded and updated last_fetched_at won't appear in
-        # due_sources until its poll interval elapses again, so its error tracker entry will
-        # be pruned here. This is the desired behavior since clear() already resets state on success.
-        # Entries for removed/deleted sources are also pruned here, allowing failure history
-        # to be implicitly forgotten when sources are no longer in the system.
-        # (prevents unbounded growth of _error_tracker dict)
-        sources_to_remove = set(self._error_tracker.keys()) - due_source_ids
-        for source_id in sources_to_remove:
-            del self._error_tracker[source_id]
+            tick_span.set_attribute("sources_due_count", len(due_sources))
+            tick_span.set_attribute("adapters_registered", len(self._registered))
 
-        for source in due_sources:
-            source_id = source["source_id"]
-            adapter_id = source["adapter_id"]
+            # Clean up error tracker entries for sources no longer due for polling.
+            # Note: A source that just succeeded and updated last_fetched_at won't appear in
+            # due_sources until its poll interval elapses again, so its error tracker entry will
+            # be pruned here. This is the desired behavior since clear() already resets state on success.
+            # Entries for removed/deleted sources are also pruned here, allowing failure history
+            # to be implicitly forgotten when sources are no longer in the system.
+            # (prevents unbounded growth of _error_tracker dict)
+            sources_to_remove = set(self._error_tracker.keys()) - due_source_ids
+            for source_id in sources_to_remove:
+                del self._error_tracker[source_id]
 
-            # Skip if a background ingest is already in progress for this adapter
-            with self._threads_lock:
-                if self._ingest_in_progress.get(adapter_id, False):
-                    logger.debug(
-                        "Poller: skipping source %s; background ingest in progress for adapter %s",
-                        source_id,
+            for source in due_sources:
+                source_id = source["source_id"]
+                adapter_id = source["adapter_id"]
+
+                # Skip if a background ingest is already in progress for this adapter
+                with self._threads_lock:
+                    if self._ingest_in_progress.get(adapter_id, False):
+                        logger.debug(
+                            "Poller: skipping source %s; background ingest in progress for adapter %s",
+                            source_id,
+                            adapter_id,
+                        )
+                        continue
+
+                adapter, chunker = self._find_adapter(adapter_id)
+                if adapter is None or chunker is None:
+                    logger.warning(
+                        "Poller: no registered adapter found for adapter_id=%s",
                         adapter_id,
                     )
                     continue
 
-            adapter, chunker = self._find_adapter(adapter_id)
-            if adapter is None or chunker is None:
-                logger.warning(
-                    "Poller: no registered adapter found for adapter_id=%s",
-                    adapter_id,
-                )
-                continue
+                # Initialize error tracker for this source if needed
+                if source_id not in self._error_tracker:
+                    self._error_tracker[source_id] = SourceErrorTracker()
 
-            # Initialize error tracker for this source if needed
-            if source_id not in self._error_tracker:
-                self._error_tracker[source_id] = SourceErrorTracker()
+                with tracer.start_as_current_span("scheduler.poll.source") as source_span:
+                    source_span.set_attribute("source_id", source_id)
+                    source_span.set_attribute("adapter_id", adapter_id)
 
-            try:
-                self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
-                # Clear error tracking on successful ingestion
-                self._error_tracker[source_id].clear()
-            except MemoryError:
-                # System-level memory exhaustion is fatal; propagate immediately
-                raise
-            except Exception as e:
-                error_tracker = self._error_tracker[source_id]
-                error_msg = f"ingest failed: {e}"
-                error_tracker.record_failure()
+                    try:
+                        self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
+                        # Clear error tracking on successful ingestion
+                        self._error_tracker[source_id].clear()
+                    except MemoryError:
+                        # System-level memory exhaustion is fatal; propagate immediately
+                        raise
+                    except Exception as e:
+                        error_tracker = self._error_tracker[source_id]
+                        error_msg = f"ingest failed: {e}"
+                        error_tracker.record_failure()
 
-                # Programming bugs (TypeError, AttributeError, etc.) indicate code issues
-                # that won't be fixed by retrying. Log them at ERROR level immediately
-                # rather than waiting for 6+ cycles.
-                if _is_programming_error(e):
-                    logger.error(
-                        "Poller: source %s encountered a programming error (escalated immediately): %s",
-                        source_id,
-                        error_msg,
-                        exc_info=True,
-                    )
-                # Log at escalated level based on consecutive failure count for transient errors
-                elif error_tracker.should_log_at_error_level():
-                    logger.error(
-                        "Poller: source %s has failed %d times (ERROR level): %s",
-                        source_id,
-                        error_tracker.consecutive_failures,
-                        error_msg,
-                    )
-                elif error_tracker.should_log_at_warning_level():
-                    logger.warning(
-                        "Poller: source %s has failed %d times (WARNING level): %s",
-                        source_id,
-                        error_tracker.consecutive_failures,
-                        error_msg,
-                    )
-                else:
-                    logger.info(
-                        "Poller: source %s ingestion attempt failed (transient): %s",
-                        source_id,
-                        error_msg,
-                    )
-                continue
+                        source_span.set_status(StatusCode.ERROR)
+                        source_span.record_exception(e)
+                        source_span.set_attribute("error.consecutive_failures", error_tracker.consecutive_failures)
 
-            # Only update last_fetched_at if ingest succeeded
-            try:
-                self._document_store.update_last_fetched_at(source_id)
-            except Exception as e:
-                logger.exception(
-                    "Poller: failed to update last_fetched_at for source %s: %s",
-                    source_id,
-                    e,
-                )
+                        # Programming bugs (TypeError, AttributeError, etc.) indicate code issues
+                        # that won't be fixed by retrying. Log them at ERROR level immediately
+                        # rather than waiting for 6+ cycles.
+                        if _is_programming_error(e):
+                            logger.error(
+                                "Poller: source %s encountered a programming error (escalated immediately): %s",
+                                source_id,
+                                error_msg,
+                                exc_info=True,
+                            )
+                        # Log at escalated level based on consecutive failure count for transient errors
+                        elif error_tracker.should_log_at_error_level():
+                            logger.error(
+                                "Poller: source %s has failed %d times (ERROR level): %s",
+                                source_id,
+                                error_tracker.consecutive_failures,
+                                error_msg,
+                            )
+                        elif error_tracker.should_log_at_warning_level():
+                            logger.warning(
+                                "Poller: source %s has failed %d times (WARNING level): %s",
+                                source_id,
+                                error_tracker.consecutive_failures,
+                                error_msg,
+                            )
+                        else:
+                            logger.info(
+                                "Poller: source %s ingestion attempt failed (transient): %s",
+                                source_id,
+                                error_msg,
+                            )
+                        continue
+
+                    # Only update last_fetched_at if ingest succeeded
+                    try:
+                        self._document_store.update_last_fetched_at(source_id)
+                    except Exception as e:
+                        logger.exception(
+                            "Poller: failed to update last_fetched_at for source %s: %s",
+                            source_id,
+                            e,
+                        )
 
     def trigger_immediate_ingest(self, adapter_id: str) -> bool:
         """Trigger an immediate, one-shot ingest run for a specific adapter.
@@ -447,57 +464,61 @@ class Poller:
 
         # Spawn a background thread to process sources immediately (non-blocking)
         def process_sources() -> None:
-            result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
-            try:
-                for source in sources:
-                    source_id = source["source_id"]
-                    try:
-                        self._pipeline.ingest(
-                            adapter, chunker, source_ref=source["origin_ref"]
-                        )
-                        result.sources_succeeded += 1
-                        # Update last_fetched_at on successful ingest
-                        try:
-                            self._document_store.update_last_fetched_at(source_id)
-                        except Exception as e:
-                            logger.exception(
-                                "trigger_immediate_ingest: failed to update last_fetched_at "
-                                "for source %s: %s",
-                                source_id,
-                                e,
-                            )
-                    except MemoryError:
-                        # System-level memory exhaustion is fatal; propagate immediately
-                        raise
-                    except Exception as e:
-                        result.sources_failed += 1
-                        # Detect programming errors and flag them
-                        if _is_programming_error(e):
-                            result.had_programming_errors = True
-                            logger.error(
-                                "trigger_immediate_ingest: source %s encountered a programming error: %s",
-                                source_id,
-                                e,
-                                exc_info=True,
-                            )
-                        else:
-                            logger.exception(
-                                "trigger_immediate_ingest: ingest failed for source %s: %s",
-                                source_id,
-                                e,
-                            )
-            finally:
-                # Mark result as completed and store it
-                result.completed_at = datetime.now()
-                with self._results_lock:
-                    self._ingest_results[adapter_id] = result
+            with tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span:
+                immediate_span.set_attribute("adapter_id", adapter_id)
+                immediate_span.set_attribute("trigger", "manual")
 
-                # Always clear the in-progress flag and remove thread from tracking
-                # CRITICAL: Clear flag inside lock to prevent race conditions
-                with self._threads_lock:
-                    self._ingest_in_progress[adapter_id] = False
-                    self._background_threads.discard(threading.current_thread())
-                    self._ingest_thread_adapters.pop(threading.current_thread(), None)
+                result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
+                try:
+                    for source in sources:
+                        source_id = source["source_id"]
+                        try:
+                            self._pipeline.ingest(
+                                adapter, chunker, source_ref=source["origin_ref"]
+                            )
+                            result.sources_succeeded += 1
+                            # Update last_fetched_at on successful ingest
+                            try:
+                                self._document_store.update_last_fetched_at(source_id)
+                            except Exception as e:
+                                logger.exception(
+                                    "trigger_immediate_ingest: failed to update last_fetched_at "
+                                    "for source %s: %s",
+                                    source_id,
+                                    e,
+                                )
+                        except MemoryError:
+                            # System-level memory exhaustion is fatal; propagate immediately
+                            raise
+                        except Exception as e:
+                            result.sources_failed += 1
+                            # Detect programming errors and flag them
+                            if _is_programming_error(e):
+                                result.had_programming_errors = True
+                                logger.error(
+                                    "trigger_immediate_ingest: source %s encountered a programming error: %s",
+                                    source_id,
+                                    e,
+                                    exc_info=True,
+                                )
+                            else:
+                                logger.exception(
+                                    "trigger_immediate_ingest: ingest failed for source %s: %s",
+                                    source_id,
+                                    e,
+                                )
+                finally:
+                    # Mark result as completed and store it
+                    result.completed_at = datetime.now()
+                    with self._results_lock:
+                        self._ingest_results[adapter_id] = result
+
+                    # Always clear the in-progress flag and remove thread from tracking
+                    # CRITICAL: Clear flag inside lock to prevent race conditions
+                    with self._threads_lock:
+                        self._ingest_in_progress[adapter_id] = False
+                        self._background_threads.discard(threading.current_thread())
+                        self._ingest_thread_adapters.pop(threading.current_thread(), None)
 
         # Use non-daemon threads and track them for graceful shutdown
         thread = threading.Thread(target=process_sources, daemon=False)
