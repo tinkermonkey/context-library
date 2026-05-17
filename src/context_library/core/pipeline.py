@@ -187,7 +187,7 @@ class IngestionPipeline:
             ingest_span.set_attribute("domain", adapter.domain.value)
 
             try:
-                with tracer.start_as_current_span(f"adapter.fetch {adapter.adapter_id}") as fetch_span:
+                with tracer.start_as_current_span(f"adapter.fetch {adapter.adapter_id}"):
                     for content in adapter.fetch(source_ref):
                         with tracer.start_as_current_span("pipeline.source") as source_span:
                             source_span.set_attribute("source_id", content.source_id)
