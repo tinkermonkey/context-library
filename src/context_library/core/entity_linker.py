@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.exceptions import EntityLinkingError
 from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.document_store import DocumentStore
@@ -14,6 +15,8 @@ from context_library.storage.models import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 class EntityLinker:
@@ -56,63 +59,78 @@ class EntityLinker:
         Raises:
             EntityLinkingError: If cleanup fails or any uncaught error occurs.
         """
-        # Step 1: Clean up entity_links for retired chunks (both source and target)
-        # This ensures cleanup runs even if all person chunks are retired
-        retired_links_cleaned = self._cleanup_retired_chunks_links()
-        if retired_links_cleaned > 0:
-            logger.info("Cleaned up %d entity_links for retired chunks", retired_links_cleaned)
+        with tracer.start_as_current_span("entity_linker.run") as run_span:
+            try:
+                # Step 1: Clean up entity_links for retired chunks (both source and target)
+                # This ensures cleanup runs even if all person chunks are retired
+                with tracer.start_as_current_span("entity_linker.cleanup"):
+                    retired_links_cleaned = self._cleanup_retired_chunks_links()
+                if retired_links_cleaned > 0:
+                    logger.info("Cleaned up %d entity_links for retired chunks", retired_links_cleaned)
 
-        # Step 2-5: Fetch and process person chunks page by page
-        # Each page is processed and discarded immediately to minimize memory usage
-        page_size = 10000
-        offset = 0
-        total_links_created = 0
-        total_chunks_failed = 0
-        chunks_processed = 0
-        has_chunks = False
+                # Step 2-5: Fetch and process person chunks page by page
+                # Each page is processed and discarded immediately to minimize memory usage
+                page_size = 10000
+                offset = 0
+                total_links_created = 0
+                total_chunks_failed = 0
+                chunks_processed = 0
+                has_chunks = False
 
-        while True:
-            person_chunks, total = self._store.list_chunks(
-                domain=Domain.PEOPLE,
-                limit=page_size,
-                offset=offset,
-            )
+                while True:
+                    person_chunks, total = self._store.list_chunks(
+                        domain=Domain.PEOPLE,
+                        limit=page_size,
+                        offset=offset,
+                    )
 
-            if not person_chunks:
-                break
+                    if not person_chunks:
+                        break
 
-            has_chunks = True
-            page_links, page_failures = self._process_person_chunks_page(person_chunks)
-            total_links_created += page_links
-            total_chunks_failed += page_failures
-            chunks_processed += len(person_chunks)
+                    has_chunks = True
+                    with tracer.start_as_current_span("entity_linker.process_page") as page_span:
+                        page_links, page_failures = self._process_person_chunks_page(person_chunks)
+                        page_span.set_attribute("page_size", len(person_chunks))
+                        page_span.set_attribute("links_created", page_links)
 
-            logger.debug(
-                "Entity linking: processed %d chunks from page (total processed: %d / %d, created %d links, %d failures)",
-                len(person_chunks),
-                chunks_processed,
-                total,
-                page_links,
-                page_failures,
-            )
+                    total_links_created += page_links
+                    total_chunks_failed += page_failures
+                    chunks_processed += len(person_chunks)
 
-            offset += len(person_chunks)
+                    logger.debug(
+                        "Entity linking: processed %d chunks from page (total processed: %d / %d, created %d links, %d failures)",
+                        len(person_chunks),
+                        chunks_processed,
+                        total,
+                        page_links,
+                        page_failures,
+                    )
 
-            # Break if we've fetched all chunks
-            if offset >= total:
-                break
+                    offset += len(person_chunks)
 
-        if not has_chunks:
-            logger.info("No person chunks found; entity linking pass is complete")
-            return 0, 0
+                    # Break if we've fetched all chunks
+                    if offset >= total:
+                        break
 
-        logger.info(
-            "Entity linking pass complete: processed %d person chunks, created %d new links, %d failures",
-            chunks_processed,
-            total_links_created,
-            total_chunks_failed,
-        )
-        return total_links_created, total_chunks_failed
+                if not has_chunks:
+                    logger.info("No person chunks found; entity linking pass is complete")
+                    run_span.set_attribute("total_links_created", 0)
+                    run_span.set_attribute("total_chunks_failed", 0)
+                    return 0, 0
+
+                logger.info(
+                    "Entity linking pass complete: processed %d person chunks, created %d new links, %d failures",
+                    chunks_processed,
+                    total_links_created,
+                    total_chunks_failed,
+                )
+                run_span.set_attribute("total_links_created", total_links_created)
+                run_span.set_attribute("total_chunks_failed", total_chunks_failed)
+                return total_links_created, total_chunks_failed
+            except Exception as e:
+                run_span.set_status(StatusCode.ERROR)
+                run_span.record_exception(e)
+                raise
 
     def _process_person_chunks_page(self, person_chunks: list[ChunkWithLineageContext]) -> tuple[int, int]:
         """Process a single page of person chunks.

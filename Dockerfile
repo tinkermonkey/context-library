@@ -26,7 +26,7 @@ COPY pyproject.toml ./
 RUN mkdir -p src/context_library && touch src/context_library/__init__.py
 # Install CPU-only torch first to prevent pip from pulling large NVIDIA CUDA packages
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir ".[server]"
+RUN pip install --no-cache-dir ".[server,otel]"
 
 # Pre-download the default embedding model into the image
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"

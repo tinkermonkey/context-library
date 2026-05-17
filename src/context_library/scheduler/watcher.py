@@ -3,6 +3,8 @@
 import logging
 import threading
 from typing import NamedTuple
+
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.pipeline import IngestionPipeline
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileSystemWatcher
@@ -10,6 +12,8 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.models import PollStrategy
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 class FailedPushEvent(NamedTuple):
@@ -130,35 +134,44 @@ class Watcher:
         Returns:
             True if ingestion succeeded, False if failed and queued for retry
         """
-        try:
-            self._pipeline.ingest(adapter, domain_chunker, source_ref=source_ref)
-            return True
-        except Exception:
-            logger.exception(
-                "Watcher: failed to handle webhook for source_ref %s (retry %d/%d)",
-                source_ref,
-                retry_count,
-                self._max_retries,
-            )
-            # Queue for retry if we haven't exceeded max retries
-            if retry_count < self._max_retries:
-                with self._retry_queue_lock:
-                    self._retry_queue.append(
-                        FailedPushEvent(
-                            source_ref=source_ref,
-                            adapter=adapter,
-                            domain_chunker=domain_chunker,
-                            retry_count=retry_count + 1,
+        with tracer.start_as_current_span("scheduler.watch") as event_span:
+            event_span.set_attribute("adapter_id", adapter.adapter_id)
+            event_span.set_attribute("trigger", "watch")
+            event_span.set_attribute("source_ref", source_ref)
+            event_span.set_attribute("retry_count", retry_count)
+
+            try:
+                self._pipeline.ingest(adapter, domain_chunker, source_ref=source_ref)
+                return True
+            except Exception as e:
+                logger.exception(
+                    "Watcher: failed to handle webhook for source_ref %s (retry %d/%d)",
+                    source_ref,
+                    retry_count,
+                    self._max_retries,
+                )
+                event_span.set_status(StatusCode.ERROR)
+                event_span.record_exception(e)
+
+                # Queue for retry if we haven't exceeded max retries
+                if retry_count < self._max_retries:
+                    with self._retry_queue_lock:
+                        self._retry_queue.append(
+                            FailedPushEvent(
+                                source_ref=source_ref,
+                                adapter=adapter,
+                                domain_chunker=domain_chunker,
+                                retry_count=retry_count + 1,
+                            )
                         )
+                    logger.debug(
+                        f"Queued {source_ref} for retry (attempt {retry_count + 1}/{self._max_retries})"
                     )
-                logger.debug(
-                    f"Queued {source_ref} for retry (attempt {retry_count + 1}/{self._max_retries})"
-                )
-            else:
-                logger.error(
-                    f"Watcher: permanently dropped event for {source_ref} after {self._max_retries} retries"
-                )
-            return False
+                else:
+                    logger.error(
+                        f"Watcher: permanently dropped event for {source_ref} after {self._max_retries} retries"
+                    )
+                return False
 
     def flush_retry_queue(self) -> None:
         """Process all queued retry events.
@@ -178,22 +191,33 @@ class Watcher:
             original_queue = self._retry_queue
             self._retry_queue = []
 
-        for failed_event in original_queue:
-            success = self.handle_webhook(
-                source_ref=failed_event.source_ref,
-                adapter=failed_event.adapter,
-                domain_chunker=failed_event.domain_chunker,
-                retry_count=failed_event.retry_count,
-            )
-            if not success:
-                # Event was re-queued for another retry
-                pass
+        with tracer.start_as_current_span("scheduler.watch.retry_flush") as flush_span:
+            flush_span.set_attribute("queue_size", len(original_queue))
 
-        with self._retry_queue_lock:
-            if self._retry_queue:
-                logger.debug(
-                    f"Retry queue still has {len(self._retry_queue)} events after flush"
+            retry_succeeded = 0
+            retry_failed = 0
+
+            for failed_event in original_queue:
+                success = self.handle_webhook(
+                    source_ref=failed_event.source_ref,
+                    adapter=failed_event.adapter,
+                    domain_chunker=failed_event.domain_chunker,
+                    retry_count=failed_event.retry_count,
                 )
+                if success:
+                    retry_succeeded += 1
+                else:
+                    # Event was re-queued for another retry
+                    retry_failed += 1
+
+            flush_span.set_attribute("retry_succeeded", retry_succeeded)
+            flush_span.set_attribute("retry_failed", retry_failed)
+
+            with self._retry_queue_lock:
+                if self._retry_queue:
+                    logger.debug(
+                        f"Retry queue still has {len(self._retry_queue)} events after flush"
+                    )
 
     def get_retry_queue_size(self) -> int:
         """Return the current number of events in the retry queue."""

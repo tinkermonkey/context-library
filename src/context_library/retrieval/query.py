@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Optional
 
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from context_library.core.embedder import Embedder
@@ -17,6 +18,8 @@ from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import VectorStore
 
 _logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 # Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
 _SAFE_SOURCE_FILTER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./]+$")
@@ -125,79 +128,131 @@ def retrieve(
         ValueError: If top_k <= 0, if query is empty/whitespace, or if vector store is empty/uninitialized.
         RuntimeError: If vector store connection fails or vector table is missing.
     """
-    if not query or not query.strip():
-        raise ValueError("query must be a non-empty string")
+    with tracer.start_as_current_span("retrieval.query") as retrieval_span:
+        retrieval_span.set_attribute("query_length", len(query))
+        retrieval_span.set_attribute("top_k", top_k)
+        if domain_filter is not None:
+            retrieval_span.set_attribute("domain_filter", domain_filter.value)
+        if source_filter is not None:
+            retrieval_span.set_attribute("source_filter", source_filter)
 
-    if top_k <= 0:
-        raise ValueError(f"top_k must be positive, got {top_k}")
+        exception_recorded = False
+        try:
+            if not query or not query.strip():
+                raise ValueError("query must be a non-empty string")
 
-    # Validate source_filter early, before expensive operations
-    if source_filter is not None:
-        if not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
-            raise ValueError(
-                f'source_filter contains invalid characters: {source_filter!r}'
-            )
+            if top_k <= 0:
+                raise ValueError(f"top_k must be positive, got {top_k}")
 
-    # Step 1: Embed the query
-    query_vector = embedder.embed_query(query)
+            # Validate source_filter early, before expensive operations
+            if source_filter is not None:
+                if not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
+                    raise ValueError(
+                        f'source_filter contains invalid characters: {source_filter!r}'
+                    )
 
-    # Validate query embedding
-    expected_dim = embedder.dimension
-    try:
-        validate_embedding_dimension(query_vector, expected_dim)
-    except ValueError as e:
-        raise ValueError(f"Query embedding validation failed: {e}") from e
+            # Step 1: Embed the query
+            try:
+                query_vector = embedder.embed_query(query)
+            except Exception as e:
+                retrieval_span.set_status(StatusCode.ERROR)
+                retrieval_span.record_exception(e)
+                exception_recorded = True
+                raise
 
-    # Step 2: Search vector store
-    search_results = vector_store.search(
-        query_vector=query_vector,
-        top_k=top_k,
-        domain_filter=domain_filter,
-        source_filter=source_filter,
-    )
+            # Validate query embedding
+            expected_dim = embedder.dimension
+            try:
+                validate_embedding_dimension(query_vector, expected_dim)
+            except ValueError as e:
+                retrieval_span.set_status(StatusCode.ERROR)
+                retrieval_span.record_exception(e)
+                exception_recorded = True
+                raise ValueError(f"Query embedding validation failed: {e}") from e
 
-    if not search_results:
-        return []
+            # Step 2: Search vector store
+            with tracer.start_as_current_span("vector_store.search") as search_span:
+                search_span.set_attribute("top_k", top_k)
+                try:
+                    search_results = vector_store.search(
+                        query_vector=query_vector,
+                        top_k=top_k,
+                        domain_filter=domain_filter,
+                        source_filter=source_filter,
+                    )
+                    search_span.set_attribute("result_count", len(search_results))
+                except Exception as e:
+                    search_span.set_status(StatusCode.ERROR)
+                    search_span.record_exception(e)
+                    exception_recorded = True
+                    raise
 
-    # Step 3: Enrich results with full chunk content and lineage
-    results: list[RetrievalResult] = []
+            if not search_results:
+                return []
 
-    for hit in search_results:
-        chunk_hash = hit.chunk_hash
-        similarity_score = hit.similarity_score
+            # Step 3: Enrich results with full chunk content and lineage
+            with tracer.start_as_current_span("retrieval.enrich") as enrich_span:
+                results: list[RetrievalResult] = []
+                skipped_retired = 0
+                skipped_inconsistent = 0
 
-        # Retrieve full chunk from SQLite
-        chunk = document_store.get_chunk_by_hash(chunk_hash)
-        if chunk is None:
-            if document_store.is_chunk_retired(chunk_hash):
-                _logger.debug(
-                    "Skipping retired chunk (chunk_hash=%s) during retrieval. "
-                    "Chunk exists in vector store but is marked retired in document store. "
-                    "This is normal pipeline behavior (lazy cleanup).",
-                    chunk_hash,
-                )
-                continue
-            else:
-                _logger.warning(
-                    "Store inconsistency: chunk_hash=%s exists in vector store but not in SQLite. "
-                    "This indicates desynchronization between vector store and document store.",
-                    chunk_hash,
-                )
-                continue
+                try:
+                    for hit in search_results:
+                        chunk_hash = hit.chunk_hash
+                        similarity_score = hit.similarity_score
 
-        # Retrieve lineage from SQLite
-        lineage = document_store.get_lineage(chunk_hash)
-        if lineage is None:
-            _logger.warning(
-                "Store inconsistency: chunk_hash=%s has no lineage record in SQLite. "
-                "Chunk exists but provenance information is missing.",
-                chunk_hash,
-            )
-            continue
+                        # Retrieve full chunk from SQLite
+                        chunk = document_store.get_chunk_by_hash(chunk_hash)
+                        if chunk is None:
+                            if document_store.is_chunk_retired(chunk_hash):
+                                _logger.debug(
+                                    "Skipping retired chunk (chunk_hash=%s) during retrieval. "
+                                    "Chunk exists in vector store but is marked retired in document store. "
+                                    "This is normal pipeline behavior (lazy cleanup).",
+                                    chunk_hash,
+                                )
+                                skipped_retired += 1
+                                continue
+                            else:
+                                _logger.warning(
+                                    "Store inconsistency: chunk_hash=%s exists in vector store but not in SQLite. "
+                                    "This indicates desynchronization between vector store and document store.",
+                                    chunk_hash,
+                                )
+                                skipped_inconsistent += 1
+                                continue
 
-        results.append(RetrievalResult(chunk=chunk, lineage=lineage, similarity_score=similarity_score))
+                        # Retrieve lineage from SQLite
+                        lineage = document_store.get_lineage(chunk_hash)
+                        if lineage is None:
+                            _logger.warning(
+                                "Store inconsistency: chunk_hash=%s has no lineage record in SQLite. "
+                                "Chunk exists but provenance information is missing.",
+                                chunk_hash,
+                            )
+                            skipped_inconsistent += 1
+                            continue
 
-    # Sort by similarity score (highest first)
-    results.sort(key=lambda r: r.similarity_score, reverse=True)
+                        results.append(RetrievalResult(chunk=chunk, lineage=lineage, similarity_score=similarity_score))
 
-    return results
+                    # Set enrich span attributes
+                    enrich_span.set_attribute("result_count", len(results))
+                    enrich_span.set_attribute("skipped_retired", skipped_retired)
+                    enrich_span.set_attribute("skipped_inconsistent", skipped_inconsistent)
+
+                except Exception as e:
+                    enrich_span.set_status(StatusCode.ERROR)
+                    enrich_span.record_exception(e)
+                    exception_recorded = True
+                    raise
+
+            # Sort by similarity score (highest first)
+            results.sort(key=lambda r: r.similarity_score, reverse=True)
+
+            return results
+
+        except Exception as e:
+            retrieval_span.set_status(StatusCode.ERROR)
+            if not exception_recorded:
+                retrieval_span.record_exception(e)
+            raise

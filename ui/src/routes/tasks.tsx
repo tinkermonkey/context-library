@@ -207,12 +207,10 @@ function matchesTab(meta: TaskMeta, tab: FilterTab): boolean {
 // ── Task row ───────────────────────────────────────────────────────
 
 function TaskRow({
-  chunk: _chunk,
   meta,
   isSelected,
   onClick,
 }: {
-  chunk: ChunkResponse;
   meta: TaskMeta;
   isSelected: boolean;
   onClick: () => void;
@@ -677,7 +675,6 @@ export default function TasksPage(): ReactNode {
             {visibleTasks.map(({ chunk, meta }) => (
               <TaskRow
                 key={chunk.chunk_hash}
-                chunk={chunk}
                 meta={meta}
                 isSelected={chunk.chunk_hash === selectedHash}
                 onClick={() => toggleSelectedHash(chunk.chunk_hash)}

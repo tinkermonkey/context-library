@@ -407,6 +407,8 @@ export default function SearchPage() {
   const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   // Always holds the latest search params — used by debounce effect to avoid stale closures
   const searchRef = useRef(search);
+  // Track previous search params to detect external URL changes (back/forward)
+  const prevSearchRef = useRef(search);
 
   // Local input value — debounced to URL
   const [inputValue, setInputValue] = useState(search.q ?? '');
@@ -417,14 +419,23 @@ export default function SearchPage() {
   // Keyboard-focused index
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
-  // Keep searchRef current so debounce effect always reads the latest URL params
-  searchRef.current = search;
-
   // Sync input if URL changes externally (browser back/forward)
   useEffect(() => {
-    setInputValue(search.q ?? '');
-    setSelectedDomain(search.domain ?? '');
-  }, [search.q, search.domain]);
+    if (search.q !== prevSearchRef.current.q) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInputValue(search.q ?? '');
+    }
+    if (search.domain !== prevSearchRef.current.domain) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedDomain(search.domain ?? '');
+    }
+    prevSearchRef.current = search;
+  }, [search]);
+
+  // Keep searchRef current so debounce effect always reads the latest URL params
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   // Debounce the input value (300ms) then push to URL.
   // Uses searchRef (not search directly) so the effect never captures stale params —
