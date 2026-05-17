@@ -155,6 +155,9 @@ class Reranker:
                 rerank_span.set_attribute("result_count", len(reranked_results))
                 return reranked_results
 
+            except MemoryError:
+                rerank_span.set_status(StatusCode.ERROR)
+                raise
             except Exception as e:
                 rerank_span.set_status(StatusCode.ERROR)
                 rerank_span.record_exception(e)

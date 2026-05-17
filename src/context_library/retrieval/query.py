@@ -163,6 +163,8 @@ def retrieve(
             try:
                 validate_embedding_dimension(query_vector, expected_dim)
             except ValueError as e:
+                retrieval_span.set_status(StatusCode.ERROR)
+                retrieval_span.record_exception(e)
                 raise ValueError(f"Query embedding validation failed: {e}") from e
 
             # Step 2: Search vector store
@@ -246,5 +248,4 @@ def retrieve(
 
         except Exception as e:
             retrieval_span.set_status(StatusCode.ERROR)
-            retrieval_span.record_exception(e)
             raise
