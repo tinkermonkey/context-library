@@ -207,12 +207,10 @@ function matchesTab(meta: TaskMeta, tab: FilterTab): boolean {
 // ── Task row ───────────────────────────────────────────────────────
 
 function TaskRow({
-  chunk: _chunk,
   meta,
   isSelected,
   onClick,
 }: {
-  chunk: ChunkResponse;
   meta: TaskMeta;
   isSelected: boolean;
   onClick: () => void;
