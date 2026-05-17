@@ -1,6 +1,6 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect, useReducer } from 'react';
 import type { ReactNode } from 'react';
 import { MagnifyingGlassIcon, ChatBubbleLeftIcon, LockClosedIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
@@ -261,28 +261,56 @@ type DisplayItem =
   | { kind: 'divider'; timestamp: string; key: string }
   | { kind: 'message'; chunk: ChunkResponse; meta: MessageMeta; showSender: boolean; key: string };
 
+type ThreadState = {
+  startOffset: number;
+  loaded: ChunkResponse[];
+};
+
+type ThreadAction =
+  | { type: 'reset'; startOffset: number }
+  | { type: 'setStartOffset'; startOffset: number }
+  | { type: 'accumulateChunks'; chunks: ChunkResponse[] };
+
+function threadReducer(state: ThreadState, action: ThreadAction): ThreadState {
+  switch (action.type) {
+    case 'reset':
+      return { startOffset: action.startOffset, loaded: [] };
+    case 'setStartOffset':
+      return { ...state, startOffset: action.startOffset };
+    case 'accumulateChunks': {
+      const seen = new Set(state.loaded.map(c => c.chunk_hash));
+      const fresh = action.chunks.filter(c => !seen.has(c.chunk_hash));
+      if (fresh.length === 0) return state;
+      return { ...state, loaded: [...fresh, ...state.loaded] };
+    }
+    default:
+      return state;
+  }
+}
+
 function MessageThread({ source }: { source: SourceSummary }): ReactNode {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasScrolledToBottom = useRef(false);
   const name = conversationName(source);
 
-  // Start at the most recent page (end of the chunk list).
-  const [startOffset, setStartOffset] = useState(() =>
-    Math.max(0, source.chunk_count - PAGE_SIZE),
-  );
-  const [loaded, setLoaded] = useState<ChunkResponse[]>([]);
+  const [state, dispatch] = useReducer(threadReducer, {
+    startOffset: Math.max(0, source.chunk_count - PAGE_SIZE),
+    loaded: [],
+  });
 
   // Reset everything when the conversation changes.
   useEffect(() => {
     hasScrolledToBottom.current = false;
-    setStartOffset(Math.max(0, source.chunk_count - PAGE_SIZE));
-    setLoaded([]);
+    dispatch({
+      type: 'reset',
+      startOffset: Math.max(0, source.chunk_count - PAGE_SIZE),
+    });
   }, [source.source_id, source.chunk_count]);
 
   // Fetch the current page. Archives are immutable → staleTime: Infinity.
   const { data, isLoading } = useQuery({
-    queryKey: ['chunks', source.source_id, startOffset],
-    queryFn: () => fetchSourceChunks(source.source_id, undefined, PAGE_SIZE, startOffset),
+    queryKey: ['chunks', source.source_id, state.startOffset],
+    queryFn: () => fetchSourceChunks(source.source_id, undefined, PAGE_SIZE, state.startOffset),
     staleTime: Infinity,
   });
 
@@ -290,39 +318,36 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
   // by comparing data.source_id to the currently selected source.
   useEffect(() => {
     if (!data?.chunks || data.source_id !== source.source_id) return;
-    setLoaded(prev => {
-      const seen = new Set(prev.map(c => c.chunk_hash));
-      const fresh = data.chunks.filter(c => !seen.has(c.chunk_hash));
-      if (fresh.length === 0) return prev;
-      // Prepend: earlier pages (lower offset) contain older messages.
-      return [...fresh, ...prev];
-    });
+    dispatch({ type: 'accumulateChunks', chunks: data.chunks });
   }, [data, source.source_id]);
 
   // Scroll to the bottom after the initial load. Deferred to next paint so
   // the message list has committed to the DOM before we measure.
   useEffect(() => {
-    if (!isLoading && loaded.length > 0 && !hasScrolledToBottom.current) {
+    if (!isLoading && state.loaded.length > 0 && !hasScrolledToBottom.current) {
       const timer = setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'instant' });
         hasScrolledToBottom.current = true;
       }, 0);
       return () => clearTimeout(timer);
     }
-  }, [isLoading, loaded.length]);
+  }, [isLoading, state.loaded.length]);
 
   // "Load earlier" is available while there are chunks before our current window.
-  const hasEarlier = startOffset > 0;
-  const isPaginating = isLoading && loaded.length > 0;
+  const hasEarlier = state.startOffset > 0;
+  const isPaginating = isLoading && state.loaded.length > 0;
 
   function loadEarlier(): void {
-    setStartOffset(prev => Math.max(0, prev - PAGE_SIZE));
+    dispatch({
+      type: 'setStartOffset',
+      startOffset: Math.max(0, state.startOffset - PAGE_SIZE),
+    });
   }
 
   // Sort by ISO timestamp string (lexicographic == chronological for ISO 8601)
   // then build display items with time-gap dividers.
   const items = useMemo((): DisplayItem[] => {
-    const sorted = [...loaded].sort((a, b) => {
+    const sorted = [...state.loaded].sort((a, b) => {
       const ta = typeof a.domain_metadata?.timestamp === 'string'
         ? a.domain_metadata.timestamp
         : '';
@@ -360,7 +385,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
       lastSender = meta.sender;
     }
     return result;
-  }, [loaded]);
+  }, [state.loaded]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -432,7 +457,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
           )
         )}
 
-        {!isLoading && loaded.length === 0 && (
+        {!isLoading && state.loaded.length === 0 && (
           <div className="flex items-center justify-center h-32">
             <p className="text-sm" style={{ color: colors.textDim }}>No messages found.</p>
           </div>

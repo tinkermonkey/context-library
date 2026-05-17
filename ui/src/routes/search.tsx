@@ -417,14 +417,16 @@ export default function SearchPage() {
   // Keyboard-focused index
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
-  // Keep searchRef current so debounce effect always reads the latest URL params
-  searchRef.current = search;
-
   // Sync input if URL changes externally (browser back/forward)
   useEffect(() => {
     setInputValue(search.q ?? '');
     setSelectedDomain(search.domain ?? '');
   }, [search.q, search.domain]);
+
+  // Keep searchRef current so debounce effect always reads the latest URL params
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   // Debounce the input value (300ms) then push to URL.
   // Uses searchRef (not search directly) so the effect never captures stale params —
