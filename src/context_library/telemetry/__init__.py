@@ -119,20 +119,57 @@ def shutdown_telemetry() -> None:
 
     Call this on server shutdown to ensure all telemetry is exported.
     Safe to call even if setup_telemetry() was never called.
+    Exceptions during shutdown are logged but do not crash the shutdown sequence.
     """
     global _tracer_provider, _logger_provider, _logging_handler
 
     if _tracer_provider is not None:
-        _tracer_provider.force_flush(timeout_millis=5000)
-        _tracer_provider.shutdown()
+        try:
+            _tracer_provider.force_flush(timeout_millis=5000)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "TracerProvider.force_flush() failed during shutdown (telemetry may be incomplete): %s",
+                e
+            )
+        try:
+            _tracer_provider.shutdown()
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "TracerProvider.shutdown() failed during shutdown: %s",
+                e
+            )
         _tracer_provider = None
 
     if _logger_provider is not None:
-        _logger_provider.force_flush(timeout_millis=5000)
-        _logger_provider.shutdown()
+        try:
+            _logger_provider.force_flush(timeout_millis=5000)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "LoggerProvider.force_flush() failed during shutdown (telemetry may be incomplete): %s",
+                e
+            )
+        try:
+            _logger_provider.shutdown()
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "LoggerProvider.shutdown() failed during shutdown: %s",
+                e
+            )
         _logger_provider = None
 
     if _logging_handler is not None:
-        _logging_handler.close()
-        logging.getLogger("context_library").removeHandler(_logging_handler)
+        try:
+            _logging_handler.close()
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "LoggingHandler.close() failed during shutdown: %s",
+                e
+            )
+        try:
+            logging.getLogger("context_library").removeHandler(_logging_handler)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Failed to remove LoggingHandler during shutdown: %s",
+                e
+            )
         _logging_handler = None
