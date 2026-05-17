@@ -513,6 +513,10 @@ class Poller:
                     with self._results_lock:
                         self._ingest_results[adapter_id] = result
 
+                    # Set span error status if any sources failed
+                    if result.sources_failed > 0:
+                        immediate_span.set_status(StatusCode.ERROR)
+
                     # Always clear the in-progress flag and remove thread from tracking
                     # CRITICAL: Clear flag inside lock to prevent race conditions
                     with self._threads_lock:
