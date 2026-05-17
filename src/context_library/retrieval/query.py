@@ -151,14 +151,12 @@ def retrieve(
                     )
 
             # Step 1: Embed the query
-            with tracer.start_as_current_span("embedder.embed_query") as embed_span:
-                embed_span.set_attribute("model_id", embedder.model_id)
-                try:
-                    query_vector = embedder.embed_query(query)
-                except Exception as e:
-                    embed_span.set_status(StatusCode.ERROR)
-                    embed_span.record_exception(e)
-                    raise
+            try:
+                query_vector = embedder.embed_query(query)
+            except Exception as e:
+                retrieval_span.set_status(StatusCode.ERROR)
+                retrieval_span.record_exception(e)
+                raise
 
             # Validate query embedding
             expected_dim = embedder.dimension

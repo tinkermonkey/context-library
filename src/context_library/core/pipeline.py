@@ -311,10 +311,7 @@ class IngestionPipeline:
 
                                 vectors = []
                                 if chunk_contents_for_embedding:
-                                    with tracer.start_as_current_span("embedder.embed") as embed_span:
-                                        vectors = self.embedder.embed(chunk_contents_for_embedding)
-                                        embed_span.set_attribute("chunk_count", len(chunk_contents_for_embedding))
-                                        embed_span.set_attribute("model_id", self.embedder.model_id)
+                                    vectors = self.embedder.embed(chunk_contents_for_embedding)
 
                                 # Validate all embeddings for correct dimension and finite values
                                 expected_dim = self.embedder.dimension

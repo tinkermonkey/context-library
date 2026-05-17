@@ -8,10 +8,14 @@ Complements bi-encoder similarity with cross-encoder fine-tuned ranking.
 import math
 from typing import Optional
 
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
 from sentence_transformers import CrossEncoder
 
 from context_library.core.exceptions import RerankerError
 from context_library.retrieval.query import RetrievalResult
+
+tracer = trace.get_tracer(__name__)
 
 
 def _sigmoid(x: float) -> float:
@@ -94,47 +98,64 @@ class Reranker:
             ValueError: If query is empty/whitespace or top_k is not positive.
             RerankerError: If cross-encoder model fails during prediction.
         """
-        # Validate inputs
-        if not query or not query.strip():
-            raise ValueError("query must be a non-empty string")
+        with tracer.start_as_current_span("reranker.rerank") as rerank_span:
+            rerank_span.set_attribute("candidate_count", len(candidates))
+            rerank_span.set_attribute("model_id", self._model_name)
+            if top_k is not None:
+                rerank_span.set_attribute("top_k", top_k)
 
-        if top_k is not None and top_k <= 0:
-            raise ValueError(f"top_k must be positive, got {top_k}")
+            try:
+                # Validate inputs
+                if not query or not query.strip():
+                    raise ValueError("query must be a non-empty string")
 
-        # Return empty list if no candidates
-        if not candidates:
-            return []
+                if top_k is not None and top_k <= 0:
+                    raise ValueError(f"top_k must be positive, got {top_k}")
 
-        # Build query-candidate pairs and score in batch
-        pairs = [(query, candidate.chunk.content) for candidate in candidates]
+                # Return empty list if no candidates
+                if not candidates:
+                    return []
 
-        try:
-            raw_scores = self._model.predict(pairs)
-        except MemoryError:
-            raise
-        except Exception as e:
-            raise RerankerError(
-                f"Cross-encoder prediction failed: {type(e).__name__}: {e}",
-                num_candidates=len(candidates),
-            ) from e
+                # Build query-candidate pairs and score in batch
+                pairs = [(query, candidate.chunk.content) for candidate in candidates]
 
-        # Normalize scores via sigmoid and create new RetrievalResult with reranker score
-        reranked_results: list[RetrievalResult] = []
-        for candidate, raw_score in zip(candidates, raw_scores):
-            normalized_score = _sigmoid(float(raw_score))
-            reranked_results.append(
-                RetrievalResult(
-                    chunk=candidate.chunk,
-                    lineage=candidate.lineage,
-                    similarity_score=normalized_score,
-                )
-            )
+                with tracer.start_as_current_span("reranker.predict") as predict_span:
+                    predict_span.set_attribute("candidate_count", len(pairs))
+                    try:
+                        raw_scores = self._model.predict(pairs)
+                    except MemoryError:
+                        raise
+                    except Exception as e:
+                        predict_span.set_status(StatusCode.ERROR)
+                        predict_span.record_exception(e)
+                        raise RerankerError(
+                            f"Cross-encoder prediction failed: {type(e).__name__}: {e}",
+                            num_candidates=len(candidates),
+                        ) from e
 
-        # Sort by descending reranker score
-        reranked_results.sort(key=lambda r: r.similarity_score, reverse=True)
+                # Normalize scores via sigmoid and create new RetrievalResult with reranker score
+                reranked_results: list[RetrievalResult] = []
+                for candidate, raw_score in zip(candidates, raw_scores):
+                    normalized_score = _sigmoid(float(raw_score))
+                    reranked_results.append(
+                        RetrievalResult(
+                            chunk=candidate.chunk,
+                            lineage=candidate.lineage,
+                            similarity_score=normalized_score,
+                        )
+                    )
 
-        # Truncate to top_k if specified
-        if top_k is not None:
-            reranked_results = reranked_results[:top_k]
+                # Sort by descending reranker score
+                reranked_results.sort(key=lambda r: r.similarity_score, reverse=True)
 
-        return reranked_results
+                # Truncate to top_k if specified
+                if top_k is not None:
+                    reranked_results = reranked_results[:top_k]
+
+                rerank_span.set_attribute("result_count", len(reranked_results))
+                return reranked_results
+
+            except Exception as e:
+                rerank_span.set_status(StatusCode.ERROR)
+                rerank_span.record_exception(e)
+                raise
