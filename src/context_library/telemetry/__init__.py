@@ -39,6 +39,10 @@ def setup_telemetry(
     """
     global _tracer_provider, _logger_provider, _logging_handler
 
+    # Guard against double initialization
+    if _tracer_provider is not None:
+        return _tracer_provider, _logger_provider
+
     if config is None:
         config = TelemetryConfig()
 
@@ -52,7 +56,7 @@ def setup_telemetry(
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk._logs import LoggerProvider as OtelLoggerProvider
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-    from opentelemetry.sdk._logs.handlers import LoggingHandler
+    from opentelemetry.sdk._logs import LoggingHandler
 
     # Get service version from package metadata
     try:
