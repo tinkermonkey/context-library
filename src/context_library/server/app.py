@@ -19,6 +19,7 @@ from context_library.server.config import ServerConfig
 from context_library.server.routes import admin, adapters, chunks, health, ingest, retrieve, sources, stats
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
+from context_library.telemetry import setup_telemetry, shutdown_telemetry
 
 logging.getLogger("context_library").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = ServerConfig()
+
+    # Initialize telemetry (setup_telemetry is a no-op if telemetry is disabled)
+    setup_telemetry(app=app)
 
     # Ensure parent directory exists for SQLite DB
     db_path = Path(config.sqlite_db_path)
@@ -237,6 +241,7 @@ async def lifespan(app: FastAPI):
 
     poller.stop()
     document_store.close()
+    shutdown_telemetry()
     logger.info("Server stopped")
 
 
