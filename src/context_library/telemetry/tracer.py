@@ -35,10 +35,25 @@ class NoOpSpan:
     def set_attribute(self, key: str, value: Any) -> None:
         pass
 
-    def set_status(self, status: Any) -> None:
+    def set_attributes(self, attributes: dict[str, Any]) -> None:
         pass
 
-    def record_exception(self, exception: Exception) -> None:
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None, timestamp: Any = None) -> None:
+        pass
+
+    def add_link(self, link: Any) -> None:
+        pass
+
+    def set_status(self, status_code: Any, description: str | None = None) -> None:
+        pass
+
+    def record_exception(self, exception: Exception, escaped: bool = False, attributes: dict[str, Any] | None = None, timestamp: Any = None) -> None:
+        pass
+
+    def update_name(self, new_name: str) -> None:
+        pass
+
+    def end(self, end_time: Any = None) -> None:
         pass
 
 
@@ -49,9 +64,27 @@ class NoOpTracer:
         self.name = name
 
     @contextmanager
-    def start_as_current_span(self, name: str) -> Generator[NoOpSpan, None, None]:
+    def start_as_current_span(
+        self,
+        name: str,
+        kind: Any = None,
+        attributes: dict[str, Any] | None = None,
+        links: list[Any] | None = None,
+        start_time: Any = None,
+    ) -> Generator[NoOpSpan, None, None]:
         """Context manager that yields a no-op span."""
         yield NoOpSpan(name)
+
+    def start_span(
+        self,
+        name: str,
+        kind: Any = None,
+        attributes: dict[str, Any] | None = None,
+        links: list[Any] | None = None,
+        start_time: Any = None,
+    ) -> NoOpSpan:
+        """Create a span without setting it as current."""
+        return NoOpSpan(name)
 
 
 def get_tracer(name: str) -> Any:
