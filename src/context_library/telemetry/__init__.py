@@ -53,9 +53,9 @@ def setup_telemetry(
     from opentelemetry import trace
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
     from opentelemetry.sdk._logs import LoggerProvider as OtelLoggerProvider
-    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogRecordExporter
     from opentelemetry.sdk._logs import LoggingHandler
 
     # Get service version: use config override if provided, otherwise read from package metadata
@@ -75,6 +75,7 @@ def setup_telemetry(
     })
 
     # Create OTLP span exporter based on protocol
+    span_exporter: SpanExporter
     if config.otlp_protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as HTTPOTLPSpanExporter
         span_exporter = HTTPOTLPSpanExporter(endpoint=config.otlp_endpoint)
@@ -88,6 +89,7 @@ def setup_telemetry(
     trace.set_tracer_provider(_tracer_provider)
 
     # Create OTLP log exporter based on protocol
+    log_exporter: LogRecordExporter
     if config.otlp_protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter as HTTPOTLPLogExporter
         log_exporter = HTTPOTLPLogExporter(endpoint=config.otlp_endpoint)
