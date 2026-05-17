@@ -30,7 +30,6 @@ async def lifespan(app: FastAPI):
     config = ServerConfig()
 
     # Initialize telemetry (setup_telemetry is a no-op if telemetry is disabled)
-    # Telemetry setup failures should not crash the server
     try:
         setup_telemetry(app=app)
     except Exception as e:
