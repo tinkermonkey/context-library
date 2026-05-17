@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -134,6 +134,35 @@ class TestLifespanInitialization:
 
                 async with lifespan(app):
                     assert app.state.helper_adapters == []
+
+    @pytest.mark.asyncio
+    async def test_lifespan_continues_when_telemetry_setup_fails(self):
+        """Lifespan continues when setup_telemetry raises an exception."""
+        from context_library.server.app import lifespan
+        from fastapi import FastAPI
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(
+                os.environ,
+                {
+                    "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
+                    "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
+                    "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
+                },
+            ):
+                app = FastAPI()
+
+                # Mock setup_telemetry to raise an exception
+                with patch("context_library.server.app.setup_telemetry") as mock_setup:
+                    mock_setup.side_effect = RuntimeError("OTLP endpoint connection failed")
+
+                    # lifespan should complete successfully despite telemetry setup failing
+                    async with lifespan(app):
+                        # Verify core components are still initialized
+                        assert app.state.document_store is not None
+                        assert app.state.embedder is not None
+                        assert app.state.vector_store is not None
+                        assert app.state.pipeline is not None
 
 
 class TestOuraAdapterInitialization:
