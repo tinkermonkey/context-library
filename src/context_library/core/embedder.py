@@ -2,7 +2,10 @@
 
 from typing import cast
 
+from opentelemetry import trace
 from sentence_transformers import SentenceTransformer
+
+tracer = trace.get_tracer(__name__)
 
 
 class Embedder:
@@ -54,12 +57,15 @@ class Embedder:
         Raises:
             ValueError: If texts is empty or contains only empty strings.
         """
-        if not texts:
-            raise ValueError("Cannot embed empty list of texts")
-        if all(not text or not text.strip() for text in texts):
-            raise ValueError("Cannot embed list containing only empty or whitespace-only strings")
-        embeddings = self._model.encode(texts, convert_to_numpy=True)
-        return cast(list[list[float]], embeddings.tolist())
+        with tracer.start_as_current_span("embedder.embed") as span:
+            if not texts:
+                raise ValueError("Cannot embed empty list of texts")
+            if all(not text or not text.strip() for text in texts):
+                raise ValueError("Cannot embed list containing only empty or whitespace-only strings")
+            span.set_attribute("chunk_count", len(texts))
+            span.set_attribute("model_id", self.model_id)
+            embeddings = self._model.encode(texts, convert_to_numpy=True)
+            return cast(list[list[float]], embeddings.tolist())
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a single query string.
@@ -75,7 +81,9 @@ class Embedder:
         Raises:
             ValueError: If query is empty or contains only whitespace.
         """
-        if not query or not query.strip():
-            raise ValueError("Cannot embed empty or whitespace-only query")
-        embedding = self._model.encode(query, convert_to_numpy=True)
-        return cast(list[float], embedding.tolist())
+        with tracer.start_as_current_span("embedder.embed_query") as span:
+            if not query or not query.strip():
+                raise ValueError("Cannot embed empty or whitespace-only query")
+            span.set_attribute("model_id", self.model_id)
+            embedding = self._model.encode(query, convert_to_numpy=True)
+            return cast(list[float], embedding.tolist())
