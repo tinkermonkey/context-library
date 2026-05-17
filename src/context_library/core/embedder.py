@@ -37,7 +37,7 @@ class Embedder:
         Raises:
             ValueError: If the model does not report an embedding dimension.
         """
-        dim = self._model.get_sentence_embedding_dimension()
+        dim = self._model.get_embedding_dimension()
         if dim is None:
             raise ValueError(f"Model {self._model_name} did not report an embedding dimension")
         return cast(int, dim)
