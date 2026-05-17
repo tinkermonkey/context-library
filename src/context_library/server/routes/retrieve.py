@@ -3,12 +3,12 @@
 import asyncio
 
 from fastapi import APIRouter, Request
-from opentelemetry import trace
 
+from context_library.telemetry.tracer import get_tracer
 from context_library.retrieval.query import retrieve
 from context_library.server.schemas import QueryRequest, QueryResponse, QueryResultItem
 
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
 
 router = APIRouter()
 

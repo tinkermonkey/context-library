@@ -3,9 +3,7 @@
 import logging
 from typing import Optional
 
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
-
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.exceptions import EntityLinkingError
 from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.document_store import DocumentStore
@@ -17,7 +15,8 @@ from context_library.storage.models import (
 )
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 class EntityLinker:

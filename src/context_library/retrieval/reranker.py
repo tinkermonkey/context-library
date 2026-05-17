@@ -8,14 +8,14 @@ Complements bi-encoder similarity with cross-encoder fine-tuned ranking.
 import math
 from typing import Optional
 
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from sentence_transformers import CrossEncoder
 
 from context_library.core.exceptions import RerankerError
 from context_library.retrieval.query import RetrievalResult
 
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 def _sigmoid(x: float) -> float:

@@ -4,9 +4,7 @@ import logging
 import threading
 from typing import NamedTuple
 
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
-
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.pipeline import IngestionPipeline
 from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileSystemWatcher
@@ -14,7 +12,8 @@ from context_library.domains.base import BaseDomain
 from context_library.storage.models import PollStrategy
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 class FailedPushEvent(NamedTuple):

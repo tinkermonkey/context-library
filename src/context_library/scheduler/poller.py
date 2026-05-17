@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
-
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
@@ -21,7 +19,8 @@ from context_library.scheduler.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 
 def _is_programming_error(exc: Exception) -> bool:

@@ -1,5 +1,7 @@
 """Telemetry configuration loaded from environment variables."""
 
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +22,7 @@ class TelemetryConfig(BaseSettings):
     otlp_endpoint: str = ""
 
     # OTLP transport protocol: "grpc" (default) or "http/protobuf"
-    otlp_protocol: str = "grpc"
+    otlp_protocol: Literal["grpc", "http/protobuf"] = "grpc"
 
     # Service name exported in the OTLP Resource
     otel_service_name: str = "context-library"

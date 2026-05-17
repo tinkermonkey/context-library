@@ -8,8 +8,7 @@ import logging
 import re
 from typing import Optional
 
-from opentelemetry import trace
-from opentelemetry.trace import StatusCode
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from context_library.core.embedder import Embedder
@@ -19,7 +18,8 @@ from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import VectorStore
 
 _logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 # Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
 _SAFE_SOURCE_FILTER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./]+$")

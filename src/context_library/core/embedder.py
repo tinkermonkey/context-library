@@ -2,10 +2,10 @@
 
 from typing import cast
 
-from opentelemetry import trace
+from context_library.telemetry.tracer import get_tracer
 from sentence_transformers import SentenceTransformer
 
-tracer = trace.get_tracer(__name__)
+tracer = get_tracer(__name__)
 
 
 class Embedder:
