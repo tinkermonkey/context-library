@@ -248,8 +248,8 @@ async def lifespan(app: FastAPI):
 
     poller.stop()
     document_store.close()
-    shutdown_telemetry()
     logger.info("Server stopped")
+    shutdown_telemetry()
 
 
 def create_app() -> FastAPI:

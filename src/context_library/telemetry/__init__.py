@@ -111,9 +111,10 @@ def setup_telemetry(
     # Set global providers
     trace.set_tracer_provider(_tracer_provider)
 
-    # Attach LoggingHandler to the context_library root logger
-    context_library_logger = logging.getLogger("context_library")
-    context_library_logger.addHandler(_logging_handler)
+    # Attach LoggingHandler to the root logger to capture all log records (INFO+)
+    # from uvicorn, FastAPI internals, third-party libraries, and application code
+    root_logger = logging.getLogger()
+    root_logger.addHandler(_logging_handler)
 
     # Wire FastAPI auto-instrumentation for the specific app instance
     if app is not None:
@@ -179,7 +180,7 @@ def shutdown_telemetry() -> None:
                 e
             )
         try:
-            logging.getLogger("context_library").removeHandler(_logging_handler)
+            logging.getLogger().removeHandler(_logging_handler)
         except Exception as e:
             logging.getLogger(__name__).warning(
                 "Failed to remove LoggingHandler during shutdown: %s",
