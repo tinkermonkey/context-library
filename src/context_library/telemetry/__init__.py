@@ -83,10 +83,9 @@ def setup_telemetry(
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as gRPCOTLPSpanExporter
         span_exporter = gRPCOTLPSpanExporter(endpoint=config.otlp_endpoint)
 
-    # Create TracerProvider with BatchSpanProcessor
-    _tracer_provider = TracerProvider(resource=resource)
-    _tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
-    trace.set_tracer_provider(_tracer_provider)
+    # Create TracerProvider with BatchSpanProcessor (using local variable)
+    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
 
     # Create OTLP log exporter based on protocol
     log_exporter: LogRecordExporter
@@ -97,13 +96,22 @@ def setup_telemetry(
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as gRPCOTLPLogExporter
         log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint)
 
-    # Create LoggerProvider with BatchLogRecordProcessor
-    _logger_provider = OtelLoggerProvider(resource=resource)
-    _logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+    # Create LoggerProvider with BatchLogRecordProcessor (using local variable)
+    logger_provider = OtelLoggerProvider(resource=resource)
+    logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+
+    # Create LoggingHandler (using local variable)
+    logging_handler = LoggingHandler(logger_provider=logger_provider)
+
+    # All setup succeeded, assign to globals and apply configuration
+    _tracer_provider = tracer_provider
+    _logger_provider = logger_provider
+    _logging_handler = logging_handler
+
+    # Set global providers
+    trace.set_tracer_provider(_tracer_provider)
 
     # Attach LoggingHandler to the context_library root logger
-    # This bridges Python logging into OTLP log events with trace context injection
-    _logging_handler = LoggingHandler(logger_provider=_logger_provider)
     context_library_logger = logging.getLogger("context_library")
     context_library_logger.addHandler(_logging_handler)
 

@@ -48,7 +48,7 @@ otel = [
     "opentelemetry-instrumentation-fastapi>=0.41b0",
     "opentelemetry-instrumentation-httpx>=0.41b0",
 ]
-dev = ["ruff", "mypy", "pytest", "pytest-asyncio", "pytest-xdist", "types-PyYAML", "watchdog", "watchfiles", "vobject", "html2text", "httpx", "obsidiantools", "python-frontmatter", "PyYAML"]
+dev = ["ruff", "mypy", "pytest", "pytest-asyncio", "pytest-xdist", "types-PyYAML", "watchdog", "watchfiles", "vobject", "html2text", "httpx", "obsidiantools", "python-frontmatter", "PyYAML", "opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20", "opentelemetry-instrumentation>=0.41b0", "opentelemetry-exporter-otlp-proto-grpc>=1.20", "opentelemetry-exporter-otlp-proto-http>=1.20", "opentelemetry-instrumentation-fastapi>=0.41b0", "opentelemetry-instrumentation-httpx>=0.41b0"]
 
 [tool.mypy]
 python_version = "3.10"
