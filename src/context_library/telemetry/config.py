@@ -15,7 +15,7 @@ class TelemetryConfig(BaseSettings):
     # Master kill switch: if false, no providers are created, no exporters are initialized
     otel_enabled: bool = False
 
-    # OTLP collector endpoint (e.g., http://100.104.222.123:4317)
+    # OTLP collector endpoint (e.g., http://localhost:4317)
     # If unset, setup_telemetry() returns early (no-op)
     otlp_endpoint: str = ""
 
