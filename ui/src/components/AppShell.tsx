@@ -1,41 +1,51 @@
 import type { ReactNode } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
-import { ShellLayout, type IconName } from '@tinkermonkey/heimdall-ui';
+import {
+  HomeIcon,
+  MagnifyingGlassIcon,
+  DocumentTextIcon,
+  ChatBubbleLeftIcon,
+  CalendarIcon,
+  CheckCircleIcon,
+  HeartIcon,
+  FolderIcon,
+  UsersIcon,
+  MapPinIcon,
+  MusicalNoteIcon,
+  Cog6ToothIcon,
+} from '@heroicons/react/24/outline';
+import type { ComponentType, SVGProps } from 'react';
 import { HealthIndicator } from './HealthIndicator';
+import { NavigationSidebar } from './NavigationSidebar';
+
+type HeroIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 interface NavItem {
   id: string;
   label: string;
-  icon: IconName;
+  icon: HeroIcon;
 }
 
-interface SidebarItem {
-  id: string;
-  label: string;
-  icon?: IconName;
-  count?: number;
-}
-
-interface SidebarSection {
+interface NavigationSection {
   title: string;
-  items: SidebarItem[];
+  items: NavItem[];
 }
 
 const PRIMARY_NAV = [
-  { id: '/', label: 'Dashboard', icon: 'dashboard' },
-  { id: '/search', label: 'Search', icon: 'search' },
-  { id: '/notes', label: 'Notes', icon: 'component' },
-  { id: '/messages', label: 'Messages', icon: 'component' },
-  { id: '/events', label: 'Events', icon: 'calendar' },
-  { id: '/tasks', label: 'Tasks', icon: 'check' },
-  { id: '/health', label: 'Health', icon: 'heart' },
-  { id: '/documents', label: 'Documents', icon: 'component' },
-  { id: '/people', label: 'People', icon: 'user' },
-  { id: '/location', label: 'Location', icon: 'component' },
-  { id: '/music', label: 'Music', icon: 'component' },
+  { id: '/', label: 'Dashboard', icon: HomeIcon },
+  { id: '/search', label: 'Search', icon: MagnifyingGlassIcon },
+  { id: '/notes', label: 'Notes', icon: DocumentTextIcon },
+  { id: '/messages', label: 'Messages', icon: ChatBubbleLeftIcon },
+  { id: '/events', label: 'Events', icon: CalendarIcon },
+  { id: '/tasks', label: 'Tasks', icon: CheckCircleIcon },
+  { id: '/health', label: 'Health', icon: HeartIcon },
+  { id: '/documents', label: 'Documents', icon: FolderIcon },
+  { id: '/people', label: 'People', icon: UsersIcon },
+  { id: '/location', label: 'Location', icon: MapPinIcon },
+  { id: '/music', label: 'Music', icon: MusicalNoteIcon },
 ] as const satisfies readonly NavItem[];
 
-const ADMIN_NAV = { id: '/admin', label: 'Admin', icon: 'settings' } as const satisfies NavItem;
+const ADMIN_NAV = { id: '/admin', label: 'Admin', icon: Cog6ToothIcon } as const satisfies NavItem;
 
 type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
 
@@ -91,7 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     router.navigate({ to: itemId as ValidRoute });
   };
 
-  const sections: SidebarSection[] = [
+  const sections: NavigationSection[] = [
     {
       title: 'Primary',
       items: [...PRIMARY_NAV],
@@ -105,21 +115,42 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { title } = getPageMeta(path);
 
   return (
-    <ShellLayout
-      appTitle={{
-        title: 'Context Library',
-      }}
-      sidebar={{
-        sections,
-        activeItemId,
-        onSelectItem: handleSelectItem,
-      }}
-      topbar={{
-        breadcrumbs: [{ label: title }],
-        children: <HealthIndicator />,
-      }}
-    >
-      {children}
-    </ShellLayout>
+    <div className="flex h-screen bg-white">
+      {/* Sidebar */}
+      <NavigationSidebar
+        sections={sections}
+        activeItemId={activeItemId}
+        onSelectItem={handleSelectItem}
+      />
+
+      {/* Main content area */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Top bar */}
+        <div
+          className="flex items-center justify-between h-14 px-6 border-b"
+          style={{
+            borderColor: 'rgb(var(--shell-border))',
+            background: 'rgb(var(--shell-surface))',
+          }}
+        >
+          <div className="flex flex-col flex-1 min-w-0">
+            <span
+              style={{ color: 'rgb(var(--shell-fg-1))' }}
+              className="font-semibold text-sm leading-tight"
+            >
+              {title}
+            </span>
+          </div>
+          <div className="flex items-center gap-4 ml-auto">
+            <HealthIndicator />
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto">
+          {children}
+        </div>
+      </div>
+    </div>
   );
 }
