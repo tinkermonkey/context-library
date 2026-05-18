@@ -26,7 +26,7 @@ function buildSourceColumns(onView: (source: SourceSummary) => void): ColumnDef<
       cell: (info) => (
         <button
           onClick={(e) => { e.stopPropagation(); onView(info.row.original); }}
-          className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors"
+          className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded hover:bg-green-200 dark:hover:bg-green-800 transition-colors"
         >
           View
         </button>
@@ -92,14 +92,14 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
   const { data: detail, isLoading, isError, error } = useSource(source.source_id);
 
   if (isLoading) {
-    return <div className="text-gray-500">Loading...</div>;
+    return <div className="text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   if (isError) {
     return (
-      <div className="bg-red-50 p-3 rounded border border-red-200">
-        <p className="text-red-900 font-semibold text-sm">Failed to load source details</p>
-        <p className="text-red-800 text-xs mt-1">
+      <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+        <p className="text-red-900 dark:text-red-200 font-semibold text-sm">Failed to load source details</p>
+        <p className="text-red-800 dark:text-red-300 text-xs mt-1">
           {error instanceof Error ? error.message : 'An unexpected error occurred'}
         </p>
       </div>
@@ -113,58 +113,58 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-semibold">Source ID:</span>
-          <code className="block text-xs text-gray-600 break-all">{source.source_id}</code>
+          <code className="block text-xs text-gray-600 dark:text-gray-400 break-all">{source.source_id}</code>
         </div>
         <div>
           <span className="text-sm font-semibold">Adapter:</span>
-          <span className="block text-sm text-gray-600">{source.adapter_id}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.adapter_id}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Domain:</span>
-          <span className="block text-sm text-gray-600">{source.domain}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.domain}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Adapter Type:</span>
-          <span className="block text-sm text-gray-600">{detail?.adapter_type || '—'}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{detail?.adapter_type || '—'}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Origin Ref:</span>
-          <code className="block text-xs text-gray-600 break-all">{source.origin_ref}</code>
+          <code className="block text-xs text-gray-600 dark:text-gray-400 break-all">{source.origin_ref}</code>
         </div>
         <div>
           <span className="text-sm font-semibold">Display Name:</span>
-          <span className="block text-sm text-gray-600">{source.display_name || '—'}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.display_name || '—'}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Current Version:</span>
-          <span className="block text-sm text-gray-600">{source.current_version}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.current_version}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Chunk Count:</span>
-          <span className="block text-sm text-gray-600">{source.chunk_count}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.chunk_count}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Last Fetched:</span>
-          <span className="block text-sm text-gray-600">
+          <span className="block text-sm text-gray-600 dark:text-gray-400">
             {source.last_fetched_at ? new Date(source.last_fetched_at).toLocaleString() : '—'}
           </span>
         </div>
         <div>
           <span className="text-sm font-semibold">Poll Strategy:</span>
-          <span className="block text-sm text-gray-600">{source.poll_strategy}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{source.poll_strategy}</span>
         </div>
         {detail?.poll_interval_sec != null && (
           <div>
             <span className="text-sm font-semibold">Poll Interval:</span>
-            <span className="block text-sm text-gray-600">{detail.poll_interval_sec}s</span>
+            <span className="block text-sm text-gray-600 dark:text-gray-400">{detail.poll_interval_sec}s</span>
           </div>
         )}
         <div>
           <span className="text-sm font-semibold">Normalizer Version:</span>
-          <span className="block text-sm text-gray-600">{detail?.normalizer_version || '—'}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{detail?.normalizer_version || '—'}</span>
         </div>
       </div>
-      <div className="flex gap-2 pt-2 border-t">
+      <div className="flex gap-2 pt-2 border-t dark:border-slate-700">
         <Button
           size="sm"
           variant="primary"
@@ -222,21 +222,21 @@ function buildVersionColumns(): ColumnDef<VersionSummary, unknown>[] {
       header: 'Added',
       cell: (info) => {
         const count = info.getValue<number>();
-        return <span className="text-green-700 font-semibold">{count}</span>;
+        return <span className="text-green-700 dark:text-green-300 font-semibold">{count}</span>;
       },
     }) as ColumnDef<VersionSummary, unknown>,
     versionColumnHelper.accessor('removed_chunks', {
       header: 'Removed',
       cell: (info) => {
         const count = info.getValue<number>();
-        return <span className="text-red-700 font-semibold">{count}</span>;
+        return <span className="text-red-700 dark:text-red-300 font-semibold">{count}</span>;
       },
     }) as ColumnDef<VersionSummary, unknown>,
     versionColumnHelper.accessor('unchanged_chunks', {
       header: 'Unchanged',
       cell: (info) => {
         const count = info.getValue<number>();
-        return <span className="text-gray-700">{count}</span>;
+        return <span className="text-gray-700 dark:text-gray-300">{count}</span>;
       },
     }) as ColumnDef<VersionSummary, unknown>,
     versionColumnHelper.accessor('fetch_timestamp', {
@@ -261,45 +261,45 @@ function VersionDetailPanel({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <span className="text-sm font-semibold">Version:</span>
-          <span className="block text-sm text-gray-600">v{version.version}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">v{version.version}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Total Chunks:</span>
-          <span className="block text-sm text-gray-600">{version.chunk_hash_count}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{version.chunk_hash_count}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Adapter:</span>
-          <span className="block text-sm text-gray-600">{version.adapter_id}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{version.adapter_id}</span>
         </div>
         <div>
           <span className="text-sm font-semibold">Normalizer Version:</span>
-          <span className="block text-sm text-gray-600">{version.normalizer_version}</span>
+          <span className="block text-sm text-gray-600 dark:text-gray-400">{version.normalizer_version}</span>
         </div>
         <div className="col-span-2">
           <span className="text-sm font-semibold">Fetch Timestamp:</span>
-          <span className="block text-sm text-gray-600">
+          <span className="block text-sm text-gray-600 dark:text-gray-400">
             {new Date(version.fetch_timestamp).toLocaleString()}
           </span>
         </div>
       </div>
 
       {/* Diff Summary */}
-      <div className="grid grid-cols-3 gap-3 pt-2 border-t">
-        <div className="bg-green-50 p-3 rounded border border-green-200">
-          <span className="text-xs font-semibold text-green-900">Added</span>
-          <span className="block text-lg font-semibold text-green-700">{version.added_chunks}</span>
+      <div className="grid grid-cols-3 gap-3 pt-2 border-t dark:border-slate-700">
+        <div className="bg-green-50 dark:bg-green-900 p-3 rounded border border-green-200 dark:border-green-700">
+          <span className="text-xs font-semibold text-green-900 dark:text-green-200">Added</span>
+          <span className="block text-lg font-semibold text-green-700 dark:text-green-300">{version.added_chunks}</span>
         </div>
-        <div className="bg-red-50 p-3 rounded border border-red-200">
-          <span className="text-xs font-semibold text-red-900">Removed</span>
-          <span className="block text-lg font-semibold text-red-700">{version.removed_chunks}</span>
+        <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+          <span className="text-xs font-semibold text-red-900 dark:text-red-200">Removed</span>
+          <span className="block text-lg font-semibold text-red-700 dark:text-red-300">{version.removed_chunks}</span>
         </div>
-        <div className="bg-gray-50 p-3 rounded border border-gray-200">
-          <span className="text-xs font-semibold text-gray-900">Unchanged</span>
-          <span className="block text-lg font-semibold text-gray-700">{version.unchanged_chunks}</span>
+        <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded border border-gray-200 dark:border-slate-700">
+          <span className="text-xs font-semibold text-gray-900 dark:text-gray-200">Unchanged</span>
+          <span className="block text-lg font-semibold text-gray-700 dark:text-gray-300">{version.unchanged_chunks}</span>
         </div>
       </div>
 
-      <div className="flex gap-2 pt-2 border-t">
+      <div className="flex gap-2 pt-2 border-t dark:border-slate-700">
         <Button
           size="sm"
           variant="primary"
@@ -393,7 +393,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
           const row = info.row.original;
           const status = row.domain_metadata?.status;
           return (
-            <span className="text-sm inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded">
+            <span className="text-sm inline-block px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded">
               {status ? String(status) : '—'}
             </span>
           );
@@ -415,7 +415,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
           const row = info.row.original;
           const priority = row.domain_metadata?.priority;
           return (
-            <span className="text-sm inline-block px-2 py-1 bg-purple-100 text-purple-800 rounded">
+            <span className="text-sm inline-block px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded">
               {priority ? String(priority) : '—'}
             </span>
           );
@@ -459,7 +459,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
           const row = info.row.original;
           const level = row.domain_metadata?.level;
           return (
-            <span className="text-sm inline-block px-2 py-1 bg-gray-100 text-gray-800 rounded">
+            <span className="text-sm inline-block px-2 py-1 bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-200 rounded">
               {level ? `H${level}` : '—'}
             </span>
           );
@@ -519,7 +519,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
       {/* Full Content */}
       <div>
         <h4 className="font-semibold text-sm mb-2">Full Content</h4>
-        <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words">
+        <pre className="bg-gray-100 dark:bg-slate-800 p-3 rounded text-xs overflow-auto max-h-40 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-200">
           {chunk.content}
         </pre>
       </div>
@@ -528,7 +528,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
       {chunk.context_header && (
         <div>
           <h4 className="font-semibold text-sm mb-2">Context</h4>
-          <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto">
+          <pre className="bg-gray-100 dark:bg-slate-800 p-3 rounded text-xs overflow-auto text-gray-900 dark:text-gray-200">
             {chunk.context_header}
           </pre>
         </div>
@@ -538,7 +538,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
       {chunk.domain_metadata && (
         <div>
           <h4 className="font-semibold text-sm mb-2">Domain Metadata</h4>
-          <pre className="bg-gray-100 p-3 rounded text-xs overflow-auto max-h-32">
+          <pre className="bg-gray-100 dark:bg-slate-800 p-3 rounded text-xs overflow-auto max-h-32 text-gray-900 dark:text-gray-200">
             {JSON.stringify(chunk.domain_metadata, null, 2)}
           </pre>
         </div>
@@ -550,7 +550,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
           <h4 className="font-semibold text-sm mb-2">Cross References</h4>
           <div className="space-y-1">
             {chunk.cross_refs.map((ref, i) => (
-              <code key={i} className="block text-xs text-gray-600 break-all">
+              <code key={i} className="block text-xs text-gray-600 dark:text-gray-400 break-all">
                 {ref}
               </code>
             ))}
@@ -562,16 +562,16 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
       <div>
         <h4 className="font-semibold text-sm mb-2">Provenance</h4>
         {provLoading ? (
-          <div className="text-gray-500 text-sm">Loading provenance...</div>
+          <div className="text-gray-500 dark:text-gray-400 text-sm">Loading provenance...</div>
         ) : provError ? (
-          <div className="bg-red-50 p-3 rounded border border-red-200">
-            <p className="text-red-900 font-semibold text-sm">Failed to load provenance</p>
-            <p className="text-red-800 text-xs mt-1">
+          <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+            <p className="text-red-900 dark:text-red-200 font-semibold text-sm">Failed to load provenance</p>
+            <p className="text-red-800 dark:text-red-300 text-xs mt-1">
               {provErrorObj instanceof Error ? provErrorObj.message : 'An unexpected error occurred'}
             </p>
           </div>
         ) : prov ? (
-          <div className="space-y-2 bg-gray-50 p-3 rounded text-sm">
+          <div className="space-y-2 bg-gray-50 dark:bg-slate-800 p-3 rounded text-sm">
             <div>
               <span className="font-semibold">Source:</span> {prov.source_origin_ref}
             </div>
@@ -583,10 +583,10 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
                 <h5 className="font-semibold text-xs mt-2 mb-1">Version Chain:</h5>
                 <div className="space-y-1">
                   {prov.version_chain.map((item, i) => (
-                    <div key={i} className="bg-white p-2 rounded border text-xs">
+                    <div key={i} className="bg-white dark:bg-slate-700 p-2 rounded border dark:border-slate-600 text-xs">
                       <code className="block">{item.chunk_hash.substring(0, 12)}…</code>
-                      <div className="text-gray-600 text-xs">{item.chunk_type}</div>
-                      <div className="text-gray-500 text-xs line-clamp-1">
+                      <div className="text-gray-600 dark:text-gray-400 text-xs">{item.chunk_type}</div>
+                      <div className="text-gray-500 dark:text-gray-400 text-xs line-clamp-1">
                         {item.content.substring(0, 60)}
                         {item.content.length > 60 ? '…' : ''}
                       </div>
@@ -597,7 +597,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
             )}
           </div>
         ) : (
-          <div className="text-gray-500 text-sm">No provenance data</div>
+          <div className="text-gray-500 dark:text-gray-400 text-sm">No provenance data</div>
         )}
       </div>
     </div>

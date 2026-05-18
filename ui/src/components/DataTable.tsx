@@ -300,7 +300,7 @@ export function DataTable<TData>({
   // Render error state
   if (isError) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+      <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4 text-red-700 dark:text-red-200">
         <strong>Error loading data:</strong> {error?.message || 'Unknown error'}
       </div>
     );
@@ -323,14 +323,14 @@ export function DataTable<TData>({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {facets.map((facet) => (
               <div key={facet.column} className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700">{facet.label}</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{facet.label}</label>
                 <select
                   value={filters[facet.column]?.[0] ?? ''}
                   onChange={(e) => {
                     const value = e.target.value;
                     handleFacetChange(facet.column, value ? [value] : []);
                   }}
-                  className="w-full rounded border border-gray-300 p-2 text-sm"
+                  className="w-full rounded border border-gray-300 dark:border-slate-600 p-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
                 >
                   <option value="">All</option>
                   {facet.values.map((value) => (
@@ -346,7 +346,7 @@ export function DataTable<TData>({
       </div>
 
       {/* Record Count Summary */}
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-gray-600 dark:text-gray-400">
         {total === 0 ? 'No records' : `Showing ${startRecord}–${endRecord} of ${total} records`}
       </div>
 
@@ -430,13 +430,13 @@ export function DataTable<TData>({
       </div>
 
       {/* Pagination Controls */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t pt-4">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t dark:border-slate-700 pt-4">
         <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Page size:</label>
+          <label className="text-sm text-gray-600 dark:text-gray-400">Page size:</label>
           <select
             value={String(pageSize)}
             onChange={(e) => handlePageSizeChange(e.target.value)}
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
+            className="rounded border border-gray-300 dark:border-slate-600 px-2 py-1 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
           >
             {[10, 25, 50, 100].map((size) => (
               <option key={size} value={size}>
@@ -447,7 +447,7 @@ export function DataTable<TData>({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
             Page {currentPage + 1} of {Math.ceil(total / pageSize) || 1}
           </span>
         </div>

@@ -76,7 +76,7 @@ export function ResetAdapterDialog({
               Are you sure you want to reset the adapter{' '}
               <strong>{adapterName}</strong>?
             </p>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+            <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-3 text-sm text-yellow-800 dark:text-yellow-200">
               <p className="font-semibold mb-1">⚠️ This action cannot be undone</p>
               <ul className="list-disc list-inside space-y-1 text-xs">
                 <li>All chunks from this adapter will be retired</li>
@@ -87,7 +87,7 @@ export function ResetAdapterDialog({
             </div>
 
             {resetMutation.isError && resetMutation.error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+              <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-3 text-sm text-red-800 dark:text-red-200">
                 <strong>Error:</strong>{' '}
                 {resetMutation.error instanceof Error
                   ? resetMutation.error.message
@@ -136,11 +136,11 @@ export function ResetAdapterDialog({
             {result && (
               <>
                 {result.errors.length === 0 ? (
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                  <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-lg p-3 text-sm text-green-800 dark:text-green-200">
                     <strong>Success!</strong> The adapter has been reset
                   </div>
                 ) : (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                  <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-3 text-sm text-yellow-800 dark:text-yellow-200">
                     <strong>Partial Success</strong> The reset completed with
                     warnings
                   </div>
@@ -184,13 +184,13 @@ export function ResetAdapterDialog({
                 </div>
 
                 {result.errors.length > 0 && (
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                    <p className="font-semibold text-orange-900 mb-2 text-sm">
+                  <div className="bg-orange-50 dark:bg-orange-900 border border-orange-200 dark:border-orange-700 rounded-lg p-3">
+                    <p className="font-semibold text-orange-900 dark:text-orange-200 mb-2 text-sm">
                       Details:
                     </p>
                     <ul className="space-y-1">
                       {result.errors.map((error, idx) => (
-                        <li key={idx} className="text-xs text-orange-800">
+                        <li key={idx} className="text-xs text-orange-800 dark:text-orange-200">
                           • {error}
                         </li>
                       ))}

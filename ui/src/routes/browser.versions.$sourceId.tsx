@@ -65,14 +65,14 @@ function buildVersionColumns(
         const unchanged = version.unchanged_chunks || 0;
 
         if (added === 0 && removed === 0) {
-          return <span className="text-gray-500 text-sm">—</span>;
+          return <span className="text-gray-500 dark:text-gray-400 text-sm">—</span>;
         }
 
         return (
           <div className="flex gap-1 text-xs">
-            {added > 0 && <span className="text-green-700 font-medium">+{added}</span>}
-            {removed > 0 && <span className="text-red-700 font-medium">-{removed}</span>}
-            {unchanged > 0 && <span className="text-gray-600">{unchanged}○</span>}
+            {added > 0 && <span className="text-green-700 dark:text-green-300 font-medium">+{added}</span>}
+            {removed > 0 && <span className="text-red-700 dark:text-red-300 font-medium">-{removed}</span>}
+            {unchanged > 0 && <span className="text-gray-600 dark:text-gray-400">{unchanged}○</span>}
           </div>
         );
       },
@@ -85,28 +85,28 @@ function DiffView({ diff }: { diff: VersionDiffResponse }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-green-50 p-4 rounded border border-green-200">
-          <span className="text-sm font-semibold text-green-900">Added</span>
-          <div className="text-2xl font-bold text-green-700 mt-1">{diff.added_hashes.length}</div>
+        <div className="bg-green-50 dark:bg-green-900 p-4 rounded border border-green-200 dark:border-green-700">
+          <span className="text-sm font-semibold text-green-900 dark:text-green-200">Added</span>
+          <div className="text-2xl font-bold text-green-700 dark:text-green-300 mt-1">{diff.added_hashes.length}</div>
         </div>
-        <div className="bg-red-50 p-4 rounded border border-red-200">
-          <span className="text-sm font-semibold text-red-900">Removed</span>
-          <div className="text-2xl font-bold text-red-700 mt-1">{diff.removed_hashes.length}</div>
+        <div className="bg-red-50 dark:bg-red-900 p-4 rounded border border-red-200 dark:border-red-700">
+          <span className="text-sm font-semibold text-red-900 dark:text-red-200">Removed</span>
+          <div className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{diff.removed_hashes.length}</div>
         </div>
-        <div className="bg-gray-50 p-4 rounded border border-gray-200">
-          <span className="text-sm font-semibold text-gray-900">Unchanged</span>
-          <div className="text-2xl font-bold text-gray-700 mt-1">{diff.unchanged_hashes.length}</div>
+        <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded border border-gray-200 dark:border-slate-700">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-200">Unchanged</span>
+          <div className="text-2xl font-bold text-gray-700 dark:text-gray-300 mt-1">{diff.unchanged_hashes.length}</div>
         </div>
       </div>
 
       {diff.added_chunks.length > 0 && (
         <div>
-          <h3 className="text-lg font-semibold text-green-900 mb-3">Added Chunks ({diff.added_chunks.length})</h3>
+          <h3 className="text-lg font-semibold text-green-900 dark:text-green-200 mb-3">Added Chunks ({diff.added_chunks.length})</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {diff.added_chunks.map((chunk) => (
-              <div key={chunk.chunk_hash} className="border-l-4 border-green-500 bg-green-50 p-3 rounded">
-                <code className="text-xs text-gray-600 font-mono">{chunk.chunk_hash.substring(0, 12)}…</code>
-                <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">
+              <div key={chunk.chunk_hash} className="border-l-4 border-green-500 bg-green-50 dark:bg-green-900 p-3 rounded">
+                <code className="text-xs text-gray-600 dark:text-gray-400 font-mono">{chunk.chunk_hash.substring(0, 12)}…</code>
+                <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 whitespace-pre-wrap break-words">
                   {chunk.content.substring(0, 300)}
                   {chunk.content.length > 300 ? '…' : ''}
                 </div>
@@ -118,12 +118,12 @@ function DiffView({ diff }: { diff: VersionDiffResponse }) {
 
       {diff.removed_chunks.length > 0 && (
         <div>
-          <h3 className="text-lg font-semibold text-red-900 mb-3">Removed Chunks ({diff.removed_chunks.length})</h3>
+          <h3 className="text-lg font-semibold text-red-900 dark:text-red-200 mb-3">Removed Chunks ({diff.removed_chunks.length})</h3>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {diff.removed_chunks.map((chunk) => (
-              <div key={chunk.chunk_hash} className="border-l-4 border-red-500 bg-red-50 p-3 rounded">
-                <code className="text-xs text-gray-600 font-mono">{chunk.chunk_hash.substring(0, 12)}…</code>
-                <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">
+              <div key={chunk.chunk_hash} className="border-l-4 border-red-500 bg-red-50 dark:bg-red-900 p-3 rounded">
+                <code className="text-xs text-gray-600 dark:text-gray-400 font-mono">{chunk.chunk_hash.substring(0, 12)}…</code>
+                <div className="text-sm text-gray-700 dark:text-gray-300 mt-2 whitespace-pre-wrap break-words">
                   {chunk.content.substring(0, 300)}
                   {chunk.content.length > 300 ? '…' : ''}
                 </div>
@@ -134,8 +134,8 @@ function DiffView({ diff }: { diff: VersionDiffResponse }) {
       )}
 
       {diff.unchanged_hashes.length > 0 && (
-        <div className="bg-gray-50 p-3 rounded border border-gray-200">
-          <span className="text-sm text-gray-700">
+        <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded border border-gray-200 dark:border-slate-700">
+          <span className="text-sm text-gray-700 dark:text-gray-300">
             <span className="font-semibold">{diff.unchanged_hashes.length}</span> chunks unchanged
           </span>
         </div>
@@ -216,7 +216,7 @@ export default function BrowserVersionsPage() {
       <div className="p-8 flex items-center justify-center min-h-screen">
         <div className="flex items-center gap-2">
           <Icon name="spinner" size={24} />
-          <span className="text-gray-600">Loading versions...</span>
+          <span className="text-gray-600 dark:text-gray-400">Loading versions...</span>
         </div>
       </div>
     );
@@ -225,9 +225,9 @@ export default function BrowserVersionsPage() {
   if (historyError) {
     return (
       <div className="p-8">
-        <div className="bg-red-50 p-4 rounded border border-red-200">
-          <p className="text-red-900 font-semibold">Failed to load versions</p>
-          <p className="text-red-800 text-sm mt-1">
+        <div className="bg-red-50 dark:bg-red-900 p-4 rounded border border-red-200 dark:border-red-700">
+          <p className="text-red-900 dark:text-red-200 font-semibold">Failed to load versions</p>
+          <p className="text-red-800 dark:text-red-300 text-sm mt-1">
             {historyErrorObj instanceof Error ? historyErrorObj.message : 'An unexpected error occurred'}
           </p>
           <Button
@@ -255,7 +255,7 @@ export default function BrowserVersionsPage() {
           ← Back to Browser
         </Button>
         <h1 className="text-4xl font-bold mb-2">Version History</h1>
-        <p className="text-gray-600">Select two versions to compare</p>
+        <p className="text-gray-600 dark:text-gray-400">Select two versions to compare</p>
       </div>
 
       {/* Versions Table */}
@@ -303,14 +303,14 @@ export default function BrowserVersionsPage() {
           </div>
 
           {diffLoading ? (
-            <div className="flex items-center gap-2 text-gray-600">
+            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
               <Icon name="spinner" size={24} />
               Computing diff...
             </div>
           ) : diffError ? (
-            <div className="bg-red-50 p-4 rounded border border-red-200">
-              <p className="text-red-900 font-semibold">Failed to load diff</p>
-              <p className="text-red-800 text-sm mt-1">
+            <div className="bg-red-50 dark:bg-red-900 p-4 rounded border border-red-200 dark:border-red-700">
+              <p className="text-red-900 dark:text-red-200 font-semibold">Failed to load diff</p>
+              <p className="text-red-800 dark:text-red-300 text-sm mt-1">
                 {diffErrorObj instanceof Error ? diffErrorObj.message : 'An unexpected error occurred'}
               </p>
             </div>
