@@ -37,7 +37,7 @@ describe('getDomainColor', () => {
       const result = getDomainColor(domain);
       expect(result).toMatch(/^rgb\(var\(--domain-/);
       expect(result).toContain(domain);
-      expect(result).toContain(')\)');
+      expect(result).toContain('))');
     });
   });
 
