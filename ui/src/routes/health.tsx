@@ -7,6 +7,7 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   MinusIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -524,20 +525,7 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <svg
-          className="w-8 h-8"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          style={{ color: 'rgb(var(--status-error))' }}
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>

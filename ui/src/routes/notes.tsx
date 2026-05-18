@@ -6,6 +6,7 @@ import {
   ChevronDownIcon,
   MagnifyingGlassIcon,
   TagIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
@@ -420,30 +421,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
             ))}
           </div>
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <svg
-              className="w-8 h-8"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              style={{ color: 'rgb(var(--status-error))' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div className="text-center">
-              <p className="text-sm font-medium" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                Failed to load note
-              </p>
-              <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
-                There was a problem fetching the note content.
-              </p>
-            </div>
-          </div>
+          <NoteErrorState />
         ) : sortedChunks.length === 0 ? (
           <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             No content available.
@@ -567,6 +545,29 @@ function AdapterGroup({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ── Error state ───────────────────────────────────────────────────
+
+function NoteErrorState(): ReactNode {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4">
+      <div
+        className="flex items-center justify-center rounded-2xl"
+        style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
+      >
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          Failed to load note
+        </p>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+          There was a problem fetching the note content.
+        </p>
+      </div>
     </div>
   );
 }
@@ -696,20 +697,7 @@ export default function NotesPage(): ReactNode {
           </div>
         ) : sourcesQuery.isError ? (
           <div className="px-3 py-3 text-center">
-            <svg
-              className="w-5 h-5 mx-auto mb-2"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              style={{ color: 'rgb(var(--status-error))' }}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <ExclamationTriangleIcon className="w-5 h-5 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
             <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               Failed to load notes
             </p>
@@ -797,20 +785,7 @@ export default function NotesPage(): ReactNode {
             </div>
           ) : sourcesQuery.isError ? (
             <div className="px-4 py-6 text-center">
-              <svg
-                className="w-6 h-6 mx-auto mb-2"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                style={{ color: 'rgb(var(--status-error))' }}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <ExclamationTriangleIcon className="w-6 h-6 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
               <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 Failed to load notes
               </p>
