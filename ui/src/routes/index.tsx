@@ -20,7 +20,7 @@ import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
-import { getDomainColorHex } from '../lib/designTokens';
+import { getDomainColor } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ function DomainBreakdown({ data }: DomainBreakdownProps) {
     <Panel title="Domain Breakdown">
       <div className="flex flex-col gap-3">
         {sorted.map((d) => {
-          const color = getDomainColorHex(d.domain);
+          const color = getDomainColor(d.domain);
           const pct = (d.active_chunk_count / max) * 100;
           return (
             <div key={d.domain} className="flex items-center gap-3">
@@ -160,7 +160,7 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
       ) : (
         <div className="flex flex-col overflow-y-auto">
           {sources.map((s) => {
-            const color = getDomainColorHex(s.domain);
+            const color = getDomainColor(s.domain);
             return (
               <div
                 key={s.source_id}
@@ -227,7 +227,7 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
     <Panel title="Quick Launch">
       <div className="grid grid-cols-3 gap-2">
         {Object.entries(DOMAIN_CONFIG).map(([domain, cfg]) => {
-          const color = getDomainColorHex(domain);
+          const color = getDomainColor(domain);
           const count = domainCounts[domain] ?? 0;
           const Icon = cfg.icon;
           return (

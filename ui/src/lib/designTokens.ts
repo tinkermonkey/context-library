@@ -1,17 +1,3 @@
-// CSS custom properties for domain colors (registered in src/index.css)
-const domainCSSVars: Record<string, string> = {
-  documents: 'var(--domain-documents)',
-  events: 'var(--domain-events)',
-  health: 'var(--domain-health)',
-  location: 'var(--domain-location)',
-  messages: 'var(--domain-messages)',
-  music: 'var(--domain-music)',
-  notes: 'var(--domain-notes)',
-  people: 'var(--domain-people)',
-  tasks: 'var(--domain-tasks)',
-};
-
-// Fallback hex values for non-CSS contexts
 export const domainColors: Record<string, string> = {
   documents: '#22C55E',
   events: '#F59E0B',
@@ -25,9 +11,5 @@ export const domainColors: Record<string, string> = {
 };
 
 export function getDomainColor(domain: string): string {
-  return domainCSSVars[domain] ?? domainCSSVars.notes;
-}
-
-export function getDomainColorHex(domain: string): string {
   return domainColors[domain] ?? domainColors.notes;
 }

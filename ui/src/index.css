@@ -120,12 +120,3 @@ code {
   --domain-location: #14B8A6;
   --domain-music: #F43F5E;
 }
-
-/* ── StatTile domain color customization ────────────────────────── */
-.stat-tile--domain {
-  --stat-tile-accent: var(--domain-notes);
-}
-
-.stat-tile--domain::before {
-  background: var(--stat-tile-accent) !important;
-}
