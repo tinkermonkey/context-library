@@ -1,7 +1,7 @@
 import { Suspense, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useSourceChunks } from '../hooks/useChunks';
-import { getDomainView } from '../views/registry';
+import { getDomainView } from '../views/registryConfig';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 /**

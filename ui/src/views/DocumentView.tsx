@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo } from 'react';
 import type { ChunkResponse, DocumentMetadata } from '../types/api';
 import { extractDocumentMetadata } from '../types/api';
-import type { DomainViewProps } from './registry';
+import type { DomainViewProps } from './registryConfig';
 import { ChunkContent } from '../components/shared/ChunkContent';
 import { ChunkBoundary } from '../components/shared/ChunkBoundary';
 import { Timestamp } from '../components/shared/Timestamp';

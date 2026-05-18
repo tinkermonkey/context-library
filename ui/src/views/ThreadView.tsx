@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
-import type { DomainViewProps } from './registry';
+import type { DomainViewProps } from './registryConfig';
 import { messagesViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { MarkdownContent } from '../components/shared/MarkdownContent';

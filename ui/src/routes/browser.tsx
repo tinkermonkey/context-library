@@ -11,7 +11,7 @@ import { useChunkProvenance } from '../hooks/useChunks';
 import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
 import { fetchSources, fetchChunks, fetchVersionHistory } from '../api/client';
 import type { BrowserPageSearch } from '../router';
-import { ALL_DOMAINS } from '../views/registry';
+import { ALL_DOMAINS } from '../views/registryConfig';
 
 const DOMAINS = ALL_DOMAINS;
 

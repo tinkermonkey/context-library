@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import type { ChunkResponse } from '../types/api';
-import type { DomainViewProps } from './registry';
+import type { DomainViewProps } from './registryConfig';
 import { eventsViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
 import { formatDuration, formatDayHeader, formatWeekHeader, getISOWeekNumber } from '../utils/formatters';
