@@ -37,6 +37,8 @@ const PRIMARY_NAV: NavItem[] = [
 
 const ADMIN_NAV: NavItem = { id: '/admin', label: 'Admin', icon: 'settings' };
 
+type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
+
 interface PageMeta {
   title: string;
   subtitle: string;
@@ -86,7 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   })();
 
   const handleSelectItem = (itemId: string) => {
-    router.navigate({ to: itemId as any });
+    router.navigate({ to: itemId as ValidRoute });
   };
 
   const sections: SidebarSection[] = [
