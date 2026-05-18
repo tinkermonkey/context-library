@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Modal, ConfirmDialog, Button, Icon } from '@tinkermonkey/heimdall-ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { resetAdapter } from '../api/client';
@@ -24,12 +24,12 @@ export function ResetAdapterDialog({
   const queryClient = useQueryClient();
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState<AdapterResetResponse | null>(null);
+  const confirmedRef = useRef(false);
 
   const resetMutation = useMutation({
     mutationFn: () => resetAdapter(adapterId),
     onSuccess: (data) => {
       setResult(data);
-      setShowResult(true);
       // Invalidate related queries
       queryClient.invalidateQueries({ queryKey: ['adapters'] });
       queryClient.invalidateQueries({ queryKey: ['adapter-stats'] });
@@ -56,19 +56,30 @@ export function ResetAdapterDialog({
   );
 
   const handleConfirm = () => {
-    resetMutation.mutate();
+    confirmedRef.current = true;
     setShowResult(true);
+    resetMutation.mutate();
   };
 
   const handleCloseConfirm = () => {
-    resetMutation.reset();
-    onClose();
+    // Only close parent if not transitioning to result phase
+    if (!confirmedRef.current) {
+      resetMutation.reset();
+      onClose();
+    }
   };
 
   const handleCloseResult = () => {
     setShowResult(false);
     setResult(null);
+    confirmedRef.current = false;
     onClose();
+  };
+
+  const getResultTitle = () => {
+    if (resetMutation.isPending) return 'Resetting Adapter...';
+    if (resetMutation.isError) return 'Reset Failed';
+    return 'Reset Complete';
   };
 
   if (!isOpen) return null;
@@ -88,8 +99,17 @@ export function ResetAdapterDialog({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleCloseResult} title="Reset Complete">
+    <Modal isOpen={isOpen} onClose={handleCloseResult} title={getResultTitle()}>
       <div className="space-y-4">
+        {resetMutation.isError && (
+          <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-3 text-sm text-red-800 dark:text-red-200">
+            <strong>Error:</strong>{' '}
+            {resetMutation.error instanceof Error
+              ? resetMutation.error.message
+              : 'Failed to reset adapter'}
+          </div>
+        )}
+
         {result && (
           <>
             {result.errors.length === 0 ? (
@@ -165,7 +185,11 @@ export function ResetAdapterDialog({
       </div>
 
       <div className="flex justify-end border-t pt-4 mt-4">
-        <Button onClick={handleCloseResult} variant="secondary">
+        <Button
+          onClick={handleCloseResult}
+          variant="secondary"
+          disabled={resetMutation.isPending}
+        >
           Close
         </Button>
       </div>
