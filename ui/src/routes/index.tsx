@@ -65,6 +65,22 @@ const DOMAIN_CONFIG: Record<string, DomainConfig> = {
 
 // ── Sub-components ────────────────────────────────────────────────
 
+function ErrorStatTile({ label }: { label: string }) {
+  return (
+    <div
+      className="flex flex-col items-start justify-center rounded-lg px-4 py-3"
+      style={{ background: 'rgb(var(--canvas-surface))' }}
+    >
+      <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+        {label}
+      </span>
+      <span className="text-sm font-medium mt-1" style={{ color: 'rgb(var(--status-error))' }}>
+        Error loading
+      </span>
+    </div>
+  );
+}
+
 function DomainBreakdownSkeleton() {
   return (
     <Panel title="Domain Breakdown">
@@ -345,22 +361,38 @@ export default function DashboardPage() {
 
       {/* Stat tiles grid */}
       <StatGrid columns={4} className="shrink-0">
-        <StatTile
-          label="Total Documents"
-          value={stats.isLoading ? '—' : formatNumber(totalDocs)}
-        />
-        <StatTile
-          label="Total Chunks"
-          value={stats.isLoading ? '—' : formatNumber(totalChunks)}
-        />
-        <StatTile
-          label="Active Adapters"
-          value={adapterStats.isLoading ? '—' : formatNumber(adapterCount)}
-        />
-        <StatTile
-          label="Last Sync"
-          value={lastSync ? timeAgo(lastSync) : (health.isLoading || activityQuery.isLoading ? '—' : 'No data')}
-        />
+        {stats.isError ? (
+          <ErrorStatTile label="Total Documents" />
+        ) : (
+          <StatTile
+            label="Total Documents"
+            value={stats.isLoading ? '—' : formatNumber(totalDocs)}
+          />
+        )}
+        {stats.isError ? (
+          <ErrorStatTile label="Total Chunks" />
+        ) : (
+          <StatTile
+            label="Total Chunks"
+            value={stats.isLoading ? '—' : formatNumber(totalChunks)}
+          />
+        )}
+        {adapterStats.isError ? (
+          <ErrorStatTile label="Active Adapters" />
+        ) : (
+          <StatTile
+            label="Active Adapters"
+            value={adapterStats.isLoading ? '—' : formatNumber(adapterCount)}
+          />
+        )}
+        {health.isError || activityQuery.isError ? (
+          <ErrorStatTile label="Last Sync" />
+        ) : (
+          <StatTile
+            label="Last Sync"
+            value={lastSync ? timeAgo(lastSync) : (health.isLoading || activityQuery.isLoading ? '—' : 'No data')}
+          />
+        )}
       </StatGrid>
 
       {/* Main content: Domain Breakdown + Activity Feed */}
