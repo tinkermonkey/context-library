@@ -14,22 +14,9 @@ import {
   MusicalNoteIcon,
   Cog6ToothIcon,
 } from '@heroicons/react/24/outline';
-import type { ComponentType, SVGProps } from 'react';
 import { HealthIndicator } from './HealthIndicator';
 import { NavigationSidebar } from './NavigationSidebar';
-
-type HeroIcon = ComponentType<SVGProps<SVGSVGElement>>;
-
-interface NavItem {
-  id: string;
-  label: string;
-  icon: HeroIcon;
-}
-
-interface NavigationSection {
-  title: string;
-  items: NavItem[];
-}
+import type { NavItem, NavigationSection } from './NavigationSidebar';
 
 const PRIMARY_NAV = [
   { id: '/', label: 'Dashboard', icon: HomeIcon },
@@ -115,7 +102,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { title } = getPageMeta(path);
 
   return (
-    <div className="flex h-screen bg-white">
+    <div
+      className="flex h-screen"
+      style={{ background: 'rgb(var(--canvas-bg))' }}
+    >
       {/* Sidebar */}
       <NavigationSidebar
         sections={sections}

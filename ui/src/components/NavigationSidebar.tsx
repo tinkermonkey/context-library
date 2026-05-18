@@ -1,15 +1,14 @@
 import type { ComponentType, SVGProps } from 'react';
-import { Bars3Icon } from '@heroicons/react/24/outline';
 
-type HeroIcon = ComponentType<SVGProps<SVGSVGElement>>;
+export type HeroIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
-interface NavItem {
+export interface NavItem {
   id: string;
   label: string;
   icon: HeroIcon;
 }
 
-interface NavigationSection {
+export interface NavigationSection {
   title: string;
   items: NavItem[];
 }
@@ -17,8 +16,6 @@ interface NavigationSection {
 interface NavigationSidebarProps {
   sections: NavigationSection[];
   activeItemId?: string;
-  collapsed?: boolean;
-  onCollapse?: (collapsed: boolean) => void;
   onSelectItem?: (itemId: string) => void;
   className?: string;
 }
@@ -27,38 +24,46 @@ interface NavigationSidebarProps {
 export function NavigationSidebar({
   sections,
   activeItemId,
-  collapsed = false,
-  onCollapse,
   onSelectItem,
   className = '',
 }: NavigationSidebarProps) {
 
   return (
     <div
-      className={`flex flex-col h-full bg-zinc-900 border-r border-zinc-800 ${className}`}
-      style={{ width: collapsed ? '70px' : '240px' }}
+      className={`flex flex-col h-full ${className}`}
+      style={{
+        background: 'rgb(var(--shell-bg))',
+        borderRight: '1px solid rgb(var(--shell-border))',
+        width: '240px',
+      }}
     >
-      {/* Collapse button */}
-      <button
-        onClick={() => onCollapse?.(!collapsed)}
-        className="flex items-center justify-center h-14 border-b border-zinc-800 hover:bg-zinc-800 transition-colors"
-        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      {/* Sidebar header with app title */}
+      <div
+        className="flex items-center justify-center h-14 border-b"
+        style={{
+          borderColor: 'rgb(var(--shell-border))',
+          paddingTop: '8px',
+          paddingBottom: '8px',
+        }}
       >
-        <Bars3Icon className="w-5 h-5" style={{ color: 'rgb(var(--shell-fg-2))' }} />
-      </button>
+        <span
+          className="text-sm font-semibold"
+          style={{ color: 'rgb(var(--shell-fg-1))' }}
+        >
+          Context Library
+        </span>
+      </div>
 
       {/* Navigation sections */}
       <nav className="flex-1 overflow-y-auto pt-4">
         {sections.map((section) => (
           <div key={section.title} className="px-2">
-            {!collapsed && (
-              <div
-                className="text-xs font-semibold px-3 py-2 mb-2"
-                style={{ color: 'rgb(var(--shell-fg-3))' }}
-              >
-                {section.title}
-              </div>
-            )}
+            <div
+              className="text-xs font-semibold px-3 py-2 mb-2"
+              style={{ color: 'rgb(var(--shell-fg-3))' }}
+            >
+              {section.title}
+            </div>
             <div className="space-y-1">
               {section.items.map((item) => {
                 const isActive = activeItemId === item.id;
@@ -68,24 +73,28 @@ export function NavigationSidebar({
                   <button
                     key={item.id}
                     onClick={() => onSelectItem?.(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-zinc-700'
-                        : 'hover:bg-zinc-800'
-                    }`}
-                    title={collapsed ? item.label : undefined}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors"
                     style={{
+                      background: isActive ? 'rgb(var(--shell-surface))' : 'transparent',
                       color: isActive
                         ? 'rgb(var(--shell-fg-1))'
                         : 'rgb(var(--shell-fg-2))',
                     }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'rgb(var(--shell-surface))';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
                   >
                     <Icon className="w-5 h-5 shrink-0" />
-                    {!collapsed && (
-                      <span className="text-sm font-medium truncate">
-                        {item.label}
-                      </span>
-                    )}
+                    <span className="text-sm font-medium truncate">
+                      {item.label}
+                    </span>
                   </button>
                 );
               })}
