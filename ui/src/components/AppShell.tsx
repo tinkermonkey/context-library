@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     },
   ];
 
-  const { title, subtitle } = getPageMeta(path);
+  const { title } = getPageMeta(path);
 
   return (
     <ShellLayout
@@ -113,17 +113,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         onSelectItem: handleSelectItem,
       }}
       topbar={{
-        children: (
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col flex-1 min-w-0 gap-0.5">
-              <span style={{ color: 'rgb(var(--shell-fg-1))' }} className="font-semibold text-base leading-tight">{title}</span>
-              {subtitle && (
-                <span style={{ color: 'rgb(var(--shell-fg-3))' }} className="text-xs leading-tight">{subtitle}</span>
-              )}
-            </div>
-            <HealthIndicator />
-          </div>
-        ),
+        breadcrumbs: [{ label: title }],
+        children: <HealthIndicator />,
       }}
     >
       {children}
