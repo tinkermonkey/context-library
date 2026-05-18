@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Button, Spinner } from 'flowbite-react';
+import { Modal, Button, Icon } from '@tinkermonkey/heimdall-ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { resetAdapter } from '../api/client';
 import type { AdapterResetResponse } from '../types/api';
@@ -57,8 +57,7 @@ export function ResetAdapterDialog({
   };
 
   return (
-    <Modal show={isOpen} onClose={handleClose} size="md">
-      <div className="relative bg-white rounded-lg shadow">
+    <Modal isOpen={isOpen} onClose={handleClose}>
         {!showResult ? (
           <>
             <div className="flex justify-between items-center p-6 border-b">
@@ -99,20 +98,20 @@ export function ResetAdapterDialog({
 
             <div className="flex justify-end gap-3 p-6 border-t">
               <Button
-                color="gray"
+                variant="secondary"
                 onClick={handleClose}
                 disabled={resetMutation.isPending}
               >
                 Cancel
               </Button>
               <Button
-                color="failure"
+                variant="danger"
                 onClick={handleConfirm}
                 disabled={resetMutation.isPending}
               >
                 {resetMutation.isPending ? (
                   <>
-                    <Spinner size="sm" className="mr-2" />
+                    <Icon name="spinner" size={16} className="inline mr-2" />
                     Resetting...
                   </>
                 ) : (
@@ -203,13 +202,12 @@ export function ResetAdapterDialog({
             </div>
 
             <div className="flex justify-end p-6 border-t">
-              <Button onClick={handleCloseResult} color="gray">
+              <Button onClick={handleCloseResult} variant="secondary">
                 Close
               </Button>
             </div>
           </>
         )}
-      </div>
     </Modal>
   );
 }

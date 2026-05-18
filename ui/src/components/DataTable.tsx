@@ -17,7 +17,7 @@ import {
   type SortingState,
   type PaginationState,
 } from '@tanstack/react-table';
-import { TextInput, Button, Spinner } from 'flowbite-react';
+import { TextInput, Button, Icon } from '@tinkermonkey/heimdall-ui';
 import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
 
@@ -292,7 +292,7 @@ export function DataTable<TData>({
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-12">
-        <Spinner color="info" size="lg" />
+        <Icon name="spinner" size={32} />
       </div>
     );
   }
@@ -316,7 +316,6 @@ export function DataTable<TData>({
             placeholder="Search..."
             value={localSearchValue}
             onChange={(e) => setLocalSearchValue(e.target.value)}
-            className="w-full"
           />
         )}
 
@@ -353,16 +352,16 @@ export function DataTable<TData>({
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse border border-gray-300">
-          <thead className="bg-gray-100">
+        <table className="min-w-full border-collapse border border-slate-700">
+          <thead className="bg-slate-800">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
                     onClick={() => header.column.getCanSort() && handleSort(header.column.id)}
-                    className={`border border-gray-300 px-4 py-2 text-left font-semibold text-gray-700 ${
-                      header.column.getCanSort() ? 'cursor-pointer select-none hover:bg-gray-200' : ''
+                    className={`border border-slate-700 px-4 py-2 text-left font-semibold text-slate-100 ${
+                      header.column.getCanSort() ? 'cursor-pointer select-none hover:bg-slate-700' : ''
                     }`}
                   >
                     <div className="flex items-center gap-2">
@@ -391,10 +390,10 @@ export function DataTable<TData>({
             ))}
           </thead>
 
-          <tbody className="divide-y divide-gray-300">
+          <tbody className="divide-y divide-slate-700">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="border border-gray-300 px-4 py-4 text-center text-gray-500">
+                <td colSpan={columns.length} className="border border-slate-700 px-4 py-4 text-center text-slate-400">
                   No rows to display
                 </td>
               </tr>
@@ -406,18 +405,18 @@ export function DataTable<TData>({
                   <Fragment key={rowKeyValue}>
                     <tr
                       onClick={() => (renderDetail || onRowClick) && handleRowClick(row.original)}
-                      className={`hover:bg-gray-50 ${(renderDetail || onRowClick) ? 'cursor-pointer' : ''}`}
+                      className={`hover:bg-slate-700 ${(renderDetail || onRowClick) ? 'cursor-pointer' : ''}`}
                     >
                       {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="border border-gray-300 px-4 py-2 text-gray-900">
+                        <td key={cell.id} className="border border-slate-700 px-4 py-2 text-slate-100">
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
                     </tr>
 
                     {isExpanded && renderDetail && (
-                      <tr className="bg-gray-50">
-                        <td colSpan={columns.length} className="border border-gray-300 px-4 py-4">
+                      <tr className="bg-slate-700">
+                        <td colSpan={columns.length} className="border border-slate-700 px-4 py-4">
                           {renderDetail(row.original)}
                         </td>
                       </tr>
@@ -458,7 +457,7 @@ export function DataTable<TData>({
             onClick={handlePrevPage}
             disabled={currentPage === 0}
             size="sm"
-            color="light"
+            variant="secondary"
             className="flex items-center gap-1"
           >
             <ChevronLeftIcon className="h-4 w-4" />
@@ -468,7 +467,7 @@ export function DataTable<TData>({
             onClick={handleNextPage}
             disabled={currentPage >= Math.ceil(total / pageSize) - 1}
             size="sm"
-            color="light"
+            variant="secondary"
             className="flex items-center gap-1"
           >
             Next

@@ -2,7 +2,7 @@ import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, ButtonGroup, Modal } from 'flowbite-react';
+import { Button, Modal } from '@tinkermonkey/heimdall-ui';
 import { DataTable, type FetchParams } from '../components/DataTable';
 import type { SourceSummary, ChunkResponse, VersionSummary } from '../types/api';
 import { useAdapters } from '../hooks/useAdapters';
@@ -167,7 +167,7 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
       <div className="flex gap-2 pt-2 border-t">
         <Button
           size="sm"
-          color="success"
+          variant="primary"
           onClick={() => {
             navigate({
               to: '/browser/view/$domain/$sourceId',
@@ -179,6 +179,7 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
         </Button>
         <Button
           size="sm"
+          variant="secondary"
           onClick={() => {
             navigate({
               to: '/browser',
@@ -190,7 +191,7 @@ function SourceDetailPanel({ source }: { source: SourceSummary }) {
         </Button>
         <Button
           size="sm"
-          color="gray"
+          variant="secondary"
           onClick={() => {
             navigate({
               to: '/browser/versions/$sourceId',
@@ -301,6 +302,7 @@ function VersionDetailPanel({
       <div className="flex gap-2 pt-2 border-t">
         <Button
           size="sm"
+          variant="primary"
           onClick={() => onCompareClick(version)}
         >
           Compare with Another Version
@@ -502,7 +504,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
       <div className="flex gap-2">
         <Button
           size="sm"
-          color="success"
+          variant="primary"
           onClick={() => {
             void navigate({
               to: '/browser/view/$domain/$sourceId',
@@ -778,21 +780,27 @@ export default function BrowserPage() {
 
       {/* Domain Tabs */}
       <div className="mb-8 border-b border-gray-200 pb-3 flex items-center justify-between">
-        <ButtonGroup>
-          {DOMAINS.map((domain) => (
+        <div className="flex gap-0">
+          {DOMAINS.map((domain, index) => (
             <Button
               key={domain}
               onClick={() => handleDomainChange(domain)}
-              color={activeDomain === domain ? 'blue' : 'gray'}
-              className={activeDomain === domain ? '' : 'border border-gray-300'}
+              variant={activeDomain === domain ? 'primary' : 'secondary'}
+              className={`${
+                index === 0
+                  ? 'rounded-l-md'
+                  : index === DOMAINS.length - 1
+                    ? 'rounded-r-md'
+                    : 'rounded-none'
+              } ${activeDomain === domain ? '' : 'border border-gray-300'}`}
             >
               {domain.charAt(0).toUpperCase() + domain.slice(1)}
             </Button>
           ))}
-        </ButtonGroup>
+        </div>
         <Button
           size="sm"
-          color="gray"
+          variant="secondary"
           onClick={() => {
             navigate({
               to: '/browser/catalog/$domain',
@@ -806,31 +814,26 @@ export default function BrowserPage() {
 
       {/* Table Type Selector */}
       <div className="mb-6">
-        <ButtonGroup>
-          <Button
-            onClick={() => handleTableTypeChange('sources')}
-            color={tableType === 'sources' ? 'blue' : 'gray'}
-            className={tableType === 'sources' ? '' : 'border border-gray-300'}
-          >
-            Sources
-          </Button>
-          <Button
-            onClick={() => handleTableTypeChange('chunks')}
-            color={tableType === 'chunks' ? 'blue' : 'gray'}
-            className={tableType === 'chunks' ? '' : 'border border-gray-300'}
-          >
-            Chunks
-          </Button>
-          <Button
-            onClick={() => handleTableTypeChange('versions')}
-            color={tableType === 'versions' ? 'blue' : 'gray'}
-            className={tableType === 'versions' ? '' : 'border border-gray-300'}
-            disabled={!sourceIdFilter}
-            title={!sourceIdFilter ? 'Select a source first to view versions' : ''}
-          >
-            Versions
-          </Button>
-        </ButtonGroup>
+        <div className="flex gap-0">
+          {['sources', 'chunks', 'versions'].map((type, index, arr) => (
+            <Button
+              key={type}
+              onClick={() => handleTableTypeChange(type)}
+              variant={tableType === type ? 'primary' : 'secondary'}
+              className={`${
+                index === 0
+                  ? 'rounded-l-md'
+                  : index === arr.length - 1
+                    ? 'rounded-r-md'
+                    : 'rounded-none'
+              } ${tableType === type ? '' : 'border border-gray-300'}`}
+              disabled={type === 'versions' && !sourceIdFilter}
+              title={type === 'versions' && !sourceIdFilter ? 'Select a source first to view versions' : ''}
+            >
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Sources Table */}
@@ -886,15 +889,14 @@ export default function BrowserPage() {
       {/* Version Diff Modal */}
       {sourceIdFilter && (
         <Modal
-          show={diffModalOpen}
+          isOpen={diffModalOpen}
           onClose={() => {
             setDiffModalOpen(false);
             setSelectedVersionForDiff(null);
             setCompareWithVersion(null);
           }}
-          size="2xl"
         >
-          <div className="relative bg-white rounded-lg shadow p-6">
+          <div className="p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Compare Versions</h3>
               <button

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Checkbox, Spinner } from 'flowbite-react';
+import { Button, TriState, Icon } from '@tinkermonkey/heimdall-ui';
 import { DataTable, type FetchParams } from '../components/DataTable';
 import type { VersionSummary, VersionDiffResponse, VersionHistoryResponse } from '../types/api';
 import { useVersionHistory, useVersionDiff } from '../hooks/useSources';
@@ -24,7 +24,7 @@ function buildVersionColumns(
         const version = info.row.original.version;
         const isSelected = selectedVersions.includes(version);
         return (
-          <Checkbox
+          <TriState
             checked={isSelected}
             onChange={(e) => {
               onSelectionChange(version, e.currentTarget.checked);
@@ -215,7 +215,7 @@ export default function BrowserVersionsPage() {
     return (
       <div className="p-8 flex items-center justify-center min-h-screen">
         <div className="flex items-center gap-2">
-          <Spinner />
+          <Icon name="spinner" size={24} />
           <span className="text-gray-600">Loading versions...</span>
         </div>
       </div>
@@ -232,7 +232,7 @@ export default function BrowserVersionsPage() {
           </p>
           <Button
             size="sm"
-            color="gray"
+            variant="secondary"
             onClick={() => navigate({ to: '/browser', search: { page: 0 } })}
             className="mt-4"
           >
@@ -248,7 +248,7 @@ export default function BrowserVersionsPage() {
       <div className="mb-8">
         <Button
           size="sm"
-          color="gray"
+          variant="secondary"
           onClick={() => navigate({ to: '/browser', search: { page: 0 } })}
           className="mb-4"
         >
@@ -280,7 +280,7 @@ export default function BrowserVersionsPage() {
             disabled={diffLoading}
             className="gap-2"
           >
-            {diffLoading && <Spinner size="sm" />}
+            {diffLoading && <Icon name="spinner" size={16} className="inline" />}
             Compare v{selectedVersions[0]} → v{selectedVersions[1]}
           </Button>
         </div>
@@ -295,7 +295,7 @@ export default function BrowserVersionsPage() {
             </h2>
             <Button
               size="sm"
-              color="gray"
+              variant="secondary"
               onClick={() => setShowDiff(false)}
             >
               Hide Diff
@@ -304,7 +304,7 @@ export default function BrowserVersionsPage() {
 
           {diffLoading ? (
             <div className="flex items-center gap-2 text-gray-600">
-              <Spinner />
+              <Icon name="spinner" size={24} />
               Computing diff...
             </div>
           ) : diffError ? (
