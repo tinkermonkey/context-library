@@ -733,20 +733,7 @@ export default function MessagesPage(): ReactNode {
           ) : sourcesQuery.isError ? (
             <div className="px-4 py-6 text-center">
               <div className="flex justify-center mb-3">
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  style={{ color: 'rgb(var(--status-error))' }}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
+                <ExclamationTriangleIcon className="w-6 h-6" style={{ color: 'rgb(var(--status-error))' }} />
               </div>
               <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 Failed to load conversations
