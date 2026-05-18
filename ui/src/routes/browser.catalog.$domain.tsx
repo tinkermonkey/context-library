@@ -1,5 +1,5 @@
 import { useParams } from '@tanstack/react-router';
-import { getDomainView } from '../views/registry';
+import { getDomainView } from '../views/registryConfig';
 
 /**
  * Generic domain catalog route.

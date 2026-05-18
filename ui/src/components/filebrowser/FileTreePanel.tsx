@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Spinner } from 'flowbite-react';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { ChevronRightIcon, ChevronDownIcon, FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../../hooks/useSources';
 import { buildFileTree, type FileTreeNode } from '../../utils/fileTree';
@@ -92,7 +92,7 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Spinner color="info" size="md" />
+        <Icon name="spinner" size={24} />
       </div>
     );
   }

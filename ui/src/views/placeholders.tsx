@@ -4,7 +4,7 @@
  */
 
 import type { ComponentType } from 'react';
-import type { DomainViewProps } from './registry';
+import type { DomainViewProps } from './registryConfig';
 
 export const DocumentView: ComponentType<DomainViewProps> = () => (
   <div className="p-4 bg-blue-50 border border-blue-200 rounded">

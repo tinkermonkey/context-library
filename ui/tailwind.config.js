@@ -3,7 +3,6 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    "./node_modules/flowbite-react/dist/**/*.{js,mjs}",
   ],
   darkMode: "class",
   theme: {

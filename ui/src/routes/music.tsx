@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MagnifyingGlassIcon, MusicalNoteIcon } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const musicColor = getDomainColor('music'); // #F43F5E
@@ -181,14 +181,14 @@ function RecentRow({ track, isActive }: { track: Track; isActive: boolean }): Re
       style={{
         padding: '7px 0',
         borderBottom: '1px solid #1A1A1A',
-        background: isActive ? `${musicColor}0D` : 'transparent',
+        background: isActive ? getDomainColorWithAlpha('music', '0D') : 'transparent',
       }}
     >
       <ArtworkThumb gradient={track.gradient} size={28} />
       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
         <span
           className="text-xs font-medium truncate"
-          style={{ color: isActive ? '#FFFFFF' : colors.textPrimary }}
+          style={{ color: isActive ? '#FFFFFF' : 'rgb(var(--canvas-fg-1))' }}
         >
           {track.meta.track_title}
         </span>
@@ -238,7 +238,7 @@ function TrackRow({
       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
         <span
           className="text-sm font-medium truncate"
-          style={{ color: isActive ? '#FFFFFF' : colors.textPrimary }}
+          style={{ color: isActive ? '#FFFFFF' : 'rgb(var(--canvas-fg-1))' }}
         >
           {track.meta.track_title}
         </span>
@@ -479,7 +479,7 @@ export default function MusicPage(): ReactNode {
   }, [allTracks, searchText, sortKey]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {/* Equalizer bar animation */}
       <style>{`@keyframes eqBar { from { height: 4px; } to { height: 14px; } }`}</style>
 
@@ -488,7 +488,7 @@ export default function MusicPage(): ReactNode {
         className="flex items-center gap-3 shrink-0 px-5"
         style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
       >
-        <span className="font-semibold flex-1" style={{ fontSize: 16, color: colors.textPrimary }}>
+        <span className="font-semibold flex-1" style={{ fontSize: 16, color: 'rgb(var(--canvas-fg-1))' }}>
           Music
         </span>
         <div
@@ -512,7 +512,7 @@ export default function MusicPage(): ReactNode {
             className="flex items-center gap-3 shrink-0 px-5"
             style={{ height: 48, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
           >
-            <span className="font-semibold flex-1 text-sm" style={{ color: colors.textPrimary }}>
+            <span className="font-semibold flex-1 text-sm" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
               Recently Played
             </span>
             {!chunksQuery.isLoading && allTracks.length > 0 && (
@@ -544,7 +544,7 @@ export default function MusicPage(): ReactNode {
                 onChange={e => setSearchText(e.target.value)}
                 placeholder="Search by title, artist, or album…"
                 className="flex-1 bg-transparent text-xs outline-none"
-                style={{ color: colors.textPrimary }}
+                style={{ color: 'rgb(var(--canvas-fg-1))' }}
               />
             </div>
 
@@ -639,7 +639,7 @@ export default function MusicPage(): ReactNode {
               </div>
             ) : chunksQuery.isError ? (
               <div className="flex items-center justify-center py-16">
-                <span className="text-sm" style={{ color: colors.statusRed }}>
+                <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
                   Failed to load music library
                 </span>
               </div>
@@ -647,11 +647,11 @@ export default function MusicPage(): ReactNode {
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <div
                   className="flex items-center justify-center rounded-2xl"
-                  style={{ width: 48, height: 48, background: `${musicColor}20` }}
+                  style={{ width: 48, height: 48, background: getDomainColorWithAlpha('music', '20') }}
                 >
                   <MusicalNoteIcon className="w-6 h-6" style={{ color: musicColor }} />
                 </div>
-                <p className="text-sm" style={{ color: colors.textDim }}>
+                <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                   {searchText
                     ? 'No tracks match your search'
                     : 'No music tracks ingested yet'}
@@ -691,3 +691,4 @@ export default function MusicPage(): ReactNode {
     </div>
   );
 }
+

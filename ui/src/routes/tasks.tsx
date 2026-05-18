@@ -14,7 +14,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const taskColor = getDomainColor('tasks'); // #F97316
@@ -120,9 +120,9 @@ function dueDateClass(dueIso: string | null): DueDateClass {
 }
 
 function dueDateColor(cls: DueDateClass): string {
-  if (cls === 'overdue' || cls === 'today') return colors.statusRed;
-  if (cls === 'this-week') return colors.statusAmber;
-  return colors.textDim;
+  if (cls === 'overdue' || cls === 'today') return 'rgb(var(--status-error))';
+  if (cls === 'this-week') return 'rgb(var(--status-amber))';
+  return 'rgb(var(--canvas-fg-3))';
 }
 
 function formatDueLabel(dueIso: string | null, ds: DisplayStatus): string {
@@ -220,7 +220,7 @@ function TaskRow({
   const isDone = ds === 'done' || ds === 'cancelled';
   const dueLabel = formatDueLabel(meta.due_date, ds);
   const dueCls = isDone ? 'none' as DueDateClass : dueDateClass(meta.due_date);
-  const dueColor = isDone ? colors.textDim : dueDateColor(dueCls);
+  const dueColor = isDone ? 'rgb(var(--canvas-fg-3))' : dueDateColor(dueCls);
 
   return (
     <button
@@ -232,8 +232,8 @@ function TaskRow({
         padding: '0 14px',
         borderRadius: 6,
         flexShrink: 0,
-        background: isSelected ? `${taskColor}12` : '#161616',
-        border: `1px solid ${isSelected ? taskColor + '40' : colors.border}`,
+        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : '#161616',
+        border: `1px solid ${isSelected ? getDomainColorWithAlpha('tasks', '40') : 'rgb(var(--canvas-border))'}`,
       }}
     >
       {/* Status dot */}
@@ -252,7 +252,7 @@ function TaskRow({
       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
         <span
           className="truncate"
-          style={{ fontSize: 13, fontWeight: 500, color: isDone ? colors.textDim : '#E5E7EB' }}
+          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : '#E5E7EB' }}
         >
           {meta.title}
         </span>
@@ -289,14 +289,14 @@ function DetailPanel({
   const cfg = STATUS_CONFIG[ds];
   const isDone = ds === 'done' || ds === 'cancelled';
   const dueCls = isDone ? 'none' as DueDateClass : dueDateClass(meta.due_date);
-  const dueColor = isDone ? colors.textDim : dueDateColor(dueCls);
+  const dueColor = isDone ? 'rgb(var(--canvas-fg-3))' : dueDateColor(dueCls);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div
         className="flex items-start gap-3 px-4 py-3 shrink-0"
-        style={{ borderBottom: `1px solid ${colors.border}` }}
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
       >
         <div
           style={{
@@ -310,7 +310,7 @@ function DetailPanel({
           }}
         />
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold leading-snug" style={{ color: colors.textPrimary }}>
+          <h3 className="text-sm font-semibold leading-snug" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
             {meta.title}
           </h3>
           <div
@@ -323,7 +323,7 @@ function DetailPanel({
         <button
           onClick={onClose}
           className="p-0.5 rounded transition-opacity hover:opacity-75 shrink-0"
-          style={{ color: colors.textDim }}
+          style={{ color: 'rgb(var(--canvas-fg-3))' }}
           aria-label="Close detail panel"
         >
           <XMarkIcon className="w-4 h-4" />
@@ -333,12 +333,12 @@ function DetailPanel({
       {/* Metadata */}
       <div
         className="px-4 py-3 flex flex-col gap-2.5 shrink-0"
-        style={{ borderBottom: `1px solid ${colors.border}` }}
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
       >
         {/* Due date */}
         <div className="flex items-center gap-2">
-          <CalendarIcon className="w-3.5 h-3.5 shrink-0" style={{ color: colors.textDim }} />
-          <span style={{ fontSize: 12, color: meta.due_date ? dueColor : colors.textDim }}>
+          <CalendarIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span style={{ fontSize: 12, color: meta.due_date ? dueColor : 'rgb(var(--canvas-fg-3))' }}>
             {meta.due_date ? formatFullDate(meta.due_date) : 'No due date'}
           </span>
         </div>
@@ -346,8 +346,8 @@ function DetailPanel({
         {/* Priority */}
         {meta.priority != null && (
           <div className="flex items-center gap-2">
-            <FlagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: colors.textDim }} />
-            <span style={{ fontSize: 12, color: colors.textMuted }}>
+            <FlagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {PRIORITY_LABELS[meta.priority] ?? `Priority ${meta.priority}`}
             </span>
           </div>
@@ -355,15 +355,15 @@ function DetailPanel({
 
         {/* Source */}
         <div className="flex items-center gap-2">
-          <TagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: colors.textDim }} />
-          <span style={{ fontSize: 12, color: colors.textMuted }}>{sourceLabel(meta.source_type)}</span>
+          <TagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
         </div>
 
         {/* Collaborators */}
         {meta.collaborators.length > 0 && (
           <div className="flex items-start gap-2">
-            <UserGroupIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: colors.textDim }} />
-            <span style={{ fontSize: 12, color: colors.textMuted }}>
+            <UserGroupIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {meta.collaborators.join(', ')}
             </span>
           </div>
@@ -372,8 +372,8 @@ function DetailPanel({
         {/* Created */}
         {meta.date_first_observed && (
           <div className="flex items-center gap-2">
-            <ClockIcon className="w-3.5 h-3.5 shrink-0" style={{ color: colors.textDim }} />
-            <span style={{ fontSize: 12, color: colors.textDim }}>
+            <ClockIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               Created {formatFullDate(meta.date_first_observed)}
             </span>
           </div>
@@ -385,12 +385,12 @@ function DetailPanel({
         {chunk.content ? (
           <pre
             className="whitespace-pre-wrap font-sans"
-            style={{ fontSize: 13, color: colors.textMuted, lineHeight: '1.6' }}
+            style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-2))', lineHeight: '1.6' }}
           >
             {chunk.content}
           </pre>
         ) : (
-          <p style={{ fontSize: 13, color: colors.textDim }}>No notes.</p>
+          <p style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-3))' }}>No notes.</p>
         )}
       </div>
     </div>
@@ -404,15 +404,15 @@ function EmptyState({ filtered }: { filtered: boolean }): ReactNode {
     <div className="flex flex-col items-center justify-center flex-1 gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${taskColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('tasks', '20') }}
       >
         <CheckCircleIcon className="w-8 h-8" style={{ color: taskColor }} />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium mb-1" style={{ color: colors.textMuted }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           {filtered ? 'No matching tasks' : 'No tasks found'}
         </p>
-        <p style={{ fontSize: 12, color: colors.textDim }}>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
           {filtered
             ? 'Try a different filter or source.'
             : 'Connect Apple Reminders or a CalDAV source to see tasks here.'}
@@ -429,15 +429,15 @@ function ErrorState(): ReactNode {
     <div className="flex flex-col items-center justify-center flex-1 gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${colors.statusRed}20` }}
+        style={{ width: 64, height: 64, background: `rgb(var(--status-error) / 0.13)` }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: colors.statusRed }} />
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium mb-1" style={{ color: colors.textMuted }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           Failed to load tasks
         </p>
-        <p style={{ fontSize: 12, color: colors.textDim }}>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
           Check that the context-library server is running.
         </p>
       </div>
@@ -536,7 +536,7 @@ export default function TasksPage(): ReactNode {
   ];
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
 
       {/* ── Top bar ── */}
       <div
@@ -605,9 +605,9 @@ export default function TasksPage(): ReactNode {
             style={{
               borderRadius: 4,
               padding: '4px 10px',
-              background: sourceFilter !== 'all' ? `${taskColor}22` : colors.bgElevated,
+              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '22') : 'rgb(var(--canvas-surface))',
               fontSize: 12,
-              color: sourceFilter !== 'all' ? taskColor : colors.textMuted,
+              color: sourceFilter !== 'all' ? taskColor : 'rgb(var(--canvas-fg-2))',
               border: 'none',
               cursor: 'pointer',
             }}
@@ -624,8 +624,8 @@ export default function TasksPage(): ReactNode {
                 style={{
                   minWidth: 160,
                   borderRadius: 6,
-                  background: colors.bgElevated,
-                  border: `1px solid ${colors.border}`,
+                  background: 'rgb(var(--canvas-surface))',
+                  border: `1px solid rgb(var(--canvas-border))`,
                   boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
                 }}
               >
@@ -643,8 +643,8 @@ export default function TasksPage(): ReactNode {
                     className="w-full text-left px-3 py-1.5"
                     style={{
                       fontSize: 12,
-                      color: sourceFilter === opt.value ? taskColor : colors.textMuted,
-                      background: sourceFilter === opt.value ? `${taskColor}18` : 'transparent',
+                      color: sourceFilter === opt.value ? taskColor : 'rgb(var(--canvas-fg-2))',
+                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '18') : 'transparent',
                     }}
                   >
                     {opt.label}
@@ -686,7 +686,7 @@ export default function TasksPage(): ReactNode {
           {selectedItem && (
             <div
               className="w-80 shrink-0 flex flex-col overflow-hidden"
-              style={{ borderLeft: `1px solid ${colors.border}`, background: colors.bgSurface }}
+              style={{ borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
             >
               <DetailPanel
                 chunk={selectedItem.chunk}
@@ -700,3 +700,4 @@ export default function TasksPage(): ReactNode {
     </div>
   );
 }
+

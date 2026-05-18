@@ -7,9 +7,10 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   MinusIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const healthColor = getDomainColor('health'); // #06B6D4
@@ -227,14 +228,14 @@ function TrendBadge({
   const delta = current.value - prev.value;
   if (Math.abs(delta) < 0.5) {
     return (
-      <span className="flex items-center gap-0.5 text-xs" style={{ color: colors.textDim }}>
+      <span className="flex items-center gap-0.5 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         <MinusIcon className="w-3 h-3" />
         No change
       </span>
     );
   }
   const isGood = lowerIsBetter ? delta < 0 : delta > 0;
-  const color = isGood ? colors.statusGreen : colors.statusAmber;
+  const color = isGood ? 'rgb(var(--status-ok))' : 'rgb(var(--status-amber))';
   const sign = delta > 0 ? '+' : '';
   const label =
     Math.abs(delta) >= 1
@@ -283,11 +284,11 @@ function MetricCard({
   return (
     <div
       className="flex-1 rounded-lg p-4 flex flex-col gap-1.5 min-w-0"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       <span
         className="text-xs font-medium uppercase tracking-wide"
-        style={{ color: colors.textDim }}
+        style={{ color: 'rgb(var(--canvas-fg-3))' }}
       >
         {label}
       </span>
@@ -295,12 +296,12 @@ function MetricCard({
       <div className="flex items-baseline gap-1.5">
         <span
           className="text-2xl font-bold tabular-nums"
-          style={{ color: colors.textPrimary }}
+          style={{ color: 'rgb(var(--canvas-fg-1))' }}
         >
           {displayVal}
         </span>
         {current !== null && unit && (
-          <span className="text-sm font-medium" style={{ color: colors.textMuted }}>
+          <span className="text-sm font-medium" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
             {unit}
           </span>
         )}
@@ -312,10 +313,10 @@ function MetricCard({
           className="self-start text-xs px-1.5 py-0.5 rounded"
           style={{
             background: current.hasConflict
-              ? `${colors.statusAmber}15`
-              : `${healthColor}15`,
-            color: current.hasConflict ? colors.statusAmber : healthColor,
-            border: `1px solid ${current.hasConflict ? `${colors.statusAmber}40` : `${healthColor}30`}`,
+              ? `rgb(var(--status-amber) / 0.08)`
+              : getDomainColorWithAlpha('health', '15'),
+            color: current.hasConflict ? 'rgb(var(--status-amber))' : healthColor,
+            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber) / 0.25)` : getDomainColorWithAlpha('health', '30')}`,
           }}
           title={
             current.hasConflict
@@ -332,17 +333,17 @@ function MetricCard({
         <div className="mt-0.5">
           <div
             className="h-1 rounded-full overflow-hidden"
-            style={{ background: colors.bgElevated }}
+            style={{ background: 'rgb(var(--canvas-surface))' }}
           >
             <div
               className="h-full rounded-full"
               style={{
                 width: `${Math.min(100, (current.value / goal) * 100).toFixed(1)}%`,
-                background: current.value >= goal ? colors.statusGreen : healthColor,
+                background: current.value >= goal ? 'rgb(var(--status-ok))' : healthColor,
               }}
             />
           </div>
-          <span className="text-xs mt-1 block" style={{ color: colors.textDim }}>
+          <span className="text-xs mt-1 block" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             Goal: {goal.toLocaleString()}
           </span>
         </div>
@@ -384,15 +385,15 @@ function BarChart({
   return (
     <div
       className="flex-1 flex flex-col gap-3 rounded-lg p-4 min-w-0"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
-      <span className="text-xs font-semibold" style={{ color: colors.textMuted }}>
+      <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
         {title}
       </span>
 
       {!hasData ? (
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {emptyLabel ?? 'No data'}
           </span>
         </div>
@@ -405,7 +406,7 @@ function BarChart({
               const v = r?.value ?? null;
               const isToday = date === today;
               const heightPct = v !== null ? (v / maxValue) * 100 : 0;
-              const color = v !== null ? barColor(v, date) : colors.bgElevated;
+              const color = v !== null ? barColor(v, date) : 'rgb(var(--canvas-surface))';
               // Tooltip includes source when there was a conflict that day
               const tooltipParts = [
                 shortDateLabel(date),
@@ -449,7 +450,7 @@ function BarChart({
                   className="flex-1 text-center"
                   style={{
                     fontSize: 9,
-                    color: date === today ? healthColor : colors.textDim,
+                    color: date === today ? healthColor : 'rgb(var(--canvas-fg-3))',
                     fontWeight: date === today ? 600 : 400,
                     opacity: suppress ? 0 : 1,
                   }}
@@ -468,9 +469,9 @@ function BarChart({
 // ── Sleep score color ──────────────────────────────────────────────
 
 function sleepScoreColor(score: number): string {
-  if (score >= 80) return colors.statusGreen;
-  if (score >= 60) return colors.statusAmber;
-  return colors.statusRed;
+  if (score >= 80) return 'rgb(var(--status-ok))';
+  if (score >= 60) return 'rgb(var(--status-amber))';
+  return 'rgb(var(--status-error))';
 }
 
 // ── Date range presets ─────────────────────────────────────────────
@@ -499,16 +500,39 @@ function EmptyState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${healthColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('health', '20') }}
       >
         <HeartIcon className="w-8 h-8" style={{ color: healthColor }} />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium mb-1" style={{ color: colors.textMuted }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           No health data found
         </p>
-        <p style={{ fontSize: 12, color: colors.textDim }}>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
           Connect an Oura Ring or Apple Health source to see metrics here.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Error state ────────────────────────────────────────────────────
+
+function ErrorState(): ReactNode {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4">
+      <div
+        className="flex items-center justify-center rounded-2xl"
+        style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
+      >
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          Failed to load health data
+        </p>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+          There was a problem fetching your health metrics. Please try again.
         </p>
       </div>
     </div>
@@ -591,7 +615,7 @@ export default function HealthPage(): ReactNode {
   // and filter client-side. This keeps date range changes instant without
   // additional API round-trips.
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['chunks', { domain: 'health', limit: 5000 }],
     queryFn: () => fetchChunks({ domain: 'health', limit: 5000 }),
     staleTime: 5 * 60_000,
@@ -650,13 +674,13 @@ export default function HealthPage(): ReactNode {
   const hasAnyData = allMetrics.length > 0;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-5 py-2.5 shrink-0 flex-wrap"
-        style={{ borderBottom: `1px solid ${colors.border}`, background: colors.bgSurface }}
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           Health
         </span>
 
@@ -670,9 +694,9 @@ export default function HealthPage(): ReactNode {
                 onClick={() => toggleMetric(key)}
                 className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
                 style={{
-                  background: on ? `${healthColor}20` : colors.bgElevated,
-                  color: on ? healthColor : colors.textDim,
-                  border: `1px solid ${on ? `${healthColor}50` : colors.border}`,
+                  background: on ? getDomainColorWithAlpha('health', '20') : 'rgb(var(--canvas-surface))',
+                  color: on ? healthColor : 'rgb(var(--canvas-fg-3))',
+                  border: `1px solid ${on ? getDomainColorWithAlpha('health', '50') : 'rgb(var(--canvas-border))'}`,
                 }}
                 title={on ? `Hide ${label}` : `Show ${label}`}
               >
@@ -692,9 +716,9 @@ export default function HealthPage(): ReactNode {
                 key={s}
                 className="px-2 py-0.5 rounded text-xs font-medium"
                 style={{
-                  background: `${healthColor}18`,
+                  background: getDomainColorWithAlpha('health', '18'),
                   color: healthColor,
-                  border: `1px solid ${healthColor}30`,
+                  border: `1px solid ${getDomainColorWithAlpha('health', '30')}`,
                 }}
               >
                 {s}
@@ -706,7 +730,7 @@ export default function HealthPage(): ReactNode {
         {/* Date range picker */}
         <div
           className="flex items-center rounded-lg gap-0.5"
-          style={{ background: colors.bgElevated, padding: 2 }}
+          style={{ background: 'rgb(var(--canvas-surface))', padding: 2 }}
         >
           {RANGE_PRESETS.map(preset => (
             <button
@@ -716,8 +740,8 @@ export default function HealthPage(): ReactNode {
               style={{
                 fontSize: 11,
                 fontWeight: 500,
-                background: rangePreset === preset.key ? colors.bgSurface : 'transparent',
-                color: rangePreset === preset.key ? colors.textPrimary : colors.textDim,
+                background: rangePreset === preset.key ? 'rgb(var(--canvas-surface))' : 'transparent',
+                color: rangePreset === preset.key ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
                 boxShadow: rangePreset === preset.key ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
               }}
             >
@@ -730,8 +754,8 @@ export default function HealthPage(): ReactNode {
             style={{
               fontSize: 11,
               fontWeight: 500,
-              background: isCustom ? colors.bgSurface : 'transparent',
-              color: isCustom ? colors.textPrimary : colors.textDim,
+              background: isCustom ? 'rgb(var(--canvas-surface))' : 'transparent',
+              color: isCustom ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
               boxShadow: isCustom ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
             }}
           >
@@ -744,30 +768,30 @@ export default function HealthPage(): ReactNode {
       {isCustom && (
         <div
           className="flex items-center gap-2 px-5 py-2 shrink-0"
-          style={{ borderBottom: `1px solid ${colors.border}`, background: colors.bgSurface }}
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
         >
-          <span className="text-xs" style={{ color: colors.textDim }}>From</span>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>From</span>
           <input
             type="date"
             value={customFrom}
             onChange={e => setCustomFrom(e.target.value)}
             className="rounded px-2 py-1 text-xs outline-none"
             style={{
-              background: colors.bgElevated,
-              color: colors.textPrimary,
-              border: `1px solid ${colors.border}`,
+              background: 'rgb(var(--canvas-surface))',
+              color: 'rgb(var(--canvas-fg-1))',
+              border: `1px solid rgb(var(--canvas-border))`,
             }}
           />
-          <span className="text-xs" style={{ color: colors.textDim }}>to</span>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>to</span>
           <input
             type="date"
             value={customTo}
             onChange={e => setCustomTo(e.target.value)}
             className="rounded px-2 py-1 text-xs outline-none"
             style={{
-              background: colors.bgElevated,
-              color: colors.textPrimary,
-              border: `1px solid ${colors.border}`,
+              background: 'rgb(var(--canvas-surface))',
+              color: 'rgb(var(--canvas-fg-1))',
+              border: `1px solid rgb(var(--canvas-border))`,
             }}
           />
           <button
@@ -790,6 +814,8 @@ export default function HealthPage(): ReactNode {
             }}
           />
         </div>
+      ) : isError ? (
+        <ErrorState />
       ) : !hasAnyData ? (
         <EmptyState />
       ) : (
@@ -890,3 +916,4 @@ export default function HealthPage(): ReactNode {
     </div>
   );
 }
+

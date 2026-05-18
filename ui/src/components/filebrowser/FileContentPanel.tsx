@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Spinner } from 'flowbite-react';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import type { ChunkResponse } from '../../types/api';
 import { ChunkContent } from '../shared/ChunkContent';
 import { ChunkBoundary } from '../shared/ChunkBoundary';
@@ -58,7 +58,7 @@ export function FileContentPanel({ selectedSourceId, chunks, isLoading, isError,
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <Spinner color="info" size="lg" />
+          <Icon name="spinner" size={32} />
           <p className="text-gray-600 mt-4">Loading file contents…</p>
         </div>
       </div>

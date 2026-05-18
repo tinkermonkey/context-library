@@ -8,9 +8,10 @@ import {
   CalendarIcon,
   MapPinIcon,
   UserGroupIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const evtColor = getDomainColor('events'); // #F59E0B
@@ -228,8 +229,8 @@ function DayCell({
       className="text-left flex flex-col gap-0.5 p-1 transition-colors w-full"
       style={{
         minHeight: 72,
-        borderTop: `1px solid ${colors.border}`,
-        background: isSelected ? `${evtColor}12` : 'transparent',
+        borderTop: `1px solid rgb(var(--canvas-border))`,
+        background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
         opacity: isCurrentMonth ? 1 : 0.35,
       }}
     >
@@ -240,7 +241,7 @@ function DayCell({
             style={{
               width: 22,
               height: 22,
-              background: colors.accent,
+              background: 'rgb(var(--accent-primary))',
               color: '#fff',
               fontSize: 12,
               lineHeight: 1,
@@ -253,7 +254,7 @@ function DayCell({
             style={{
               fontSize: 12,
               fontWeight: 500,
-              color: isSelected ? evtColor : isCurrentMonth ? colors.textMuted : colors.textDim,
+              color: isSelected ? evtColor : isCurrentMonth ? 'rgb(var(--canvas-fg-2))' : 'rgb(var(--canvas-fg-3))',
             }}
           >
             {date.getDate()}
@@ -265,7 +266,7 @@ function DayCell({
           <EventChip key={chunk.chunk_hash} meta={meta} />
         ))}
         {overflow > 0 && (
-          <span style={{ color: colors.textDim, fontSize: 10, paddingLeft: 4 }}>
+          <span style={{ color: 'rgb(var(--canvas-fg-3))', fontSize: 10, paddingLeft: 4 }}>
             +{overflow} more
           </span>
         )}
@@ -303,8 +304,8 @@ function MonthView({
             style={{
               fontSize: 11,
               fontWeight: 500,
-              color: colors.textDim,
-              borderBottom: `1px solid ${colors.border}`,
+              color: 'rgb(var(--canvas-fg-3))',
+              borderBottom: `1px solid rgb(var(--canvas-border))`,
             }}
           >
             {d.toUpperCase()}
@@ -386,20 +387,20 @@ function WeekView({
             <div
               key={key}
               className="text-center py-2"
-              style={{ borderBottom: `1px solid ${colors.border}` }}
+              style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
             >
-              <span style={{ fontSize: 11, fontWeight: 500, color: colors.textDim, display: 'block' }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: 'rgb(var(--canvas-fg-3))', display: 'block' }}>
                 {WEEKDAYS[date.getDay()].toUpperCase()}
               </span>
               {isToday ? (
                 <span
                   className="inline-flex items-center justify-center rounded-full font-semibold mx-auto"
-                  style={{ width: 28, height: 28, background: colors.accent, color: '#fff', fontSize: 13 }}
+                  style={{ width: 28, height: 28, background: 'rgb(var(--accent-primary))', color: '#fff', fontSize: 13 }}
                 >
                   {date.getDate()}
                 </span>
               ) : (
-                <span style={{ fontSize: 13, fontWeight: 500, color: colors.textMuted }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(var(--canvas-fg-2))' }}>
                   {date.getDate()}
                 </span>
               )}
@@ -418,9 +419,9 @@ function WeekView({
               onClick={() => onSelectDate(key)}
               className="flex flex-col gap-0.5 p-1.5 text-left transition-colors overflow-hidden"
               style={{
-                borderRight: `1px solid ${colors.border}`,
-                borderTop: `1px solid ${colors.border}`,
-                background: isSelected ? `${evtColor}12` : 'transparent',
+                borderRight: `1px solid rgb(var(--canvas-border))`,
+                borderTop: `1px solid rgb(var(--canvas-border))`,
+                background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
               }}
             >
               {dayEvents.map(({ chunk, meta }) => (
@@ -444,7 +445,7 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
   return (
     <div
       className="flex items-start gap-3 px-4 py-3"
-      style={{ borderBottom: `1px solid ${colors.border}` }}
+      style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
     >
       <div
         className="shrink-0 rounded-full"
@@ -452,7 +453,7 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-medium truncate" style={{ color: colors.textPrimary }}>
+          <span className="text-sm font-medium truncate" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
             {meta.title}
           </span>
           <span
@@ -469,19 +470,19 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
         </div>
         <div className="mt-0.5 flex items-center gap-3 flex-wrap">
           {!allDay && timeStr && (
-            <span style={{ fontSize: 12, color: colors.textDim }}>{timeStr}</span>
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>{timeStr}</span>
           )}
           {allDay && (
-            <span style={{ fontSize: 12, color: colors.textDim }}>All day</span>
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>All day</span>
           )}
           {meta.location && (
-            <span className="flex items-center gap-1" style={{ fontSize: 12, color: colors.textDim }}>
+            <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               <MapPinIcon className="w-3 h-3" />
               {meta.location}
             </span>
           )}
           {meta.invitees.length > 0 && (
-            <span className="flex items-center gap-1" style={{ fontSize: 12, color: colors.textDim }}>
+            <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               <UserGroupIcon className="w-3 h-3" />
               {meta.invitees.length} {meta.invitees.length === 1 ? 'attendee' : 'attendees'}
             </span>
@@ -503,8 +504,8 @@ function AgendaFullView({ eventMap }: { eventMap: EventMap }): ReactNode {
   if (days.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3">
-        <CalendarIcon className="w-8 h-8" style={{ color: colors.textDim }} />
-        <p className="text-sm" style={{ color: colors.textDim }}>No events found</p>
+        <CalendarIcon className="w-8 h-8" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No events found</p>
       </div>
     );
   }
@@ -518,13 +519,13 @@ function AgendaFullView({ eventMap }: { eventMap: EventMap }): ReactNode {
           <div key={key}>
             <div
               className="px-4 py-2 sticky top-0"
-              style={{ background: colors.bgSurface, borderBottom: `1px solid ${colors.border}` }}
+              style={{ background: 'rgb(var(--canvas-surface))', borderBottom: `1px solid rgb(var(--canvas-border))` }}
             >
               <span
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  color: isToday ? evtColor : colors.textMuted,
+                  color: isToday ? evtColor : 'rgb(var(--canvas-fg-2))',
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
                 }}
@@ -556,18 +557,18 @@ function DayAgendaPanel({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="px-4 py-3 shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
-        <h3 className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+      <div className="px-4 py-3 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
+        <h3 className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           {formatDayHeading(date)}
         </h3>
-        <p style={{ fontSize: 12, color: colors.textDim, marginTop: 2 }}>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))', marginTop: 2 }}>
           {events.length} {events.length === 1 ? 'event' : 'events'}
         </p>
       </div>
       <div className="flex-1 overflow-y-auto">
         {events.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2">
-            <p style={{ fontSize: 13, color: colors.textDim }}>No events</p>
+            <p style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-3))' }}>No events</p>
           </div>
         ) : (
           events.map(({ chunk, meta }) => (
@@ -590,16 +591,39 @@ function EmptyState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${evtColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('events', '20') }}
       >
         <CalendarIcon className="w-8 h-8" style={{ color: evtColor }} />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium mb-1" style={{ color: colors.textMuted }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           No calendar events found
         </p>
-        <p style={{ fontSize: 12, color: colors.textDim }}>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
           Connect a CalDAV or Apple Calendar source to see events here.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── ErrorState ─────────────────────────────────────────────────────
+
+function ErrorState(): ReactNode {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4">
+      <div
+        className="flex items-center justify-center rounded-2xl"
+        style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
+      >
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          Failed to load events
+        </p>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+          There was a problem fetching your calendar events. Please try again.
         </p>
       </div>
     </div>
@@ -634,7 +658,7 @@ export default function EventsPage(): ReactNode {
     setViewMode(mode);
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['chunks', { domain: 'events', limit: 2000 }],
     queryFn: () => fetchChunks({ domain: 'events', limit: 2000 }),
     staleTime: 30_000,
@@ -687,16 +711,16 @@ export default function EventsPage(): ReactNode {
   const hasEvents = allChunks.length > 0;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-4 py-2 shrink-0"
-        style={{ borderBottom: `1px solid ${colors.border}`, background: colors.bgSurface }}
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
         {/* View toggle */}
         <div
           className="flex items-center rounded-lg gap-0.5"
-          style={{ background: colors.bgElevated, padding: 2 }}
+          style={{ background: 'rgb(var(--canvas-surface))', padding: 2 }}
         >
           {(['month', 'week', 'agenda'] as ViewMode[]).map(mode => (
             <button
@@ -706,8 +730,8 @@ export default function EventsPage(): ReactNode {
               style={{
                 fontSize: 12,
                 fontWeight: 500,
-                background: viewMode === mode ? colors.bgSurface : 'transparent',
-                color: viewMode === mode ? colors.textPrimary : colors.textDim,
+                background: viewMode === mode ? 'rgb(var(--canvas-surface))' : 'transparent',
+                color: viewMode === mode ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
                 boxShadow: viewMode === mode ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
               }}
             >
@@ -725,9 +749,9 @@ export default function EventsPage(): ReactNode {
           style={{
             fontSize: 12,
             fontWeight: 500,
-            background: colors.bgElevated,
-            color: colors.textMuted,
-            border: `1px solid ${colors.border}`,
+            background: 'rgb(var(--canvas-surface))',
+            color: 'rgb(var(--canvas-fg-2))',
+            border: `1px solid rgb(var(--canvas-border))`,
           }}
         >
           Today
@@ -738,13 +762,13 @@ export default function EventsPage(): ReactNode {
           <button
             onClick={handlePrev}
             className="p-1 rounded transition-opacity hover:opacity-75"
-            style={{ color: colors.textMuted }}
+            style={{ color: 'rgb(var(--canvas-fg-2))' }}
           >
             <ChevronLeftIcon className="w-4 h-4" />
           </button>
           <span
             className="text-center"
-            style={{ fontSize: 13, fontWeight: 600, color: colors.textPrimary, minWidth: 110 }}
+            style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--canvas-fg-1))', minWidth: 110 }}
           >
             {viewMode === 'week'
               ? weekRangeLabel(displayWeekStart)
@@ -753,7 +777,7 @@ export default function EventsPage(): ReactNode {
           <button
             onClick={handleNext}
             className="p-1 rounded transition-opacity hover:opacity-75"
-            style={{ color: colors.textMuted }}
+            style={{ color: 'rgb(var(--canvas-fg-2))' }}
           >
             <ChevronRightIcon className="w-4 h-4" />
           </button>
@@ -768,6 +792,8 @@ export default function EventsPage(): ReactNode {
             style={{ borderColor: `${evtColor} transparent transparent transparent` }}
           />
         </div>
+      ) : isError ? (
+        <ErrorState />
       ) : !hasEvents ? (
         <EmptyState />
       ) : viewMode === 'agenda' ? (
@@ -797,7 +823,7 @@ export default function EventsPage(): ReactNode {
           {/* Right day agenda panel */}
           <div
             className="w-72 shrink-0 flex flex-col overflow-hidden"
-            style={{ borderLeft: `1px solid ${colors.border}`, background: colors.bgSurface }}
+            style={{ borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
           >
             <DayAgendaPanel dateKey={selectedDateKey} events={selectedDayEvents} />
           </div>
@@ -806,3 +832,4 @@ export default function EventsPage(): ReactNode {
     </div>
   );
 }
+

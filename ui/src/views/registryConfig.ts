@@ -8,12 +8,14 @@ import { TaskListView } from './TaskListView';
 import { DocumentView } from './DocumentView';
 import { DocumentCatalogView } from './DocumentCatalogView';
 import { createDomainCatalogPage } from './createDomainCatalogPage.jsx';
+import { DOMAIN_NAMES } from '../lib/designTokens';
 
 /**
  * All supported domains as the source of truth.
+ * Derived from designTokens.ts to ensure type and runtime array stay synchronized.
  * Typed as const to enable deriving the DomainType union from this array.
  */
-export const ALL_DOMAINS = ['messages', 'notes', 'events', 'tasks', 'health', 'documents'] as const;
+export const ALL_DOMAINS = DOMAIN_NAMES;
 
 /**
  * Supported domain types, derived from ALL_DOMAINS to ensure type and runtime array stay synchronized.
@@ -67,29 +69,17 @@ export interface RegistryEntry {
  * Single source of truth for per-domain view components, catalog pages, and labels.
  */
 const registry: Record<DomainType, RegistryEntry> = {
-  messages: {
-    component: ThreadView,
-    catalogPage: createDomainCatalogPage('messages'),
-    label: 'Thread',
-    pluralLabel: 'Threads',
-  },
-  notes: {
+  documents: {
     component: DocumentView,
-    catalogPage: createDomainCatalogPage('notes'),
-    label: 'Note',
-    pluralLabel: 'Notes',
+    catalogPage: DocumentCatalogView,
+    label: 'Document',
+    pluralLabel: 'Documents',
   },
   events: {
     component: TimeSeriesView,
     catalogPage: createDomainCatalogPage('events'),
     label: 'Timeline',
     pluralLabel: 'Events',
-  },
-  tasks: {
-    component: TaskListView,
-    catalogPage: createDomainCatalogPage('tasks'),
-    label: 'Tasks',
-    pluralLabel: 'Tasks',
   },
   health: {
     component: HealthMetricsView,
@@ -98,11 +88,41 @@ const registry: Record<DomainType, RegistryEntry> = {
     pluralLabel: 'Health',
     subtypeKey: 'health_type',
   },
-  documents: {
+  location: {
+    component: GenericChunkTableComponent,
+    catalogPage: createDomainCatalogPage('location'),
+    label: 'Location',
+    pluralLabel: 'Locations',
+  },
+  messages: {
+    component: ThreadView,
+    catalogPage: createDomainCatalogPage('messages'),
+    label: 'Thread',
+    pluralLabel: 'Threads',
+  },
+  music: {
+    component: GenericChunkTableComponent,
+    catalogPage: createDomainCatalogPage('music'),
+    label: 'Album',
+    pluralLabel: 'Albums',
+  },
+  notes: {
     component: DocumentView,
-    catalogPage: DocumentCatalogView,
-    label: 'Document',
-    pluralLabel: 'Documents',
+    catalogPage: createDomainCatalogPage('notes'),
+    label: 'Note',
+    pluralLabel: 'Notes',
+  },
+  people: {
+    component: GenericChunkTableComponent,
+    catalogPage: createDomainCatalogPage('people'),
+    label: 'Person',
+    pluralLabel: 'People',
+  },
+  tasks: {
+    component: TaskListView,
+    catalogPage: createDomainCatalogPage('tasks'),
+    label: 'Tasks',
+    pluralLabel: 'Tasks',
   },
 };
 

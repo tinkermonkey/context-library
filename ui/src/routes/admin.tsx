@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { colors } from '../lib/designTokens';
+
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { useAdminConfig } from '../hooks/useAdminConfig';
@@ -50,16 +50,16 @@ function getAdapterHealth(
 }
 
 const HEALTH_DOT: Record<AdapterHealth, string> = {
-  healthy: colors.statusGreen,
-  stale: colors.statusAmber,
-  error: colors.statusRed,
+  healthy: 'rgb(var(--status-ok))',
+  stale: 'rgb(var(--status-amber))',
+  error: 'rgb(var(--status-error))',
   unknown: '#4B5563',
 };
 
 const STATUS_BADGE: Record<AdapterHealth, { bg: string; text: string; label: string }> = {
-  healthy: { bg: '#052E16', text: colors.statusGreen, label: 'healthy' },
-  stale:   { bg: '#1C1A00', text: colors.statusAmber, label: 'stale' },
-  error:   { bg: '#2D1B1B', text: colors.statusRed,   label: 'error' },
+  healthy: { bg: '#052E16', text: 'rgb(var(--status-ok))', label: 'healthy' },
+  stale:   { bg: '#1C1A00', text: 'rgb(var(--status-amber))', label: 'stale' },
+  error:   { bg: '#2D1B1B', text: 'rgb(var(--status-error))',   label: 'error' },
   unknown: { bg: '#1A1A1A', text: '#4B5563',          label: 'unknown' },
 };
 
@@ -119,7 +119,7 @@ function AdapterRow({
   const dot = HEALTH_DOT[health];
   const badge = STATUS_BADGE[health];
   const isSyncing = syncingId === adapter.adapter_id;
-  const lastRunColor = health === 'error' ? colors.statusRed : health === 'stale' ? colors.statusAmber : '#9CA3AF';
+  const lastRunColor = health === 'error' ? 'rgb(var(--status-error))' : health === 'stale' ? 'rgb(var(--status-amber))' : '#9CA3AF';
   const rowBg = health === 'error' ? '#1A0E0E' : 'transparent';
 
   return (
@@ -223,7 +223,7 @@ function AdapterRow({
           <span
             style={{
               fontSize: 11,
-              color: health === 'error' ? colors.statusRed : health === 'stale' ? colors.statusAmber : '#9CA3AF',
+              color: health === 'error' ? 'rgb(var(--status-error))' : health === 'stale' ? 'rgb(var(--status-amber))' : '#9CA3AF',
               fontFamily: 'Inter, sans-serif',
             }}
           >
@@ -353,7 +353,7 @@ export default function AdminPage(): ReactNode {
   return (
     <div
       className="flex flex-col h-full overflow-hidden"
-      style={{ background: colors.bgBase }}
+      style={{ background: 'rgb(var(--canvas-bg))' }}
     >
       {/* ── Topbar ── */}
       <div
@@ -386,14 +386,14 @@ export default function AdminPage(): ReactNode {
                 width: 6,
                 height: 6,
                 borderRadius: '50%',
-                background: isSystemHealthy ? colors.statusGreen : colors.statusRed,
+                background: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
                 flexShrink: 0,
               }}
             />
             <span
               style={{
                 fontSize: 12,
-                color: isSystemHealthy ? colors.statusGreen : colors.statusRed,
+                color: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
                 fontFamily: 'Inter, sans-serif',
               }}
             >
@@ -426,7 +426,7 @@ export default function AdminPage(): ReactNode {
                 ? `${errorCount > 0 ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : ''}${errorCount > 0 && staleCount > 0 ? ' · ' : ''}${staleCount > 0 ? `${staleCount} stale` : ''}`
                 : 'All healthy'
             }
-            subColor={errorCount > 0 ? colors.statusRed : staleCount > 0 ? colors.statusAmber : '#4B5563'}
+            subColor={errorCount > 0 ? 'rgb(var(--status-error))' : staleCount > 0 ? 'rgb(var(--status-amber))' : '#4B5563'}
           />
           <StatCard
             label="Embedding Model"
@@ -502,7 +502,7 @@ export default function AdminPage(): ReactNode {
             ) : adminAdaptersQuery.isError ? (
               <div
                 className="flex items-center justify-center py-6"
-                style={{ color: colors.statusRed, fontSize: 13 }}
+                style={{ color: 'rgb(var(--status-error))', fontSize: 13 }}
               >
                 Failed to load adapter status
               </div>
@@ -540,7 +540,7 @@ export default function AdminPage(): ReactNode {
               <span
                 style={{
                   fontSize: 12,
-                  color: syncFeedback.ok ? colors.statusGreen : colors.statusRed,
+                  color: syncFeedback.ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
                   fontFamily: 'Inter, sans-serif',
                 }}
               >
@@ -650,7 +650,7 @@ export default function AdminPage(): ReactNode {
             ) : logsQuery.isError ? (
               <div
                 className="flex items-center justify-center py-5"
-                style={{ color: colors.statusRed, fontSize: 13 }}
+                style={{ color: 'rgb(var(--status-error))', fontSize: 13 }}
               >
                 Failed to load sync log
               </div>
@@ -673,7 +673,7 @@ export default function AdminPage(): ReactNode {
                       style={{
                         fontSize: 11,
                         fontFamily: 'Inter, sans-serif',
-                        color: entry.operation === 'insert' ? colors.statusGreen : colors.statusRed,
+                        color: entry.operation === 'insert' ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
                         fontWeight: 600,
                       }}
                     >
@@ -776,3 +776,4 @@ export default function AdminPage(): ReactNode {
     </div>
   );
 }
+

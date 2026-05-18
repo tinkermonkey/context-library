@@ -23,7 +23,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 import { extractDocumentMetadata } from '../types/api';
 
@@ -356,10 +356,10 @@ function FileRow({
       >
         {filename}
       </span>
-      <span className="text-[10px] shrink-0 w-20 text-right" style={{ color: colors.textDim }}>
+      <span className="text-[10px] shrink-0 w-20 text-right" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         {formatDate(source.updated_at)}
       </span>
-      <span className="text-[10px] shrink-0 w-16 text-right" style={{ color: colors.textDim }}>
+      <span className="text-[10px] shrink-0 w-16 text-right" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         {source.chunk_count} {source.chunk_count === 1 ? 'chunk' : 'chunks'}
       </span>
     </button>
@@ -401,24 +401,24 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-5 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+      <div className="px-5 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
         <div
           className="flex items-center justify-center rounded-xl mb-3"
           style={{ width: 48, height: 48, background: '#1C1A2E' }}
         >
           <FileTypeIcon category={category} size={24} />
         </div>
-        <h2 className="text-sm font-semibold leading-snug mb-1" style={{ color: colors.textPrimary }}>
+        <h2 className="text-sm font-semibold leading-snug mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           {filename}
         </h2>
-        <p className="text-[10px] break-all" style={{ color: colors.textDim }}>
+        <p className="text-[10px] break-all" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {source.origin_ref}
         </p>
       </div>
 
       {/* Metadata */}
-      <div className="px-5 py-4 shrink-0 space-y-3" style={{ borderBottom: `1px solid ${colors.border}` }}>
-        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: colors.textDim }}>
+      <div className="px-5 py-4 shrink-0 space-y-3" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
+        <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           File Info
         </p>
         <div className="space-y-2">
@@ -436,61 +436,61 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
       </div>
 
       {/* Content preview */}
-      <div className="px-5 py-4 shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
-        <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: colors.textDim }}>
+      <div className="px-5 py-4 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
+        <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Preview
         </p>
         {chunksQuery.isLoading ? (
           <div className="space-y-1.5 animate-pulse">
             {[80, 65, 90, 55, 70].map((w, i) => (
-              <div key={i} className="h-2.5 rounded" style={{ width: `${w}%`, background: colors.bgElevated }} />
+              <div key={i} className="h-2.5 rounded" style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }} />
             ))}
           </div>
         ) : chunksQuery.isError ? (
-          <p className="text-[11px]" style={{ color: colors.statusRed }}>Failed to load preview</p>
+          <p className="text-[11px]" style={{ color: 'rgb(var(--status-error))' }}>Failed to load preview</p>
         ) : contentPreview ? (
-          <p className="text-[11px] leading-relaxed whitespace-pre-wrap break-words line-clamp-6" style={{ color: colors.textMuted }}>
+          <p className="text-[11px] leading-relaxed whitespace-pre-wrap break-words line-clamp-6" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
             {contentPreview}
           </p>
         ) : (
-          <p className="text-[11px]" style={{ color: colors.textDim }}>No preview available</p>
+          <p className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No preview available</p>
         )}
       </div>
 
       {/* Chunk list */}
       <div className="flex-1 px-5 py-4 overflow-y-auto">
-        <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: colors.textDim }}>
+        <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Chunks ({chunks.length})
         </p>
         {chunksQuery.isLoading ? (
           <div className="space-y-2 animate-pulse">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-8 rounded" style={{ background: colors.bgElevated }} />
+              <div key={i} className="h-8 rounded" style={{ background: 'rgb(var(--canvas-surface))' }} />
             ))}
           </div>
         ) : chunksQuery.isError ? (
-          <p className="text-[11px]" style={{ color: colors.statusRed }}>Failed to load chunks</p>
+          <p className="text-[11px]" style={{ color: 'rgb(var(--status-error))' }}>Failed to load chunks</p>
         ) : chunks.length === 0 ? (
-          <p className="text-[11px]" style={{ color: colors.textDim }}>No chunks indexed</p>
+          <p className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No chunks indexed</p>
         ) : (
           <div className="space-y-1">
             {chunks.map(chunk => (
               <div
                 key={chunk.chunk_hash}
                 className="px-2.5 py-2 rounded text-[11px]"
-                style={{ background: colors.bgElevated, border: `1px solid ${colors.borderSubtle}` }}
+                style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-bg-2))` }}
               >
                 <div className="flex items-center gap-2 mb-0.5">
                   <span
                     className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase"
-                    style={{ background: `${docColor}20`, color: docColor }}
+                    style={{ background: getDomainColorWithAlpha('documents', '20'), color: docColor }}
                   >
                     {chunk.chunk_type}
                   </span>
-                  <span style={{ color: colors.textDim }}>#{chunk.chunk_index}</span>
+                  <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>#{chunk.chunk_index}</span>
                 </div>
                 {chunk.context_header && (
-                  <p className="truncate mt-0.5" style={{ color: colors.textDim }}>
+                  <p className="truncate mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                     {chunk.context_header}
                   </p>
                 )}
@@ -506,8 +506,8 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
 function MetaRow({ label, value }: { label: string; value: string }): ReactNode {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[10px] w-16 shrink-0" style={{ color: colors.textDim }}>{label}</span>
-      <span className="text-[11px] truncate" style={{ color: colors.textMuted }}>{value}</span>
+      <span className="text-[10px] w-16 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{label}</span>
+      <span className="text-[11px] truncate" style={{ color: 'rgb(var(--canvas-fg-2))' }}>{value}</span>
     </div>
   );
 }
@@ -584,12 +584,12 @@ export default function DocumentsPage(): ReactNode {
   const SORT_LABELS: Record<string, string> = { name: 'Name', date: 'Modified', size: 'Size', type: 'Type' };
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
 
       {/* ── Left panel: folder tree ── */}
       <div
         className="shrink-0 flex flex-col overflow-hidden"
-        style={{ width: 220, borderRight: `1px solid ${colors.border}`, background: '#0D0D0D' }}
+        style={{ width: 220, borderRight: `1px solid rgb(var(--canvas-border))`, background: '#0D0D0D' }}
       >
         {/* Label */}
         <div className="px-3 pt-3 pb-1 shrink-0">
@@ -603,15 +603,15 @@ export default function DocumentsPage(): ReactNode {
           {sourcesQuery.isLoading ? (
             <div className="px-3 py-2 space-y-2">
               {[60, 80, 50, 70, 90].map((w, i) => (
-                <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: colors.bgElevated }} />
+                <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }} />
               ))}
             </div>
           ) : sourcesQuery.isError ? (
-            <div className="px-3 py-2 text-xs" style={{ color: colors.statusRed }}>
+            <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--status-error))' }}>
               Failed to load folders
             </div>
           ) : rootFolders.length === 0 && folderTree.get('')?.length === 0 ? (
-            <div className="px-3 py-2 text-xs" style={{ color: colors.textDim }}>
+            <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               No documents found
             </div>
           ) : (
@@ -727,21 +727,21 @@ export default function DocumentsPage(): ReactNode {
         {/* Stats + sort bar */}
         <div
           className="flex items-center gap-3 px-5 py-2 shrink-0"
-          style={{ borderBottom: `1px solid ${colors.border}` }}
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
         >
           {/* Search */}
           <div
             className="flex items-center gap-2 px-2.5 py-1.5 rounded flex-1"
-            style={{ background: colors.bgElevated, maxWidth: 260 }}
+            style={{ background: 'rgb(var(--canvas-surface))', maxWidth: 260 }}
           >
-            <MagnifyingGlassIcon style={{ width: 12, height: 12, color: colors.textDim, flexShrink: 0 }} />
+            <MagnifyingGlassIcon style={{ width: 12, height: 12, color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }} />
             <input
               type="text"
               value={filterText}
               onChange={e => setFilterText(e.target.value)}
               placeholder="Filter files…"
               className="bg-transparent text-xs outline-none flex-1"
-              style={{ color: colors.textPrimary }}
+              style={{ color: 'rgb(var(--canvas-fg-1))' }}
             />
           </div>
 
@@ -764,7 +764,7 @@ export default function DocumentsPage(): ReactNode {
             {showSortMenu && (
               <div
                 className="absolute right-0 top-8 z-10 rounded-lg py-1 min-w-[100px]"
-                style={{ background: '#1A1A1A', border: `1px solid ${colors.border}`, boxShadow: '0 4px 16px #00000080' }}
+                style={{ background: '#1A1A1A', border: `1px solid rgb(var(--canvas-border))`, boxShadow: '0 4px 16px #00000080' }}
               >
                 {(['name', 'date', 'size', 'type'] satisfies SortKey[]).map(key => (
                   <button
@@ -789,25 +789,25 @@ export default function DocumentsPage(): ReactNode {
                 <div
                   key={i}
                   className="animate-pulse rounded-lg"
-                  style={{ width: 180, height: 110, background: colors.bgElevated }}
+                  style={{ width: 180, height: 110, background: 'rgb(var(--canvas-surface))' }}
                 />
               ))}
             </div>
           ) : sourcesQuery.isError ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
-              <p className="text-sm" style={{ color: colors.statusRed }}>Failed to load documents</p>
+              <p className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>Failed to load documents</p>
               <button
                 onClick={() => sourcesQuery.refetch()}
                 className="text-xs px-3 py-1.5 rounded transition-colors"
-                style={{ background: colors.bgElevated, color: colors.textMuted }}
+                style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))' }}
               >
                 Retry
               </button>
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
-              <FolderOpenIcon style={{ width: 32, height: 32, color: colors.textDim }} />
-              <p className="text-sm" style={{ color: colors.textDim }}>
+              <FolderOpenIcon style={{ width: 32, height: 32, color: 'rgb(var(--canvas-fg-3))' }} />
+              <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {filterText ? 'No files match your filter' : 'No files in this folder'}
               </p>
             </div>
@@ -827,11 +827,11 @@ export default function DocumentsPage(): ReactNode {
               {/* List header */}
               <div
                 className="flex items-center gap-3 px-4 py-1.5 mb-1"
-                style={{ borderBottom: `1px solid ${colors.border}` }}
+                style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
               >
-                <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: colors.textDim }}>Name</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide w-20 text-right shrink-0" style={{ color: colors.textDim }}>Modified</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide w-16 text-right shrink-0" style={{ color: colors.textDim }}>Chunks</span>
+                <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Name</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide w-20 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Modified</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide w-16 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunks</span>
               </div>
               {filteredFiles.map(source => (
                 <FileRow
@@ -850,7 +850,7 @@ export default function DocumentsPage(): ReactNode {
       {selectedSource && (
         <div
           className="shrink-0 flex flex-col overflow-hidden"
-          style={{ width: 360, borderLeft: `1px solid ${colors.border}`, background: colors.bgSurface }}
+          style={{ width: 360, borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
         >
           <FileDetail source={selectedSource} />
         </div>
@@ -858,3 +858,4 @@ export default function DocumentsPage(): ReactNode {
     </div>
   );
 }
+
