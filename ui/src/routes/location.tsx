@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MapPinIcon } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const locationColor = getDomainColor('location'); // #14B8A6
@@ -642,7 +642,7 @@ export default function LocationPage(): ReactNode {
               <div className="flex flex-col items-center justify-center py-12 gap-3 px-4">
                 <div
                   className="flex items-center justify-center rounded-2xl"
-                  style={{ width: 40, height: 40, background: `${locationColor}18` }}
+                  style={{ width: 40, height: 40, background: getDomainColorWithAlpha('location', '18') }}
                 >
                   <MapPinIcon className="w-5 h-5" style={{ color: locationColor }} />
                 </div>

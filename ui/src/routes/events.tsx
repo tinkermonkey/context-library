@@ -11,7 +11,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const evtColor = getDomainColor('events'); // #F59E0B
@@ -230,7 +230,7 @@ function DayCell({
       style={{
         minHeight: 72,
         borderTop: `1px solid rgb(var(--canvas-border))`,
-        background: isSelected ? `${evtColor}12` : 'transparent',
+        background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
         opacity: isCurrentMonth ? 1 : 0.35,
       }}
     >
@@ -421,7 +421,7 @@ function WeekView({
               style={{
                 borderRight: `1px solid rgb(var(--canvas-border))`,
                 borderTop: `1px solid rgb(var(--canvas-border))`,
-                background: isSelected ? `${evtColor}12` : 'transparent',
+                background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
               }}
             >
               {dayEvents.map(({ chunk, meta }) => (
@@ -591,7 +591,7 @@ function EmptyState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${evtColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('events', '20') }}
       >
         <CalendarIcon className="w-8 h-8" style={{ color: evtColor }} />
       </div>

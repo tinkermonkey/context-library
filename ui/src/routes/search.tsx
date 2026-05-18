@@ -10,7 +10,7 @@ import {
 import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
-import { getDomainColor, domainColors } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ function ResultCard({
       onClick={onClick}
       className="w-full text-left rounded-xl p-4 transition-colors flex flex-col gap-2"
       style={{
-        background: selected ? `${domainColor}12` : 'rgb(var(--canvas-surface))',
+        background: selected ? getDomainColorWithAlpha(result.domain, '12') : 'rgb(var(--canvas-surface))',
         border: `1px solid ${selected ? domainColor : focused ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-border))'}`,
         outline: 'none',
       }}
@@ -151,7 +151,7 @@ function ResultCard({
       <div className="flex items-center gap-2">
         <span
           className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-          style={{ background: `${domainColor}20`, color: domainColor }}
+          style={{ background: getDomainColorWithAlpha(result.domain, '20'), color: domainColor }}
         >
           {capitalize(result.domain)}
         </span>
@@ -172,7 +172,7 @@ function ResultCard({
               key={i}
               className="rounded px-0.5"
               style={{
-                background: `${domainColor}30`,
+                background: getDomainColorWithAlpha(result.domain, '30'),
                 color: 'rgb(var(--canvas-fg-1))',
                 fontWeight: 500,
               }}

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MagnifyingGlassIcon, MusicalNoteIcon } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const musicColor = getDomainColor('music'); // #F43F5E
@@ -181,7 +181,7 @@ function RecentRow({ track, isActive }: { track: Track; isActive: boolean }): Re
       style={{
         padding: '7px 0',
         borderBottom: '1px solid #1A1A1A',
-        background: isActive ? `${musicColor}0D` : 'transparent',
+        background: isActive ? getDomainColorWithAlpha('music', '0D') : 'transparent',
       }}
     >
       <ArtworkThumb gradient={track.gradient} size={28} />
@@ -647,7 +647,7 @@ export default function MusicPage(): ReactNode {
               <div className="flex flex-col items-center justify-center py-16 gap-3">
                 <div
                   className="flex items-center justify-center rounded-2xl"
-                  style={{ width: 48, height: 48, background: `${musicColor}20` }}
+                  style={{ width: 48, height: 48, background: getDomainColorWithAlpha('music', '20') }}
                 >
                   <MusicalNoteIcon className="w-6 h-6" style={{ color: musicColor }} />
                 </div>

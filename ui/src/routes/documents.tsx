@@ -23,7 +23,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 import { extractDocumentMetadata } from '../types/api';
 
@@ -483,7 +483,7 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
                 <div className="flex items-center gap-2 mb-0.5">
                   <span
                     className="px-1.5 py-0.5 rounded text-[9px] font-medium uppercase"
-                    style={{ background: `${docColor}20`, color: docColor }}
+                    style={{ background: getDomainColorWithAlpha('documents', '20'), color: docColor }}
                   >
                     {chunk.chunk_type}
                   </span>

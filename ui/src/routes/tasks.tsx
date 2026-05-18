@@ -14,7 +14,7 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const taskColor = getDomainColor('tasks'); // #F97316
@@ -232,7 +232,7 @@ function TaskRow({
         padding: '0 14px',
         borderRadius: 6,
         flexShrink: 0,
-        background: isSelected ? `${taskColor}12` : '#161616',
+        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : '#161616',
         border: `1px solid ${isSelected ? taskColor + '40' : 'rgb(var(--canvas-border))'}`,
       }}
     >
@@ -404,7 +404,7 @@ function EmptyState({ filtered }: { filtered: boolean }): ReactNode {
     <div className="flex flex-col items-center justify-center flex-1 gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${taskColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('tasks', '20') }}
       >
         <CheckCircleIcon className="w-8 h-8" style={{ color: taskColor }} />
       </div>
@@ -605,7 +605,7 @@ export default function TasksPage(): ReactNode {
             style={{
               borderRadius: 4,
               padding: '4px 10px',
-              background: sourceFilter !== 'all' ? `${taskColor}22` : 'rgb(var(--canvas-surface))',
+              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '22') : 'rgb(var(--canvas-surface))',
               fontSize: 12,
               color: sourceFilter !== 'all' ? taskColor : 'rgb(var(--canvas-fg-2))',
               border: 'none',
@@ -644,7 +644,7 @@ export default function TasksPage(): ReactNode {
                     style={{
                       fontSize: 12,
                       color: sourceFilter === opt.value ? taskColor : 'rgb(var(--canvas-fg-2))',
-                      background: sourceFilter === opt.value ? `${taskColor}18` : 'transparent',
+                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '18') : 'transparent',
                     }}
                   >
                     {opt.label}

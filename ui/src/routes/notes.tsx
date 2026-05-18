@@ -9,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 
 const noteColor = getDomainColor('notes'); // #6366F1
@@ -103,7 +103,7 @@ function InlineText({ text }: { text: string }): ReactNode {
             <span
               key={i}
               className="rounded px-0.5 text-xs"
-              style={{ color: noteColor, background: `${noteColor}20` }}
+              style={{ color: noteColor, background: getDomainColorWithAlpha('notes', '20') }}
             >
               {part.content}
             </span>
@@ -344,7 +344,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className="px-1.5 py-0.5 rounded text-xs font-medium"
-            style={{ background: `${noteColor}20`, color: noteColor }}
+            style={{ background: getDomainColorWithAlpha('notes', '20'), color: noteColor }}
           >
             {adapterLabel(source.adapter_id)}
           </span>
@@ -380,7 +380,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
             <span
               key={tag}
               className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
-              style={{ background: `${noteColor}18`, color: noteColor }}
+              style={{ background: getDomainColorWithAlpha('notes', '18'), color: noteColor }}
             >
               <TagIcon className="w-3 h-3 shrink-0" />
               {tag}
@@ -453,7 +453,7 @@ function NoteCard({
       onClick={onClick}
       className="w-full text-left px-4 py-3 transition-colors"
       style={{
-        background: isSelected ? `${noteColor}18` : 'transparent',
+        background: isSelected ? getDomainColorWithAlpha('notes', '18') : 'transparent',
         borderLeft: `2px solid ${isSelected ? noteColor : 'transparent'}`,
       }}
     >
@@ -471,7 +471,7 @@ function NoteCard({
       <div className="flex items-center gap-2 min-w-0">
         <span
           className="text-xs px-1.5 py-0.5 rounded shrink-0"
-          style={{ background: `${noteColor}18`, color: noteColor }}
+          style={{ background: getDomainColorWithAlpha('notes', '18'), color: noteColor }}
         >
           {adapterLabel(source.adapter_id)}
         </span>
@@ -506,7 +506,7 @@ function AdapterGroup({
       <button
         onClick={onAdapterClick}
         className="w-full px-3 py-1.5 flex items-center gap-1.5 transition-colors"
-        style={{ background: isAdapterActive ? `${noteColor}10` : 'transparent' }}
+        style={{ background: isAdapterActive ? getDomainColorWithAlpha('notes', '10') : 'transparent' }}
         title={isAdapterActive ? 'Click to clear filter' : `Filter by ${adapterLabel(adapterId)}`}
       >
         <ChevronDownIcon
@@ -535,7 +535,7 @@ function AdapterGroup({
             title={noteTitle(source)}
             style={{
               color: isSelected ? noteColor : 'rgb(var(--canvas-fg-2))',
-              background: isSelected ? `${noteColor}12` : 'transparent',
+              background: isSelected ? getDomainColorWithAlpha('notes', '12') : 'transparent',
             }}
           >
             {noteTitle(source)}
@@ -553,7 +553,7 @@ function EmptyDetail(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-3">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 48, height: 48, background: `${noteColor}20` }}
+        style={{ width: 48, height: 48, background: getDomainColorWithAlpha('notes', '20') }}
       >
         <svg
           className="w-6 h-6"
@@ -724,7 +724,7 @@ export default function NotesPage(): ReactNode {
             <button
               onClick={() => selectAdapter(activeAdapter)}
               className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-opacity hover:opacity-70"
-              style={{ background: `${noteColor}20`, color: noteColor }}
+              style={{ background: getDomainColorWithAlpha('notes', '20'), color: noteColor }}
               title="Clear adapter filter"
             >
               {adapterLabel(activeAdapter)}

@@ -9,7 +9,7 @@ import {
   MinusIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const healthColor = getDomainColor('health'); // #06B6D4
@@ -313,9 +313,9 @@ function MetricCard({
           style={{
             background: current.hasConflict
               ? `rgb(var(--status-amber) / 0.08)`
-              : `${healthColor}15`,
+              : getDomainColorWithAlpha('health', '15'),
             color: current.hasConflict ? 'rgb(var(--status-amber))' : healthColor,
-            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber) / 0.25)` : `${healthColor}30`}`,
+            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber) / 0.25)` : getDomainColorWithAlpha('health', '30')}`,
           }}
           title={
             current.hasConflict
@@ -499,7 +499,7 @@ function EmptyState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: `${healthColor}20` }}
+        style={{ width: 64, height: 64, background: getDomainColorWithAlpha('health', '20') }}
       >
         <HeartIcon className="w-8 h-8" style={{ color: healthColor }} />
       </div>
@@ -670,9 +670,9 @@ export default function HealthPage(): ReactNode {
                 onClick={() => toggleMetric(key)}
                 className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
                 style={{
-                  background: on ? `${healthColor}20` : 'rgb(var(--canvas-surface))',
+                  background: on ? getDomainColorWithAlpha('health', '20') : 'rgb(var(--canvas-surface))',
                   color: on ? healthColor : 'rgb(var(--canvas-fg-3))',
-                  border: `1px solid ${on ? `${healthColor}50` : 'rgb(var(--canvas-border))'}`,
+                  border: `1px solid ${on ? getDomainColorWithAlpha('health', '50') : 'rgb(var(--canvas-border))'}`,
                 }}
                 title={on ? `Hide ${label}` : `Show ${label}`}
               >
@@ -692,9 +692,9 @@ export default function HealthPage(): ReactNode {
                 key={s}
                 className="px-2 py-0.5 rounded text-xs font-medium"
                 style={{
-                  background: `${healthColor}18`,
+                  background: getDomainColorWithAlpha('health', '18'),
                   color: healthColor,
-                  border: `1px solid ${healthColor}30`,
+                  border: `1px solid ${getDomainColorWithAlpha('health', '30')}`,
                 }}
               >
                 {s}

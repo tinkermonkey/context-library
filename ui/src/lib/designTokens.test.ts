@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { getDomainColor, domainColors } from './designTokens';
+import { getDomainColor, domainColors, DOMAIN_NAMES } from './designTokens';
 
 describe('getDomainColor', () => {
   it('returns the correct color for each defined domain', () => {
-    const domains = Object.keys(domainColors);
-
-    domains.forEach((domain) => {
+    DOMAIN_NAMES.forEach((domain) => {
       expect(getDomainColor(domain)).toBe(domainColors[domain]);
     });
   });

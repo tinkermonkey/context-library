@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { MagnifyingGlassIcon, UsersIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { postQuery, fetchSourceChunks } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, QueryResultItem } from '../types/api';
 
 const peopleColor = getDomainColor('people'); // #EC4899
@@ -105,7 +105,7 @@ function ContactCard({
       style={{
         width: 192,
         padding: 16,
-        background: isSelected ? `${peopleColor}18` : '#161616',
+        background: isSelected ? getDomainColorWithAlpha('people', '18') : '#161616',
         border: `1px solid ${isSelected ? peopleColor : '#1E1E1E'}`,
         borderRadius: 8,
         flexShrink: 0,
@@ -386,7 +386,7 @@ function EmptyDetail(): ReactNode {
     >
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 48, height: 48, background: `${peopleColor}20` }}
+        style={{ width: 48, height: 48, background: getDomainColorWithAlpha('people', '20') }}
       >
         <UsersIcon className="w-6 h-6" style={{ color: peopleColor }} />
       </div>
@@ -502,7 +502,7 @@ export default function PeoplePage(): ReactNode {
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div
                 className="flex items-center justify-center rounded-2xl"
-                style={{ width: 48, height: 48, background: `${peopleColor}20` }}
+                style={{ width: 48, height: 48, background: getDomainColorWithAlpha('people', '20') }}
               >
                 <UsersIcon className="w-6 h-6" style={{ color: peopleColor }} />
               </div>

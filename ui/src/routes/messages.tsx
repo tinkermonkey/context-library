@@ -9,7 +9,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
-import { getDomainColor } from "../lib/designTokens";
+import { getDomainColor, getDomainColorWithAlpha } from "../lib/designTokens";
 import type { SourceSummary, ChunkResponse } from "../types/api";
 
 const msgColor = getDomainColor("messages"); // #A855F7
@@ -186,7 +186,7 @@ function ConversationItem({
       onClick={onClick}
       className="w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors"
       style={{
-        background: isSelected ? `${msgColor}18` : "transparent",
+        background: isSelected ? getDomainColorWithAlpha('messages', '18') : "transparent",
         borderLeft: `2px solid ${isSelected ? msgColor : "transparent"}`,
       }}
     >
@@ -262,7 +262,7 @@ function MessageBubble({
         style={
           fromMe
             ? {
-                background: `linear-gradient(135deg, ${msgColor}CC 0%, ${msgColor}88 100%)`,
+                background: `linear-gradient(135deg, ${getDomainColorWithAlpha('messages', 'CC')} 0%, ${getDomainColorWithAlpha('messages', '88')} 100%)`,
                 borderBottomRightRadius: 4,
               }
             : {
@@ -579,7 +579,7 @@ function EmptyState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-3">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 48, height: 48, background: `${msgColor}20` }}
+        style={{ width: 48, height: 48, background: getDomainColorWithAlpha('messages', '20') }}
       >
         <ChatBubbleLeftIcon className="w-6 h-6" style={{ color: msgColor }} />
       </div>
