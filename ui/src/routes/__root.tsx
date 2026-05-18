@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { Outlet } from '@tanstack/react-router';
-import { Layout } from '../components/Layout';
+import { AppShell } from '../components/AppShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 
 function PageLoadingFallback() {
@@ -42,11 +42,11 @@ function RootErrorFallback({ error, reset }: { error: Error; reset: () => void }
 export default function RootLayout() {
   return (
     <ErrorBoundary fallback={(error, reset) => <RootErrorFallback error={error} reset={reset} />}>
-      <Layout>
+      <AppShell>
         <Suspense fallback={<PageLoadingFallback />}>
           <Outlet />
         </Suspense>
-      </Layout>
+      </AppShell>
     </ErrorBoundary>
   );
 }

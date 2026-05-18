@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge } from 'flowbite-react';
+import { Badge } from '@tinkermonkey/heimdall-ui';
 import { useHealth } from '../hooks/useHealth';
 import type { HealthResponse, CollectorStatus, HelperHealth, CollectorDeliveryStatus, EndpointDeliveryStatus } from '../types/api';
 
@@ -188,22 +188,22 @@ export function HealthIndicator() {
   const { data, isLoading, isError } = useHealth();
   const [open, setOpen] = useState(false);
 
-  let badgeColor: 'green' | 'yellow' | 'red' | 'gray';
+  let badgeColor: 'emerald' | 'amber' | 'rose' | 'neutral';
   let badgeText: string;
 
   const helperOk = !data?.helper || data.helper.reachable;
 
   if (isLoading || isError || !data) {
-    badgeColor = 'gray';
+    badgeColor = 'neutral';
     badgeText = 'Unknown';
   } else if (data.sqlite_ok && data.chromadb_ok && helperOk) {
-    badgeColor = 'green';
+    badgeColor = 'emerald';
     badgeText = 'Healthy';
   } else if (!data.sqlite_ok && !data.chromadb_ok) {
-    badgeColor = 'red';
+    badgeColor = 'rose';
     badgeText = 'Unhealthy';
   } else {
-    badgeColor = 'yellow';
+    badgeColor = 'amber';
     badgeText = 'Degraded';
   }
 
