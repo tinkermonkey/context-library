@@ -1,3 +1,5 @@
+@import "@tinkermonkey/heimdall-ui/css";
+
 @import "tailwindcss";
 
 @config "../tailwind.config.js";
@@ -45,8 +47,11 @@ code {
   background: #3E3E3E;
 }
 
-/* ── Domain color utilities ───────────────────────────────────── */
+/* ── Heimdall design system overrides ────────────────────────── */
 :root {
+  --accent-primary: #6366F1;
+
+  /* Application domain colors (preserved from designTokens.ts) */
   --domain-notes: #6366F1;
   --domain-messages: #A855F7;
   --domain-documents: #22C55E;
