@@ -233,7 +233,7 @@ function TaskRow({
         borderRadius: 6,
         flexShrink: 0,
         background: isSelected ? getDomainColorWithAlpha('tasks', '12') : '#161616',
-        border: `1px solid ${isSelected ? taskColor + '40' : 'rgb(var(--canvas-border))'}`,
+        border: `1px solid ${isSelected ? getDomainColorWithAlpha('tasks', '40') : 'rgb(var(--canvas-border))'}`,
       }}
     >
       {/* Status dot */}

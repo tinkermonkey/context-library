@@ -22,6 +22,20 @@ function hexOpacityToDecimal(hex: string): number {
   return Math.round((num / 255) * 1000) / 1000;
 }
 
+/**
+ * Returns a domain color with opacity using CSS rgb/opacity syntax.
+ *
+ * @param domain - The domain name (falls back to 'notes' if unknown)
+ * @param opacity - The opacity value. Can be:
+ *   - A number between 0 and 1 (e.g., 0.5, 1)
+ *   - A 2-character hex string (e.g., '20', '40', 'FF') which is converted to decimal
+ *   - Any other string is passed through as-is to CSS
+ *
+ * @example
+ * getDomainColorWithAlpha('notes', 0.5)    // "rgb(var(--domain-notes) / 0.5)"
+ * getDomainColorWithAlpha('notes', '20')   // "rgb(var(--domain-notes) / 0.125)"
+ * getDomainColorWithAlpha('tasks', '1A')   // "rgb(var(--domain-tasks) / 0.102)"
+ */
 export function getDomainColorWithAlpha(domain: string, opacity: string | number): string {
   let domainName: DomainName = domain as DomainName;
   if (!(domainName in domainColors)) {
@@ -31,9 +45,11 @@ export function getDomainColorWithAlpha(domain: string, opacity: string | number
   let opacityValue: number | string;
   if (typeof opacity === 'number') {
     opacityValue = opacity;
-  } else if (opacity.length === 2) {
+  } else if (opacity.length === 2 && /^[0-9a-fA-F]{2}$/.test(opacity)) {
+    // 2-char hex string (e.g., '20', '1A', 'FF')
     opacityValue = hexOpacityToDecimal(opacity);
   } else {
+    // Pass through as-is (for CSS keywords like 'var(...)' or invalid values)
     opacityValue = opacity;
   }
 

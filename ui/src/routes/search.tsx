@@ -59,13 +59,17 @@ function DomainChip({
   onClick: () => void;
 }) {
   const color = domain === 'all' ? 'rgb(var(--accent-primary))' : getDomainColor(domain);
+  const activeBackground = domain === 'all'
+    ? 'rgb(var(--accent-primary) / 0.15)'
+    : getDomainColorWithAlpha(domain, '26');
+
   return (
     <button
       onClick={onClick}
       className="flex items-center gap-1.5 px-3 h-7 rounded-full text-xs font-medium transition-all shrink-0"
       style={
         active
-          ? { background: `${color}26`, color, border: `1px solid ${color}` }
+          ? { background: activeBackground, color, border: `1px solid ${color}` }
           : {
               background: 'transparent',
               color: 'rgb(var(--canvas-fg-2))',

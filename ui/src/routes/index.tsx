@@ -20,7 +20,7 @@ import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
-import { getDomainColor } from '../lib/designTokens';
+import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -245,7 +245,7 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
             >
               <div
                 className="flex items-center justify-center rounded-lg w-8 h-8"
-                style={{ background: `${color}1A` }}
+                style={{ background: getDomainColorWithAlpha(domain, '1A') }}
               >
                 <Icon className="w-4 h-4" style={{ color }} />
               </div>
