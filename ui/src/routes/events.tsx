@@ -614,9 +614,9 @@ function ErrorState(): ReactNode {
     <div className="flex flex-col items-center justify-center h-full gap-4">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 64, height: 64, background: '#EF443620' }}
+        style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: '#EF4436' }} />
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
