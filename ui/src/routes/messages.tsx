@@ -353,7 +353,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
   }, [source.source_id, source.chunk_count]);
 
   // Fetch the current page. Archives are immutable → staleTime: Infinity.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["chunks", source.source_id, state.startOffset],
     queryFn: () =>
       fetchSourceChunks(
@@ -484,72 +484,103 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
         className="flex-1 overflow-y-auto py-2"
         style={{ background: 'rgb(var(--canvas-bg))' }}
       >
-        {/* Load-earlier button or spinner */}
-        {hasEarlier && (
-          <div className="flex justify-center py-3">
-            {isPaginating ? (
-              <div
-                className="w-4 h-4 rounded-full border-2 animate-spin"
-                style={{
-                  borderColor: `rgb(var(--canvas-fg-3)) transparent transparent transparent`,
-                }}
-              />
-            ) : (
-              <button
-                onClick={loadEarlier}
-                className="px-4 py-1.5 rounded-full text-xs font-medium transition-opacity hover:opacity-75"
-                style={{
-                  background: 'rgb(var(--canvas-surface))',
-                  color: 'rgb(var(--canvas-fg-2))',
-                  border: `1px solid rgb(var(--canvas-border))`,
-                }}
+        {isError ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="flex flex-col items-center gap-3">
+              <svg
+                className="w-8 h-8"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                style={{ color: 'rgb(var(--status-error))' }}
               >
-                Load earlier messages
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Initial loading skeleton */}
-        {isLoading && state.loaded.length === 0 && (
-          <div className="px-4 py-4 space-y-4">
-            {[40, 65, 50, 30, 60].map((w, i) => (
-              <div
-                key={i}
-                className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className="h-9 rounded-2xl animate-pulse"
-                  style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }}
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                 />
+              </svg>
+              <div className="text-center">
+                <p className="text-sm font-medium" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                  Failed to load messages
+                </p>
+                <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+                  There was a problem fetching the thread.
+                </p>
               </div>
-            ))}
+            </div>
           </div>
-        )}
+        ) : (
+          <>
+            {/* Load-earlier button or spinner */}
+            {hasEarlier && (
+              <div className="flex justify-center py-3">
+                {isPaginating ? (
+                  <div
+                    className="w-4 h-4 rounded-full border-2 animate-spin"
+                    style={{
+                      borderColor: `rgb(var(--canvas-fg-3)) transparent transparent transparent`,
+                    }}
+                  />
+                ) : (
+                  <button
+                    onClick={loadEarlier}
+                    className="px-4 py-1.5 rounded-full text-xs font-medium transition-opacity hover:opacity-75"
+                    style={{
+                      background: 'rgb(var(--canvas-surface))',
+                      color: 'rgb(var(--canvas-fg-2))',
+                      border: `1px solid rgb(var(--canvas-border))`,
+                    }}
+                  >
+                    Load earlier messages
+                  </button>
+                )}
+              </div>
+            )}
 
-        {/* Message items */}
-        {items.map((item) =>
-          item.kind === "divider" ? (
-            <TimestampDivider key={item.key} timestamp={item.timestamp} />
-          ) : (
-            <MessageBubble
-              key={item.key}
-              chunk={item.chunk}
-              meta={item.meta}
-              showSender={item.showSender}
-            />
-          ),
-        )}
+            {/* Initial loading skeleton */}
+            {isLoading && state.loaded.length === 0 && (
+              <div className="px-4 py-4 space-y-4">
+                {[40, 65, 50, 30, 60].map((w, i) => (
+                  <div
+                    key={i}
+                    className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className="h-9 rounded-2xl animate-pulse"
+                      style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
-        {!isLoading && state.loaded.length === 0 && (
-          <div className="flex items-center justify-center h-32">
-            <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              No messages found.
-            </p>
-          </div>
-        )}
+            {/* Message items */}
+            {items.map((item) =>
+              item.kind === "divider" ? (
+                <TimestampDivider key={item.key} timestamp={item.timestamp} />
+              ) : (
+                <MessageBubble
+                  key={item.key}
+                  chunk={item.chunk}
+                  meta={item.meta}
+                  showSender={item.showSender}
+                />
+              ),
+            )}
 
-        <div ref={bottomRef} />
+            {!isLoading && state.loaded.length === 0 && (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  No messages found.
+                </p>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </>
+        )}
       </div>
 
       {/* Read-only archive banner */}
@@ -699,6 +730,31 @@ export default function MessagesPage(): ReactNode {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : sourcesQuery.isError ? (
+            <div className="px-4 py-6 text-center">
+              <div className="flex justify-center mb-3">
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  style={{ color: 'rgb(var(--status-error))' }}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
+              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                Failed to load conversations
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                There was a problem fetching your messages.
+              </p>
             </div>
           ) : filteredSources.length === 0 ? (
             <div className="px-4 py-6 text-center">

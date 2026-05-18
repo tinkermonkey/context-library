@@ -515,6 +515,42 @@ function EmptyState(): ReactNode {
   );
 }
 
+// ── Error state ────────────────────────────────────────────────────
+
+function ErrorState(): ReactNode {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4">
+      <div
+        className="flex items-center justify-center rounded-2xl"
+        style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
+      >
+        <svg
+          className="w-8 h-8"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          style={{ color: 'rgb(var(--status-error))' }}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          Failed to load health data
+        </p>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+          There was a problem fetching your health metrics. Please try again.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── HealthPage ─────────────────────────────────────────────────────
 
 export default function HealthPage(): ReactNode {
@@ -591,7 +627,7 @@ export default function HealthPage(): ReactNode {
   // and filter client-side. This keeps date range changes instant without
   // additional API round-trips.
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['chunks', { domain: 'health', limit: 5000 }],
     queryFn: () => fetchChunks({ domain: 'health', limit: 5000 }),
     staleTime: 5 * 60_000,
@@ -790,6 +826,8 @@ export default function HealthPage(): ReactNode {
             }}
           />
         </div>
+      ) : isError ? (
+        <ErrorState />
       ) : !hasAnyData ? (
         <EmptyState />
       ) : (
