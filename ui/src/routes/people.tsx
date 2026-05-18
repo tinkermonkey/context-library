@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import { MagnifyingGlassIcon, UsersIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { postQuery, fetchSourceChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor } from '../lib/designTokens';
 import type { SourceSummary, QueryResultItem } from '../types/api';
 
 const peopleColor = getDomainColor('people'); // #EC4899
@@ -115,7 +115,7 @@ function ContactCard({
       <div className="flex flex-col gap-0.5 min-w-0 w-full">
         <span
           className="text-sm font-semibold truncate"
-          style={{ color: colors.textPrimary }}
+          style={{ color: 'rgb(var(--canvas-fg-1))' }}
         >
           {name}
         </span>
@@ -173,13 +173,13 @@ function RelatedMessages({
       )}
 
       {!isLoading && isError && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: colors.statusRed }}>
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: 'rgb(var(--status-error))' }}>
           Failed to load messages
         </div>
       )}
 
       {!isLoading && !isError && items.length === 0 && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: colors.textDim }}>
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: 'rgb(var(--canvas-fg-3))' }}>
           No messages found
         </div>
       )}
@@ -259,13 +259,13 @@ function RelatedEvents({
       )}
 
       {!isLoading && isError && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: colors.statusRed }}>
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: 'rgb(var(--status-error))' }}>
           Failed to load events
         </div>
       )}
 
       {!isLoading && !isError && items.length === 0 && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: colors.textDim }}>
+        <div className="rounded-lg px-3 py-2 text-xs" style={{ background: '#1A1A1A', color: 'rgb(var(--canvas-fg-3))' }}>
           No events found
         </div>
       )}
@@ -342,7 +342,7 @@ function DetailPanel({
       >
         <Avatar name={name} size={64} />
         <div className="flex flex-col items-center gap-1 w-full text-center">
-          <span className="text-lg font-bold" style={{ color: colors.textPrimary }}>
+          <span className="text-lg font-bold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
             {name}
           </span>
           {roleLabel && (
@@ -390,7 +390,7 @@ function EmptyDetail(): ReactNode {
       >
         <UsersIcon className="w-6 h-6" style={{ color: peopleColor }} />
       </div>
-      <p className="text-sm" style={{ color: colors.textDim }}>
+      <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         Select a contact to view details
       </p>
     </div>
@@ -445,7 +445,7 @@ export default function PeoplePage(): ReactNode {
   }
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {/* ── Left panel: search + contact grid ── */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar */}
@@ -453,7 +453,7 @@ export default function PeoplePage(): ReactNode {
           className="flex items-center gap-3 shrink-0 px-5"
           style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
         >
-          <span className="font-semibold flex-1" style={{ fontSize: 16, color: colors.textPrimary }}>
+          <span className="font-semibold flex-1" style={{ fontSize: 16, color: 'rgb(var(--canvas-fg-1))' }}>
             People
           </span>
           <div
@@ -474,7 +474,7 @@ export default function PeoplePage(): ReactNode {
               onChange={e => setFilterText(e.target.value)}
               placeholder="Search contacts…"
               className="flex-1 bg-transparent text-xs outline-none"
-              style={{ color: colors.textPrimary, fontSize: 12 }}
+              style={{ color: 'rgb(var(--canvas-fg-1))', fontSize: 12 }}
             />
           </div>
         </div>
@@ -494,7 +494,7 @@ export default function PeoplePage(): ReactNode {
           ) : sourcesQuery.isError ? (
             <div
               className="rounded-lg p-4 text-sm"
-              style={{ background: '#1F1010', color: colors.textMuted }}
+              style={{ background: '#1F1010', color: 'rgb(var(--canvas-fg-2))' }}
             >
               Failed to load contacts.
             </div>
@@ -506,7 +506,7 @@ export default function PeoplePage(): ReactNode {
               >
                 <UsersIcon className="w-6 h-6" style={{ color: peopleColor }} />
               </div>
-              <p className="text-sm" style={{ color: colors.textDim }}>
+              <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {filterText ? 'No contacts match your search' : 'No contacts ingested yet'}
               </p>
             </div>
@@ -528,9 +528,9 @@ export default function PeoplePage(): ReactNode {
         {!sourcesQuery.isLoading && filteredSources.length > 0 && (
           <div
             className="shrink-0 px-5 py-2"
-            style={{ borderTop: `1px solid ${colors.border}` }}
+            style={{ borderTop: `1px solid rgb(var(--canvas-border))` }}
           >
-            <span className="text-xs" style={{ color: colors.textDim }}>
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               {filteredSources.length}{' '}
               {filteredSources.length === 1 ? 'contact' : 'contacts'}
               {filterText && ` matching "${filterText}"`}
@@ -552,3 +552,4 @@ export default function PeoplePage(): ReactNode {
     </div>
   );
 }
+

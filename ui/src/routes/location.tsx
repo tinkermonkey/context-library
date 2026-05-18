@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MapPinIcon } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
 const locationColor = getDomainColor('location'); // #14B8A6
@@ -409,7 +409,7 @@ function VisitEntry({
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <span
           className="text-sm font-semibold truncate"
-          style={{ color: colors.textPrimary }}
+          style={{ color: 'rgb(var(--canvas-fg-1))' }}
         >
           {visit.display_name}
         </span>
@@ -513,13 +513,13 @@ export default function LocationPage(): ReactNode {
   const totalVisits = allVisits.length;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {/* ── Topbar ── */}
       <div
         className="flex items-center gap-3 shrink-0 px-5"
         style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
       >
-        <span className="font-semibold flex-1" style={{ fontSize: 16, color: colors.textPrimary }}>
+        <span className="font-semibold flex-1" style={{ fontSize: 16, color: 'rgb(var(--canvas-fg-1))' }}>
           Location
         </span>
         {!chunksQuery.isLoading && totalVisits > 0 && (
@@ -551,7 +551,7 @@ export default function LocationPage(): ReactNode {
             className="flex-1 flex items-center justify-center"
             style={{ background: '#0D1117', minWidth: 0 }}
           >
-            <span className="text-sm" style={{ color: colors.statusRed }}>
+            <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
               Failed to load location data
             </span>
           </div>
@@ -577,7 +577,7 @@ export default function LocationPage(): ReactNode {
           >
             <span
               className="font-semibold flex-1"
-              style={{ fontSize: 13, color: colors.textPrimary }}
+              style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-1))' }}
             >
               Recent Visits
             </span>
@@ -646,7 +646,7 @@ export default function LocationPage(): ReactNode {
                 >
                   <MapPinIcon className="w-5 h-5" style={{ color: locationColor }} />
                 </div>
-                <span className="text-xs text-center" style={{ color: colors.textDim }}>
+                <span className="text-xs text-center" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                   {allVisits.length === 0
                     ? 'No location visits ingested yet'
                     : `No visits in the ${DATE_RANGE_LABELS[dateRange].toLowerCase()}`}
@@ -674,9 +674,9 @@ export default function LocationPage(): ReactNode {
           {!chunksQuery.isLoading && timelineVisits.length > 0 && (
             <div
               className="shrink-0 px-4 py-2"
-              style={{ borderTop: `1px solid ${colors.border}` }}
+              style={{ borderTop: `1px solid rgb(var(--canvas-border))` }}
             >
-              <span className="text-[11px]" style={{ color: colors.textDim }}>
+              <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {timelineVisits.length.toLocaleString()}{' '}
                 {timelineVisits.length === 1 ? 'visit' : 'visits'}
                 {dateRange !== 'all' && ` · ${DATE_RANGE_LABELS[dateRange]}`}
@@ -688,3 +688,4 @@ export default function LocationPage(): ReactNode {
     </div>
   );
 }
+

@@ -10,7 +10,7 @@ import {
 import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
-import { getDomainColor, domainColors, colors } from '../lib/designTokens';
+import { getDomainColor, domainColors} from '../lib/designTokens';
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ function DomainChip({
   active: boolean;
   onClick: () => void;
 }) {
-  const color = domain === 'all' ? colors.accent : getDomainColor(domain);
+  const color = domain === 'all' ? 'rgb(var(--accent-primary))' : getDomainColor(domain);
   return (
     <button
       onClick={onClick}
@@ -68,8 +68,8 @@ function DomainChip({
           ? { background: `${color}26`, color, border: `1px solid ${color}` }
           : {
               background: 'transparent',
-              color: colors.textMuted,
-              border: `1px solid ${colors.border}`,
+              color: 'rgb(var(--canvas-fg-2))',
+              border: `1px solid rgb(var(--canvas-border))`,
             }
       }
     >
@@ -82,12 +82,12 @@ function DomainChip({
 
 function ScoreBar({ score }: { score: number }) {
   const pct = Math.round(score * 100);
-  const color = score >= 0.8 ? colors.statusGreen : score >= 0.6 ? colors.statusAmber : colors.textDim;
+  const color = score >= 0.8 ? 'rgb(var(--status-ok))' : score >= 0.6 ? 'rgb(var(--status-amber))' : 'rgb(var(--canvas-fg-3))';
   return (
     <div className="flex items-center gap-1.5 shrink-0">
       <div
         className="rounded-full overflow-hidden"
-        style={{ width: 36, height: 4, background: colors.bgElevated }}
+        style={{ width: 36, height: 4, background: 'rgb(var(--canvas-surface))' }}
       >
         <div
           className="h-full rounded-full"
@@ -142,8 +142,8 @@ function ResultCard({
       onClick={onClick}
       className="w-full text-left rounded-xl p-4 transition-colors flex flex-col gap-2"
       style={{
-        background: selected ? `${domainColor}12` : colors.bgSurface,
-        border: `1px solid ${selected ? domainColor : focused ? colors.textDim : colors.border}`,
+        background: selected ? `${domainColor}12` : 'rgb(var(--canvas-surface))',
+        border: `1px solid ${selected ? domainColor : focused ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-border))'}`,
         outline: 'none',
       }}
     >
@@ -155,7 +155,7 @@ function ResultCard({
         >
           {capitalize(result.domain)}
         </span>
-        <span className="text-xs truncate flex-1" style={{ color: colors.textDim }}>
+        <span className="text-xs truncate flex-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {result.adapter_id}
         </span>
         <ScoreBar score={result.similarity_score} />
@@ -164,7 +164,7 @@ function ResultCard({
       {/* Snippet */}
       <p
         className="text-xs leading-relaxed line-clamp-3"
-        style={{ color: colors.textMuted }}
+        style={{ color: 'rgb(var(--canvas-fg-2))' }}
       >
         {highlightedParts.map((part, i) =>
           i % 2 === 1 ? (
@@ -173,7 +173,7 @@ function ResultCard({
               className="rounded px-0.5"
               style={{
                 background: `${domainColor}30`,
-                color: colors.textPrimary,
+                color: 'rgb(var(--canvas-fg-1))',
                 fontWeight: 500,
               }}
             >
@@ -188,16 +188,16 @@ function ResultCard({
 
       {/* Bottom row: source + chunk type */}
       <div className="flex items-center gap-2">
-        <span className="text-[11px]" style={{ color: colors.textDim }}>
+        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {shortId(result.source_id)}
         </span>
-        <span className="text-[11px]" style={{ color: colors.textDim }}>·</span>
-        <span className="text-[11px]" style={{ color: colors.textDim }}>
+        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>·</span>
+        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {result.chunk_type}
         </span>
         <ChevronRightIcon
           className="w-3 h-3 ml-auto shrink-0"
-          style={{ color: selected ? domainColor : colors.textDim }}
+          style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}
         />
       </div>
     </button>
@@ -210,20 +210,20 @@ function SkeletonCard() {
   return (
     <div
       className="rounded-xl p-4 flex flex-col gap-3"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       <div className="flex items-center gap-2">
-        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: colors.bgElevated }} />
-        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: colors.bgElevated }} />
-        <div className="w-16 h-3 rounded animate-pulse" style={{ background: colors.bgElevated }} />
+        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="w-16 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <div className="h-3 rounded animate-pulse w-full" style={{ background: colors.bgElevated }} />
-        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: colors.bgElevated }} />
-        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: colors.bgElevated }} />
+        <div className="h-3 rounded animate-pulse w-full" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: 'rgb(var(--canvas-surface))' }} />
       </div>
       <div className="flex gap-2">
-        <div className="h-3 rounded animate-pulse w-32" style={{ background: colors.bgElevated }} />
+        <div className="h-3 rounded animate-pulse w-32" style={{ background: 'rgb(var(--canvas-surface))' }} />
       </div>
     </div>
   );
@@ -248,20 +248,20 @@ function DetailPanel({
   return (
     <div
       className="rounded-xl flex flex-col min-h-0 overflow-hidden"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       {/* Header */}
       <div
         className="flex items-center justify-between px-4 py-3 shrink-0 border-b"
-        style={{ borderColor: colors.border }}
+        style={{ borderColor: 'rgb(var(--canvas-border))' }}
       >
-        <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           Result Detail
         </span>
         <button
           onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded"
-          style={{ color: colors.textDim }}
+          style={{ color: 'rgb(var(--canvas-fg-3))' }}
           aria-label="Close detail panel"
         >
           <XMarkIcon className="w-4 h-4" />
@@ -279,12 +279,12 @@ function DetailPanel({
             { label: 'Version', value: String(result.source_version_id) },
           ].map(({ label, value, color }) => (
             <div key={label} className="flex items-start justify-between gap-4">
-              <span className="text-xs shrink-0" style={{ color: colors.textDim }}>
+              <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {label}
               </span>
               <span
                 className="text-xs font-medium text-right"
-                style={{ color: color ?? colors.textPrimary }}
+                style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
               >
                 {value}
               </span>
@@ -293,10 +293,10 @@ function DetailPanel({
 
           {/* Hash (full row, monospace) */}
           <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: colors.textDim }}>Chunk hash</span>
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
             <span
               className="text-[11px] font-mono break-all"
-              style={{ color: colors.textMuted }}
+              style={{ color: 'rgb(var(--canvas-fg-2))' }}
             >
               {result.chunk_hash}
             </span>
@@ -304,10 +304,10 @@ function DetailPanel({
 
           {/* Source ID */}
           <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: colors.textDim }}>Source ID</span>
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
             <span
               className="text-[11px] font-mono break-all"
-              style={{ color: colors.textMuted }}
+              style={{ color: 'rgb(var(--canvas-fg-2))' }}
             >
               {result.source_id}
             </span>
@@ -315,16 +315,16 @@ function DetailPanel({
         </div>
 
         {/* Divider */}
-        <div className="h-px" style={{ background: colors.border }} />
+        <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
 
         {/* Full content */}
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold" style={{ color: colors.textPrimary }}>
+          <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
             Full Content
           </span>
           <p
             className="text-xs leading-relaxed whitespace-pre-wrap"
-            style={{ color: colors.textMuted }}
+            style={{ color: 'rgb(var(--canvas-fg-2))' }}
           >
             {fullContent}
           </p>
@@ -334,7 +334,7 @@ function DetailPanel({
       {/* Footer action */}
       <div
         className="px-4 py-3 shrink-0 border-t"
-        style={{ borderColor: colors.border }}
+        style={{ borderColor: 'rgb(var(--canvas-border))' }}
       >
         <button
           onClick={onViewInBrowser}
@@ -356,20 +356,20 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
     <div className="flex flex-col items-center gap-6 py-16">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 56, height: 56, background: `${colors.accent}1A` }}
+        style={{ width: 56, height: 56, background: `rgb(var(--accent-primary))1A` }}
       >
-        <MagnifyingGlassIcon className="w-7 h-7" style={{ color: colors.accent }} />
+        <MagnifyingGlassIcon className="w-7 h-7" style={{ color: 'rgb(var(--accent-primary))' }} />
       </div>
       <div className="text-center">
-        <p className="text-sm font-medium mb-1" style={{ color: colors.textPrimary }}>
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           Search your knowledge base
         </p>
-        <p className="text-xs" style={{ color: colors.textDim }}>
+        <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Semantic search across all ingested content
         </p>
       </div>
       <div className="flex flex-col gap-2 w-full max-w-md">
-        <p className="text-xs mb-1 text-center" style={{ color: colors.textDim }}>
+        <p className="text-xs mb-1 text-center" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Try asking…
         </p>
         {SUGGESTED_QUERIES.map((q) => (
@@ -377,16 +377,16 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
             key={q}
             onClick={() => onSelect(q)}
             className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-left transition-colors group"
-            style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+            style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor = colors.accent;
+              (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--accent-primary))';
             }}
             onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.borderColor = colors.border;
+              (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
             }}
           >
-            <ArrowRightIcon className="w-3.5 h-3.5 shrink-0" style={{ color: colors.textDim }} />
-            <span className="text-xs" style={{ color: colors.textMuted }}>
+            <ArrowRightIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               {q}
             </span>
           </button>
@@ -578,17 +578,17 @@ export default function SearchPage() {
       <div
         className="flex items-center gap-3 rounded-xl px-4 h-12 shrink-0"
         style={{
-          background: colors.bgSurface,
-          border: `1px solid ${colors.border}`,
+          background: 'rgb(var(--canvas-surface))',
+          border: `1px solid rgb(var(--canvas-border))`,
         }}
         onClick={() => inputRef.current?.focus()}
       >
-        <MagnifyingGlassIcon className="w-5 h-5 shrink-0" style={{ color: colors.textDim }} />
+        <MagnifyingGlassIcon className="w-5 h-5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
         <input
           ref={inputRef}
           type="text"
           className="flex-1 bg-transparent text-sm outline-none placeholder:text-[#6B7280]"
-          style={{ color: colors.textPrimary }}
+          style={{ color: 'rgb(var(--canvas-fg-1))' }}
           placeholder="Search your knowledge base…"
           value={inputValue}
           onChange={(e) => {
@@ -604,17 +604,17 @@ export default function SearchPage() {
         {isLoading && (
           <div
             className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin shrink-0"
-            style={{ borderColor: `${colors.accent} transparent transparent transparent` }}
+            style={{ borderColor: `rgb(var(--accent-primary)) transparent transparent transparent` }}
           />
         )}
         {inputValue && !isLoading && (
           <button onClick={handleClear} aria-label="Clear search">
-            <XMarkIcon className="w-4 h-4" style={{ color: colors.textDim }} />
+            <XMarkIcon className="w-4 h-4" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
           </button>
         )}
         <kbd
           className="text-[10px] rounded px-1.5 py-0.5 shrink-0"
-          style={{ background: colors.bgElevated, color: colors.textDim }}
+          style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-3))' }}
         >
           ⏎
         </kbd>
@@ -622,7 +622,7 @@ export default function SearchPage() {
 
       {/* Domain filter chips */}
       <div className="flex items-center gap-2 overflow-x-auto pb-0.5 shrink-0">
-        <span className="text-xs shrink-0 mr-1" style={{ color: colors.textDim }}>
+        <span className="text-xs shrink-0 mr-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Filter:
         </span>
         <DomainChip
@@ -652,9 +652,9 @@ export default function SearchPage() {
             <div
               className="rounded-xl px-4 py-3 text-sm"
               style={{
-                background: `${colors.statusRed}14`,
-                border: `1px solid ${colors.statusRed}40`,
-                color: colors.statusRed,
+                background: `rgb(var(--status-error))14`,
+                border: `1px solid rgb(var(--status-error))40`,
+                color: 'rgb(var(--status-error))',
               }}
             >
               <strong>Search error: </strong>
@@ -673,7 +673,7 @@ export default function SearchPage() {
           {!isLoading && hasQuery && !error && (
             <>
               {results.length > 0 && (
-                <p className="text-xs shrink-0 mb-1" style={{ color: colors.textDim }}>
+                <p className="text-xs shrink-0 mb-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                   {data!.total} result{data!.total !== 1 ? 's' : ''} for &ldquo;{search.q}&rdquo;
                 </p>
               )}
@@ -700,12 +700,12 @@ export default function SearchPage() {
               ) : (
                 <div
                   className="rounded-xl p-8 flex flex-col items-center gap-2"
-                  style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+                  style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
                 >
-                  <p className="text-sm" style={{ color: colors.textMuted }}>
+                  <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                     No results found
                   </p>
-                  <p className="text-xs" style={{ color: colors.textDim }}>
+                  <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                     Try adjusting your query or removing domain filters
                   </p>
                 </div>
@@ -733,3 +733,4 @@ export default function SearchPage() {
     </div>
   );
 }
+

@@ -1,0 +1,83 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+Phase 4: Migrate design tokens to Heimdall CSS custom properties
+
+**Description**:
+Remove the `colors` base object from `designTokens.ts` and replace all `colors.*` references across 12+ route files and shared components with Heimdall CSS variable equivalents (`var(--canvas-fg-1)`, `var(--canvas-surface)`, etc.). Preserve `domainColors` and `getDomainColor()` in `designTokens.ts` as a thin domain-specific module. Register the 9 domain colors as CSS custom properties in `index.css`.
+
+## Requirements
+- Refactor `designTokens.ts`: remove the `colors` export entirely; retain only `domainColors` (the 9-entry map) and `getDomainColor()` helper
+- Register domain colors as CSS custom properties in `index.css` under `:root` (`--domain-notes`, `--domain-messages`, etc.) with exact hex values from the business requirements
+- In each of the 12+ route files and shared components that import `colors`, replace each `colors.X` reference with the corresponding Heimdall CSS variable per the architecture's token mapping table
+- Replace inline `style={{ color: colors.textPrimary }}` patterns with `style={{ color: 'var(--canvas-fg-1)' }}` equivalents; do not introduce Tailwind class rewrites beyond what is needed for token replacement
+- All 18 route files that reference domain colors must continue to resolve them correctly after the `colors` base object is removed
+
+## Design Guidance
+Implements the Token Migration phase and the Domain Color Token Architecture section from the architecture design. The architecture's Token Mapping Table provides the exact `designTokens.ts` → Heimdall CSS property mappings. The accent color override registered in Phase 1 covers the `colors.accent` divergence noted in the mapping table.
+
+## Acceptance Criteria
+- [ ] `designTokens.ts` exports only `domainColors` and `getDomainColor()`; the `colors` object is removed
+- [ ] `index.css` declares all 9 `--domain-*` CSS custom properties with the specified hex values
+- [ ] No file in `src/` imports the `colors` object from `designTokens.ts`
+- [ ] All 18 route files render with correct colors in dark-canvas mode; no unstyled or incorrectly colored elements
+- [ ] `getDomainColor()` continues to return correct domain accent values for all 9 domains
+- [ ] `npm run build` and linting (`ruff check`, `mypy`) pass with no errors
+
+## Dependencies
+Phase 1, Phase 2, Phase 3
+
+## Parent Issue
+Part of #479
+
+
+### Previous Work
+
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.

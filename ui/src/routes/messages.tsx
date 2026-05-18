@@ -9,7 +9,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
-import { colors, getDomainColor } from "../lib/designTokens";
+import { getDomainColor } from "../lib/designTokens";
 import type { SourceSummary, ChunkResponse } from "../types/api";
 
 const msgColor = getDomainColor("messages"); // #A855F7
@@ -196,16 +196,16 @@ function ConversationItem({
           <span
             className="text-sm font-medium truncate"
             style={{
-              color: isSelected ? colors.textPrimary : colors.textMuted,
+              color: isSelected ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-2))',
             }}
           >
             {name}
           </span>
-          <span className="text-xs shrink-0" style={{ color: colors.textDim }}>
+          <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {formatTimeAgo(source.updated_at)}
           </span>
         </div>
-        <div className="text-xs" style={{ color: colors.textDim }}>
+        <div className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {source.chunk_count}{" "}
           {source.chunk_count === 1 ? "message" : "messages"}
         </div>
@@ -221,14 +221,14 @@ function TimestampDivider({ timestamp }: { timestamp: string }): ReactNode {
     <div className="flex items-center gap-3 my-3 px-4">
       <div
         className="flex-1 h-px"
-        style={{ background: colors.borderSubtle }}
+        style={{ background: 'rgb(var(--canvas-bg-2))' }}
       />
-      <span className="text-xs shrink-0" style={{ color: colors.textDim }}>
+      <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         {formatDividerTime(timestamp)}
       </span>
       <div
         className="flex-1 h-px"
-        style={{ background: colors.borderSubtle }}
+        style={{ background: 'rgb(var(--canvas-bg-2))' }}
       />
     </div>
   );
@@ -253,7 +253,7 @@ function MessageBubble({
       className={`flex flex-col mb-0.5 px-4 ${fromMe ? "items-end" : "items-start"}`}
     >
       {showSender && !fromMe && (
-        <span className="text-xs mb-1 ml-1" style={{ color: colors.textDim }}>
+        <span className="text-xs mb-1 ml-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {meta.sender}
         </span>
       )}
@@ -266,19 +266,19 @@ function MessageBubble({
                 borderBottomRightRadius: 4,
               }
             : {
-                background: colors.bgElevated,
+                background: 'rgb(var(--canvas-surface))',
                 borderBottomLeftRadius: 4,
               }
         }
       >
         <p
           className="text-sm leading-relaxed whitespace-pre-wrap break-words overflow-x-hidden"
-          style={{ color: fromMe ? "#F9FAFB" : colors.textMuted }}
+          style={{ color: fromMe ? "#F9FAFB" : 'rgb(var(--canvas-fg-2))' }}
         >
           {chunk.content}
         </p>
       </div>
-      <span className="text-xs mt-0.5 mx-1" style={{ color: colors.textDim }}>
+      <span className="text-xs mt-0.5 mx-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         {timeStr}
       </span>
     </div>
@@ -460,19 +460,19 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
       <div
         className="px-5 py-3 shrink-0 flex items-center gap-3"
         style={{
-          borderBottom: `1px solid ${colors.border}`,
-          background: colors.bgSurface,
+          borderBottom: `1px solid rgb(var(--canvas-border))`,
+          background: 'rgb(var(--canvas-surface))',
         }}
       >
         <Avatar name={name} size={32} />
         <div>
           <div
             className="text-sm font-semibold"
-            style={{ color: colors.textPrimary }}
+            style={{ color: 'rgb(var(--canvas-fg-1))' }}
           >
             {name}
           </div>
-          <div className="text-xs" style={{ color: colors.textDim }}>
+          <div className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {source.chunk_count}{" "}
             {source.chunk_count === 1 ? "message" : "messages"}
           </div>
@@ -482,7 +482,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
       {/* Scrollable messages */}
       <div
         className="flex-1 overflow-y-auto py-2"
-        style={{ background: colors.bgBase }}
+        style={{ background: 'rgb(var(--canvas-bg))' }}
       >
         {/* Load-earlier button or spinner */}
         {hasEarlier && (
@@ -491,7 +491,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
               <div
                 className="w-4 h-4 rounded-full border-2 animate-spin"
                 style={{
-                  borderColor: `${colors.textDim} transparent transparent transparent`,
+                  borderColor: `rgb(var(--canvas-fg-3)) transparent transparent transparent`,
                 }}
               />
             ) : (
@@ -499,9 +499,9 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
                 onClick={loadEarlier}
                 className="px-4 py-1.5 rounded-full text-xs font-medium transition-opacity hover:opacity-75"
                 style={{
-                  background: colors.bgElevated,
-                  color: colors.textMuted,
-                  border: `1px solid ${colors.border}`,
+                  background: 'rgb(var(--canvas-surface))',
+                  color: 'rgb(var(--canvas-fg-2))',
+                  border: `1px solid rgb(var(--canvas-border))`,
                 }}
               >
                 Load earlier messages
@@ -520,7 +520,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
               >
                 <div
                   className="h-9 rounded-2xl animate-pulse"
-                  style={{ width: `${w}%`, background: colors.bgElevated }}
+                  style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }}
                 />
               </div>
             ))}
@@ -543,7 +543,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
 
         {!isLoading && state.loaded.length === 0 && (
           <div className="flex items-center justify-center h-32">
-            <p className="text-sm" style={{ color: colors.textDim }}>
+            <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               No messages found.
             </p>
           </div>
@@ -556,15 +556,15 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
       <div
         className="shrink-0 flex items-center justify-center gap-2 py-2 px-4"
         style={{
-          borderTop: `1px solid ${colors.border}`,
-          background: colors.bgSurface,
+          borderTop: `1px solid rgb(var(--canvas-border))`,
+          background: 'rgb(var(--canvas-surface))',
         }}
       >
         <LockClosedIcon
           className="w-3.5 h-3.5 shrink-0"
-          style={{ color: colors.textMuted }}
+          style={{ color: 'rgb(var(--canvas-fg-2))' }}
         />
-        <span className="text-xs" style={{ color: colors.textMuted }}>
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           Archive — read only. This is historical data, not a live messenger.
         </span>
       </div>
@@ -583,7 +583,7 @@ function EmptyState(): ReactNode {
       >
         <ChatBubbleLeftIcon className="w-6 h-6" style={{ color: msgColor }} />
       </div>
-      <p className="text-sm" style={{ color: colors.textDim }}>
+      <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         Select a conversation to view messages
       </p>
     </div>
@@ -628,28 +628,28 @@ export default function MessagesPage(): ReactNode {
   return (
     <div
       className="flex h-full overflow-hidden"
-      style={{ background: colors.bgBase }}
+      style={{ background: 'rgb(var(--canvas-bg))' }}
     >
       {/* ── Left panel: conversation list ── */}
       <div
         className="w-72 shrink-0 flex flex-col overflow-hidden"
         style={{
-          borderRight: `1px solid ${colors.border}`,
-          background: colors.bgSurface,
+          borderRight: `1px solid rgb(var(--canvas-border))`,
+          background: 'rgb(var(--canvas-surface))',
         }}
       >
         {/* Search bar */}
         <div
           className="px-3 py-2.5 shrink-0"
-          style={{ borderBottom: `1px solid ${colors.border}` }}
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
         >
           <div
             className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
-            style={{ background: colors.bgElevated }}
+            style={{ background: 'rgb(var(--canvas-surface))' }}
           >
             <MagnifyingGlassIcon
               className="w-3.5 h-3.5 shrink-0"
-              style={{ color: colors.textDim }}
+              style={{ color: 'rgb(var(--canvas-fg-3))' }}
             />
             <input
               type="text"
@@ -657,14 +657,14 @@ export default function MessagesPage(): ReactNode {
               onChange={(e) => setFilterText(e.target.value)}
               placeholder="Search conversations…"
               className="flex-1 bg-transparent text-xs outline-none"
-              style={{ color: colors.textPrimary }}
+              style={{ color: 'rgb(var(--canvas-fg-1))' }}
             />
           </div>
         </div>
 
         {/* Count row */}
         <div className="px-4 py-1.5 shrink-0">
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {filteredSources.length}{" "}
             {filteredSources.length === 1 ? "conversation" : "conversations"}
           </span>
@@ -684,17 +684,17 @@ export default function MessagesPage(): ReactNode {
                     style={{
                       width: 36,
                       height: 36,
-                      background: colors.bgElevated,
+                      background: 'rgb(var(--canvas-surface))',
                     }}
                   />
                   <div className="flex-1 space-y-1.5">
                     <div
                       className="h-3 rounded"
-                      style={{ width: "60%", background: colors.bgElevated }}
+                      style={{ width: "60%", background: 'rgb(var(--canvas-surface))' }}
                     />
                     <div
                       className="h-2.5 rounded"
-                      style={{ width: "80%", background: colors.bgElevated }}
+                      style={{ width: "80%", background: 'rgb(var(--canvas-surface))' }}
                     />
                   </div>
                 </div>
@@ -702,7 +702,7 @@ export default function MessagesPage(): ReactNode {
             </div>
           ) : filteredSources.length === 0 ? (
             <div className="px-4 py-6 text-center">
-              <p className="text-xs" style={{ color: colors.textDim }}>
+              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {filterText
                   ? "No conversations match your search"
                   : "No conversations found"}
@@ -732,3 +732,4 @@ export default function MessagesPage(): ReactNode {
     </div>
   );
 }
+

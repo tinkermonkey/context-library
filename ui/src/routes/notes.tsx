@@ -9,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
-import { colors, getDomainColor } from '../lib/designTokens';
+import { getDomainColor } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 
 const noteColor = getDomainColor('notes'); // #6366F1
@@ -82,7 +82,7 @@ function InlineText({ text }: { text: string }): ReactNode {
       {parts.map((part, i) => {
         if (part.type === 'bold') {
           return (
-            <strong key={i} className="font-semibold" style={{ color: colors.textPrimary }}>
+            <strong key={i} className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
               {part.content}
             </strong>
           );
@@ -92,7 +92,7 @@ function InlineText({ text }: { text: string }): ReactNode {
             <code
               key={i}
               className="px-1 rounded text-xs font-mono"
-              style={{ background: colors.bgElevated, color: '#93C5FD' }}
+              style={{ background: 'rgb(var(--canvas-surface))', color: '#93C5FD' }}
             >
               {part.content}
             </code>
@@ -143,7 +143,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
         <pre
           key={k++}
           className="overflow-x-auto rounded p-3 text-xs font-mono leading-relaxed my-3"
-          style={{ background: colors.bgElevated, color: '#93C5FD', border: `1px solid ${colors.border}` }}
+          style={{ background: 'rgb(var(--canvas-surface))', color: '#93C5FD', border: `1px solid rgb(var(--canvas-border))` }}
         >
           <code>{codeLines.join('\n')}</code>
         </pre>,
@@ -164,7 +164,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
             ? 'text-sm font-semibold mt-4 mb-1'
             : 'text-sm font-medium mt-3 mb-0.5';
       nodes.push(
-        <div key={k++} className={cls} style={{ color: colors.textPrimary }}>
+        <div key={k++} className={cls} style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           <InlineText text={text} />
         </div>,
       );
@@ -174,7 +174,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
 
     // Horizontal rule
     if (/^[-*]{3,}$/.test(line.trim())) {
-      nodes.push(<hr key={k++} className="my-4" style={{ borderColor: colors.border }} />);
+      nodes.push(<hr key={k++} className="my-4" style={{ borderColor: 'rgb(var(--canvas-border))' }} />);
       i++;
       continue;
     }
@@ -185,7 +185,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
         <blockquote
           key={k++}
           className="pl-3 py-0.5 my-2 text-sm italic"
-          style={{ color: colors.textDim, borderLeft: `2px solid ${noteColor}` }}
+          style={{ color: 'rgb(var(--canvas-fg-3))', borderLeft: `2px solid ${noteColor}` }}
         >
           <InlineText text={line.slice(2)} />
         </blockquote>,
@@ -204,7 +204,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
       nodes.push(
         <ul key={k++} className="list-disc pl-5 my-2 space-y-0.5">
           {items.map((item, idx) => (
-            <li key={idx} className="text-sm leading-relaxed" style={{ color: colors.textMuted }}>
+            <li key={idx} className="text-sm leading-relaxed" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               <InlineText text={item} />
             </li>
           ))}
@@ -223,7 +223,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
       nodes.push(
         <ol key={k++} className="list-decimal pl-5 my-2 space-y-0.5">
           {items.map((item, idx) => (
-            <li key={idx} className="text-sm leading-relaxed" style={{ color: colors.textMuted }}>
+            <li key={idx} className="text-sm leading-relaxed" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               <InlineText text={item} />
             </li>
           ))}
@@ -240,7 +240,7 @@ function DarkMarkdownContent({ content }: { content: string }): ReactNode {
 
     // Paragraph
     nodes.push(
-      <p key={k++} className="text-sm leading-relaxed my-1.5" style={{ color: colors.textMuted }}>
+      <p key={k++} className="text-sm leading-relaxed my-1.5" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
         <InlineText text={line} />
       </p>,
     );
@@ -279,7 +279,7 @@ function NoteChunk({ chunk, isLast }: { chunk: ChunkResponse; isLast: boolean })
       {chunk.context_header && (
         <div
           className="text-xs font-mono mb-2 leading-tight"
-          style={{ color: colors.textDim, opacity: 0.7 }}
+          style={{ color: 'rgb(var(--canvas-fg-3))', opacity: 0.7 }}
         >
           {chunk.context_header}
         </div>
@@ -289,14 +289,14 @@ function NoteChunk({ chunk, isLast }: { chunk: ChunkResponse; isLast: boolean })
       {chunk.chunk_type === 'code' ? (
         <pre
           className="overflow-x-auto rounded p-3 text-xs font-mono leading-relaxed"
-          style={{ background: colors.bgElevated, color: '#93C5FD', border: `1px solid ${colors.border}` }}
+          style={{ background: 'rgb(var(--canvas-surface))', color: '#93C5FD', border: `1px solid rgb(var(--canvas-border))` }}
         >
           <code>{chunk.content}</code>
         </pre>
       ) : chunk.chunk_type === 'table' || chunk.chunk_type === 'table_part' ? (
         <pre
           className="overflow-x-auto rounded p-3 text-xs font-mono leading-relaxed"
-          style={{ background: colors.bgElevated, color: colors.textMuted, border: `1px solid ${colors.border}` }}
+          style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))', border: `1px solid rgb(var(--canvas-border))` }}
         >
           {chunk.content}
         </pre>
@@ -305,7 +305,7 @@ function NoteChunk({ chunk, isLast }: { chunk: ChunkResponse; isLast: boolean })
       )}
 
       {/* Chunk boundary divider */}
-      {!isLast && <div className="mt-4 mb-3" style={{ borderTop: `1px solid ${colors.borderSubtle}` }} />}
+      {!isLast && <div className="mt-4 mb-3" style={{ borderTop: `1px solid rgb(var(--canvas-bg-2))` }} />}
     </div>
   );
 }
@@ -336,9 +336,9 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
       {/* Fixed header */}
       <div
         className="px-6 pt-5 pb-4 shrink-0"
-        style={{ borderBottom: `1px solid ${colors.border}` }}
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
       >
-        <h1 className="text-xl font-bold mb-2 leading-tight" style={{ color: colors.textPrimary }}>
+        <h1 className="text-xl font-bold mb-2 leading-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           {noteTitle(source)}
         </h1>
         <div className="flex items-center gap-2 flex-wrap">
@@ -348,21 +348,21 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
           >
             {adapterLabel(source.adapter_id)}
           </span>
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {source.chunk_count} {source.chunk_count === 1 ? 'chunk' : 'chunks'}
           </span>
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             ·
           </span>
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {timeAgo(source.updated_at)}
           </span>
           {source.origin_ref && (
             <>
-              <span className="text-xs" style={{ color: colors.textDim }}>
+              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 ·
               </span>
-              <span className="text-xs truncate max-w-xs" style={{ color: colors.textDim }}>
+              <span className="text-xs truncate max-w-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {source.origin_ref}
               </span>
             </>
@@ -374,7 +374,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
       {!isLoading && hasMeta && (
         <div
           className="px-6 py-3 shrink-0 flex flex-wrap gap-2"
-          style={{ borderBottom: `1px solid ${colors.border}` }}
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
         >
           {noteMeta.tags?.map(tag => (
             <span
@@ -390,7 +390,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
             <span
               key={alias}
               className="px-2 py-0.5 rounded-full text-xs"
-              style={{ background: colors.bgElevated, color: colors.textMuted }}
+              style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))' }}
             >
               ~{alias}
             </span>
@@ -399,7 +399,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
             <span
               key={link}
               className="px-2 py-0.5 rounded text-xs"
-              style={{ background: colors.bgElevated, color: colors.textDim }}
+              style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-3))' }}
             >
               ↩ {link}
             </span>
@@ -415,12 +415,12 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
               <div
                 key={i}
                 className="h-3.5 rounded"
-                style={{ width: `${w}%`, background: colors.bgElevated }}
+                style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }}
               />
             ))}
           </div>
         ) : sortedChunks.length === 0 ? (
-          <p className="text-sm" style={{ color: colors.textDim }}>
+          <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             No content available.
           </p>
         ) : (
@@ -460,11 +460,11 @@ function NoteCard({
       <div className="flex items-start justify-between gap-2 mb-1">
         <span
           className="text-sm font-medium leading-snug line-clamp-2"
-          style={{ color: isSelected ? colors.textPrimary : colors.textMuted }}
+          style={{ color: isSelected ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-2))' }}
         >
           {noteTitle(source)}
         </span>
-        <span className="text-xs shrink-0 mt-0.5" style={{ color: colors.textDim }}>
+        <span className="text-xs shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {timeAgo(source.updated_at)}
         </span>
       </div>
@@ -475,7 +475,7 @@ function NoteCard({
         >
           {adapterLabel(source.adapter_id)}
         </span>
-        <span className="text-xs truncate" style={{ color: colors.textDim }}>
+        <span className="text-xs truncate" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {source.origin_ref}
         </span>
       </div>
@@ -511,15 +511,15 @@ function AdapterGroup({
       >
         <ChevronDownIcon
           className="w-3 h-3 shrink-0"
-          style={{ color: isAdapterActive ? noteColor : colors.textDim }}
+          style={{ color: isAdapterActive ? noteColor : 'rgb(var(--canvas-fg-3))' }}
         />
         <span
           className="text-xs font-semibold uppercase tracking-wide"
-          style={{ color: isAdapterActive ? noteColor : colors.textDim }}
+          style={{ color: isAdapterActive ? noteColor : 'rgb(var(--canvas-fg-3))' }}
         >
           {adapterLabel(adapterId)}
         </span>
-        <span className="text-xs ml-auto tabular-nums" style={{ color: colors.textDim }}>
+        <span className="text-xs ml-auto tabular-nums" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {sources.length}
         </span>
       </button>
@@ -534,7 +534,7 @@ function AdapterGroup({
             className="w-full text-left pl-7 pr-3 py-1 text-xs leading-snug truncate block transition-colors"
             title={noteTitle(source)}
             style={{
-              color: isSelected ? noteColor : colors.textMuted,
+              color: isSelected ? noteColor : 'rgb(var(--canvas-fg-2))',
               background: isSelected ? `${noteColor}12` : 'transparent',
             }}
           >
@@ -570,7 +570,7 @@ function EmptyDetail(): ReactNode {
           />
         </svg>
       </div>
-      <p className="text-sm" style={{ color: colors.textDim }}>
+      <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
         Select a note to read
       </p>
     </div>
@@ -643,17 +643,17 @@ export default function NotesPage(): ReactNode {
   }
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: colors.bgBase }}>
+    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
 
       {/* ── Left panel: vault / folder tree ── */}
       <div
         className="w-48 shrink-0 flex flex-col overflow-y-auto"
-        style={{ borderRight: `1px solid ${colors.border}`, background: colors.bgSidebar }}
+        style={{ borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
         <div className="px-3 py-3 shrink-0">
           <span
             className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: colors.textDim }}
+            style={{ color: 'rgb(var(--canvas-fg-3))' }}
           >
             Vaults
           </span>
@@ -665,12 +665,12 @@ export default function NotesPage(): ReactNode {
               <div
                 key={i}
                 className="h-3 rounded animate-pulse"
-                style={{ width: `${w}%`, background: colors.bgElevated }}
+                style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }}
               />
             ))}
           </div>
         ) : adapterGroups.size === 0 ? (
-          <div className="px-3 py-2 text-xs" style={{ color: colors.textDim }}>
+          <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             No notes found
           </div>
         ) : (
@@ -691,17 +691,17 @@ export default function NotesPage(): ReactNode {
       {/* ── Center panel: note list ── */}
       <div
         className="w-72 shrink-0 flex flex-col overflow-hidden"
-        style={{ borderRight: `1px solid ${colors.border}`, background: colors.bgSurface }}
+        style={{ borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
         {/* Filter bar */}
-        <div className="px-3 py-2 shrink-0" style={{ borderBottom: `1px solid ${colors.border}` }}>
+        <div className="px-3 py-2 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
           <div
             className="flex items-center gap-2 px-2 py-1.5 rounded"
-            style={{ background: colors.bgElevated }}
+            style={{ background: 'rgb(var(--canvas-surface))' }}
           >
             <MagnifyingGlassIcon
               className="w-3.5 h-3.5 shrink-0"
-              style={{ color: colors.textDim }}
+              style={{ color: 'rgb(var(--canvas-fg-3))' }}
             />
             <input
               type="text"
@@ -709,14 +709,14 @@ export default function NotesPage(): ReactNode {
               onChange={e => setFilterText(e.target.value)}
               placeholder="Filter notes…"
               className="flex-1 bg-transparent text-xs outline-none"
-              style={{ color: colors.textPrimary }}
+              style={{ color: 'rgb(var(--canvas-fg-1))' }}
             />
           </div>
         </div>
 
         {/* Count line + active adapter badge */}
         <div className="px-4 py-1.5 shrink-0 flex items-center gap-2">
-          <span className="text-xs" style={{ color: colors.textDim }}>
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {filteredSources.length}{' '}
             {filteredSources.length === 1 ? 'note' : 'notes'}
           </span>
@@ -741,18 +741,18 @@ export default function NotesPage(): ReactNode {
                 <div key={i} className="space-y-1.5 animate-pulse">
                   <div
                     className="h-3 rounded"
-                    style={{ width: '70%', background: colors.bgElevated }}
+                    style={{ width: '70%', background: 'rgb(var(--canvas-surface))' }}
                   />
                   <div
                     className="h-2.5 rounded"
-                    style={{ width: '50%', background: colors.bgElevated }}
+                    style={{ width: '50%', background: 'rgb(var(--canvas-surface))' }}
                   />
                 </div>
               ))}
             </div>
           ) : filteredSources.length === 0 ? (
             <div className="px-4 py-6 text-center">
-              <p className="text-xs" style={{ color: colors.textDim }}>
+              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                 {filterText ? 'No notes match your filter' : 'No notes available'}
               </p>
             </div>
@@ -770,9 +770,10 @@ export default function NotesPage(): ReactNode {
       </div>
 
       {/* ── Right panel: note detail ── */}
-      <div className="flex-1 min-w-0 overflow-hidden" style={{ background: colors.bgBase }}>
+      <div className="flex-1 min-w-0 overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
         {selectedSource ? <NoteDetail source={selectedSource} /> : <EmptyDetail />}
       </div>
     </div>
   );
 }
+

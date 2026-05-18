@@ -1,26 +1,3 @@
-export const colors = {
-  // Text
-  textPrimary: '#F1F5F9',
-  textMuted: '#94A3B8',
-  textDim: '#64748B',
-
-  // Backgrounds
-  bgBase: '#0F172A',
-  bgSidebar: '#1A2332',
-  bgSurface: '#1E293B',
-  bgElevated: '#334155',
-
-  // Borders & accents
-  border: '#334155',
-  borderSubtle: '#1E293B',
-  accent: '#6366F1',
-
-  // Status
-  statusGreen: '#22C55E',
-  statusAmber: '#F59E0B',
-  statusRed: '#EF4444',
-};
-
 export const domainColors: Record<string, string> = {
   documents: '#22C55E',
   events: '#F59E0B',
@@ -34,5 +11,5 @@ export const domainColors: Record<string, string> = {
 };
 
 export function getDomainColor(domain: string): string {
-  return domainColors[domain] ?? colors.accent;
+  return domainColors[domain] ?? '#6366F1';
 }

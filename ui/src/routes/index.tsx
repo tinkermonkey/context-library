@@ -23,7 +23,7 @@ import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
-import { getDomainColor, colors } from '../lib/designTokens';
+import { getDomainColor} from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -80,17 +80,17 @@ function StatCard({ icon: Icon, value, label, sub, subColor }: StatCardProps) {
   return (
     <div
       className="flex flex-col gap-2 rounded-xl p-5 flex-1"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 shrink-0" style={{ color: colors.textDim }} />
-        <span className="text-xs" style={{ color: colors.textDim }}>{label}</span>
+        <Icon className="w-4 h-4 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{label}</span>
       </div>
-      <span className="text-3xl font-bold tracking-tight" style={{ color: colors.textPrimary }}>
+      <span className="text-3xl font-bold tracking-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
         {value}
       </span>
       {sub && (
-        <span className="text-xs" style={{ color: subColor ?? colors.textMuted }}>
+        <span className="text-xs" style={{ color: subColor ?? 'rgb(var(--canvas-fg-2))' }}>
           {sub}
         </span>
       )}
@@ -102,15 +102,15 @@ function DomainBreakdownSkeleton() {
   return (
     <div
       className="rounded-xl p-5 flex flex-col gap-4"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
-      <div className="h-4 w-32 rounded animate-pulse" style={{ background: colors.bgElevated }} />
+      <div className="h-4 w-32 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
       <div className="flex flex-col gap-3">
         {[...Array(6)].map((_, i) => (
           <div key={i} className="flex items-center gap-3">
-            <div className="w-20 h-3 rounded animate-pulse shrink-0" style={{ background: colors.bgElevated }} />
-            <div className="flex-1 h-1.5 rounded-full animate-pulse" style={{ background: colors.bgElevated }} />
-            <div className="w-12 h-3 rounded animate-pulse shrink-0" style={{ background: colors.bgElevated }} />
+            <div className="w-20 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-surface))' }} />
+            <div className="flex-1 h-1.5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
+            <div className="w-12 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-surface))' }} />
           </div>
         ))}
       </div>
@@ -129,9 +129,9 @@ function DomainBreakdown({ data }: DomainBreakdownProps) {
   return (
     <div
       className="rounded-xl p-5 flex flex-col gap-4"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
-      <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+      <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
         Domain Breakdown
       </span>
       <div className="flex flex-col gap-3">
@@ -142,13 +142,13 @@ function DomainBreakdown({ data }: DomainBreakdownProps) {
             <div key={d.domain} className="flex items-center gap-3">
               <span
                 className="text-xs w-20 shrink-0 text-right"
-                style={{ color: colors.textMuted }}
+                style={{ color: 'rgb(var(--canvas-fg-2))' }}
               >
                 {capitalize(d.domain)}
               </span>
               <div
                 className="flex-1 rounded-full overflow-hidden"
-                style={{ height: 6, background: colors.bgElevated }}
+                style={{ height: 6, background: 'rgb(var(--canvas-surface))' }}
               >
                 <div
                   className="h-full rounded-full transition-all duration-500"
@@ -157,7 +157,7 @@ function DomainBreakdown({ data }: DomainBreakdownProps) {
               </div>
               <span
                 className="text-xs w-12 shrink-0 text-right"
-                style={{ color: colors.textDim }}
+                style={{ color: 'rgb(var(--canvas-fg-3))' }}
               >
                 {formatNumber(d.active_chunk_count)}
               </span>
@@ -179,14 +179,14 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
   return (
     <div
       className="rounded-xl p-5 flex flex-col gap-4 min-h-0"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       <div className="flex items-center justify-between shrink-0">
-        <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           Recent Activity
         </span>
         {isRefetching && (
-          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" style={{ color: colors.textDim }} />
+          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
         )}
       </div>
 
@@ -196,13 +196,13 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
             <div
               key={i}
               className="h-12 rounded-lg animate-pulse"
-              style={{ background: colors.bgElevated }}
+              style={{ background: 'rgb(var(--canvas-surface))' }}
             />
           ))}
         </div>
       ) : sources.length === 0 ? (
         <div className="flex items-center justify-center py-8">
-          <span className="text-sm" style={{ color: colors.textDim }}>
+          <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             No activity yet
           </span>
         </div>
@@ -214,7 +214,7 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
               <div
                 key={s.source_id}
                 className="flex items-start gap-3 py-2.5 border-b last:border-b-0"
-                style={{ borderColor: colors.border }}
+                style={{ borderColor: 'rgb(var(--canvas-border))' }}
               >
                 {/* Domain color dot */}
                 <div
@@ -225,25 +225,25 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span
                       className="text-xs font-medium truncate max-w-[140px]"
-                      style={{ color: colors.textPrimary }}
+                      style={{ color: 'rgb(var(--canvas-fg-1))' }}
                     >
                       {s.adapter_id}
                     </span>
-                    <span className="text-xs" style={{ color: colors.textDim }}>→</span>
+                    <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>→</span>
                     <span className="text-xs font-medium" style={{ color }}>
                       {capitalize(s.domain)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs" style={{ color: colors.textDim }}>
+                    <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                       {formatNumber(s.chunk_count)} chunk{s.chunk_count !== 1 ? 's' : ''}
                     </span>
                     {s.display_name && (
                       <>
-                        <span className="text-xs" style={{ color: colors.textDim }}>·</span>
+                        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>·</span>
                         <span
                           className="text-xs truncate max-w-[120px]"
-                          style={{ color: colors.textDim }}
+                          style={{ color: 'rgb(var(--canvas-fg-3))' }}
                         >
                           {s.display_name}
                         </span>
@@ -253,7 +253,7 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
                 </div>
                 <span
                   className="text-xs shrink-0 mt-0.5"
-                  style={{ color: colors.textDim }}
+                  style={{ color: 'rgb(var(--canvas-fg-3))' }}
                 >
                   {timeAgo(s.updated_at)}
                 </span>
@@ -275,9 +275,9 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
   return (
     <div
       className="rounded-xl p-5 flex flex-col gap-4"
-      style={{ background: colors.bgSurface, border: `1px solid ${colors.border}` }}
+      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
-      <span className="text-sm font-semibold" style={{ color: colors.textPrimary }}>
+      <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
         Quick Launch
       </span>
       <div className="grid grid-cols-3 gap-2">
@@ -290,12 +290,12 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
               key={domain}
               onClick={() => onNavigate(cfg.to)}
               className="flex flex-col items-center gap-1.5 rounded-lg p-3 transition-colors text-center group"
-              style={{ background: colors.bgElevated, border: `1px solid ${colors.border}` }}
+              style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.borderColor = color;
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.borderColor = colors.border;
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
               }}
             >
               <div
@@ -304,11 +304,11 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
               >
                 <Icon className="w-4 h-4" style={{ color }} />
               </div>
-              <span className="text-xs font-medium leading-tight" style={{ color: colors.textPrimary }}>
+              <span className="text-xs font-medium leading-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
                 {cfg.label}
               </span>
               {count > 0 && (
-                <span className="text-[10px]" style={{ color: colors.textDim }}>
+                <span className="text-[10px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                   {formatNumber(count)}
                 </span>
               )}
@@ -328,22 +328,22 @@ function SearchBar({ onSearch }: { onSearch: () => void }) {
       onClick={onSearch}
       className="flex items-center gap-2 w-full rounded-lg px-4 h-10 text-left transition-colors"
       style={{
-        background: colors.bgSurface,
-        border: `1px solid ${colors.border}`,
-        color: colors.textDim,
+        background: 'rgb(var(--canvas-surface))',
+        border: `1px solid rgb(var(--canvas-border))`,
+        color: 'rgb(var(--canvas-fg-3))',
       }}
       onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.borderColor = colors.accent;
+        (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--accent-primary))';
       }}
       onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.borderColor = colors.border;
+        (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
       }}
     >
       <MagnifyingGlassIcon className="w-4 h-4 shrink-0" />
       <span className="text-sm">Search across all your knowledge…</span>
       <kbd
         className="ml-auto text-[10px] rounded px-1.5 py-0.5"
-        style={{ background: colors.bgElevated, color: colors.textDim }}
+        style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-3))' }}
       >
         /
       </kbd>
@@ -392,7 +392,7 @@ export default function DashboardPage() {
     : systemOk
       ? 'system healthy'
       : 'check connectivity';
-  const lastSyncSubColor = systemOk ? colors.statusGreen : colors.statusAmber;
+  const lastSyncSubColor = systemOk ? 'rgb(var(--status-ok))' : 'rgb(var(--status-amber))';
 
   // Active adapters subtitle
   let adapterSub = '';
@@ -428,7 +428,7 @@ export default function DashboardPage() {
           value={stats.isLoading ? '—' : formatNumber(totalDocs)}
           label="Total Documents"
           sub={stats.isError ? 'Error loading' : undefined}
-          subColor={colors.statusRed}
+          subColor={'rgb(var(--status-error))'}
         />
         <StatCard
           icon={CircleStackIcon}
@@ -445,7 +445,7 @@ export default function DashboardPage() {
           value={adapterStats.isLoading ? '—' : formatNumber(adapterCount)}
           label="Active Adapters"
           sub={adapterSub || undefined}
-          subColor={errorCount > 0 ? colors.statusAmber : colors.statusGreen}
+          subColor={errorCount > 0 ? 'rgb(var(--status-amber))' : 'rgb(var(--status-ok))'}
         />
         <StatCard
           icon={lastSyncIcon}
@@ -483,3 +483,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
