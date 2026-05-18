@@ -21,7 +21,7 @@ interface SidebarSection {
   items: SidebarItem[];
 }
 
-const PRIMARY_NAV: NavItem[] = [
+const PRIMARY_NAV = [
   { id: '/', label: 'Dashboard', icon: 'dashboard' },
   { id: '/search', label: 'Search', icon: 'search' },
   { id: '/notes', label: 'Notes', icon: 'component' },
@@ -33,9 +33,9 @@ const PRIMARY_NAV: NavItem[] = [
   { id: '/people', label: 'People', icon: 'user' },
   { id: '/location', label: 'Location', icon: 'component' },
   { id: '/music', label: 'Music', icon: 'component' },
-];
+] as const satisfies readonly NavItem[];
 
-const ADMIN_NAV: NavItem = { id: '/admin', label: 'Admin', icon: 'settings' };
+const ADMIN_NAV = { id: '/admin', label: 'Admin', icon: 'settings' } as const satisfies NavItem;
 
 type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
 
@@ -94,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sections: SidebarSection[] = [
     {
       title: 'Primary',
-      items: PRIMARY_NAV,
+      items: [...PRIMARY_NAV],
     },
     {
       title: 'Admin',
