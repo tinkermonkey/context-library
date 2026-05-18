@@ -109,14 +109,13 @@ code {
 :root {
   --accent-primary: 99 102 241;
 
-  /* Application domain colors (preserved from designTokens.ts) */
-  --domain-notes: #6366F1;
-  --domain-messages: #A855F7;
-  --domain-documents: #22C55E;
-  --domain-health: #06B6D4;
-  --domain-events: #F59E0B;
-  --domain-tasks: #F97316;
-  --domain-people: #EC4899;
-  --domain-location: #14B8A6;
-  --domain-music: #F43F5E;
+  --domain-notes: 99 102 241;
+  --domain-messages: 168 85 247;
+  --domain-documents: 34 197 94;
+  --domain-health: 6 182 212;
+  --domain-events: 245 158 11;
+  --domain-tasks: 249 115 22;
+  --domain-people: 236 72 153;
+  --domain-location: 20 184 166;
+  --domain-music: 244 63 94;
 }
