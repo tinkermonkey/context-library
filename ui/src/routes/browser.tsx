@@ -788,9 +788,9 @@ export default function BrowserPage() {
               variant={activeDomain === domain ? 'primary' : 'secondary'}
               className={`${
                 index === 0
-                  ? 'rounded-l-md'
+                  ? 'rounded-l-md rounded-r-none'
                   : index === DOMAINS.length - 1
-                    ? 'rounded-r-md'
+                    ? 'rounded-r-md rounded-l-none'
                     : 'rounded-none'
               } ${activeDomain === domain ? '' : 'border border-gray-300'}`}
             >
@@ -822,9 +822,9 @@ export default function BrowserPage() {
               variant={tableType === type ? 'primary' : 'secondary'}
               className={`${
                 index === 0
-                  ? 'rounded-l-md'
+                  ? 'rounded-l-md rounded-r-none'
                   : index === arr.length - 1
-                    ? 'rounded-r-md'
+                    ? 'rounded-r-md rounded-l-none'
                     : 'rounded-none'
               } ${tableType === type ? '' : 'border border-gray-300'}`}
               disabled={type === 'versions' && !sourceIdFilter}
@@ -896,46 +896,44 @@ export default function BrowserPage() {
             setCompareWithVersion(null);
           }}
         >
-          <div className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Compare Versions</h3>
-              <button
-                onClick={() => {
-                  setDiffModalOpen(false);
-                  setSelectedVersionForDiff(null);
-                  setCompareWithVersion(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="space-y-4">
-              {!compareWithVersion ? (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">
-                    Selected version: <strong>v{selectedVersionForDiff?.version}</strong> ({selectedVersionForDiff?.chunk_hash_count} chunks)
-                  </p>
-                  <p className="text-sm text-gray-700 font-semibold">Select another version to compare with:</p>
-                  <VersionComparisonSelector
-                    sourceId={sourceIdFilter}
-                    currentVersion={selectedVersionForDiff?.version}
-                    onSelect={(v) => {
-                      setCompareWithVersion(v);
-                    }}
-                  />
-                </div>
-              ) : (
-                <VersionDiffView
-                  selectedVersion={selectedVersionForDiff}
-                  compareVersion={compareWithVersion}
+          <div className="flex justify-between items-center border-b pb-3 mb-4">
+            <h3 className="text-lg font-semibold text-slate-100">Compare Versions</h3>
+            <button
+              onClick={() => {
+                setDiffModalOpen(false);
+                setSelectedVersionForDiff(null);
+                setCompareWithVersion(null);
+              }}
+              className="text-slate-400 hover:text-slate-300"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-4">
+            {!compareWithVersion ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-300">
+                  Selected version: <strong>v{selectedVersionForDiff?.version}</strong> ({selectedVersionForDiff?.chunk_hash_count} chunks)
+                </p>
+                <p className="text-sm text-slate-200 font-semibold">Select another version to compare with:</p>
+                <VersionComparisonSelector
                   sourceId={sourceIdFilter}
-                  onBack={() => {
-                    setCompareWithVersion(null);
+                  currentVersion={selectedVersionForDiff?.version}
+                  onSelect={(v) => {
+                    setCompareWithVersion(v);
                   }}
                 />
-              )}
-            </div>
+              </div>
+            ) : (
+              <VersionDiffView
+                selectedVersion={selectedVersionForDiff}
+                compareVersion={compareWithVersion}
+                sourceId={sourceIdFilter}
+                onBack={() => {
+                  setCompareWithVersion(null);
+                }}
+              />
+            )}
           </div>
         </Modal>
       )}
@@ -956,7 +954,7 @@ function VersionComparisonSelector({
   const { data: history, isLoading, isError, error } = useVersionHistory(sourceId);
 
   if (isLoading) {
-    return <div className="text-gray-500">Loading versions...</div>;
+    return <div className="text-slate-400">Loading versions...</div>;
   }
 
   if (isError) {
@@ -975,7 +973,7 @@ function VersionComparisonSelector({
   );
 
   if (otherVersions.length === 0) {
-    return <div className="text-gray-500 text-sm">No other versions to compare.</div>;
+    return <div className="text-slate-400 text-sm">No other versions to compare.</div>;
   }
 
   return (
@@ -984,13 +982,13 @@ function VersionComparisonSelector({
         <button
           key={version.version}
           onClick={() => onSelect(version)}
-          className="w-full text-left p-2 border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-300"
+          className="w-full text-left p-2 border border-slate-600 rounded hover:bg-slate-700 hover:border-slate-500"
         >
           <div className="flex justify-between items-center">
-            <span className="font-semibold">v{version.version}</span>
-            <span className="text-xs text-gray-500">{version.chunk_hash_count} chunks</span>
+            <span className="font-semibold text-slate-100">v{version.version}</span>
+            <span className="text-xs text-slate-400">{version.chunk_hash_count} chunks</span>
           </div>
-          <div className="text-xs text-gray-600">
+          <div className="text-xs text-slate-400">
             {new Date(version.fetch_timestamp).toLocaleString()}
           </div>
         </button>
@@ -1018,7 +1016,7 @@ function VersionDiffView({
   );
 
   if (isLoading) {
-    return <div className="text-gray-500">Computing diff...</div>;
+    return <div className="text-slate-400">Computing diff...</div>;
   }
 
   if (isError) {
@@ -1049,7 +1047,7 @@ function VersionDiffView({
         >
           ← Back
         </button>
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-slate-300">
           Comparing v{selectedVersion?.version} → v{compareVersion?.version}
         </span>
       </div>
