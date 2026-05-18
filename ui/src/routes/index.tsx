@@ -23,7 +23,7 @@ import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
-import { getDomainColor} from '../lib/designTokens';
+import { getDomainColor } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -104,13 +104,13 @@ function DomainBreakdownSkeleton() {
       className="rounded-xl p-5 flex flex-col gap-4"
       style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
-      <div className="h-4 w-32 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
+      <div className="h-4 w-32 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
       <div className="flex flex-col gap-3">
         {[...Array(6)].map((_, i) => (
           <div key={i} className="flex items-center gap-3">
-            <div className="w-20 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-surface))' }} />
-            <div className="flex-1 h-1.5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
-            <div className="w-12 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-surface))' }} />
+            <div className="w-20 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+            <div className="flex-1 h-1.5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+            <div className="w-12 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
           </div>
         ))}
       </div>
@@ -196,7 +196,7 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
             <div
               key={i}
               className="h-12 rounded-lg animate-pulse"
-              style={{ background: 'rgb(var(--canvas-surface))' }}
+              style={{ background: 'rgb(var(--canvas-bg-2))' }}
             />
           ))}
         </div>

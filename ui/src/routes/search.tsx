@@ -10,7 +10,7 @@ import {
 import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
-import { getDomainColor, domainColors} from '../lib/designTokens';
+import { getDomainColor, domainColors } from '../lib/designTokens';
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -213,17 +213,17 @@ function SkeletonCard() {
       style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
     >
       <div className="flex items-center gap-2">
-        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
-        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
-        <div className="w-16 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="w-16 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <div className="h-3 rounded animate-pulse w-full" style={{ background: 'rgb(var(--canvas-surface))' }} />
-        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: 'rgb(var(--canvas-surface))' }} />
-        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="h-3 rounded animate-pulse w-full" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
       </div>
       <div className="flex gap-2">
-        <div className="h-3 rounded animate-pulse w-32" style={{ background: 'rgb(var(--canvas-surface))' }} />
+        <div className="h-3 rounded animate-pulse w-32" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
       </div>
     </div>
   );
@@ -356,7 +356,7 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
     <div className="flex flex-col items-center gap-6 py-16">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 56, height: 56, background: `rgb(var(--accent-primary))1A` }}
+        style={{ width: 56, height: 56, background: `rgb(var(--accent-primary) / 0.1)` }}
       >
         <MagnifyingGlassIcon className="w-7 h-7" style={{ color: 'rgb(var(--accent-primary))' }} />
       </div>
@@ -652,8 +652,8 @@ export default function SearchPage() {
             <div
               className="rounded-xl px-4 py-3 text-sm"
               style={{
-                background: `rgb(var(--status-error))14`,
-                border: `1px solid rgb(var(--status-error))40`,
+                background: `rgb(var(--status-error) / 0.08)`,
+                border: `1px solid rgb(var(--status-error) / 0.25)`,
                 color: 'rgb(var(--status-error))',
               }}
             >

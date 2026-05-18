@@ -603,7 +603,7 @@ export default function DocumentsPage(): ReactNode {
           {sourcesQuery.isLoading ? (
             <div className="px-3 py-2 space-y-2">
               {[60, 80, 50, 70, 90].map((w, i) => (
-                <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }} />
+                <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }} />
               ))}
             </div>
           ) : sourcesQuery.isError ? (

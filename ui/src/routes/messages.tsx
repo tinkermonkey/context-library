@@ -520,7 +520,7 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
               >
                 <div
                   className="h-9 rounded-2xl animate-pulse"
-                  style={{ width: `${w}%`, background: 'rgb(var(--canvas-surface))' }}
+                  style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }}
                 />
               </div>
             ))}

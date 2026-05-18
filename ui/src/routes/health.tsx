@@ -312,10 +312,10 @@ function MetricCard({
           className="self-start text-xs px-1.5 py-0.5 rounded"
           style={{
             background: current.hasConflict
-              ? `rgb(var(--status-amber))15`
+              ? `rgb(var(--status-amber) / 0.08)`
               : `${healthColor}15`,
             color: current.hasConflict ? 'rgb(var(--status-amber))' : healthColor,
-            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber))40` : `${healthColor}30`}`,
+            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber) / 0.25)` : `${healthColor}30`}`,
           }}
           title={
             current.hasConflict
