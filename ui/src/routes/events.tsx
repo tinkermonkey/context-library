@@ -8,6 +8,7 @@ import {
   CalendarIcon,
   MapPinIcon,
   UserGroupIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
 import { getDomainColor } from '../lib/designTokens';
@@ -606,6 +607,29 @@ function EmptyState(): ReactNode {
   );
 }
 
+// ── ErrorState ─────────────────────────────────────────────────────
+
+function ErrorState(): ReactNode {
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4">
+      <div
+        className="flex items-center justify-center rounded-2xl"
+        style={{ width: 64, height: 64, background: '#EF443620' }}
+      >
+        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: '#EF4436' }} />
+      </div>
+      <div className="text-center">
+        <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          Failed to load events
+        </p>
+        <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
+          There was a problem fetching your calendar events. Please try again.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── EventsPage ─────────────────────────────────────────────────────
 
 export default function EventsPage(): ReactNode {
@@ -634,7 +658,7 @@ export default function EventsPage(): ReactNode {
     setViewMode(mode);
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['chunks', { domain: 'events', limit: 2000 }],
     queryFn: () => fetchChunks({ domain: 'events', limit: 2000 }),
     staleTime: 30_000,
@@ -768,6 +792,8 @@ export default function EventsPage(): ReactNode {
             style={{ borderColor: `${evtColor} transparent transparent transparent` }}
           />
         </div>
+      ) : isError ? (
+        <ErrorState />
       ) : !hasEvents ? (
         <EmptyState />
       ) : viewMode === 'agenda' ? (
