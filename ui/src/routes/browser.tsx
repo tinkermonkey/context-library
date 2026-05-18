@@ -331,7 +331,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
         const content = info.getValue<string>();
         const preview = content.substring(0, 200);
         return (
-          <div className="text-sm text-gray-700 line-clamp-2">
+          <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
             {preview}
             {content.length > 200 ? '…' : ''}
           </div>
@@ -346,7 +346,7 @@ function buildChunkColumns(domain: string): ColumnDef<ChunkResponse, unknown>[] 
       cell: (info) => {
         const lineage = info.getValue();
         return (
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
             v{lineage.source_version_id || '—'}
           </span>
         );
@@ -776,10 +776,10 @@ export default function BrowserPage() {
   return (
     <div className="p-8">
       <h1 className="text-4xl font-bold mb-2">Data Browser</h1>
-      <p className="text-gray-600 mb-8">Browse all sources, chunks, and versions by domain</p>
+      <p className="text-gray-600 dark:text-gray-400 mb-8">Browse all sources, chunks, and versions by domain</p>
 
       {/* Domain Tabs */}
-      <div className="mb-8 border-b border-gray-200 pb-3 flex items-center justify-between">
+      <div className="mb-8 border-b border-gray-200 dark:border-slate-700 pb-3 flex items-center justify-between">
         <div className="flex gap-0">
           {DOMAINS.map((domain, index) => (
             <Button
@@ -959,9 +959,9 @@ function VersionComparisonSelector({
 
   if (isError) {
     return (
-      <div className="bg-red-50 p-3 rounded border border-red-200">
-        <p className="text-red-900 font-semibold text-sm">Failed to load versions</p>
-        <p className="text-red-800 text-xs mt-1">
+      <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+        <p className="text-red-900 dark:text-red-200 font-semibold text-sm">Failed to load versions</p>
+        <p className="text-red-800 dark:text-red-300 text-xs mt-1">
           {error instanceof Error ? error.message : 'An unexpected error occurred'}
         </p>
       </div>
@@ -1021,14 +1021,14 @@ function VersionDiffView({
 
   if (isError) {
     return (
-      <div className="bg-red-50 p-3 rounded border border-red-200">
-        <p className="text-red-900 font-semibold text-sm">Error loading diff</p>
-        <p className="text-red-800 text-xs mt-1">
+      <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+        <p className="text-red-900 dark:text-red-200 font-semibold text-sm">Error loading diff</p>
+        <p className="text-red-800 dark:text-red-300 text-xs mt-1">
           {error instanceof Error ? error.message : 'An unexpected error occurred'}
         </p>
         <button
           onClick={onBack}
-          className="mt-2 text-blue-600 hover:text-blue-800 text-sm"
+          className="mt-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
         >
           ← Back
         </button>
@@ -1043,7 +1043,7 @@ function VersionDiffView({
       <div className="flex gap-2 items-center mb-4">
         <button
           onClick={onBack}
-          className="text-blue-600 hover:text-blue-800 text-sm"
+          className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm"
         >
           ← Back
         </button>
@@ -1055,28 +1055,28 @@ function VersionDiffView({
       {diff_result && (
         <>
           <div className="grid grid-cols-3 gap-4 text-sm">
-            <div className="bg-green-50 p-3 rounded border border-green-200">
-              <span className="font-semibold text-green-900">Added</span>
-              <div className="text-green-700">{diff_result.added_hashes.length} chunks</div>
+            <div className="bg-green-50 dark:bg-green-900 p-3 rounded border border-green-200 dark:border-green-700">
+              <span className="font-semibold text-green-900 dark:text-green-200">Added</span>
+              <div className="text-green-700 dark:text-green-300">{diff_result.added_hashes.length} chunks</div>
             </div>
-            <div className="bg-red-50 p-3 rounded border border-red-200">
-              <span className="font-semibold text-red-900">Removed</span>
-              <div className="text-red-700">{diff_result.removed_hashes.length} chunks</div>
+            <div className="bg-red-50 dark:bg-red-900 p-3 rounded border border-red-200 dark:border-red-700">
+              <span className="font-semibold text-red-900 dark:text-red-200">Removed</span>
+              <div className="text-red-700 dark:text-red-300">{diff_result.removed_hashes.length} chunks</div>
             </div>
-            <div className="bg-gray-50 p-3 rounded border border-gray-200">
-              <span className="font-semibold text-gray-900">Unchanged</span>
-              <div className="text-gray-700">{diff_result.unchanged_hashes.length} chunks</div>
+            <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded border border-gray-200 dark:border-slate-700">
+              <span className="font-semibold text-gray-900 dark:text-gray-200">Unchanged</span>
+              <div className="text-gray-700 dark:text-gray-300">{diff_result.unchanged_hashes.length} chunks</div>
             </div>
           </div>
 
           {diff_result.added_chunks.length > 0 && (
             <div>
-              <h5 className="font-semibold text-sm mb-2 text-green-900">Added Chunks</h5>
+              <h5 className="font-semibold text-sm mb-2 text-green-900 dark:text-green-200">Added Chunks</h5>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {diff_result.added_chunks.map((chunk) => (
-                  <div key={chunk.chunk_hash} className="bg-green-50 p-2 rounded border border-green-200 text-xs">
-                    <code className="block text-green-900">{chunk.chunk_hash.substring(0, 12)}…</code>
-                    <div className="text-green-800 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
+                  <div key={chunk.chunk_hash} className="bg-green-50 dark:bg-green-900 p-2 rounded border border-green-200 dark:border-green-700 text-xs">
+                    <code className="block text-green-900 dark:text-green-200">{chunk.chunk_hash.substring(0, 12)}…</code>
+                    <div className="text-green-800 dark:text-green-300 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
                   </div>
                 ))}
               </div>
@@ -1085,12 +1085,12 @@ function VersionDiffView({
 
           {diff_result.removed_chunks.length > 0 && (
             <div>
-              <h5 className="font-semibold text-sm mb-2 text-red-900">Removed Chunks</h5>
+              <h5 className="font-semibold text-sm mb-2 text-red-900 dark:text-red-200">Removed Chunks</h5>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {diff_result.removed_chunks.map((chunk) => (
-                  <div key={chunk.chunk_hash} className="bg-red-50 p-2 rounded border border-red-200 text-xs">
-                    <code className="block text-red-900">{chunk.chunk_hash.substring(0, 12)}…</code>
-                    <div className="text-red-800 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
+                  <div key={chunk.chunk_hash} className="bg-red-50 dark:bg-red-900 p-2 rounded border border-red-200 dark:border-red-700 text-xs">
+                    <code className="block text-red-900 dark:text-red-200">{chunk.chunk_hash.substring(0, 12)}…</code>
+                    <div className="text-red-800 dark:text-red-300 line-clamp-2">{chunk.content.substring(0, 100)}…</div>
                   </div>
                 ))}
               </div>
