@@ -1,8 +1,19 @@
 import type { ReactNode } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
-import { Topbar, type IconName } from '@tinkermonkey/heimdall-ui';
-import { Sidebar, type SidebarSection } from './Sidebar';
+import { ShellLayout, type IconName } from '@tinkermonkey/heimdall-ui';
 import { HealthIndicator } from './HealthIndicator';
+
+interface SidebarItem {
+  id: string;
+  label: string;
+  icon?: IconName;
+  count?: number;
+}
+
+interface SidebarSection {
+  title: string;
+  items: SidebarItem[];
+}
 
 // Icon mapping from Heroicons to Heimdall IconName
 const ICON_MAP: Record<string, IconName> = {
@@ -124,44 +135,41 @@ export function Layout({ children }: { children: ReactNode }) {
   const { title, subtitle } = getPageMeta(path);
 
   return (
-    <div className="flex h-screen" style={{ background: 'rgb(var(--canvas-bg))' }}>
-      {/* Sidebar */}
-      <Sidebar
-        sections={sections}
-        activeItemId={activeItemId}
-        onSelectItem={handleSelectItem}
-        appTitle="Context Library"
-      />
-
-      {/* Main content area */}
-      <div className="flex flex-col flex-1 min-w-0">
-        {/* Topbar */}
-        <Topbar
-          breadcrumbs={[{ label: title }]}
+    <div style={{ background: 'rgb(var(--canvas-bg))', height: '100vh' }}>
+      <ShellLayout
+        appTitle={{ title: 'Context Library' }}
+        sidebar={{
+          sections,
+          activeItemId,
+          onSelectItem: handleSelectItem,
+        }}
+        topbar={{
+          breadcrumbs: [{ label: title }],
+          children: (
+            <div className="flex items-center gap-4 ml-auto">
+              <HealthIndicator />
+            </div>
+          ),
+        }}
+      >
+      {/* Subtitle */}
+      {subtitle && (
+        <div
+          className="px-6 py-3 text-sm border-b"
+          style={{
+            color: 'rgb(var(--shell-fg-2))',
+            borderColor: 'rgb(var(--shell-border))',
+          }}
         >
-          <div className="flex items-center gap-4 ml-auto">
-            <HealthIndicator />
-          </div>
-        </Topbar>
-
-        {/* Subtitle */}
-        {subtitle && (
-          <div
-            className="px-6 py-3 text-sm border-b"
-            style={{
-              color: 'rgb(var(--shell-fg-2))',
-              borderColor: 'rgb(var(--shell-border))',
-            }}
-          >
-            {subtitle}
-          </div>
-        )}
+          {subtitle}
+        </div>
+      )}
 
         {/* Content */}
         <div className="flex-1 overflow-auto">
           {children}
         </div>
-      </div>
+      </ShellLayout>
     </div>
   );
 }
