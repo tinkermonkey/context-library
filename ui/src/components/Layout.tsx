@@ -2,6 +2,9 @@ import type { ReactNode } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
 import { ShellLayout, type IconName } from '@tinkermonkey/heimdall-ui';
 import { HealthIndicator } from './HealthIndicator';
+import { CommandPaletteWrapper } from './CommandPaletteWrapper';
+import { useAdminAdapters } from '../hooks/useAdminAdapters';
+import { useHealth } from '../hooks/useHealth';
 
 interface SidebarItem {
   id: string;
@@ -93,6 +96,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { location } = useRouterState();
   const path = location.pathname;
+  const { data: adaptersData } = useAdminAdapters();
+  const { data: healthData } = useHealth();
 
   const isActive = (itemId: string) => {
     if (itemId === '/') return path === '/';
@@ -134,8 +139,27 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const { title, subtitle } = getPageMeta(path);
 
+  // Format last sync timestamp
+  const lastSyncTimestamp = (() => {
+    if (!healthData?.helper?.watermark) return 'Never';
+    const date = new Date(healthData.helper.watermark);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  })();
+
+  // Count active adapters
+  const activeAdapterCount = adaptersData?.adapters.length || 0;
+
+  // Create statusbar content
+  const statusbarContent = (
+    <div className="flex items-center gap-4 text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
+      <div>Last sync: {lastSyncTimestamp}</div>
+      <div>{activeAdapterCount} adapter{activeAdapterCount !== 1 ? 's' : ''}</div>
+    </div>
+  );
+
   return (
     <div style={{ background: 'rgb(var(--canvas-bg))', height: '100vh' }}>
+      <CommandPaletteWrapper primaryNav={PRIMARY_NAV} adminNav={ADMIN_NAV} />
       <ShellLayout
         appTitle={{ title: 'Context Library' }}
         sidebar={{
@@ -150,6 +174,9 @@ export function Layout({ children }: { children: ReactNode }) {
               <HealthIndicator />
             </div>
           ),
+        }}
+        statusbar={{
+          left: statusbarContent,
         }}
       >
       {/* Subtitle */}
