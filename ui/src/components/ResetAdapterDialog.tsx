@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Modal, ConfirmDialog, Button, Icon } from '@tinkermonkey/heimdall-ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { resetAdapter } from '../api/client';
+import { useToast } from '../hooks/useToast';
 import type { AdapterResetResponse } from '../types/api';
 
 interface ResetAdapterDialogProps {
@@ -22,6 +23,7 @@ export function ResetAdapterDialog({
   onClose,
 }: ResetAdapterDialogProps) {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState<AdapterResetResponse | null>(null);
   const confirmedRef = useRef(false);
@@ -30,10 +32,24 @@ export function ResetAdapterDialog({
     mutationFn: () => resetAdapter(adapterId),
     onSuccess: (data) => {
       setResult(data);
+      showToast({
+        title: 'Adapter reset',
+        subtitle: `${adapterName} reset successfully`,
+        variant: data.errors.length === 0 ? 'success' : 'warning',
+        duration: 4000,
+      });
       // Invalidate related queries
       queryClient.invalidateQueries({ queryKey: ['adapters'] });
       queryClient.invalidateQueries({ queryKey: ['adapter-stats'] });
       queryClient.invalidateQueries({ queryKey: ['sources'] });
+    },
+    onError: (err) => {
+      showToast({
+        title: 'Reset failed',
+        subtitle: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+        duration: 4000,
+      });
     },
   });
 
