@@ -185,7 +185,7 @@ function HealthDetail({ data }: { data: HealthResponse }) {
 // ── Main export ──────────────────────────────────────────────────
 
 export function HealthIndicator() {
-  const { data, isLoading, isError } = useHealth();
+  const { data, isLoading, isError } = useHealth(120_000);
   const [open, setOpen] = useState(false);
 
   let badgeColor: 'emerald' | 'amber' | 'rose' | 'neutral';

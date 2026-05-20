@@ -98,8 +98,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { location } = useRouterState();
   const path = location.pathname;
-  const { data: adaptersData } = useAdminAdapters();
-  const { data: healthData } = useHealth();
+  const { data: adaptersData } = useAdminAdapters(120_000);
+  const { data: healthData } = useHealth(120_000);
 
   const isActive = (itemId: string): boolean => {
     if (itemId === '/') return path === '/';
@@ -155,11 +155,17 @@ export function Layout({ children }: { children: ReactNode }) {
   // Count active adapters
   const activeAdapterCount = adaptersData?.adapters.length || 0;
 
-  // Create statusbar content
-  const statusbarContent = (
-    <div className="flex items-center gap-4 text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
-      <div>Last sync: {lastSyncTimestamp}</div>
-      <div>{activeAdapterCount} adapter{activeAdapterCount !== 1 ? 's' : ''}</div>
+  // Statusbar left content
+  const statusbarLeft = (
+    <div className="text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
+      Last sync: {lastSyncTimestamp}
+    </div>
+  );
+
+  // Statusbar right content
+  const statusbarRight = (
+    <div className="text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
+      {activeAdapterCount} adapter{activeAdapterCount !== 1 ? 's' : ''}
     </div>
   );
 
@@ -182,7 +188,8 @@ export function Layout({ children }: { children: ReactNode }) {
           ),
         }}
         statusbar={{
-          left: statusbarContent,
+          left: statusbarLeft,
+          right: statusbarRight,
         }}
       >
       {/* Subtitle */}

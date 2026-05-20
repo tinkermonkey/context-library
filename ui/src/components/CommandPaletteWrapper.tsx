@@ -20,7 +20,7 @@ export function CommandPaletteWrapper({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
-  const { data: adaptersData } = useAdminAdapters();
+  const { data: adaptersData } = useAdminAdapters(120_000);
   const { showToast } = useToast();
 
   // Listen for Cmd+K / Ctrl+K
