@@ -167,8 +167,8 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
               )}
             </span>
           )}
-          {isFolder && <Icon name="layout" size={16} className="text-yellow-600 flex-shrink-0" />}
-          {node.type === 'file' && <Icon name="copy" size={16} className="text-blue-600 flex-shrink-0" />}
+          {isFolder && <Icon name="data" size={16} className="text-yellow-600 flex-shrink-0" />}
+          {node.type === 'file' && <Icon name="component" size={16} className="text-blue-600 flex-shrink-0" />}
           <span className="truncate text-gray-900">{node.name}</span>
         </div>
 

@@ -338,9 +338,9 @@ function DetailPanel({
         {/* Priority */}
         {meta.priority != null && (
           <div className="flex items-center gap-2">
-            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               <Icon name="alert" size={14} />
-            </div>
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {PRIORITY_LABELS[meta.priority] ?? `Priority ${meta.priority}`}
             </span>
@@ -349,18 +349,18 @@ function DetailPanel({
 
         {/* Source */}
         <div className="flex items-center gap-2">
-          <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             <Icon name="filter" size={14} />
-          </div>
+          </span>
           <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
         </div>
 
         {/* Collaborators */}
         {meta.collaborators.length > 0 && (
           <div className="flex items-start gap-2">
-            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <span className="shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               <Icon name="user" size={14} />
-            </div>
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {meta.collaborators.join(', ')}
             </span>
@@ -370,9 +370,9 @@ function DetailPanel({
         {/* Created */}
         {meta.date_first_observed && (
           <div className="flex items-center gap-2">
-            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               <Icon name="clock" size={14} />
-            </div>
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               Created {formatFullDate(meta.date_first_observed)}
             </span>
