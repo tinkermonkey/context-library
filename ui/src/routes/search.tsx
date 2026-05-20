@@ -5,7 +5,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { Chip, Drawer, Icon } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
-import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
@@ -400,7 +399,6 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
 export default function SearchPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
-  const { showToast } = useToast();
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -489,17 +487,6 @@ export default function SearchPage() {
 
   const { data, isLoading, error } = useSearch(search);
   const results = data?.results ?? [];
-
-  // Show error toast when search fails
-  useEffect(() => {
-    if (error) {
-      showToast({
-        title: 'Search Error',
-        subtitle: error instanceof Error ? error.message : 'Failed to search',
-        variant: 'error',
-      });
-    }
-  }, [error, showToast]);
 
   // Keyboard navigation on the results list
   const handleKeyDown = useCallback(
