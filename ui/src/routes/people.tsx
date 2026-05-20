@@ -2,7 +2,8 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { MagnifyingGlassIcon, UsersIcon } from '@heroicons/react/24/outline';
+import { UsersIcon } from '@heroicons/react/24/outline';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { postQuery, fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -467,7 +468,9 @@ export default function PeoplePage(): ReactNode {
               padding: '0 12px',
             }}
           >
-            <MagnifyingGlassIcon className="w-3.5 h-3.5 shrink-0" style={{ color: '#4B5563' }} />
+            <span style={{ color: '#4B5563', flexShrink: 0 }}>
+              <Icon name="search" size={14} />
+            </span>
             <input
               type="text"
               value={filterText}

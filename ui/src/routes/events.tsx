@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  CalendarIcon,
   MapPinIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline';
@@ -502,7 +501,9 @@ function AgendaFullView({ eventMap }: { eventMap: EventMap }): ReactNode {
   if (days.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3">
-        <CalendarIcon className="w-8 h-8" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          <Icon name="calendar" size={32} />
+        </span>
         <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No events found</p>
       </div>
     );
@@ -591,7 +592,9 @@ function EmptyState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: getDomainColorWithAlpha('events', '20') }}
       >
-        <CalendarIcon className="w-8 h-8" style={{ color: evtColor }} />
+        <span style={{ color: evtColor }}>
+          <Icon name="calendar" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
