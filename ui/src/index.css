@@ -1,4 +1,4 @@
-@import "../node_modules/@tinkermonkey/heimdall-ui/dist/fonts/fonts.css";
+@import "@tinkermonkey/heimdall-ui/fonts";
 @import "@tinkermonkey/heimdall-ui/css";
 
 @import "tailwindcss";
