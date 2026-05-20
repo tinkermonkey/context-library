@@ -2,9 +2,6 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  TagIcon,
-} from '@heroicons/react/24/outline';
 import { Chip, SplitPane, Icon } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
@@ -381,7 +378,7 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
               className="flex items-center gap-1 text-xs"
               style={{ background: getDomainColorWithAlpha('notes', '18'), color: noteColor }}
             >
-              <TagIcon className="w-3 h-3 shrink-0" />
+              <Icon name="filter" size={12} className="shrink-0" />
               {tag}
             </Chip>
           ))}

@@ -1,18 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import {
-  DocumentTextIcon,
-  ChatBubbleLeftIcon,
-  CalendarIcon,
-  CheckCircleIcon,
-  HeartIcon,
-  FolderIcon,
-  UsersIcon,
-  MapPinIcon,
-  MusicalNoteIcon,
-} from '@heroicons/react/24/outline';
 import { useMemo } from 'react';
-import type { ComponentType, SVGProps } from 'react';
+import type { IconName } from '@tinkermonkey/heimdall-ui';
 import { StatTile, StatGrid, Panel, Chip, Icon } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
@@ -47,19 +36,19 @@ function capitalize(s: string): string {
 interface DomainConfig {
   label: string;
   to: ValidRoute;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  icon: IconName;
 }
 
 const DOMAIN_CONFIG = {
-  notes:     { label: 'Notes',     to: '/notes',     icon: DocumentTextIcon },
-  messages:  { label: 'Messages',  to: '/messages',  icon: ChatBubbleLeftIcon },
-  events:    { label: 'Events',    to: '/events',    icon: CalendarIcon },
-  tasks:     { label: 'Tasks',     to: '/tasks',     icon: CheckCircleIcon },
-  health:    { label: 'Health',    to: '/health',    icon: HeartIcon },
-  documents: { label: 'Documents', to: '/documents', icon: FolderIcon },
-  people:    { label: 'People',    to: '/people',    icon: UsersIcon },
-  location:  { label: 'Location',  to: '/location',  icon: MapPinIcon },
-  music:     { label: 'Music',     to: '/music',     icon: MusicalNoteIcon },
+  notes:     { label: 'Notes',     to: '/notes',     icon: 'component' },
+  messages:  { label: 'Messages',  to: '/messages',  icon: 'info' },
+  events:    { label: 'Events',    to: '/events',    icon: 'calendar' },
+  tasks:     { label: 'Tasks',     to: '/tasks',     icon: 'check' },
+  health:    { label: 'Health',    to: '/health',    icon: 'heart' },
+  documents: { label: 'Documents', to: '/documents', icon: 'table' },
+  people:    { label: 'People',    to: '/people',    icon: 'user' },
+  location:  { label: 'Location',  to: '/location',  icon: 'link' },
+  music:     { label: 'Music',     to: '/music',     icon: 'palette' },
 } as const satisfies Record<string, DomainConfig>;
 
 // ── Sub-components ────────────────────────────────────────────────
@@ -233,7 +222,6 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
         {Object.entries(DOMAIN_CONFIG).map(([domain, cfg]) => {
           const color = getDomainColor(domain);
           const count = domainCounts[domain] ?? 0;
-          const Icon = cfg.icon;
           return (
             <button
               key={domain}
@@ -249,9 +237,9 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
             >
               <div
                 className="flex items-center justify-center rounded-lg w-8 h-8"
-                style={{ background: getDomainColorWithAlpha(domain, '1A') }}
+                style={{ background: getDomainColorWithAlpha(domain, '1A'), color }}
               >
-                <Icon className="w-4 h-4" style={{ color }} />
+                <Icon name={cfg.icon} size={16} />
               </div>
               <span className="text-xs font-medium leading-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
                 {cfg.label}

@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-  ArrowTopRightOnSquareIcon,
-} from '@heroicons/react/24/outline';
 import { Chip, Drawer, Icon } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
 import type { SearchPageSearch } from '../router';
@@ -333,7 +330,7 @@ function DetailDrawer({
               className="flex items-center gap-1.5 text-xs font-medium transition-colors"
               style={{ color: domainColor }}
             >
-              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+              <Icon name="send" size={14} />
               View in Browser
             </button>
           </div>

@@ -2,13 +2,6 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  TagIcon,
-  UserGroupIcon,
-  ClockIcon,
-  FlagIcon,
-  AdjustmentsHorizontalIcon,
-} from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
 import { Icon } from '@tinkermonkey/heimdall-ui';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -345,7 +338,9 @@ function DetailPanel({
         {/* Priority */}
         {meta.priority != null && (
           <div className="flex items-center gap-2">
-            <FlagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="alert" size={14} />
+            </div>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {PRIORITY_LABELS[meta.priority] ?? `Priority ${meta.priority}`}
             </span>
@@ -354,14 +349,18 @@ function DetailPanel({
 
         {/* Source */}
         <div className="flex items-center gap-2">
-          <TagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="filter" size={14} />
+          </div>
           <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
         </div>
 
         {/* Collaborators */}
         {meta.collaborators.length > 0 && (
           <div className="flex items-start gap-2">
-            <UserGroupIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="user" size={14} />
+            </div>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {meta.collaborators.join(', ')}
             </span>
@@ -371,7 +370,9 @@ function DetailPanel({
         {/* Created */}
         {meta.date_first_observed && (
           <div className="flex items-center gap-2">
-            <ClockIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <div style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="clock" size={14} />
+            </div>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               Created {formatFullDate(meta.date_first_observed)}
             </span>
@@ -615,7 +616,7 @@ export default function TasksPage(): ReactNode {
               cursor: 'pointer',
             }}
           >
-            <AdjustmentsHorizontalIcon className="w-3 h-3" />
+            <Icon name="settings" size={12} />
             {sourceFilter === 'all' ? 'All Sources' : sourceLabel(sourceFilter)}
           </button>
 
