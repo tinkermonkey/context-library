@@ -55,6 +55,15 @@ const ADMIN_NAV = {
 
 export type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
 
+const VALID_ROUTES = new Set<ValidRoute>([
+  ...PRIMARY_NAV.map((item) => item.id),
+  ADMIN_NAV.id,
+]);
+
+function isValidRoute(value: string): value is ValidRoute {
+  return VALID_ROUTES.has(value as ValidRoute);
+}
+
 interface PageMeta {
   title: string;
   subtitle: string;
@@ -106,7 +115,11 @@ export function Layout({ children }: { children: ReactNode }) {
   })();
 
   const handleSelectItem = (itemId: string) => {
-    router.navigate({ to: itemId as ValidRoute });
+    if (!isValidRoute(itemId)) {
+      console.error(`Invalid route: ${itemId}`);
+      return;
+    }
+    router.navigate({ to: itemId });
   };
 
   const sections: SidebarSection[] = [
