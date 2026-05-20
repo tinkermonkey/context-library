@@ -34,13 +34,7 @@ const ICON_MAP: Record<string, IconName> = {
   admin: 'settings',
 };
 
-interface NavigationItem {
-  id: string;
-  label: string;
-  iconKey: string;
-}
-
-const PRIMARY_NAV: NavigationItem[] = [
+const PRIMARY_NAV = [
   { id: '/', label: 'Dashboard', iconKey: 'dashboard' },
   { id: '/search', label: 'Search', iconKey: 'search' },
   { id: '/notes', label: 'Notes', iconKey: 'notes' },
@@ -52,15 +46,15 @@ const PRIMARY_NAV: NavigationItem[] = [
   { id: '/people', label: 'People', iconKey: 'people' },
   { id: '/location', label: 'Location', iconKey: 'location' },
   { id: '/music', label: 'Music', iconKey: 'music' },
-];
+] as const;
 
-const ADMIN_NAV: NavigationItem = {
-  id: '/admin',
+const ADMIN_NAV = {
+  id: '/admin' as const,
   label: 'Admin',
   iconKey: 'admin',
-};
+} as const;
 
-type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
+export type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
 
 interface PageMeta {
   title: string;
@@ -99,7 +93,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { data: adaptersData } = useAdminAdapters();
   const { data: healthData } = useHealth();
 
-  const isActive = (itemId: string) => {
+  const isActive = (itemId: string): itemId is ValidRoute => {
     if (itemId === '/') return path === '/';
     return path === itemId || path.startsWith(itemId + '/');
   };
@@ -113,7 +107,9 @@ export function Layout({ children }: { children: ReactNode }) {
   })();
 
   const handleSelectItem = (itemId: string) => {
-    router.navigate({ to: itemId as ValidRoute });
+    if (isActive(itemId)) {
+      router.navigate({ to: itemId });
+    }
   };
 
   const sections: SidebarSection[] = [

@@ -20,6 +20,7 @@ import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
+import { type ValidRoute } from '../components/Layout';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -45,21 +46,21 @@ function capitalize(s: string): string {
 
 interface DomainConfig {
   label: string;
-  to: string;
+  to: ValidRoute;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
-const DOMAIN_CONFIG: Record<string, DomainConfig> = {
-  notes:     { label: 'Notes',     to: '/notes',     icon: DocumentTextIcon },
-  messages:  { label: 'Messages',  to: '/messages',  icon: ChatBubbleLeftIcon },
-  events:    { label: 'Events',    to: '/events',    icon: CalendarIcon },
-  tasks:     { label: 'Tasks',     to: '/tasks',     icon: CheckCircleIcon },
-  health:    { label: 'Health',    to: '/health',    icon: HeartIcon },
-  documents: { label: 'Documents', to: '/documents', icon: FolderIcon },
-  people:    { label: 'People',    to: '/people',    icon: UsersIcon },
-  location:  { label: 'Location',  to: '/location',  icon: MapPinIcon },
-  music:     { label: 'Music',     to: '/music',     icon: MusicalNoteIcon },
-};
+const DOMAIN_CONFIG = {
+  notes:     { label: 'Notes',     to: '/notes' as const,     icon: DocumentTextIcon },
+  messages:  { label: 'Messages',  to: '/messages' as const,  icon: ChatBubbleLeftIcon },
+  events:    { label: 'Events',    to: '/events' as const,    icon: CalendarIcon },
+  tasks:     { label: 'Tasks',     to: '/tasks' as const,     icon: CheckCircleIcon },
+  health:    { label: 'Health',    to: '/health' as const,    icon: HeartIcon },
+  documents: { label: 'Documents', to: '/documents' as const, icon: FolderIcon },
+  people:    { label: 'People',    to: '/people' as const,    icon: UsersIcon },
+  location:  { label: 'Location',  to: '/location' as const,  icon: MapPinIcon },
+  music:     { label: 'Music',     to: '/music' as const,     icon: MusicalNoteIcon },
+} as const satisfies Record<string, DomainConfig>;
 
 // ── Sub-components ────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
 
 interface QuickLaunchTilesProps {
   domainCounts: Record<string, number>;
-  onNavigate: (to: string) => void;
+  onNavigate: (to: ValidRoute) => void;
 }
 
 function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
@@ -332,9 +333,8 @@ export default function DashboardPage() {
     [domainData]
   );
 
-  const handleDomainNavigate = (to: string) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    navigate({ to: to as any });
+  const handleDomainNavigate = (to: ValidRoute) => {
+    navigate({ to });
   };
 
   const handleSearch = () => {

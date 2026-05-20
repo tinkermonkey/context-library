@@ -4,9 +4,10 @@ import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
+import { type ValidRoute } from './Layout';
 
 interface NavItem {
-  id: string;
+  id: ValidRoute;
   label: string;
 }
 
@@ -14,7 +15,7 @@ export function CommandPaletteWrapper({
   primaryNav,
   adminNav,
 }: {
-  primaryNav: NavItem[];
+  primaryNav: readonly NavItem[];
   adminNav: NavItem;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,16 +42,14 @@ export function CommandPaletteWrapper({
       id: `nav-${item.id}`,
       label: item.label,
       onSelect: () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        router.navigate({ to: item.id as any });
+        router.navigate({ to: item.id });
       },
     })),
     {
       id: `nav-${adminNav.id}`,
       label: adminNav.label,
       onSelect: () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        router.navigate({ to: adminNav.id as any });
+        router.navigate({ to: adminNav.id });
       },
     },
   ];
