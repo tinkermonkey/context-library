@@ -184,6 +184,10 @@ export default function AdminPage(): ReactNode {
     return { errorCount, staleCount };
   }, [adapterHealthMap]);
 
+  const totalChunkCount = useMemo(() => {
+    return adapters.reduce((sum, adapter) => sum + (adapter.active_chunk_count ?? 0), 0);
+  }, [adapters]);
+
   const totalLogs = logsQuery.data?.total ?? 0;
   const totalLogPages = Math.ceil(totalLogs / logsLimit);
 
@@ -208,7 +212,36 @@ export default function AdminPage(): ReactNode {
         >
           Admin
         </span>
-        {health && (
+        {healthQuery.isError ? (
+          <div
+            className="flex items-center"
+            style={{
+              background: 'rgb(var(--status-error) / 0.08)',
+              borderRadius: 6,
+              padding: '5px 12px',
+              gap: 6,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: 'rgb(var(--status-error))',
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                color: 'rgb(var(--status-error))',
+                fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              Health check failed
+            </span>
+          </div>
+        ) : health && (
           <div
             className="flex items-center"
             style={{
@@ -250,8 +283,13 @@ export default function AdminPage(): ReactNode {
             value={config ? formatBytes(config.db_size_bytes) : '—'}
           />
           <StatTile
-            label="ChromaDB Vectors"
-            value={health ? `${(health.vector_count / 1000).toFixed(1)}K` : '—'}
+            label="Total Chunks"
+            value={totalChunkCount > 0 ? totalChunkCount.toLocaleString() : '—'}
+            delta={
+              adapterHealthCounts.staleCount > 0
+                ? { value: adapterHealthCounts.staleCount, direction: 'down', label: 'stale' }
+                : undefined
+            }
           />
           <StatTile
             label="Adapters"
@@ -418,36 +456,59 @@ export default function AdminPage(): ReactNode {
         </div>
 
         {/* ── System Configuration ── */}
-        {config && (
-          <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
-            <span
-              style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
-            >
-              System Configuration
-            </span>
-            <div
-              style={{
-                background: 'rgb(var(--shell-surface))',
-                borderRadius: 8,
-                border: `1px solid rgb(var(--shell-border))`,
-                overflow: 'hidden',
-              }}
-            >
-              <ConfigRow label="Embedding Model" value={config.embedding_model} />
-              <ConfigRow label="Reranker" value={config.enable_reranker ? config.reranker_model : 'Disabled'} />
-              <ConfigRow label="SQLite Path" value={config.sqlite_db_path} />
-              <ConfigRow label="ChromaDB Path" value={config.chromadb_path} />
-              <ConfigRow label="Webhook Secret" value="••••••" masked />
-              <ConfigRow label="Helper Service" value={config.helper_url_set ? 'Configured' : 'Not configured'} />
-              <ConfigRow label="Oura Adapter" value={config.helper_oura_enabled ? 'Enabled' : 'Disabled'} />
-              <ConfigRow label="Filesystem Adapter" value={config.helper_filesystem_enabled ? 'Enabled' : 'Disabled'} />
-              <ConfigRow
-                label="YouTube Adapters"
-                value={config.youtube_enabled ? 'Enabled' : 'Disabled'}
-              />
-            </div>
+        <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
+          <span
+            style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
+          >
+            System Configuration
+          </span>
+          <div
+            style={{
+              background: 'rgb(var(--shell-surface))',
+              borderRadius: 8,
+              border: `1px solid rgb(var(--shell-border))`,
+              overflow: 'hidden',
+            }}
+          >
+            {adminConfigQuery.isLoading ? (
+              <div className="flex flex-col gap-1 p-4">
+                {[1, 2, 3].map(i => (
+                  <div
+                    key={i}
+                    className="h-8 rounded animate-pulse"
+                    style={{ background: 'rgb(var(--shell-border))' }}
+                  />
+                ))}
+              </div>
+            ) : adminConfigQuery.isError ? (
+              <div
+                style={{
+                  padding: '24px',
+                  textAlign: 'center',
+                  color: 'rgb(var(--status-error))',
+                  fontSize: 13,
+                }}
+              >
+                Failed to load system configuration
+              </div>
+            ) : config ? (
+              <>
+                <ConfigRow label="Embedding Model" value={config.embedding_model} />
+                <ConfigRow label="Reranker" value={config.enable_reranker ? config.reranker_model : 'Disabled'} />
+                <ConfigRow label="SQLite Path" value={config.sqlite_db_path} />
+                <ConfigRow label="ChromaDB Path" value={config.chromadb_path} />
+                <ConfigRow label="Webhook Secret" value="••••••" masked />
+                <ConfigRow label="Helper Service" value={config.helper_url_set ? 'Configured' : 'Not configured'} />
+                <ConfigRow label="Oura Adapter" value={config.helper_oura_enabled ? 'Enabled' : 'Disabled'} />
+                <ConfigRow label="Filesystem Adapter" value={config.helper_filesystem_enabled ? 'Enabled' : 'Disabled'} />
+                <ConfigRow
+                  label="YouTube Adapters"
+                  value={config.youtube_enabled ? 'Enabled' : 'Disabled'}
+                />
+              </>
+            ) : null}
           </div>
-        )}
+        </div>
 
         {/* ── Sync Log ── */}
         <div className="flex flex-col gap-2" style={{ flex: '0 0 auto', paddingBottom: 16 }}>
