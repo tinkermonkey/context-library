@@ -386,7 +386,10 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
   const docMeta = useMemo(() => {
     const first = chunks[0];
     if (!first?.domain_metadata) return null;
-    try { return extractDocumentMetadata(first.domain_metadata); } catch { return null; }
+    try { return extractDocumentMetadata(first.domain_metadata); } catch (error) {
+      console.error('Failed to extract document metadata:', error);
+      return null;
+    }
   }, [chunks]);
 
   // Content preview: first 500 chars from first text chunk
