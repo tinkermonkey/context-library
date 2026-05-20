@@ -8,6 +8,7 @@ import {
   LockClosedIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
+import { SplitPane } from "@tinkermonkey/heimdall-ui";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
 import { getDomainColor, getDomainColorWithAlpha } from "../lib/designTokens";
@@ -655,122 +656,131 @@ export default function MessagesPage(): ReactNode {
     void navigate({ to: "/messages", search: { thread_id: sourceId } });
   }
 
-  return (
+  const threadListPanel = (
     <div
-      className="flex h-full overflow-hidden"
-      style={{ background: 'rgb(var(--canvas-bg))' }}
+      className="flex flex-col h-full overflow-hidden"
+      style={{
+        background: 'rgb(var(--canvas-surface))',
+      }}
     >
-      {/* ── Left panel: conversation list ── */}
+      {/* Search bar */}
       <div
-        className="w-72 shrink-0 flex flex-col overflow-hidden"
-        style={{
-          borderRight: `1px solid rgb(var(--canvas-border))`,
-          background: 'rgb(var(--canvas-surface))',
-        }}
+        className="px-3 py-2.5 shrink-0"
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
       >
-        {/* Search bar */}
         <div
-          className="px-3 py-2.5 shrink-0"
-          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+          style={{ background: 'rgb(var(--canvas-surface))' }}
         >
-          <div
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
-            style={{ background: 'rgb(var(--canvas-surface))' }}
-          >
-            <MagnifyingGlassIcon
-              className="w-3.5 h-3.5 shrink-0"
-              style={{ color: 'rgb(var(--canvas-fg-3))' }}
-            />
-            <input
-              type="text"
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Search conversations…"
-              className="flex-1 bg-transparent text-xs outline-none"
-              style={{ color: 'rgb(var(--canvas-fg-1))' }}
-            />
-          </div>
-        </div>
-
-        {/* Count row */}
-        <div className="px-4 py-1.5 shrink-0">
-          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            {filteredSources.length}{" "}
-            {filteredSources.length === 1 ? "conversation" : "conversations"}
-          </span>
-        </div>
-
-        {/* Scrollable conversation list */}
-        <div className="flex-1 overflow-y-auto">
-          {sourcesQuery.isLoading ? (
-            <div className="px-3 py-2 space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2.5 animate-pulse"
-                >
-                  <div
-                    className="rounded-full shrink-0"
-                    style={{
-                      width: 36,
-                      height: 36,
-                      background: 'rgb(var(--canvas-surface))',
-                    }}
-                  />
-                  <div className="flex-1 space-y-1.5">
-                    <div
-                      className="h-3 rounded"
-                      style={{ width: "60%", background: 'rgb(var(--canvas-surface))' }}
-                    />
-                    <div
-                      className="h-2.5 rounded"
-                      style={{ width: "80%", background: 'rgb(var(--canvas-surface))' }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : sourcesQuery.isError ? (
-            <div className="px-4 py-6 text-center">
-              <div className="flex justify-center mb-3">
-                <ExclamationTriangleIcon className="w-6 h-6" style={{ color: 'rgb(var(--status-error))' }} />
-              </div>
-              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                Failed to load conversations
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                There was a problem fetching your messages.
-              </p>
-            </div>
-          ) : filteredSources.length === 0 ? (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {filterText
-                  ? "No conversations match your search"
-                  : "No conversations found"}
-              </p>
-            </div>
-          ) : (
-            filteredSources.map((source) => (
-              <ConversationItem
-                key={source.source_id}
-                source={source}
-                isSelected={source.source_id === selectedThreadId}
-                onClick={() => selectThread(source.source_id)}
-              />
-            ))
-          )}
+          <MagnifyingGlassIcon
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: 'rgb(var(--canvas-fg-3))' }}
+          />
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search conversations…"
+            className="flex-1 bg-transparent text-xs outline-none"
+            style={{ color: 'rgb(var(--canvas-fg-1))' }}
+          />
         </div>
       </div>
 
-      {/* ── Right panel: thread view ── */}
-      <div className="flex-1 min-w-0 overflow-hidden">
-        {selectedSource ? (
-          <MessageThread source={selectedSource} />
+      {/* Count row */}
+      <div className="px-4 py-1.5 shrink-0">
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          {filteredSources.length}{" "}
+          {filteredSources.length === 1 ? "conversation" : "conversations"}
+        </span>
+      </div>
+
+      {/* Scrollable conversation list */}
+      <div className="flex-1 overflow-y-auto">
+        {sourcesQuery.isLoading ? (
+          <div className="px-3 py-2 space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2.5 animate-pulse"
+              >
+                <div
+                  className="rounded-full shrink-0"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    background: 'rgb(var(--canvas-surface))',
+                  }}
+                />
+                <div className="flex-1 space-y-1.5">
+                  <div
+                    className="h-3 rounded"
+                    style={{ width: "60%", background: 'rgb(var(--canvas-surface))' }}
+                  />
+                  <div
+                    className="h-2.5 rounded"
+                    style={{ width: "80%", background: 'rgb(var(--canvas-surface))' }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : sourcesQuery.isError ? (
+          <div className="px-4 py-6 text-center">
+            <div className="flex justify-center mb-3">
+              <ExclamationTriangleIcon className="w-6 h-6" style={{ color: 'rgb(var(--status-error))' }} />
+            </div>
+            <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+              Failed to load conversations
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              There was a problem fetching your messages.
+            </p>
+          </div>
+        ) : filteredSources.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              {filterText
+                ? "No conversations match your search"
+                : "No conversations found"}
+            </p>
+          </div>
         ) : (
-          <EmptyState />
+          filteredSources.map((source) => (
+            <ConversationItem
+              key={source.source_id}
+              source={source}
+              isSelected={source.source_id === selectedThreadId}
+              onClick={() => selectThread(source.source_id)}
+            />
+          ))
         )}
       </div>
+    </div>
+  );
+
+  const threadViewPanel = (
+    <div style={{ background: 'rgb(var(--canvas-bg))' }}>
+      {selectedSource ? (
+        <MessageThread source={selectedSource} />
+      ) : (
+        <EmptyState />
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className="h-full overflow-hidden"
+      style={{ background: 'rgb(var(--canvas-bg))' }}
+    >
+      <SplitPane
+        direction="horizontal"
+        initialSplitPercent={30}
+        minSize={250}
+        first={threadListPanel}
+        second={threadViewPanel}
+      />
     </div>
   );
 }

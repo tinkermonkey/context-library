@@ -8,7 +8,7 @@ import {
   TagIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { Chip } from '@tinkermonkey/heimdall-ui';
+import { Chip, SplitPane } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -669,23 +669,18 @@ export default function NotesPage(): ReactNode {
     });
   }
 
-  return (
-    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+  const vaultPanel = (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-surface))' }}>
+      <div className="px-3 py-3 shrink-0">
+        <span
+          className="text-xs font-semibold uppercase tracking-wider"
+          style={{ color: 'rgb(var(--canvas-fg-3))' }}
+        >
+          Vaults
+        </span>
+      </div>
 
-      {/* ── Left panel: vault / folder tree ── */}
-      <div
-        className="w-48 shrink-0 flex flex-col overflow-y-auto"
-        style={{ borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
-      >
-        <div className="px-3 py-3 shrink-0">
-          <span
-            className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: 'rgb(var(--canvas-fg-3))' }}
-          >
-            Vaults
-          </span>
-        </div>
-
+      <div className="flex-1 overflow-y-auto">
         {sourcesQuery.isLoading ? (
           <div className="px-3 py-2 space-y-2">
             {[60, 80, 50, 70, 90].map((w, i) => (
@@ -721,102 +716,121 @@ export default function NotesPage(): ReactNode {
           ))
         )}
       </div>
+    </div>
+  );
 
-      {/* ── Center panel: note list ── */}
-      <div
-        className="w-72 shrink-0 flex flex-col overflow-hidden"
-        style={{ borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
-      >
-        {/* Filter bar */}
-        <div className="px-3 py-2 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
-          <div
-            className="flex items-center gap-2 px-2 py-1.5 rounded"
-            style={{ background: 'rgb(var(--canvas-surface))' }}
+  const noteListPanel = (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-surface))' }}>
+      {/* Filter bar */}
+      <div className="px-3 py-2 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
+        <div
+          className="flex items-center gap-2 px-2 py-1.5 rounded"
+          style={{ background: 'rgb(var(--canvas-surface))' }}
+        >
+          <MagnifyingGlassIcon
+            className="w-3.5 h-3.5 shrink-0"
+            style={{ color: 'rgb(var(--canvas-fg-3))' }}
+          />
+          <input
+            type="text"
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+            placeholder="Filter notes…"
+            className="flex-1 bg-transparent text-xs outline-none"
+            style={{ color: 'rgb(var(--canvas-fg-1))' }}
+          />
+        </div>
+      </div>
+
+      {/* Count line + active adapter badge */}
+      <div className="px-4 py-1.5 shrink-0 flex items-center gap-2">
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          {filteredSources.length}{' '}
+          {filteredSources.length === 1 ? 'note' : 'notes'}
+        </span>
+        {activeAdapter && (
+          <button
+            onClick={() => selectAdapter(activeAdapter)}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-opacity hover:opacity-70"
+            style={{ background: getDomainColorWithAlpha('notes', '20'), color: noteColor }}
+            title="Clear adapter filter"
           >
-            <MagnifyingGlassIcon
-              className="w-3.5 h-3.5 shrink-0"
-              style={{ color: 'rgb(var(--canvas-fg-3))' }}
-            />
-            <input
-              type="text"
-              value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-              placeholder="Filter notes…"
-              className="flex-1 bg-transparent text-xs outline-none"
-              style={{ color: 'rgb(var(--canvas-fg-1))' }}
-            />
+            {adapterLabel(activeAdapter)}
+            <span className="text-xs leading-none">×</span>
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable note list */}
+      <div className="flex-1 overflow-y-auto">
+        {sourcesQuery.isLoading ? (
+          <div className="px-4 py-2 space-y-4">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="space-y-1.5 animate-pulse">
+                <div
+                  className="h-3 rounded"
+                  style={{ width: '70%', background: 'rgb(var(--canvas-surface))' }}
+                />
+                <div
+                  className="h-2.5 rounded"
+                  style={{ width: '50%', background: 'rgb(var(--canvas-surface))' }}
+                />
+              </div>
+            ))}
           </div>
-        </div>
-
-        {/* Count line + active adapter badge */}
-        <div className="px-4 py-1.5 shrink-0 flex items-center gap-2">
-          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            {filteredSources.length}{' '}
-            {filteredSources.length === 1 ? 'note' : 'notes'}
-          </span>
-          {activeAdapter && (
-            <button
-              onClick={() => selectAdapter(activeAdapter)}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-opacity hover:opacity-70"
-              style={{ background: getDomainColorWithAlpha('notes', '20'), color: noteColor }}
-              title="Clear adapter filter"
-            >
-              {adapterLabel(activeAdapter)}
-              <span className="text-xs leading-none">×</span>
-            </button>
-          )}
-        </div>
-
-        {/* Scrollable note list */}
-        <div className="flex-1 overflow-y-auto">
-          {sourcesQuery.isLoading ? (
-            <div className="px-4 py-2 space-y-4">
-              {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} className="space-y-1.5 animate-pulse">
-                  <div
-                    className="h-3 rounded"
-                    style={{ width: '70%', background: 'rgb(var(--canvas-surface))' }}
-                  />
-                  <div
-                    className="h-2.5 rounded"
-                    style={{ width: '50%', background: 'rgb(var(--canvas-surface))' }}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : sourcesQuery.isError ? (
-            <div className="px-4 py-6 text-center">
-              <ExclamationTriangleIcon className="w-6 h-6 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
-              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                Failed to load notes
-              </p>
-              <p className="text-xs mt-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                There was a problem fetching your notes.
-              </p>
-            </div>
-          ) : filteredSources.length === 0 ? (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {filterText ? 'No notes match your filter' : 'No notes available'}
-              </p>
-            </div>
-          ) : (
-            filteredSources.map(source => (
-              <NoteCard
-                key={source.source_id}
-                source={source}
-                isSelected={source.source_id === selectedSourceId}
-                onClick={() => selectSource(source.source_id)}
-              />
-            ))
-          )}
-        </div>
+        ) : sourcesQuery.isError ? (
+          <div className="px-4 py-6 text-center">
+            <ExclamationTriangleIcon className="w-6 h-6 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
+            <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+              Failed to load notes
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              There was a problem fetching your notes.
+            </p>
+          </div>
+        ) : filteredSources.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              {filterText ? 'No notes match your filter' : 'No notes available'}
+            </p>
+          </div>
+        ) : (
+          filteredSources.map(source => (
+            <NoteCard
+              key={source.source_id}
+              source={source}
+              isSelected={source.source_id === selectedSourceId}
+              onClick={() => selectSource(source.source_id)}
+            />
+          ))
+        )}
       </div>
+    </div>
+  );
 
-      {/* ── Right panel: note detail ── */}
-      <div className="flex-1 min-w-0 overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
-        {selectedSource ? <NoteDetail source={selectedSource} /> : <EmptyDetail />}
-      </div>
+  const noteDetailPanel = (
+    <div style={{ background: 'rgb(var(--canvas-bg))' }}>
+      {selectedSource ? <NoteDetail source={selectedSource} /> : <EmptyDetail />}
+    </div>
+  );
+
+  return (
+    <div className="h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <SplitPane
+        direction="horizontal"
+        initialSplitPercent={20}
+        minSize={150}
+        first={vaultPanel}
+        second={
+          <SplitPane
+            direction="horizontal"
+            initialSplitPercent={35}
+            minSize={250}
+            first={noteListPanel}
+            second={noteDetailPanel}
+          />
+        }
+      />
     </div>
   );
 }

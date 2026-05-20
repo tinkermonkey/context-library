@@ -1,0 +1,83 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+Phase 5: Resizable split-panel layout upgrades
+
+**Description**:
+Replace fixed CSS grid layouts in the notes, messages, and file browser views with Heimdall `SplitPane` components so users can resize panels to suit their content.
+
+## Requirements
+- Replace the three-column fixed CSS grid in `notes.tsx` with two nested `SplitPane` components: outer splits vault tree (~20%) from the rest (~80%); inner splits note list (~35%) from note content (~65%) (FR-10.1, ADR 3)
+- Replace the two-column fixed CSS grid in `messages.tsx` with a single `SplitPane` splitting thread list from conversation (FR-10.2)
+- Replace the fixed CSS grid split in the file browser view with a `SplitPane` splitting the file tree from the content area (FR-10.3)
+- Set `direction="horizontal"` and apply `minSize` constraints on all `SplitPane` instances to prevent panels collapsing to zero
+- All content within panes must remain fully visible and usable after resizing
+
+## Design Guidance
+Implements the Phase 5 Layout Upgrades steps from the architecture design. ADR 3 defines the nested SplitPane approach for the three-panel notes layout. The architecture document specifies initial split percentages and the `first`/`second` ReactNode props used for nesting.
+
+## Acceptance Criteria
+- [ ] Notes view displays vault tree, note list, and note content in three resizable panels
+- [ ] Messages view displays thread list and conversation in two resizable panels
+- [ ] File browser displays file tree and content area in two resizable panels
+- [ ] Dragging any split handle resizes both panes proportionally
+- [ ] No panel collapses to zero width at its minimum size constraint
+- [ ] All content within resized panes remains fully visible and usable
+
+## Dependencies
+Phase 1: Dependency update and breaking change resolution
+
+## Parent Issue
+Part of #479
+
+
+### Previous Work
+
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.
