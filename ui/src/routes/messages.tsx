@@ -760,7 +760,7 @@ export default function MessagesPage(): ReactNode {
   );
 
   const threadViewPanel = (
-    <div style={{ background: 'rgb(var(--canvas-bg))' }}>
+    <div className="h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {selectedSource ? (
         <MessageThread source={selectedSource} />
       ) : (

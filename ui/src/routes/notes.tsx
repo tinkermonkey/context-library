@@ -809,7 +809,7 @@ export default function NotesPage(): ReactNode {
   );
 
   const noteDetailPanel = (
-    <div style={{ background: 'rgb(var(--canvas-bg))' }}>
+    <div className="h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
       {selectedSource ? <NoteDetail source={selectedSource} /> : <EmptyDetail />}
     </div>
   );
