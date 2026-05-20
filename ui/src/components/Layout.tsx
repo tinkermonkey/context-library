@@ -49,7 +49,7 @@ const PRIMARY_NAV = [
 ] as const;
 
 const ADMIN_NAV = {
-  id: '/admin' as const,
+  id: '/admin',
   label: 'Admin',
   iconKey: 'admin',
 } as const;
@@ -93,7 +93,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { data: adaptersData } = useAdminAdapters();
   const { data: healthData } = useHealth();
 
-  const isActive = (itemId: string): itemId is ValidRoute => {
+  const isActive = (itemId: string): boolean => {
     if (itemId === '/') return path === '/';
     return path === itemId || path.startsWith(itemId + '/');
   };
@@ -107,9 +107,7 @@ export function Layout({ children }: { children: ReactNode }) {
   })();
 
   const handleSelectItem = (itemId: string) => {
-    if (isActive(itemId)) {
-      router.navigate({ to: itemId });
-    }
+    router.navigate({ to: itemId as ValidRoute });
   };
 
   const sections: SidebarSection[] = [
