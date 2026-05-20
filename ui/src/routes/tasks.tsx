@@ -3,17 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  CheckCircleIcon,
-  XMarkIcon,
-  CalendarIcon,
   TagIcon,
   UserGroupIcon,
   ClockIcon,
   FlagIcon,
   AdjustmentsHorizontalIcon,
-  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
@@ -326,7 +323,7 @@ function DetailPanel({
           style={{ color: 'rgb(var(--canvas-fg-3))' }}
           aria-label="Close detail panel"
         >
-          <XMarkIcon className="w-4 h-4" />
+          <Icon name="x" size={16} />
         </button>
       </div>
 
@@ -337,7 +334,9 @@ function DetailPanel({
       >
         {/* Due date */}
         <div className="flex items-center gap-2">
-          <CalendarIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="calendar" size={14} />
+          </span>
           <span style={{ fontSize: 12, color: meta.due_date ? dueColor : 'rgb(var(--canvas-fg-3))' }}>
             {meta.due_date ? formatFullDate(meta.due_date) : 'No due date'}
           </span>
@@ -406,7 +405,9 @@ function EmptyState({ filtered }: { filtered: boolean }): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: getDomainColorWithAlpha('tasks', '20') }}
       >
-        <CheckCircleIcon className="w-8 h-8" style={{ color: taskColor }} />
+        <span style={{ color: taskColor }}>
+          <Icon name="check" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -431,7 +432,9 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: `rgb(var(--status-error) / 0.13)` }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>

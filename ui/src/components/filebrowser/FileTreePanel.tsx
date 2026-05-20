@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Icon } from '@tinkermonkey/heimdall-ui';
-import { ChevronRightIcon, ChevronDownIcon, FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../../hooks/useSources';
 import { buildFileTree, type FileTreeNode } from '../../utils/fileTree';
 import type { FileBrowserPageSearch } from '../../router';
@@ -162,9 +162,9 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
           {isFolder && (
             <span className="flex-shrink-0">
               {isExpanded ? (
-                <ChevronDownIcon className="w-4 h-4 text-gray-600" />
+                <Icon name="chevronDown" size={16} className="text-gray-600" />
               ) : (
-                <ChevronRightIcon className="w-4 h-4 text-gray-600" />
+                <Icon name="chevronRight" size={16} className="text-gray-600" />
               )}
             </span>
           )}

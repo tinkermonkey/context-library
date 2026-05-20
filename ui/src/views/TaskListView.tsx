@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
+import { StatusBadge } from '@tinkermonkey/heimdall-ui';
 import type { ChunkResponse } from '../types/api';
 import type { DomainViewProps } from './registryConfig';
 import { tasksViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
-import { StatusBadge } from '../components/shared/StatusBadge';
 
 /**
  * Task domain metadata structure.
@@ -21,6 +21,25 @@ interface TaskMetadata {
   collaborators: string[]; // serialized from tuple
   date_first_observed: string; // ISO 8601
   source_type: string;
+}
+
+/**
+ * Map task status to Heimdall StatusBadge color.
+ */
+function statusToColor(status: string): 'emerald' | 'amber' | 'rose' | 'cyan' | 'violet' | 'neutral' {
+  switch (status.toLowerCase()) {
+    case 'completed':
+      return 'emerald';
+    case 'in-progress':
+    case 'in_progress':
+      return 'cyan';
+    case 'open':
+      return 'amber';
+    case 'cancelled':
+      return 'rose';
+    default:
+      return 'neutral';
+  }
 }
 
 /**
@@ -166,7 +185,7 @@ function TaskCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
       {/* Title and Status Badge */}
       <div className="flex items-start justify-between mb-3 gap-2">
         <h3 className="text-base font-semibold text-gray-900 flex-1">{metadata.title}</h3>
-        <StatusBadge status={metadata.status} />
+        <StatusBadge color={statusToColor(metadata.status)}>{metadata.status}</StatusBadge>
       </div>
 
       {/* Task Details Grid */}

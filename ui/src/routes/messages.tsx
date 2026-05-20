@@ -3,12 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, useRef, useEffect, useReducer } from "react";
 import type { ReactNode } from "react";
 import {
-  MagnifyingGlassIcon,
   ChatBubbleLeftIcon,
-  LockClosedIcon,
-  ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
-import { SplitPane } from "@tinkermonkey/heimdall-ui";
+import { SplitPane, Icon } from "@tinkermonkey/heimdall-ui";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
 import { getDomainColor, getDomainColorWithAlpha } from "../lib/designTokens";
@@ -225,7 +222,9 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -591,10 +590,13 @@ function MessageThread({ source }: { source: SourceSummary }): ReactNode {
           background: 'rgb(var(--canvas-surface))',
         }}
       >
-        <LockClosedIcon
-          className="w-3.5 h-3.5 shrink-0"
-          style={{ color: 'rgb(var(--canvas-fg-2))' }}
-        />
+        <span style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+          <Icon
+            name="lock"
+            size={14}
+            className="shrink-0"
+          />
+        </span>
         <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           Archive — read only. This is historical data, not a live messenger.
         </span>
@@ -672,10 +674,13 @@ export default function MessagesPage(): ReactNode {
           className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
           style={{ background: 'rgb(var(--canvas-surface))' }}
         >
-          <MagnifyingGlassIcon
-            className="w-3.5 h-3.5 shrink-0"
-            style={{ color: 'rgb(var(--canvas-fg-3))' }}
-          />
+          <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon
+              name="search"
+              size={14}
+              className="shrink-0"
+            />
+          </span>
           <input
             type="text"
             value={filterText}
@@ -727,8 +732,8 @@ export default function MessagesPage(): ReactNode {
           </div>
         ) : sourcesQuery.isError ? (
           <div className="px-4 py-6 text-center">
-            <div className="flex justify-center mb-3">
-              <ExclamationTriangleIcon className="w-6 h-6" style={{ color: 'rgb(var(--status-error))' }} />
+            <div className="flex justify-center mb-3" style={{ color: 'rgb(var(--status-error))' }}>
+              <Icon name="alert" size={24} />
             </div>
             <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               Failed to load conversations

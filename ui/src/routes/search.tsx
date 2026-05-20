@@ -1,13 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import {
-  MagnifyingGlassIcon,
-  XMarkIcon,
-  ArrowRightIcon,
   ArrowTopRightOnSquareIcon,
-  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
-import { Chip, Drawer } from '@tinkermonkey/heimdall-ui';
+import { Chip, Drawer, Icon } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
 import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
@@ -204,10 +200,12 @@ function ResultCard({
         <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {result.chunk_type}
         </span>
-        <ChevronRightIcon
-          className="w-3 h-3 ml-auto shrink-0"
-          style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}
-        />
+        <span className="ml-auto shrink-0" style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}>
+          <Icon
+            name="chevronRight"
+            size={12}
+          />
+        </span>
       </div>
     </button>
   );
@@ -353,7 +351,9 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 56, height: 56, background: `rgb(var(--accent-primary) / 0.1)` }}
       >
-        <MagnifyingGlassIcon className="w-7 h-7" style={{ color: 'rgb(var(--accent-primary))' }} />
+        <span style={{ color: 'rgb(var(--accent-primary))' }}>
+          <Icon name="search" size={28} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
@@ -380,7 +380,9 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
               (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
             }}
           >
-            <ArrowRightIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="arrowRight" size={14} />
+            </span>
             <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               {q}
             </span>
@@ -590,7 +592,9 @@ export default function SearchPage() {
         }}
         onClick={() => inputRef.current?.focus()}
       >
-        <MagnifyingGlassIcon className="w-5 h-5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          <Icon name="search" size={20} />
+        </span>
         <input
           ref={inputRef}
           type="text"
@@ -615,8 +619,8 @@ export default function SearchPage() {
           />
         )}
         {inputValue && !isLoading && (
-          <button onClick={handleClear} aria-label="Clear search">
-            <XMarkIcon className="w-4 h-4" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <button onClick={handleClear} aria-label="Clear search" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="x" size={16} />
           </button>
         )}
         <kbd

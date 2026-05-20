@@ -2,7 +2,6 @@ import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   DocumentTextIcon,
-  MagnifyingGlassIcon,
   ChatBubbleLeftIcon,
   CalendarIcon,
   CheckCircleIcon,
@@ -11,11 +10,10 @@ import {
   UsersIcon,
   MapPinIcon,
   MusicalNoteIcon,
-  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 import { useMemo } from 'react';
 import type { ComponentType, SVGProps } from 'react';
-import { StatTile, StatGrid, Panel, Chip } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Panel, Chip, Icon } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
@@ -137,7 +135,9 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
     <Panel title="Recent Activity">
       {isRefetching && (
         <div className="absolute top-4 right-4">
-          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="reload" size={14} className="animate-spin" />
+          </span>
         </div>
       )}
 
@@ -287,7 +287,7 @@ function SearchBar({ onSearch }: { onSearch: () => void }) {
         (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
       }}
     >
-      <MagnifyingGlassIcon className="w-4 h-4 shrink-0" />
+      <Icon name="search" size={16} className="shrink-0" />
       <span className="text-sm">Search across all your knowledge…</span>
       <kbd
         className="ml-auto text-[10px] rounded px-1.5 py-0.5"

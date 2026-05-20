@@ -3,12 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  ChevronDownIcon,
-  MagnifyingGlassIcon,
   TagIcon,
-  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { Chip, SplitPane } from '@tinkermonkey/heimdall-ui';
+import { Chip, SplitPane, Icon } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -513,10 +510,13 @@ function AdapterGroup({
         style={{ background: isAdapterActive ? getDomainColorWithAlpha('notes', '10') : 'transparent' }}
         title={isAdapterActive ? 'Click to clear filter' : `Filter by ${adapterLabel(adapterId)}`}
       >
-        <ChevronDownIcon
-          className="w-3 h-3 shrink-0"
-          style={{ color: isAdapterActive ? noteColor : 'rgb(var(--canvas-fg-3))' }}
-        />
+        <span style={{ color: isAdapterActive ? noteColor : 'rgb(var(--canvas-fg-3))' }}>
+          <Icon
+            name="chevronDown"
+            size={12}
+            className="shrink-0"
+          />
+        </span>
         <span
           className="text-xs font-semibold uppercase tracking-wide"
           style={{ color: isAdapterActive ? noteColor : 'rgb(var(--canvas-fg-3))' }}
@@ -559,7 +559,9 @@ function NoteErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -693,7 +695,9 @@ export default function NotesPage(): ReactNode {
           </div>
         ) : sourcesQuery.isError ? (
           <div className="px-3 py-3 text-center">
-            <ExclamationTriangleIcon className="w-5 h-5 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
+            <div className="flex justify-center mb-2" style={{ color: 'rgb(var(--status-error))' }}>
+              <Icon name="alert" size={20} />
+            </div>
             <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               Failed to load notes
             </p>
@@ -727,10 +731,13 @@ export default function NotesPage(): ReactNode {
           className="flex items-center gap-2 px-2 py-1.5 rounded"
           style={{ background: 'rgb(var(--canvas-surface))' }}
         >
-          <MagnifyingGlassIcon
-            className="w-3.5 h-3.5 shrink-0"
-            style={{ color: 'rgb(var(--canvas-fg-3))' }}
-          />
+          <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon
+              name="search"
+              size={14}
+              className="shrink-0"
+            />
+          </span>
           <input
             type="text"
             value={filterText}
@@ -780,7 +787,9 @@ export default function NotesPage(): ReactNode {
           </div>
         ) : sourcesQuery.isError ? (
           <div className="px-4 py-6 text-center">
-            <ExclamationTriangleIcon className="w-6 h-6 mx-auto mb-2" style={{ color: 'rgb(var(--status-error))' }} />
+            <div className="flex justify-center mb-2" style={{ color: 'rgb(var(--status-error))' }}>
+              <Icon name="alert" size={24} />
+            </div>
             <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               Failed to load notes
             </p>

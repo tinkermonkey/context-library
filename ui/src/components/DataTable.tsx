@@ -18,7 +18,6 @@ import {
   type PaginationState,
 } from '@tanstack/react-table';
 import { TextInput, Button, Icon, Select } from '@tinkermonkey/heimdall-ui';
-import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
 
 /**
@@ -371,9 +370,9 @@ export function DataTable<TData>({
                             <span className="text-gray-400">
                               {sortColumn === header.column.id ? (
                                 sortDir === 'asc' ? (
-                                  <ChevronUpIcon className="h-4 w-4" />
+                                  <Icon name="chevronUp" size={16} />
                                 ) : (
-                                  <ChevronDownIcon className="h-4 w-4" />
+                                  <Icon name="chevronDown" size={16} />
                                 )
                               ) : (
                                 <span className="text-xs">⇅</span>
@@ -458,7 +457,7 @@ export function DataTable<TData>({
             variant="secondary"
             className="flex items-center gap-1"
           >
-            <ChevronLeftIcon className="h-4 w-4" />
+            <Icon name="chevronLeft" size={16} />
             Previous
           </Button>
           <Button
@@ -469,7 +468,7 @@ export function DataTable<TData>({
             className="flex items-center gap-1"
           >
             Next
-            <ChevronRightIcon className="h-4 w-4" />
+            <Icon name="chevronRight" size={16} />
           </Button>
         </div>
       </div>

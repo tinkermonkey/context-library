@@ -3,12 +3,11 @@ import type { ReactNode } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
-  HeartIcon,
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   MinusIcon,
-  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -502,7 +501,9 @@ function EmptyState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: getDomainColorWithAlpha('health', '20') }}
       >
-        <HeartIcon className="w-8 h-8" style={{ color: healthColor }} />
+        <span style={{ color: healthColor }}>
+          <Icon name="heart" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -525,7 +526,9 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
