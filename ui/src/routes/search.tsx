@@ -7,7 +7,9 @@ import {
   ArrowTopRightOnSquareIcon,
   ChevronRightIcon,
 } from '@heroicons/react/24/outline';
+import { Chip, Drawer } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
+import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
@@ -49,7 +51,7 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // ── Domain chip ───────────────────────────────────────────────────
 
-function DomainChip({
+function DomainChipButton({
   domain,
   active,
   onClick,
@@ -58,26 +60,35 @@ function DomainChip({
   active: boolean;
   onClick: () => void;
 }) {
+  const label = domain === 'all' ? 'All Domains' : capitalize(domain);
   const color = domain === 'all' ? 'rgb(var(--accent-primary))' : getDomainColor(domain);
-  const activeBackground = domain === 'all'
+  const bgColor = domain === 'all'
     ? 'rgb(var(--accent-primary) / 0.15)'
     : getDomainColorWithAlpha(domain, '26');
 
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-1.5 px-3 h-7 rounded-full text-xs font-medium transition-all shrink-0"
-      style={
-        active
-          ? { background: activeBackground, color, border: `1px solid ${color}` }
-          : {
-              background: 'transparent',
-              color: 'rgb(var(--canvas-fg-2))',
-              border: `1px solid rgb(var(--canvas-border))`,
-            }
-      }
+      className="shrink-0 transition-all p-0 border-0 bg-transparent"
     >
-      {domain === 'all' ? 'All Domains' : capitalize(domain)}
+      <Chip
+        className="text-xs font-medium"
+        style={
+          active
+            ? { background: bgColor, color, border: `1px solid ${color}`, display: 'inline-block', padding: '2px 12px', height: '28px', lineHeight: '24px' }
+            : {
+                background: 'transparent',
+                color: 'rgb(var(--canvas-fg-2))',
+                border: `1px solid rgb(var(--canvas-border))`,
+                display: 'inline-block',
+                padding: '2px 12px',
+                height: '28px',
+                lineHeight: '24px',
+              }
+        }
+      >
+        {label}
+      </Chip>
     </button>
   );
 }
@@ -233,45 +244,34 @@ function SkeletonCard() {
   );
 }
 
-// ── Detail panel ──────────────────────────────────────────────────
+// ── Detail panel drawer ────────────────────────────────────────────
 
-function DetailPanel({
+function DetailDrawer({
   result,
+  isOpen,
   onClose,
   onViewInBrowser,
 }: {
-  result: QueryResultItem;
+  result: QueryResultItem | null;
+  isOpen: boolean;
   onClose: () => void;
   onViewInBrowser: () => void;
 }) {
+  if (!result) return null;
+
   const domainColor = getDomainColor(result.domain);
   const fullContent = result.context_header
     ? `${result.context_header}\n\n${result.chunk_text}`
     : result.chunk_text;
 
   return (
-    <div
-      className="rounded-xl flex flex-col min-h-0 overflow-hidden"
-      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      position="right"
+      title="Result Detail"
+      className="flex flex-col"
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 shrink-0 border-b"
-        style={{ borderColor: 'rgb(var(--canvas-border))' }}
-      >
-        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-          Result Detail
-        </span>
-        <button
-          onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded"
-          style={{ color: 'rgb(var(--canvas-fg-3))' }}
-          aria-label="Close detail panel"
-        >
-          <XMarkIcon className="w-4 h-4" />
-        </button>
-      </div>
-
       <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
         {/* Metadata grid */}
         <div className="flex flex-col gap-2.5">
@@ -333,23 +333,20 @@ function DetailPanel({
             {fullContent}
           </p>
         </div>
-      </div>
 
-      {/* Footer action */}
-      <div
-        className="px-4 py-3 shrink-0 border-t"
-        style={{ borderColor: 'rgb(var(--canvas-border))' }}
-      >
-        <button
-          onClick={onViewInBrowser}
-          className="flex items-center gap-1.5 text-xs font-medium transition-colors"
-          style={{ color: domainColor }}
-        >
-          <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-          View in Browser
-        </button>
+        {/* Footer action */}
+        <div className="pt-4 border-t" style={{ borderColor: 'rgb(var(--canvas-border))' }}>
+          <button
+            onClick={onViewInBrowser}
+            className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+            style={{ color: domainColor }}
+          >
+            <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+            View in Browser
+          </button>
+        </div>
       </div>
-    </div>
+    </Drawer>
   );
 }
 
@@ -405,6 +402,7 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
 export default function SearchPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
+  const { showToast } = useToast();
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -493,6 +491,17 @@ export default function SearchPage() {
 
   const { data, isLoading, error } = useSearch(search);
   const results = data?.results ?? [];
+
+  // Show error toast when search fails
+  useEffect(() => {
+    if (error) {
+      showToast({
+        title: 'Search Error',
+        subtitle: error instanceof Error ? error.message : 'Failed to search',
+        variant: 'error',
+      });
+    }
+  }, [error, showToast]);
 
   // Keyboard navigation on the results list
   const handleKeyDown = useCallback(
@@ -629,13 +638,13 @@ export default function SearchPage() {
         <span className="text-xs shrink-0 mr-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           Filter:
         </span>
-        <DomainChip
+        <DomainChipButton
           domain="all"
           active={!selectedDomain}
           onClick={() => handleDomainSelect('')}
         />
         {SEARCH_DOMAINS.map((d) => (
-          <DomainChip
+          <DomainChipButton
             key={d}
             domain={d}
             active={selectedDomain === d}
@@ -648,8 +657,7 @@ export default function SearchPage() {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Results list */}
         <div
-          className="flex flex-col gap-2 overflow-y-auto min-h-0"
-          style={{ width: selectedResult ? '58%' : '100%', transition: 'width 200ms ease' }}
+          className="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1"
         >
           {/* Error */}
           {error && (
@@ -723,16 +731,13 @@ export default function SearchPage() {
           )}
         </div>
 
-        {/* Detail panel */}
-        {selectedResult && (
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <DetailPanel
-              result={selectedResult}
-              onClose={() => setSelectedResult(null)}
-              onViewInBrowser={() => handleViewInBrowser(selectedResult)}
-            />
-          </div>
-        )}
+      {/* Detail drawer */}
+      <DetailDrawer
+        result={selectedResult}
+        isOpen={!!selectedResult}
+        onClose={() => setSelectedResult(null)}
+        onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
+      />
       </div>
     </div>
   );

@@ -15,7 +15,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useMemo } from 'react';
 import type { ComponentType, SVGProps } from 'react';
-import { StatTile, StatGrid, Panel } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Panel, Chip } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
@@ -181,9 +181,12 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
                       {s.adapter_id}
                     </span>
                     <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>→</span>
-                    <span className="text-xs font-medium" style={{ color }}>
+                    <Chip
+                      className="text-xs font-medium"
+                      style={{ color, background: getDomainColorWithAlpha(s.domain, '20'), border: 'none' }}
+                    >
                       {capitalize(s.domain)}
-                    </span>
+                    </Chip>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>

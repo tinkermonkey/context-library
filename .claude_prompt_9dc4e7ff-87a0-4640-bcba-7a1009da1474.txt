@@ -1,0 +1,91 @@
+You are a Senior Software Engineer.
+
+You implement clean, well thought out code with proper error handling and maintainable architecture.
+
+### Work Item
+
+These are the requirements to implement.
+
+**Title**:
+Phase 4: Search and browser view component replacements
+
+**Description**:
+Replace custom component patterns in the search and browser views: domain filter chips, the search result detail panel, view-mode tab controls, and raw select elements inside the data table.
+
+## Requirements
+- Replace the custom `DomainChip` toggle buttons in `search.tsx` (lines 52–83) with Heimdall `Chip` using `className` overrides referencing existing `--domain-*` CSS tokens for per-domain color identity (FR-3.1, ADR 5)
+- Replace inline domain tag rendering in `index.tsx` (dashboard) and `notes.tsx` with Heimdall `Chip` (FR-3.2)
+- Replace the `DetailPanel` component in `search.tsx` (lines 236–354) with Heimdall `Drawer` at `position="right"`, preserving all chunk content: title, source, domain, content text, and metadata (FR-6.1)
+- Ensure `Drawer` closes on Escape key and backdrop click (FR-6.1 acceptance criteria)
+- Replace view-mode toggle buttons in `search.tsx` with Heimdall `TabBar` (FR-5.2)
+- Replace the Sources/Chunks/Versions button group in `browser.tsx` with Heimdall `TabBar` using `tabs` prop with `id`, `label`, and optional `count` (FR-5.1)
+- Replace raw `<select>` elements for facet filters (DataTable.tsx lines 327–340) and page-size selection (lines 436–446) with Heimdall `Select` (FR-4.1, FR-4.2)
+- Wire search error states (query failure, empty result from network error) to `useToast()` (FR-8.3)
+
+## Design Guidance
+Implements the Phase 4 Search + Browser View steps from the architecture design. ADR 5 defines the domain chip color strategy (Chip + className overrides). The architecture document notes the `Drawer` content migration from `search.tsx:236-354` and the `TabBar` tab array shape for `browser.tsx`.
+
+## Acceptance Criteria
+- [ ] Domain filter chips in search use Heimdall `Chip` with per-domain color distinction preserved
+- [ ] Dashboard and notes domain tags use Heimdall `Chip`
+- [ ] Active chip state is visually distinct and filter applies correctly
+- [ ] Clicking a search result opens a Heimdall `Drawer` from the right with all chunk content present
+- [ ] `Drawer` closes on Escape and on backdrop click
+- [ ] Browser view Sources/Chunks/Versions controls render as Heimdall `TabBar` with active state
+- [ ] Search view mode toggles render as Heimdall `TabBar` with active state
+- [ ] Clicking a `TabBar` tab activates the corresponding view or mode
+- [ ] `DataTable.tsx` facet filter dropdowns use Heimdall `Select` with functionally equivalent behavior
+- [ ] `DataTable.tsx` page-size selector uses Heimdall `Select`
+- [ ] Search query or network errors surface as `Toast` notifications
+
+## Dependencies
+Phase 2: App-shell infrastructure — Toast, CommandPalette, and Statusbar
+
+## Parent Issue
+Part of #479
+
+
+### Previous Work
+
+
+
+### Guidelines
+
+
+Implement the specified code changes to meet the requirements specified.
+
+### Project-Specific Expert Agents
+
+Check `/workspace/CLAUDE.md` for a "Specialized Sub-Agents" section. If any listed agent matches your task domain (e.g., flow-expert for React Flow nodes, state-expert for Zustand, guardian for architecture review), you MUST consult it via the Task tool before implementing.
+
+Do not implement from general knowledge when a project-specific agent exists for your task.
+
+### For UI/Frontend Changes
+
+- Use Playwright MCP to test your changes in the browser before completing
+- Run accessibility checks (Playwright has built-in a11y testing)
+- Verify responsive behaviour on different viewport sizes
+- Test form interactions and validation
+
+### Important Implementation Guidelines
+
+- Don't over-engineer, implement only what is necessary to meet the requirements
+- Focus on re-use of existing code, libraries and patterns
+- Don't name files "phase 1", "phase 2", etc, use descriptive names only for files, variable, and comments
+- Don't create reports or documentation, your output should be code only
+
+### Output Instructions
+
+**IMPORTANT**:
+- Provide a short summary of your work as the final output
+- Use proper markdown formatting (headers, lists, code blocks)
+- You may create, edit, or modify files as needed to complete your task
+- Your changes will be auto-committed to git
+
+## Reference Repositories
+
+The following repositories are available to you **read-only** inside this container:
+
+- **/reference/context-helpers** — The context-helpers project: macOS-native data collectors that feed context-library via its ingestion API. Read this to understand the API contract (endpoints, request/ response shapes, authentication), the collector data models, and how collected data is structured before it reaches context-library. Available read-only at /reference/context-helpers inside this container.
+
+These repos are mounted at the listed paths. You can read any file in them freely. Do not attempt to write to them.
