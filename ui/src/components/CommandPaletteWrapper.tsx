@@ -3,7 +3,7 @@ import { useRouter } from '@tanstack/react-router';
 import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
-import { useToast } from './ToastProvider';
+import { useToast } from '../hooks/useToast';
 
 interface NavItem {
   id: string;
@@ -43,7 +43,6 @@ export function CommandPaletteWrapper({
       onSelect: () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         router.navigate({ to: item.id as any });
-        setIsOpen(false);
       },
     })),
     {
@@ -52,7 +51,6 @@ export function CommandPaletteWrapper({
       onSelect: () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         router.navigate({ to: adminNav.id as any });
-        setIsOpen(false);
       },
     },
   ];
@@ -70,7 +68,6 @@ export function CommandPaletteWrapper({
           variant: 'success',
           duration: 3000,
         });
-        setIsOpen(false);
       } catch (error) {
         showToast({
           title: `Failed to sync ${adapter.adapter_type}`,
