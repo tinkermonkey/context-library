@@ -8,6 +8,7 @@ import {
   TagIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
+import { Chip } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -101,13 +102,13 @@ function InlineText({ text }: { text: string }): ReactNode {
         }
         if (part.type === 'wikilink') {
           return (
-            <span
+            <Chip
               key={i}
-              className="rounded px-0.5 text-xs"
+              className="text-xs"
               style={{ color: noteColor, background: getDomainColorWithAlpha('notes', '20') }}
             >
               {part.content}
-            </span>
+            </Chip>
           );
         }
         return <span key={i}>{part.content}</span>;
@@ -343,12 +344,12 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
           {noteTitle(source)}
         </h1>
         <div className="flex items-center gap-2 flex-wrap">
-          <span
-            className="px-1.5 py-0.5 rounded text-xs font-medium"
+          <Chip
+            className="text-xs font-medium"
             style={{ background: getDomainColorWithAlpha('notes', '20'), color: noteColor }}
           >
             {adapterLabel(source.adapter_id)}
-          </span>
+          </Chip>
           <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {source.chunk_count} {source.chunk_count === 1 ? 'chunk' : 'chunks'}
           </span>
@@ -378,14 +379,14 @@ function NoteDetail({ source }: { source: SourceSummary }): ReactNode {
           style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
         >
           {noteMeta.tags?.map(tag => (
-            <span
+            <Chip
               key={tag}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs"
+              className="flex items-center gap-1 text-xs"
               style={{ background: getDomainColorWithAlpha('notes', '18'), color: noteColor }}
             >
               <TagIcon className="w-3 h-3 shrink-0" />
               {tag}
-            </span>
+            </Chip>
           ))}
           {noteMeta.aliases?.map(alias => (
             <span
@@ -472,12 +473,12 @@ function NoteCard({
         </span>
       </div>
       <div className="flex items-center gap-2 min-w-0">
-        <span
-          className="text-xs px-1.5 py-0.5 rounded shrink-0"
+        <Chip
+          className="text-xs shrink-0"
           style={{ background: getDomainColorWithAlpha('notes', '18'), color: noteColor }}
         >
           {adapterLabel(source.adapter_id)}
-        </span>
+        </Chip>
         <span className="text-xs truncate" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {source.origin_ref}
         </span>

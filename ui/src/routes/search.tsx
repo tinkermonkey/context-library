@@ -66,6 +66,8 @@ function DomainChipButton({
     ? 'rgb(var(--accent-primary) / 0.15)'
     : getDomainColorWithAlpha(domain, '26');
 
+  const baseStyle = { display: 'inline-block' as const, padding: '2px 12px', height: '28px', lineHeight: '24px' };
+
   return (
     <button
       onClick={onClick}
@@ -75,16 +77,8 @@ function DomainChipButton({
         className="text-xs font-medium"
         style={
           active
-            ? { background: bgColor, color, border: `1px solid ${color}`, display: 'inline-block', padding: '2px 12px', height: '28px', lineHeight: '24px' }
-            : {
-                background: 'transparent',
-                color: 'rgb(var(--canvas-fg-2))',
-                border: `1px solid rgb(var(--canvas-border))`,
-                display: 'inline-block',
-                padding: '2px 12px',
-                height: '28px',
-                lineHeight: '24px',
-              }
+            ? { ...baseStyle, background: bgColor, color, border: `1px solid ${color}` }
+            : { ...baseStyle, background: 'transparent', color: 'rgb(var(--canvas-fg-2))', border: `1px solid rgb(var(--canvas-border))` }
         }
       >
         {label}
@@ -731,13 +725,13 @@ export default function SearchPage() {
           )}
         </div>
 
-      {/* Detail drawer */}
-      <DetailDrawer
-        result={selectedResult}
-        isOpen={!!selectedResult}
-        onClose={() => setSelectedResult(null)}
-        onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
-      />
+        {/* Detail drawer */}
+        <DetailDrawer
+          result={selectedResult}
+          isOpen={!!selectedResult}
+          onClose={() => setSelectedResult(null)}
+          onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
+        />
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Button, Modal, TabBar } from '@tinkermonkey/heimdall-ui';
 import { DataTable, type FetchParams } from '../components/DataTable';
+import { useToast } from '../hooks/useToast';
 import type { SourceSummary, ChunkResponse, VersionSummary } from '../types/api';
 import { useAdapters } from '../hooks/useAdapters';
 import { useSource } from '../hooks/useSources';
@@ -608,6 +609,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
 export default function BrowserPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
+  const { showToast } = useToast();
 
   const search = useMemo(
     () => (routerState.location.search ?? {}) as BrowserPageSearch,
@@ -822,7 +824,12 @@ export default function BrowserPage() {
           ]}
           activeTabId={tableType}
           onSelectTab={(tabId) => {
-            if (tabId !== 'versions' || sourceIdFilter) {
+            if (tabId === 'versions' && !sourceIdFilter) {
+              showToast({
+                title: 'Select a source first to view versions',
+                variant: 'info',
+              });
+            } else {
               handleTableTypeChange(tabId);
             }
           }}
