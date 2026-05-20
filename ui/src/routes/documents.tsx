@@ -25,7 +25,7 @@ import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 import { extractDocumentMetadata } from '../types/api';
 
-const docColor = getDomainColor('documents'); // #22C55E
+const docColor = getDomainColor('documents');
 
 // ── Helpers ───────────────────────────────────────────────────────
 

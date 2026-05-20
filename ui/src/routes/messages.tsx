@@ -11,7 +11,7 @@ import { fetchSourceChunks } from "../api/client";
 import { getDomainColor, getDomainColorWithAlpha } from "../lib/designTokens";
 import type { SourceSummary, ChunkResponse } from "../types/api";
 
-const msgColor = getDomainColor("messages"); // #A855F7
+const msgColor = getDomainColor("messages");
 
 // ── Types ──────────────────────────────────────────────────────────
 

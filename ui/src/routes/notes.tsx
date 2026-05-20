@@ -11,7 +11,7 @@ import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 
-const noteColor = getDomainColor('notes'); // #6366F1
+const noteColor = getDomainColor('notes');
 
 // ── Helpers ──────────────────────────────────────────────────────
 

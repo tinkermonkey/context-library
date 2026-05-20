@@ -18,7 +18,6 @@ interface SidebarSection {
   items: SidebarItem[];
 }
 
-// Icon mapping from Heroicons to Heimdall IconName
 const ICON_MAP: Record<string, IconName> = {
   dashboard: 'dashboard',
   search: 'search',

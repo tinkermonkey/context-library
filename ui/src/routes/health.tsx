@@ -12,7 +12,7 @@ import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
-const healthColor = getDomainColor('health'); // #06B6D4
+const healthColor = getDomainColor('health');
 const stepsColor = '#6366F1';
 
 // ── Types ──────────────────────────────────────────────────────────

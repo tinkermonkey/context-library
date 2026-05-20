@@ -11,7 +11,7 @@ import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
-const evtColor = getDomainColor('events'); // #F59E0B
+const evtColor = getDomainColor('events');
 
 // ── Types ──────────────────────────────────────────────────────────
 
