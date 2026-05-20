@@ -174,6 +174,16 @@ export default function AdminPage(): ReactNode {
     return m;
   }, [adapters, errorAdapterIds]);
 
+  const adapterHealthCounts = useMemo(() => {
+    let errorCount = 0;
+    let staleCount = 0;
+    for (const health of adapterHealthMap.values()) {
+      if (health === 'error') errorCount++;
+      if (health === 'stale') staleCount++;
+    }
+    return { errorCount, staleCount };
+  }, [adapterHealthMap]);
+
   const totalLogs = logsQuery.data?.total ?? 0;
   const totalLogPages = Math.ceil(totalLogs / logsLimit);
 
@@ -246,6 +256,11 @@ export default function AdminPage(): ReactNode {
           <StatTile
             label="Adapters"
             value={adapters.length > 0 ? `${adapters.length}` : '—'}
+            delta={
+              adapters.length > 0 && adapterHealthCounts.errorCount > 0
+                ? { value: adapterHealthCounts.errorCount, direction: 'down', label: 'errors' }
+                : undefined
+            }
           />
           <StatTile
             label="Embedding Dimension"
@@ -314,10 +329,11 @@ export default function AdminPage(): ReactNode {
                 overflow: 'hidden',
               }}
             >
-              <Table<AdminAdapterStatus & { health: AdapterHealth }>
+              <Table<AdminAdapterStatus & { health: AdapterHealth; _actions: string }>
                 data={adapters.map(adapter => ({
                   ...adapter,
                   health: adapterHealthMap.get(adapter.adapter_id) ?? 'unknown',
+                  _actions: '',
                 }))}
                 rowKey="adapter_id"
                 columns={[
@@ -377,7 +393,7 @@ export default function AdminPage(): ReactNode {
                     render: (value) => <StatusBadge color={healthToBadgeColor(value as AdapterHealth)}>{String(value)}</StatusBadge>,
                   },
                   {
-                    key: 'adapter_id',
+                    key: '_actions',
                     label: 'ACTIONS',
                     render: (_, row) => (
                       <div className="flex gap-2">
