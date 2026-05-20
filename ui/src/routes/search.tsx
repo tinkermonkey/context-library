@@ -249,12 +249,12 @@ function DetailDrawer({
   onClose: () => void;
   onViewInBrowser: () => void;
 }) {
-  if (!result) return null;
-
-  const domainColor = getDomainColor(result.domain);
-  const fullContent = result.context_header
-    ? `${result.context_header}\n\n${result.chunk_text}`
-    : result.chunk_text;
+  const domainColor = result ? getDomainColor(result.domain) : undefined;
+  const fullContent = result
+    ? result.context_header
+      ? `${result.context_header}\n\n${result.chunk_text}`
+      : result.chunk_text
+    : '';
 
   return (
     <Drawer
@@ -264,80 +264,82 @@ function DetailDrawer({
       title="Result Detail"
       className="flex flex-col"
     >
-      <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
-        {/* Metadata grid */}
-        <div className="flex flex-col gap-2.5">
-          {[
-            { label: 'Source', value: result.adapter_id },
-            { label: 'Domain', value: capitalize(result.domain), color: domainColor },
-            { label: 'Chunk type', value: result.chunk_type },
-            { label: 'Score', value: result.similarity_score.toFixed(4) },
-            { label: 'Version', value: String(result.source_version_id) },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="flex items-start justify-between gap-4">
-              <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {label}
-              </span>
+      {result && (
+        <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
+          {/* Metadata grid */}
+          <div className="flex flex-col gap-2.5">
+            {[
+              { label: 'Source', value: result.adapter_id },
+              { label: 'Domain', value: capitalize(result.domain), color: domainColor },
+              { label: 'Chunk type', value: result.chunk_type },
+              { label: 'Score', value: result.similarity_score.toFixed(4) },
+              { label: 'Version', value: String(result.source_version_id) },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-start justify-between gap-4">
+                <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  {label}
+                </span>
+                <span
+                  className="text-xs font-medium text-right"
+                  style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
+                >
+                  {value}
+                </span>
+              </div>
+            ))}
+
+            {/* Hash (full row, monospace) */}
+            <div className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
               <span
-                className="text-xs font-medium text-right"
-                style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
+                className="text-[11px] font-mono break-all"
+                style={{ color: 'rgb(var(--canvas-fg-2))' }}
               >
-                {value}
+                {result.chunk_hash}
               </span>
             </div>
-          ))}
 
-          {/* Hash (full row, monospace) */}
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
-            <span
-              className="text-[11px] font-mono break-all"
-              style={{ color: 'rgb(var(--canvas-fg-2))' }}
-            >
-              {result.chunk_hash}
-            </span>
+            {/* Source ID */}
+            <div className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
+              <span
+                className="text-[11px] font-mono break-all"
+                style={{ color: 'rgb(var(--canvas-fg-2))' }}
+              >
+                {result.source_id}
+              </span>
+            </div>
           </div>
 
-          {/* Source ID */}
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
-            <span
-              className="text-[11px] font-mono break-all"
+          {/* Divider */}
+          <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
+
+          {/* Full content */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
+              Full Content
+            </span>
+            <p
+              className="text-xs leading-relaxed whitespace-pre-wrap"
               style={{ color: 'rgb(var(--canvas-fg-2))' }}
             >
-              {result.source_id}
-            </span>
+              {fullContent}
+            </p>
+          </div>
+
+          {/* Footer action */}
+          <div className="pt-4 border-t" style={{ borderColor: 'rgb(var(--canvas-border))' }}>
+            <button
+              onClick={onViewInBrowser}
+              className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+              style={{ color: domainColor }}
+            >
+              <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+              View in Browser
+            </button>
           </div>
         </div>
-
-        {/* Divider */}
-        <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
-
-        {/* Full content */}
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-            Full Content
-          </span>
-          <p
-            className="text-xs leading-relaxed whitespace-pre-wrap"
-            style={{ color: 'rgb(var(--canvas-fg-2))' }}
-          >
-            {fullContent}
-          </p>
-        </div>
-
-        {/* Footer action */}
-        <div className="pt-4 border-t" style={{ borderColor: 'rgb(var(--canvas-border))' }}>
-          <button
-            onClick={onViewInBrowser}
-            className="flex items-center gap-1.5 text-xs font-medium transition-colors"
-            style={{ color: domainColor }}
-          >
-            <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-            View in Browser
-          </button>
-        </div>
-      </div>
+      )}
     </Drawer>
   );
 }
