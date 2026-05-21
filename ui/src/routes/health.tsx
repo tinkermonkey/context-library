@@ -3,8 +3,6 @@ import type { ReactNode } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowTrendingUpIcon,
-  ArrowTrendingDownIcon,
   MinusIcon,
 } from '@heroicons/react/24/outline';
 import { Icon } from '@tinkermonkey/heimdall-ui';
@@ -244,9 +242,9 @@ function TrendBadge({
   return (
     <span className="flex items-center gap-0.5 text-xs" style={{ color }}>
       {delta > 0 ? (
-        <ArrowTrendingUpIcon className="w-3 h-3" />
+        <Icon name="trending-up" size={12} />
       ) : (
-        <ArrowTrendingDownIcon className="w-3 h-3" />
+        <Icon name="trending-down" size={12} />
       )}
       {label} vs prev
     </span>

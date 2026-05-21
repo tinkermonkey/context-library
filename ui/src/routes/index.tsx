@@ -217,6 +217,14 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
   );
 }
 
+function DomainIcon({ icon }: { icon: IconType }) {
+  if (typeof icon === 'string') {
+    return <Icon name={icon} size={16} />;
+  }
+  const Component = icon;
+  return <Component className="w-4 h-4" />;
+}
+
 interface QuickLaunchTilesProps {
   domainCounts: Record<string, number>;
   onNavigate: (to: ValidRoute) => void;
@@ -229,8 +237,6 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
         {Object.entries(DOMAIN_CONFIG).map(([domain, cfg]) => {
           const color = getDomainColor(domain);
           const count = domainCounts[domain] ?? 0;
-          const isHeroicon = typeof cfg.icon !== 'string';
-          const HeroiconComponent = isHeroicon ? (cfg.icon as React.ComponentType<{ className?: string }>) : null;
 
           return (
             <button
@@ -249,11 +255,7 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
                 className="flex items-center justify-center rounded-lg w-8 h-8"
                 style={{ background: getDomainColorWithAlpha(domain, '1A'), color }}
               >
-                {isHeroicon && HeroiconComponent ? (
-                  <HeroiconComponent className="w-4 h-4" />
-                ) : (
-                  <Icon name={cfg.icon as IconName} size={16} />
-                )}
+                <DomainIcon icon={cfg.icon} />
               </div>
               <span className="text-xs font-medium leading-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
                 {cfg.label}
