@@ -100,18 +100,18 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   if (isError) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to load file tree';
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded">
-        <p className="text-red-900 font-semibold text-sm">Error loading files</p>
-        <p className="text-red-800 text-sm mt-2">{errorMessage}</p>
+      <div className="p-4 rounded" style={{ background: `rgb(var(--status-error) / 0.13)`, border: `1px solid rgb(var(--status-error) / 0.3)` }}>
+        <p className="font-semibold text-sm" style={{ color: 'rgb(var(--status-error))' }}>Error loading files</p>
+        <p className="text-sm mt-2" style={{ color: 'rgb(var(--status-error) / 0.9)' }}>{errorMessage}</p>
       </div>
     );
   }
 
   if (sources.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-sm">No files available</p>
+          <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No files available</p>
         </div>
       </div>
     );
@@ -147,10 +147,14 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
     return (
       <div key={node.path}>
         <div
-          className={`flex items-center gap-1 px-2 py-1 text-sm cursor-pointer hover:bg-gray-100 rounded ${
-            isSelected ? 'bg-blue-50 border-l-2 border-blue-500' : ''
-          }`}
-          style={{ paddingLeft: `${level * 12 + 8}px` }}
+          className="flex items-center gap-1 px-2 py-1 text-sm cursor-pointer rounded"
+          style={{
+            paddingLeft: `${level * 12 + 8}px`,
+            background: isSelected ? `rgb(var(--accent-primary) / 0.15)` : 'transparent',
+            borderLeft: isSelected ? `2px solid rgb(var(--accent-primary))` : 'none',
+          }}
+          onMouseEnter={(e) => !isSelected && (e.currentTarget.style.background = `rgb(var(--canvas-fg-1) / 0.08)`)}
+          onMouseLeave={(e) => !isSelected && (e.currentTarget.style.background = 'transparent')}
           onClick={() => {
             if (isFolder) {
               toggleFolder(node.path);
@@ -160,17 +164,17 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
           }}
         >
           {isFolder && (
-            <span className="flex-shrink-0">
+            <span className="flex-shrink-0" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               {isExpanded ? (
-                <Icon name="chevronDown" size={16} className="text-gray-600" />
+                <Icon name="chevronDown" size={16} />
               ) : (
-                <Icon name="chevronRight" size={16} className="text-gray-600" />
+                <Icon name="chevronRight" size={16} />
               )}
             </span>
           )}
-          {isFolder && <FolderIcon className="w-4 h-4 text-yellow-600 flex-shrink-0" />}
-          {node.type === 'file' && <DocumentIcon className="w-4 h-4 text-blue-600 flex-shrink-0" />}
-          <span className="truncate text-gray-900">{node.name}</span>
+          {isFolder && <FolderIcon className="w-4 h-4 flex-shrink-0" style={{ color: 'rgb(var(--domain-documents))' }} />}
+          {node.type === 'file' && <DocumentIcon className="w-4 h-4 flex-shrink-0" style={{ color: 'rgb(var(--accent-primary))' }} />}
+          <span className="truncate" style={{ color: 'rgb(var(--canvas-fg-1))' }}>{node.name}</span>
         </div>
 
         {isFolder && isExpanded && (
@@ -185,8 +189,8 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   return (
     <div className="h-full flex flex-col">
       {isTruncated && (
-        <div className="p-3 bg-yellow-50 border-b border-yellow-200">
-          <p className="text-yellow-800 text-xs">
+        <div className="p-3" style={{ borderBottom: `1px solid rgb(var(--status-amber) / 0.3)`, background: `rgb(var(--status-amber) / 0.13)` }}>
+          <p className="text-xs" style={{ color: 'rgb(var(--status-amber))' }}>
             Showing {sources.length} filesystem files. More are available.
           </p>
         </div>

@@ -81,14 +81,14 @@ function formatPriority(priority: number | null): string {
 }
 
 /**
- * Get priority color class based on priority level.
+ * Get priority color based on priority level.
  */
 function getPriorityColor(priority: number | null): string {
-  if (priority === null) return 'text-gray-500';
-  if (priority === 1) return 'text-red-600 font-semibold';
-  if (priority === 2) return 'text-orange-600 font-semibold';
-  if (priority === 3) return 'text-yellow-600';
-  return 'text-gray-600';
+  if (priority === null) return 'rgb(var(--canvas-fg-3))';
+  if (priority === 1) return 'rgb(239, 68, 68)';
+  if (priority === 2) return 'rgb(249, 115, 22)';
+  if (priority === 3) return 'rgb(202, 138, 4)';
+  return 'rgb(var(--canvas-fg-2))';
 }
 
 /**
@@ -181,10 +181,10 @@ function TaskCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
   if (!metadata) return null;
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white hover:shadow-md transition-shadow">
+    <div className="rounded-lg p-4 hover:shadow-md transition-shadow" style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}>
       {/* Title and Status Badge */}
       <div className="flex items-start justify-between mb-3 gap-2">
-        <h3 className="text-base font-semibold text-gray-900 flex-1">{metadata.title}</h3>
+        <h3 className="text-base font-semibold flex-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>{metadata.title}</h3>
         <StatusBadge color={statusToColor(metadata.status)}>{metadata.status}</StatusBadge>
       </div>
 
@@ -192,52 +192,52 @@ function TaskCard({ chunk }: { chunk: ChunkResponse }): ReactNode {
       <div className="grid grid-cols-2 gap-3 text-sm">
         {/* Due Date */}
         <div>
-          <span className="font-semibold text-gray-700">Due:</span>
+          <span className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>Due:</span>
           <div className="mt-1">
             {metadata.due_date ? (
               <Timestamp value={metadata.due_date} granularity="date" />
             ) : (
-              <span className="text-gray-400">—</span>
+              <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>—</span>
             )}
           </div>
         </div>
 
         {/* Priority */}
         <div>
-          <span className="font-semibold text-gray-700">Priority:</span>
-          <div className={`mt-1 font-mono text-sm ${getPriorityColor(metadata.priority)}`}>
+          <span className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>Priority:</span>
+          <div className="mt-1 font-mono text-sm" style={{ color: getPriorityColor(metadata.priority) }}>
             {formatPriority(metadata.priority)}
           </div>
         </div>
 
         {/* Dependencies */}
         <div>
-          <span className="font-semibold text-gray-700">Dependencies:</span>
+          <span className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>Dependencies:</span>
           <div className="mt-1">
             {metadata.dependencies.length === 0 ? (
-              <span className="text-gray-400">—</span>
+              <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>—</span>
             ) : (
-              <span className="text-gray-600">{metadata.dependencies.length} task(s)</span>
+              <span style={{ color: 'rgb(var(--canvas-fg-2))' }}>{metadata.dependencies.length} task(s)</span>
             )}
           </div>
         </div>
 
         {/* Collaborators */}
         <div>
-          <span className="font-semibold text-gray-700">Collaborators:</span>
+          <span className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>Collaborators:</span>
           <div className="mt-1">
             {metadata.collaborators.length === 0 ? (
-              <span className="text-gray-400">—</span>
+              <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>—</span>
             ) : (
-              <span className="text-gray-600">{metadata.collaborators.length} person(s)</span>
+              <span style={{ color: 'rgb(var(--canvas-fg-2))' }}>{metadata.collaborators.length} person(s)</span>
             )}
           </div>
         </div>
       </div>
 
       {/* Task ID */}
-      <div className="mt-3 pt-3 border-t border-gray-100">
-        <span className="text-xs text-gray-500">ID: {metadata.task_id}</span>
+      <div className="mt-3 pt-3" style={{ borderTop: `1px solid rgb(var(--canvas-border))` }}>
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>ID: {metadata.task_id}</span>
       </div>
     </div>
   );
@@ -257,8 +257,8 @@ function TaskGroup({
     <div className="mb-8">
       {/* Group Header */}
       <div className="flex items-center gap-3 mb-4">
-        <h2 className="text-xl font-bold text-gray-900 capitalize">{status.replaceAll('-', ' ')}</h2>
-        <span className="px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700 rounded">
+        <h2 className="text-xl font-bold capitalize" style={{ color: 'rgb(var(--canvas-fg-1))' }}>{status.replaceAll('-', ' ')}</h2>
+        <span className="px-2 py-1 text-xs font-semibold rounded" style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))', border: `1px solid rgb(var(--canvas-border))` }}>
           {chunks.length}
         </span>
       </div>
@@ -342,23 +342,24 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
   return (
     <div className="space-y-6">
       {/* Filter Controls */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="rounded-lg p-4" style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}>
         <div className="flex flex-col gap-4">
           {/* Title */}
-          <h3 className="font-semibold text-gray-900">Filters</h3>
+          <h3 className="font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>Filters</h3>
 
           {/* Filter Inputs */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Status Filter */}
             <div>
-              <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="status-filter" className="block text-sm font-medium mb-2" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 Status
               </label>
               <select
                 id="status-filter"
                 value={pendingStatus}
                 onChange={(e) => setPendingStatus(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="w-full px-3 py-2 rounded-md shadow-sm focus:outline-none text-sm"
+                style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-bg))', color: 'rgb(var(--canvas-fg-1))' }}
               >
                 <option value="">All statuses</option>
                 <option value="open">Open</option>
@@ -370,14 +371,15 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
 
             {/* Priority Filter */}
             <div>
-              <label htmlFor="priority-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="priority-filter" className="block text-sm font-medium mb-2" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 Priority
               </label>
               <select
                 id="priority-filter"
                 value={pendingPriority}
                 onChange={(e) => setPendingPriority(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="w-full px-3 py-2 rounded-md shadow-sm focus:outline-none text-sm"
+                style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-bg))', color: 'rgb(var(--canvas-fg-1))' }}
               >
                 <option value="">All priorities</option>
                 <option value="1">P1 (Highest)</option>
@@ -392,14 +394,16 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
           <div className="flex gap-2 pt-2">
             <button
               onClick={applyFilters}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 text-white text-sm font-medium rounded-md hover:opacity-90 transition-colors"
+              style={{ background: 'rgb(var(--accent-primary))' }}
             >
               Apply Filters
             </button>
             {(statusFilter || priorityFilter) && (
               <button
                 onClick={clearFilters}
-                className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium rounded-md hover:opacity-90 transition-colors"
+                style={{ border: `1px solid rgb(var(--canvas-border))`, color: 'rgb(var(--canvas-fg-2))', background: 'transparent' }}
               >
                 Clear Filters
               </button>
@@ -407,7 +411,7 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
           </div>
 
           {/* Filter Summary */}
-          <div className="text-xs text-gray-600 pt-2">
+          <div className="text-xs pt-2" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
             Showing {filteredTasks} of {totalTasks} task(s)
             {(statusFilter || priorityFilter) && (
               <span className="font-semibold">
@@ -423,8 +427,8 @@ export function TaskListView({ chunks }: DomainViewProps): ReactNode {
 
       {/* Empty State */}
       {groupedTasks.size === 0 ? (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
-          <p className="text-sm text-yellow-800">
+        <div className="rounded-lg p-8 text-center" style={{ background: `rgb(var(--status-amber) / 0.13)`, border: `1px solid rgb(var(--status-amber) / 0.3)` }}>
+          <p className="text-sm" style={{ color: 'rgb(var(--status-amber))' }}>
             {filteredTasks === 0 && totalTasks > 0
               ? 'No tasks match the selected filters.'
               : 'No tasks found for this source.'}

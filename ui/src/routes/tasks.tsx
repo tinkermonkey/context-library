@@ -65,11 +65,11 @@ const STATUS_CONFIG: Record<DisplayStatus, {
   dotFill: string | null;
   dotStroke: string;
 }> = {
-  active:        { label: 'Active',      badgeBg: '#1F2937', badgeText: '#6B7280', dotFill: null,      dotStroke: '#6366F1' },
-  urgent:        { label: 'Urgent',      badgeBg: '#2D1B1B', badgeText: '#EF4444', dotFill: null,      dotStroke: '#EF4444' },
-  'in-progress': { label: 'In Progress', badgeBg: '#1C1A00', badgeText: '#F59E0B', dotFill: null,      dotStroke: '#F59E0B' },
-  done:          { label: 'Done',        badgeBg: '#052E16', badgeText: '#22C55E', dotFill: '#22C55E', dotStroke: '#22C55E' },
-  cancelled:     { label: 'Cancelled',   badgeBg: '#1F2937', badgeText: '#4B5563', dotFill: null,      dotStroke: '#4B5563' },
+  active:        { label: 'Active',      badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-2))', dotFill: null,      dotStroke: 'rgb(var(--accent-primary))' },
+  urgent:        { label: 'Urgent',      badgeBg: `rgb(239, 68, 68 / 0.13)`, badgeText: 'rgb(239, 68, 68)', dotFill: null,      dotStroke: 'rgb(239, 68, 68)' },
+  'in-progress': { label: 'In Progress', badgeBg: `rgb(var(--status-amber) / 0.13)`, badgeText: 'rgb(var(--status-amber))', dotFill: null,      dotStroke: 'rgb(var(--status-amber))' },
+  done:          { label: 'Done',        badgeBg: `rgb(34, 197, 94 / 0.13)`, badgeText: 'rgb(34, 197, 94)', dotFill: 'rgb(34, 197, 94)', dotStroke: 'rgb(34, 197, 94)' },
+  cancelled:     { label: 'Cancelled',   badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-3))', dotFill: null,      dotStroke: 'rgb(var(--canvas-fg-3))' },
 };
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
@@ -222,7 +222,7 @@ function TaskRow({
         padding: '0 14px',
         borderRadius: 6,
         flexShrink: 0,
-        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : '#161616',
+        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : 'rgb(var(--canvas-bg))',
         border: `1px solid ${isSelected ? getDomainColorWithAlpha('tasks', '40') : 'rgb(var(--canvas-border))'}`,
       }}
     >
@@ -242,7 +242,7 @@ function TaskRow({
       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
         <span
           className="truncate"
-          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : '#E5E7EB' }}
+          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-fg-1))' }}
         >
           {meta.title}
         </span>
@@ -250,7 +250,7 @@ function TaskRow({
           {dueLabel && (
             <span className="shrink-0" style={{ fontSize: 11, color: dueColor }}>{dueLabel}</span>
           )}
-          <span className="truncate" style={{ fontSize: 11, color: '#4B5563' }}>
+          <span className="truncate" style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-3))' }}>
             {dueLabel ? '· ' : ''}{sourceLabel(meta.source_type)}
           </span>
         </div>
@@ -545,15 +545,15 @@ export default function TasksPage(): ReactNode {
       {/* ── Top bar ── */}
       <div
         className="flex items-center gap-3 px-5 shrink-0"
-        style={{ height: 52, borderBottom: `1px solid #1A1A1A`, background: '#111111' }}
+        style={{ height: 52, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="flex-1" style={{ fontSize: 16, fontWeight: 600, color: '#FFFFFF' }}>
+        <span className="flex-1" style={{ fontSize: 16, fontWeight: 600, color: 'rgb(var(--canvas-fg-1))' }}>
           Tasks
         </span>
 
         {!isLoading && !isError && (
-          <div style={{ borderRadius: 10, padding: '3px 10px', background: '#1F2937' }}>
-            <span style={{ fontSize: 11, color: '#6B7280' }}>
+          <div style={{ borderRadius: 10, padding: '3px 10px', background: 'rgb(var(--canvas-bg))' }}>
+            <span style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-2))' }}>
               {countAll.toLocaleString()} task{countAll !== 1 ? 's' : ''}
             </span>
           </div>
@@ -562,13 +562,13 @@ export default function TasksPage(): ReactNode {
         {/* View toggle — List active; Kanban is future work */}
         <div
           className="flex items-center"
-          style={{ height: 32, borderRadius: 6, background: '#1A1A1A', border: '1px solid #2D2D2D', padding: 2 }}
+          style={{ height: 32, borderRadius: 6, background: 'rgb(var(--canvas-bg))', border: `1px solid rgb(var(--canvas-border))`, padding: 2 }}
         >
-          <div style={{ borderRadius: 5, background: '#312E81', padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: '#A5B4FC' }}>List</span>
+          <div style={{ borderRadius: 5, background: 'rgb(var(--accent-primary) / 0.2)', padding: '6px 14px' }}>
+            <span style={{ fontSize: 12, color: 'rgb(var(--accent-primary))' }}>List</span>
           </div>
           <div style={{ padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: '#6B7280' }}>Kanban</span>
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>Kanban</span>
           </div>
         </div>
       </div>
@@ -576,7 +576,7 @@ export default function TasksPage(): ReactNode {
       {/* ── Filter row ── */}
       <div
         className="flex items-center gap-2 px-5 shrink-0"
-        style={{ height: 40, borderBottom: `1px solid #1A1A1A`, background: '#0D0D0D' }}
+        style={{ height: 40, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-bg))' }}
       >
         {tabs.map(tab => {
           const isActive = filterTab === tab.key;
@@ -587,9 +587,9 @@ export default function TasksPage(): ReactNode {
               style={{
                 borderRadius: 4,
                 padding: '4px 10px',
-                background: isActive ? '#312E81' : 'transparent',
+                background: isActive ? 'rgb(var(--accent-primary) / 0.2)' : 'transparent',
                 fontSize: 12,
-                color: isActive ? '#A5B4FC' : '#6B7280',
+                color: isActive ? 'rgb(var(--accent-primary))' : 'rgb(var(--canvas-fg-2))',
                 border: 'none',
                 cursor: 'pointer',
               }}
@@ -609,7 +609,7 @@ export default function TasksPage(): ReactNode {
             style={{
               borderRadius: 4,
               padding: '4px 10px',
-              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '22') : 'rgb(var(--canvas-surface))',
+              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '18') : 'rgb(var(--canvas-surface))',
               fontSize: 12,
               color: sourceFilter !== 'all' ? taskColor : 'rgb(var(--canvas-fg-2))',
               border: 'none',
@@ -648,7 +648,7 @@ export default function TasksPage(): ReactNode {
                     style={{
                       fontSize: 12,
                       color: sourceFilter === opt.value ? taskColor : 'rgb(var(--canvas-fg-2))',
-                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '18') : 'transparent',
+                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '12') : 'transparent',
                     }}
                   >
                     {opt.label}
