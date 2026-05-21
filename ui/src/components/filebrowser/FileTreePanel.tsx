@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Icon } from '@tinkermonkey/heimdall-ui';
+import { FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../../hooks/useSources';
 import { buildFileTree, type FileTreeNode } from '../../utils/fileTree';
 import type { FileBrowserPageSearch } from '../../router';
@@ -167,8 +168,8 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
               )}
             </span>
           )}
-          {isFolder && <Icon name="data" size={16} className="text-yellow-600 flex-shrink-0" />}
-          {node.type === 'file' && <Icon name="component" size={16} className="text-blue-600 flex-shrink-0" />}
+          {isFolder && <FolderIcon className="w-4 h-4 text-yellow-600 flex-shrink-0" />}
+          {node.type === 'file' && <DocumentIcon className="w-4 h-4 text-blue-600 flex-shrink-0" />}
           <span className="truncate text-gray-900">{node.name}</span>
         </div>
 

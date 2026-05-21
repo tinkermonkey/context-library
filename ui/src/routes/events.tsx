@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   MapPinIcon,
-  UserGroupIcon,
 } from '@heroicons/react/24/outline';
 import { Icon } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
@@ -480,7 +479,7 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
           )}
           {meta.invitees.length > 0 && (
             <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
-              <UserGroupIcon className="w-3 h-3" />
+              <Icon name="user" size={12} />
               {meta.invitees.length} {meta.invitees.length === 1 ? 'attendee' : 'attendees'}
             </span>
           )}
