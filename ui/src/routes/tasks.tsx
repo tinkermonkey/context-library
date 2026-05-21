@@ -5,45 +5,14 @@ import type { ReactNode } from 'react';
 import { fetchChunks } from '../api/client';
 import { Icon } from '@tinkermonkey/heimdall-ui';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
-import type { ChunkResponse } from '../types/api';
+import type { ChunkResponse, TaskMetadata } from '../types/api';
+import { extractTaskMetadata } from '../types/api';
 
 const taskColor = getDomainColor('tasks'); // #F97316
 
 // ── Types ──────────────────────────────────────────────────────────
 
-interface TaskMeta {
-  task_id: string;
-  // Mirrors TaskMetadata.ALLOWED_STATUSES: 'open' | 'in-progress' | 'completed' | 'cancelled'
-  status: string;
-  title: string;
-  due_date: string | null;
-  // 1=Urgent, 2=High, 3=Medium, 4=Low; null if not set
-  priority: number | null;
-  // Python tuples serialize to JSON arrays via Pydantic model_dump()
-  dependencies: string[];
-  collaborators: string[];
-  date_first_observed: string;
-  source_type: string;
-}
-
-function extractTaskMeta(chunk: ChunkResponse): TaskMeta | null {
-  const dm = chunk.domain_metadata;
-  if (!dm) {
-    console.warn('[TasksView] chunk missing domain_metadata:', chunk.chunk_hash);
-    return null;
-  }
-  return {
-    task_id: typeof dm.task_id === 'string' ? dm.task_id : chunk.chunk_hash,
-    status: typeof dm.status === 'string' ? dm.status : 'open',
-    title: typeof dm.title === 'string' ? dm.title : 'Untitled Task',
-    due_date: typeof dm.due_date === 'string' ? dm.due_date : null,
-    priority: typeof dm.priority === 'number' ? dm.priority : null,
-    dependencies: Array.isArray(dm.dependencies) ? (dm.dependencies as string[]) : [],
-    collaborators: Array.isArray(dm.collaborators) ? (dm.collaborators as string[]) : [],
-    date_first_observed: typeof dm.date_first_observed === 'string' ? dm.date_first_observed : '',
-    source_type: typeof dm.source_type === 'string' ? dm.source_type : 'unknown',
-  };
-}
+type TaskMeta = TaskMetadata;
 
 // ── Status helpers ─────────────────────────────────────────────────
 
@@ -504,7 +473,7 @@ export default function TasksPage(): ReactNode {
   const allTasks = useMemo(() => {
     const result: Array<{ chunk: ChunkResponse; meta: TaskMeta }> = [];
     for (const chunk of allChunks) {
-      const meta = extractTaskMeta(chunk);
+      const meta = extractTaskMetadata(chunk);
       if (meta) result.push({ chunk, meta });
     }
     return result;

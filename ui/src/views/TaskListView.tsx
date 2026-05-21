@@ -2,26 +2,11 @@ import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { StatusBadge } from '@tinkermonkey/heimdall-ui';
-import type { ChunkResponse } from '../types/api';
+import type { ChunkResponse, TaskMetadata } from '../types/api';
+import { extractTaskMetadata } from '../types/api';
 import type { DomainViewProps } from './registryConfig';
 import { tasksViewSearchSchema } from '../routes-config';
 import { Timestamp } from '../components/shared/Timestamp';
-
-/**
- * Task domain metadata structure.
- * Matches the backend TaskMetadata model.
- */
-interface TaskMetadata {
-  task_id: string;
-  status: string; // 'open' | 'completed' | 'cancelled' | 'in-progress'
-  title: string;
-  due_date: string | null; // ISO 8601
-  priority: number | null; // 1-4 (1 = highest)
-  dependencies: string[]; // serialized from tuple, task_id references
-  collaborators: string[]; // serialized from tuple
-  date_first_observed: string; // ISO 8601
-  source_type: string;
-}
 
 /**
  * Map task status to Heimdall StatusBadge color.
@@ -40,33 +25,6 @@ function statusToColor(status: string): 'emerald' | 'amber' | 'rose' | 'cyan' | 
     default:
       return 'neutral';
   }
-}
-
-/**
- * Cast domain_metadata to TaskMetadata with safety checks.
- * Validates that required fields are present and have correct types.
- */
-function extractTaskMetadata(chunk: ChunkResponse): TaskMetadata | null {
-  if (!chunk.domain_metadata) return null;
-
-  const meta = chunk.domain_metadata;
-
-  // Validate required fields
-  if (typeof meta.task_id !== 'string' || typeof meta.status !== 'string' || typeof meta.title !== 'string') {
-    return null;
-  }
-
-  return {
-    task_id: meta.task_id,
-    status: meta.status,
-    title: meta.title,
-    due_date: typeof meta.due_date === 'string' ? meta.due_date : null,
-    priority: typeof meta.priority === 'number' ? meta.priority : null,
-    dependencies: Array.isArray(meta.dependencies) ? meta.dependencies : [],
-    collaborators: Array.isArray(meta.collaborators) ? meta.collaborators : [],
-    date_first_observed: typeof meta.date_first_observed === 'string' ? meta.date_first_observed : '',
-    source_type: typeof meta.source_type === 'string' ? meta.source_type : '',
-  };
 }
 
 /**
