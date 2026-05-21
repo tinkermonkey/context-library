@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { Chip, Drawer, Icon } from '@tinkermonkey/heimdall-ui';
+import { Drawer, Icon, TabBar } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
+import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
@@ -41,43 +42,6 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-// ── Domain chip ───────────────────────────────────────────────────
-
-function DomainChipButton({
-  domain,
-  active,
-  onClick,
-}: {
-  domain: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const label = domain === 'all' ? 'All Domains' : capitalize(domain);
-  const color = domain === 'all' ? 'rgb(var(--accent-primary))' : getDomainColor(domain);
-  const bgColor = domain === 'all'
-    ? 'rgb(var(--accent-primary) / 0.15)'
-    : getDomainColorWithAlpha(domain, '26');
-
-  const baseStyle = { display: 'inline-block' as const, padding: '2px 12px', height: '28px', lineHeight: '24px' };
-
-  return (
-    <button
-      onClick={onClick}
-      className="shrink-0 transition-all p-0 border-0 bg-transparent"
-    >
-      <Chip
-        className="text-xs font-medium"
-        style={
-          active
-            ? { ...baseStyle, background: bgColor, color, border: `1px solid ${color}` }
-            : { ...baseStyle, background: 'transparent', color: 'rgb(var(--canvas-fg-2))', border: `1px solid rgb(var(--canvas-border))` }
-        }
-      >
-        {label}
-      </Chip>
-    </button>
-  );
-}
 
 // ── Score bar ─────────────────────────────────────────────────────
 
@@ -397,6 +361,7 @@ export default function SearchPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
+  const { showToast } = useToast();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
@@ -484,6 +449,18 @@ export default function SearchPage() {
 
   const { data, isLoading, error } = useSearch(search);
   const results = data?.results ?? [];
+
+  // Show Toast on search errors
+  useEffect(() => {
+    if (error) {
+      showToast({
+        title: 'Search failed',
+        subtitle: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'error',
+        duration: 4000,
+      });
+    }
+  }, [error, showToast]);
 
   // Keyboard navigation on the results list
   const handleKeyDown = useCallback(
@@ -617,24 +594,19 @@ export default function SearchPage() {
         </kbd>
       </div>
 
-      {/* Domain filter chips */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-0.5 shrink-0">
-        <span className="text-xs shrink-0 mr-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          Filter:
-        </span>
-        <DomainChipButton
-          domain="all"
-          active={!selectedDomain}
-          onClick={() => handleDomainSelect('')}
+      {/* Domain filter TabBar */}
+      <div className="shrink-0">
+        <TabBar
+          tabs={[
+            { id: '', label: 'All Domains' },
+            ...SEARCH_DOMAINS.map((domain) => ({
+              id: domain,
+              label: capitalize(domain),
+            })),
+          ]}
+          activeTabId={selectedDomain}
+          onSelectTab={handleDomainSelect}
         />
-        {SEARCH_DOMAINS.map((d) => (
-          <DomainChipButton
-            key={d}
-            domain={d}
-            active={selectedDomain === d}
-            onClick={() => handleDomainSelect(selectedDomain === d ? '' : d)}
-          />
-        ))}
       </div>
 
       {/* Main area */}
