@@ -82,12 +82,13 @@ function formatPriority(priority: number | null): string {
 
 /**
  * Get priority color based on priority level.
+ * P1 uses --status-error, P3 uses --status-amber. P2 uses orange-500 (no direct token available).
  */
 function getPriorityColor(priority: number | null): string {
   if (priority === null) return 'rgb(var(--canvas-fg-3))';
-  if (priority === 1) return 'rgb(239, 68, 68)';
+  if (priority === 1) return 'rgb(var(--status-error))';
   if (priority === 2) return 'rgb(249, 115, 22)';
-  if (priority === 3) return 'rgb(202, 138, 4)';
+  if (priority === 3) return 'rgb(var(--status-amber))';
   return 'rgb(var(--canvas-fg-2))';
 }
 

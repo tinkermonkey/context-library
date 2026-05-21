@@ -66,9 +66,9 @@ const STATUS_CONFIG: Record<DisplayStatus, {
   dotStroke: string;
 }> = {
   active:        { label: 'Active',      badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-2))', dotFill: null,      dotStroke: 'rgb(var(--accent-primary))' },
-  urgent:        { label: 'Urgent',      badgeBg: `rgb(239, 68, 68 / 0.13)`, badgeText: 'rgb(239, 68, 68)', dotFill: null,      dotStroke: 'rgb(239, 68, 68)' },
+  urgent:        { label: 'Urgent',      badgeBg: `rgb(var(--status-error) / 0.13)`, badgeText: 'rgb(var(--status-error))', dotFill: null,      dotStroke: 'rgb(var(--status-error))' },
   'in-progress': { label: 'In Progress', badgeBg: `rgb(var(--status-amber) / 0.13)`, badgeText: 'rgb(var(--status-amber))', dotFill: null,      dotStroke: 'rgb(var(--status-amber))' },
-  done:          { label: 'Done',        badgeBg: `rgb(34, 197, 94 / 0.13)`, badgeText: 'rgb(34, 197, 94)', dotFill: 'rgb(34, 197, 94)', dotStroke: 'rgb(34, 197, 94)' },
+  done:          { label: 'Done',        badgeBg: `rgb(var(--status-ok) / 0.13)`, badgeText: 'rgb(var(--status-ok))', dotFill: 'rgb(var(--status-ok))', dotStroke: 'rgb(var(--status-ok))' },
   cancelled:     { label: 'Cancelled',   badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-3))', dotFill: null,      dotStroke: 'rgb(var(--canvas-fg-3))' },
 };
 

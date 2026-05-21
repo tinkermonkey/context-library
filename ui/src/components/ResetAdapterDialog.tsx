@@ -129,7 +129,7 @@ export function ResetAdapterDialog({
         {result && (
           <>
             {result.errors.length === 0 ? (
-              <div className="rounded-lg p-3 text-sm" style={{ background: `rgb(34, 197, 94 / 0.13)`, border: `1px solid rgb(34, 197, 94 / 0.3)`, color: 'rgb(34, 197, 94)' }}>
+              <div className="rounded-lg p-3 text-sm" style={{ background: `rgb(var(--status-ok) / 0.13)`, border: `1px solid rgb(var(--status-ok) / 0.3)`, color: 'rgb(var(--status-ok))' }}>
                 <strong>Success!</strong> The adapter has been reset
               </div>
             ) : (
@@ -194,8 +194,10 @@ export function ResetAdapterDialog({
         )}
         {resetMutation.isPending && (
           <div className="flex items-center justify-center py-8">
-            <Icon name="spinner" size={24} className="animate-spin text-slate-400" />
-            <span className="ml-3 text-slate-300">Resetting adapter...</span>
+            <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="spinner" size={24} className="animate-spin" />
+            </span>
+            <span className="ml-3" style={{ color: 'rgb(var(--canvas-fg-2))' }}>Resetting adapter...</span>
           </div>
         )}
       </div>

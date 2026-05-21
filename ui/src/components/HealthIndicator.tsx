@@ -68,7 +68,7 @@ function endpointLabel(ep: EndpointDeliveryStatus, newestCursorMs: number, water
 function StatusRow({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <span style={{ color: ok ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)' }}>{ok ? '✓' : '✗'}</span>
+      <span style={{ color: ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>{ok ? '✓' : '✗'}</span>
       <span style={{ color: 'rgb(var(--canvas-fg-2))' }}>{label}</span>
     </div>
   );
@@ -84,20 +84,20 @@ function CollectorRow({
   watermark: string | null;
 }) {
   let icon: string;
-  let iconClass: string;
+  let iconColor: string;
 
   if (!helperReachable) {
     icon = '—';
-    iconClass = 'text-gray-400';
+    iconColor = 'rgb(var(--canvas-fg-3))';
   } else if (collector.healthy === null || collector.healthy === undefined) {
     icon = '·';
-    iconClass = 'text-gray-400';
+    iconColor = 'rgb(var(--canvas-fg-3))';
   } else if (collector.healthy) {
     icon = '✓';
-    iconClass = 'text-green-500';
+    iconColor = 'rgb(var(--status-ok))';
   } else {
     icon = '✗';
-    iconClass = 'text-red-500';
+    iconColor = 'rgb(var(--status-error))';
   }
 
   const delivery = helperReachable ? collector.delivery : null;
@@ -127,7 +127,7 @@ function CollectorRow({
           </span>
         ) : null}
       </div>
-      <span className="font-mono text-xs font-bold flex-shrink-0 self-start" style={{ color: iconClass.includes('green') ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)' }} title={collector.error ?? undefined}>
+      <span className="font-mono text-xs font-bold flex-shrink-0 self-start" style={{ color: iconColor }} title={collector.error ?? undefined}>
         {icon}
       </span>
     </div>
@@ -140,7 +140,7 @@ function HelperSection({ helper }: { helper: HelperHealth }) {
       <hr className="my-2" style={{ borderColor: 'rgb(var(--canvas-border))' }} />
       <div className="mb-1.5 flex items-center gap-2">
         <span className="font-semibold text-xs" style={{ color: 'rgb(var(--canvas-fg-1))' }}>Helper Service</span>
-        <span className="text-xs font-medium" style={{ color: helper.reachable ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)' }}>
+        <span className="text-xs font-medium" style={{ color: helper.reachable ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>
           {helper.reachable ? '● online' : '● offline'}
         </span>
       </div>
@@ -152,7 +152,7 @@ function HelperSection({ helper }: { helper: HelperHealth }) {
         </div>
       )}
       {helper.error && (
-        <p className="text-xs truncate max-w-[240px]" style={{ color: 'rgb(239, 68, 68)' }} title={helper.error}>
+        <p className="text-xs truncate max-w-[240px]" style={{ color: 'rgb(var(--status-error))' }} title={helper.error}>
           {helper.error}
         </p>
       )}
@@ -213,7 +213,7 @@ export function HealthIndicator() {
       </div>
 
       {open && data && (
-        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg p-3 text-sm" style={{ borderColor: 'rgb(var(--canvas-border))', border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}>
+        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg p-3 text-sm" style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}>
           <HealthDetail data={data} />
         </div>
       )}
