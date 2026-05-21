@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { StatTile, StatGrid, Table, Button, StatusBadge, Badge } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Table, Button, StatusBadge, Badge, Select } from '@tinkermonkey/heimdall-ui';
 
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
@@ -115,7 +115,7 @@ export default function AdminPage(): ReactNode {
   const adminAdaptersQuery = useAdminAdapters();
   const adminConfigQuery = useAdminConfig();
   const [logsPage, setLogsPage] = useState(0);
-  const logsLimit = 30;
+  const [logsLimit, setLogsLimit] = useState(30);
   const logsQuery = useAdminLogs(logsLimit, logsPage * logsLimit);
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -629,9 +629,29 @@ export default function AdminPage(): ReactNode {
                       background: 'rgb(var(--shell-bg-2))',
                     }}
                   >
-                    <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
-                      Page {logsPage + 1} of {totalLogPages}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
+                        Page {logsPage + 1} of {totalLogPages}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <label style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
+                          Per page:
+                        </label>
+                        <Select
+                          value={String(logsLimit)}
+                          onChange={(e) => {
+                            setLogsLimit(parseInt(e.target.value, 10));
+                            setLogsPage(0);
+                          }}
+                          style={{ fontSize: 11 }}
+                        >
+                          <option value="10">10</option>
+                          <option value="20">20</option>
+                          <option value="30">30</option>
+                          <option value="50">50</option>
+                        </Select>
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       <Button
                         size="sm"
