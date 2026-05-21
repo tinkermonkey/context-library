@@ -3,18 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  CalendarIcon,
   MapPinIcon,
-  UserGroupIcon,
-  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
-const evtColor = getDomainColor('events'); // #F59E0B
+const evtColor = getDomainColor('events');
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -483,7 +479,7 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
           )}
           {meta.invitees.length > 0 && (
             <span className="flex items-center gap-1" style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
-              <UserGroupIcon className="w-3 h-3" />
+              <Icon name="user" size={12} />
               {meta.invitees.length} {meta.invitees.length === 1 ? 'attendee' : 'attendees'}
             </span>
           )}
@@ -504,7 +500,9 @@ function AgendaFullView({ eventMap }: { eventMap: EventMap }): ReactNode {
   if (days.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3">
-        <CalendarIcon className="w-8 h-8" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          <Icon name="calendar" size={32} />
+        </span>
         <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No events found</p>
       </div>
     );
@@ -593,7 +591,9 @@ function EmptyState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: getDomainColorWithAlpha('events', '20') }}
       >
-        <CalendarIcon className="w-8 h-8" style={{ color: evtColor }} />
+        <span style={{ color: evtColor }}>
+          <Icon name="calendar" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -616,7 +616,9 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: 'rgb(var(--status-error) / 0.13)' }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -764,7 +766,7 @@ export default function EventsPage(): ReactNode {
             className="p-1 rounded transition-opacity hover:opacity-75"
             style={{ color: 'rgb(var(--canvas-fg-2))' }}
           >
-            <ChevronLeftIcon className="w-4 h-4" />
+            <Icon name="chevronLeft" size={16} />
           </button>
           <span
             className="text-center"
@@ -779,7 +781,7 @@ export default function EventsPage(): ReactNode {
             className="p-1 rounded transition-opacity hover:opacity-75"
             style={{ color: 'rgb(var(--canvas-fg-2))' }}
           >
-            <ChevronRightIcon className="w-4 h-4" />
+            <Icon name="chevronRight" size={16} />
           </button>
         </div>
       </div>

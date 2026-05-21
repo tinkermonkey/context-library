@@ -1,13 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import {
-  MagnifyingGlassIcon,
-  XMarkIcon,
-  ArrowRightIcon,
-  ArrowTopRightOnSquareIcon,
-  ChevronRightIcon,
-} from '@heroicons/react/24/outline';
+import { Drawer, Icon, TabBar } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
+import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
@@ -47,40 +42,6 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-// ── Domain chip ───────────────────────────────────────────────────
-
-function DomainChip({
-  domain,
-  active,
-  onClick,
-}: {
-  domain: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const color = domain === 'all' ? 'rgb(var(--accent-primary))' : getDomainColor(domain);
-  const activeBackground = domain === 'all'
-    ? 'rgb(var(--accent-primary) / 0.15)'
-    : getDomainColorWithAlpha(domain, '26');
-
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1.5 px-3 h-7 rounded-full text-xs font-medium transition-all shrink-0"
-      style={
-        active
-          ? { background: activeBackground, color, border: `1px solid ${color}` }
-          : {
-              background: 'transparent',
-              color: 'rgb(var(--canvas-fg-2))',
-              border: `1px solid rgb(var(--canvas-border))`,
-            }
-      }
-    >
-      {domain === 'all' ? 'All Domains' : capitalize(domain)}
-    </button>
-  );
-}
 
 // ── Score bar ─────────────────────────────────────────────────────
 
@@ -199,10 +160,12 @@ function ResultCard({
         <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {result.chunk_type}
         </span>
-        <ChevronRightIcon
-          className="w-3 h-3 ml-auto shrink-0"
-          style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}
-        />
+        <span className="ml-auto shrink-0" style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}>
+          <Icon
+            name="chevronRight"
+            size={12}
+          />
+        </span>
       </div>
     </button>
   );
@@ -233,123 +196,111 @@ function SkeletonCard() {
   );
 }
 
-// ── Detail panel ──────────────────────────────────────────────────
+// ── Detail panel drawer ────────────────────────────────────────────
 
-function DetailPanel({
+function DetailDrawer({
   result,
+  isOpen,
   onClose,
   onViewInBrowser,
 }: {
-  result: QueryResultItem;
+  result: QueryResultItem | null;
+  isOpen: boolean;
   onClose: () => void;
   onViewInBrowser: () => void;
 }) {
-  const domainColor = getDomainColor(result.domain);
-  const fullContent = result.context_header
-    ? `${result.context_header}\n\n${result.chunk_text}`
-    : result.chunk_text;
+  const domainColor = result ? getDomainColor(result.domain) : undefined;
+  const fullContent = result
+    ? result.context_header
+      ? `${result.context_header}\n\n${result.chunk_text}`
+      : result.chunk_text
+    : '';
 
   return (
-    <div
-      className="rounded-xl flex flex-col min-h-0 overflow-hidden"
-      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+    <Drawer
+      isOpen={isOpen}
+      onClose={onClose}
+      position="right"
+      title="Result Detail"
+      className="flex flex-col"
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 shrink-0 border-b"
-        style={{ borderColor: 'rgb(var(--canvas-border))' }}
-      >
-        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-          Result Detail
-        </span>
-        <button
-          onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded"
-          style={{ color: 'rgb(var(--canvas-fg-3))' }}
-          aria-label="Close detail panel"
-        >
-          <XMarkIcon className="w-4 h-4" />
-        </button>
-      </div>
+      {result && (
+        <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
+          {/* Metadata grid */}
+          <div className="flex flex-col gap-2.5">
+            {[
+              { label: 'Source', value: result.adapter_id },
+              { label: 'Domain', value: capitalize(result.domain), color: domainColor },
+              { label: 'Chunk type', value: result.chunk_type },
+              { label: 'Score', value: result.similarity_score.toFixed(4) },
+              { label: 'Version', value: String(result.source_version_id) },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-start justify-between gap-4">
+                <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  {label}
+                </span>
+                <span
+                  className="text-xs font-medium text-right"
+                  style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
+                >
+                  {value}
+                </span>
+              </div>
+            ))}
 
-      <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
-        {/* Metadata grid */}
-        <div className="flex flex-col gap-2.5">
-          {[
-            { label: 'Source', value: result.adapter_id },
-            { label: 'Domain', value: capitalize(result.domain), color: domainColor },
-            { label: 'Chunk type', value: result.chunk_type },
-            { label: 'Score', value: result.similarity_score.toFixed(4) },
-            { label: 'Version', value: String(result.source_version_id) },
-          ].map(({ label, value, color }) => (
-            <div key={label} className="flex items-start justify-between gap-4">
-              <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {label}
-              </span>
+            {/* Hash (full row, monospace) */}
+            <div className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
               <span
-                className="text-xs font-medium text-right"
-                style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
+                className="text-[11px] font-mono break-all"
+                style={{ color: 'rgb(var(--canvas-fg-2))' }}
               >
-                {value}
+                {result.chunk_hash}
               </span>
             </div>
-          ))}
 
-          {/* Hash (full row, monospace) */}
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
-            <span
-              className="text-[11px] font-mono break-all"
-              style={{ color: 'rgb(var(--canvas-fg-2))' }}
-            >
-              {result.chunk_hash}
-            </span>
+            {/* Source ID */}
+            <div className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
+              <span
+                className="text-[11px] font-mono break-all"
+                style={{ color: 'rgb(var(--canvas-fg-2))' }}
+              >
+                {result.source_id}
+              </span>
+            </div>
           </div>
 
-          {/* Source ID */}
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
-            <span
-              className="text-[11px] font-mono break-all"
+          {/* Divider */}
+          <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
+
+          {/* Full content */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
+              Full Content
+            </span>
+            <p
+              className="text-xs leading-relaxed whitespace-pre-wrap"
               style={{ color: 'rgb(var(--canvas-fg-2))' }}
             >
-              {result.source_id}
-            </span>
+              {fullContent}
+            </p>
+          </div>
+
+          {/* Footer action */}
+          <div className="pt-4 border-t" style={{ borderColor: 'rgb(var(--canvas-border))' }}>
+            <button
+              onClick={onViewInBrowser}
+              className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+              style={{ color: domainColor }}
+            >
+              <Icon name="send" size={14} />
+              View in Browser
+            </button>
           </div>
         </div>
-
-        {/* Divider */}
-        <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
-
-        {/* Full content */}
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-            Full Content
-          </span>
-          <p
-            className="text-xs leading-relaxed whitespace-pre-wrap"
-            style={{ color: 'rgb(var(--canvas-fg-2))' }}
-          >
-            {fullContent}
-          </p>
-        </div>
-      </div>
-
-      {/* Footer action */}
-      <div
-        className="px-4 py-3 shrink-0 border-t"
-        style={{ borderColor: 'rgb(var(--canvas-border))' }}
-      >
-        <button
-          onClick={onViewInBrowser}
-          className="flex items-center gap-1.5 text-xs font-medium transition-colors"
-          style={{ color: domainColor }}
-        >
-          <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-          View in Browser
-        </button>
-      </div>
-    </div>
+      )}
+    </Drawer>
   );
 }
 
@@ -362,7 +313,9 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 56, height: 56, background: `rgb(var(--accent-primary) / 0.1)` }}
       >
-        <MagnifyingGlassIcon className="w-7 h-7" style={{ color: 'rgb(var(--accent-primary))' }} />
+        <span style={{ color: 'rgb(var(--accent-primary))' }}>
+          <Icon name="search" size={28} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
@@ -389,7 +342,9 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
               (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
             }}
           >
-            <ArrowRightIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="arrowRight" size={14} />
+            </span>
             <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               {q}
             </span>
@@ -406,6 +361,7 @@ export default function SearchPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
+  const { showToast } = useToast();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
@@ -493,6 +449,18 @@ export default function SearchPage() {
 
   const { data, isLoading, error } = useSearch(search);
   const results = data?.results ?? [];
+
+  // Show Toast on search errors
+  useEffect(() => {
+    if (error) {
+      showToast({
+        title: 'Search failed',
+        subtitle: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'error',
+        duration: 4000,
+      });
+    }
+  }, [error, showToast]);
 
   // Keyboard navigation on the results list
   const handleKeyDown = useCallback(
@@ -587,7 +555,9 @@ export default function SearchPage() {
         }}
         onClick={() => inputRef.current?.focus()}
       >
-        <MagnifyingGlassIcon className="w-5 h-5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+        <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          <Icon name="search" size={20} />
+        </span>
         <input
           ref={inputRef}
           type="text"
@@ -612,8 +582,8 @@ export default function SearchPage() {
           />
         )}
         {inputValue && !isLoading && (
-          <button onClick={handleClear} aria-label="Clear search">
-            <XMarkIcon className="w-4 h-4" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <button onClick={handleClear} aria-label="Clear search" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="x" size={16} />
           </button>
         )}
         <kbd
@@ -624,32 +594,26 @@ export default function SearchPage() {
         </kbd>
       </div>
 
-      {/* Domain filter chips */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-0.5 shrink-0">
-        <span className="text-xs shrink-0 mr-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          Filter:
-        </span>
-        <DomainChip
-          domain="all"
-          active={!selectedDomain}
-          onClick={() => handleDomainSelect('')}
+      {/* Domain filter TabBar */}
+      <div className="shrink-0">
+        <TabBar
+          tabs={[
+            { id: '', label: 'All Domains' },
+            ...SEARCH_DOMAINS.map((domain) => ({
+              id: domain,
+              label: capitalize(domain),
+            })),
+          ]}
+          activeTabId={selectedDomain}
+          onSelectTab={handleDomainSelect}
         />
-        {SEARCH_DOMAINS.map((d) => (
-          <DomainChip
-            key={d}
-            domain={d}
-            active={selectedDomain === d}
-            onClick={() => handleDomainSelect(selectedDomain === d ? '' : d)}
-          />
-        ))}
       </div>
 
       {/* Main area */}
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Results list */}
         <div
-          className="flex flex-col gap-2 overflow-y-auto min-h-0"
-          style={{ width: selectedResult ? '58%' : '100%', transition: 'width 200ms ease' }}
+          className="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1"
         >
           {/* Error */}
           {error && (
@@ -723,16 +687,13 @@ export default function SearchPage() {
           )}
         </div>
 
-        {/* Detail panel */}
-        {selectedResult && (
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <DetailPanel
-              result={selectedResult}
-              onClose={() => setSelectedResult(null)}
-              onViewInBrowser={() => handleViewInBrowser(selectedResult)}
-            />
-          </div>
-        )}
+        {/* Detail drawer */}
+        <DetailDrawer
+          result={selectedResult}
+          isOpen={!!selectedResult}
+          onClose={() => setSelectedResult(null)}
+          onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
+        />
       </div>
     </div>
   );

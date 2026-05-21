@@ -1,11 +1,13 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { StatTile, StatGrid, Table, Button, StatusBadge, Badge, Select } from '@tinkermonkey/heimdall-ui';
 
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { useAdminConfig } from '../hooks/useAdminConfig';
 import { useAdminLogs } from '../hooks/useAdminLogs';
+import { useToast } from '../hooks/useToast';
 import { triggerAdapterSync } from '../api/client';
 import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
 import type { AdminAdapterStatus } from '../types/api';
@@ -49,225 +51,51 @@ function getAdapterHealth(
   return 'healthy';
 }
 
-const HEALTH_DOT: Record<AdapterHealth, string> = {
-  healthy: 'rgb(var(--status-ok))',
-  stale: 'rgb(var(--status-amber))',
-  error: 'rgb(var(--status-error))',
-  unknown: '#4B5563',
-};
+type BadgeColor = 'emerald' | 'amber' | 'rose' | 'neutral';
 
-const STATUS_BADGE: Record<AdapterHealth, { bg: string; text: string; label: string }> = {
-  healthy: { bg: '#052E16', text: 'rgb(var(--status-ok))', label: 'healthy' },
-  stale:   { bg: '#1C1A00', text: 'rgb(var(--status-amber))', label: 'stale' },
-  error:   { bg: '#2D1B1B', text: 'rgb(var(--status-error))',   label: 'error' },
-  unknown: { bg: '#1A1A1A', text: '#4B5563',          label: 'unknown' },
-};
-
-// ── Stat Card ──────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-  subColor,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  subColor?: string;
-}): ReactNode {
-  return (
-    <div
-      className="flex flex-col gap-1"
-      style={{
-        flex: 1,
-        background: '#161616',
-        borderRadius: 8,
-        border: '1px solid #1E1E1E',
-        padding: 14,
-        minWidth: 0,
-      }}
-    >
-      <span style={{ fontSize: 11, color: '#6B7280', fontFamily: 'Inter, sans-serif' }}>
-        {label}
-      </span>
-      <span style={{ fontSize: 22, fontWeight: 700, color: '#FFFFFF', fontFamily: 'Inter, sans-serif' }}>
-        {value}
-      </span>
-      <span style={{ fontSize: 11, color: subColor ?? '#4B5563', fontFamily: 'Inter, sans-serif' }}>
-        {sub}
-      </span>
-    </div>
-  );
+function healthToBadgeColor(health: AdapterHealth): BadgeColor {
+  switch (health) {
+    case 'healthy': return 'emerald';
+    case 'stale': return 'amber';
+    case 'error': return 'rose';
+    case 'unknown': return 'neutral';
+  }
 }
 
-// ── Adapter Row ────────────────────────────────────────────────────
-
-function AdapterRow({
-  adapter,
-  health,
-  onSync,
-  onReset,
-  syncingId,
-}: {
-  adapter: AdminAdapterStatus;
-  health: AdapterHealth;
-  onSync: (id: string) => void;
-  onReset: (adapter: AdminAdapterStatus) => void;
-  syncingId: string | null;
-}): ReactNode {
-  const dot = HEALTH_DOT[health];
-  const badge = STATUS_BADGE[health];
-  const isSyncing = syncingId === adapter.adapter_id;
-  const lastRunColor = health === 'error' ? 'rgb(var(--status-error))' : health === 'stale' ? 'rgb(var(--status-amber))' : '#9CA3AF';
-  const rowBg = health === 'error' ? '#1A0E0E' : 'transparent';
-
-  return (
-    <div
-      className="flex items-stretch"
-      style={{
-        height: 44,
-        background: rowBg,
-        borderBottom: '1px solid #1A1A1A',
-        width: '100%',
-      }}
-    >
-      {/* Adapter name + dot */}
-      <div
-        className="flex items-center gap-2 shrink-0"
-        style={{ width: 200, padding: '0 14px' }}
-      >
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: '50%',
-            background: dot,
-            flexShrink: 0,
-          }}
-        />
-        <span
-          className="truncate"
-          style={{ fontSize: 12, color: '#E5E7EB', fontFamily: 'Inter, sans-serif' }}
-        >
-          {adapter.adapter_id}
-        </span>
-      </div>
-
-      {/* Domain */}
-      <div
-        className="flex items-center"
-        style={{ width: 110, padding: '0 14px' }}
-      >
-        <span style={{ fontSize: 12, color: '#9CA3AF', fontFamily: 'Inter, sans-serif' }}>
-          {adapter.domain}
-        </span>
-      </div>
-
-      {/* Last run */}
-      <div
-        className="flex items-center"
-        style={{ width: 160, padding: '0 14px' }}
-      >
-        <span style={{ fontSize: 12, color: lastRunColor, fontFamily: 'Inter, sans-serif' }}>
-          {formatRelativeTime(adapter.last_run)}
-        </span>
-      </div>
-
-      {/* Items */}
-      <div
-        className="flex items-center"
-        style={{ width: 90, padding: '0 14px' }}
-      >
-        <span style={{ fontSize: 12, color: adapter.active_chunk_count > 0 ? '#9CA3AF' : '#4B5563', fontFamily: 'Inter, sans-serif' }}>
-          {adapter.active_chunk_count > 0 ? adapter.active_chunk_count.toLocaleString() : '—'}
-        </span>
-      </div>
-
-      {/* Status badge */}
-      <div
-        className="flex items-center"
-        style={{ width: 110, padding: '0 14px' }}
-      >
-        <div
-          style={{
-            background: badge.bg,
-            borderRadius: 10,
-            padding: '2px 8px',
-          }}
-        >
-          <span style={{ fontSize: 10, color: badge.text, fontFamily: 'Inter, sans-serif' }}>
-            {badge.label}
-          </span>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div
-        className="flex items-center gap-2 flex-1"
-        style={{ padding: '0 14px' }}
-      >
-        {/* Primary action */}
-        <button
-          onClick={() => onSync(adapter.adapter_id)}
-          disabled={isSyncing}
-          style={{
-            background: health === 'error' ? '#2D1B1B' : health === 'stale' ? '#1C1A00' : '#1A1A1A',
-            borderRadius: 4,
-            padding: '4px 10px',
-            border: 'none',
-            cursor: isSyncing ? 'default' : 'pointer',
-            opacity: isSyncing ? 0.6 : 1,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 11,
-              color: health === 'error' ? 'rgb(var(--status-error))' : health === 'stale' ? 'rgb(var(--status-amber))' : '#9CA3AF',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            {isSyncing ? 'Syncing…' : health === 'error' ? 'Retry' : health === 'stale' ? 'Force Sync' : 'Re-sync'}
-          </span>
-        </button>
-
-        {/* Reset button */}
-        <button
-          onClick={() => onReset(adapter)}
-          style={{
-            background: '#1A1A1A',
-            borderRadius: 4,
-            padding: '4px 10px',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-        >
-          <span style={{ fontSize: 11, color: '#6B7280', fontFamily: 'Inter, sans-serif' }}>
-            Reset
-          </span>
-        </button>
-      </div>
-    </div>
-  );
+function getSyncButtonLabel(health: AdapterHealth, isSyncing: boolean): string {
+  if (isSyncing) return 'Syncing…';
+  switch (health) {
+    case 'error': return 'Retry';
+    case 'stale': return 'Force Sync';
+    default: return 'Re-sync';
+  }
 }
-
-// ── Config Row ─────────────────────────────────────────────────────
 
 function ConfigRow({ label, value, masked }: { label: string; value: string; masked?: boolean }): ReactNode {
   return (
     <div
       className="flex items-center"
-      style={{ borderBottom: '1px solid #1A1A1A', padding: '10px 14px', gap: 12 }}
+      style={{
+        borderBottom: `1px solid rgb(var(--shell-border))`,
+        padding: '10px 14px',
+        gap: 12,
+      }}
     >
       <span
-        style={{ width: 200, fontSize: 12, color: '#6B7280', fontFamily: 'Inter, sans-serif', flexShrink: 0 }}
+        style={{
+          width: 200,
+          fontSize: 12,
+          color: 'rgb(var(--shell-fg-3))',
+          fontFamily: 'Inter, sans-serif',
+          flexShrink: 0,
+        }}
       >
         {label}
       </span>
       <span
         style={{
           fontSize: 12,
-          color: masked ? '#4B5563' : '#E5E7EB',
+          color: masked ? 'rgb(var(--shell-fg-4))' : 'rgb(var(--shell-fg-1))',
           fontFamily: masked ? 'Inter, sans-serif' : 'monospace',
           letterSpacing: masked ? 1 : 0,
         }}
@@ -282,37 +110,40 @@ function ConfigRow({ label, value, masked }: { label: string; value: string; mas
 
 export default function AdminPage(): ReactNode {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const healthQuery = useHealth();
   const adminAdaptersQuery = useAdminAdapters();
   const adminConfigQuery = useAdminConfig();
   const [logsPage, setLogsPage] = useState(0);
-  const logsLimit = 30;
+  const [logsLimit, setLogsLimit] = useState(30);
   const logsQuery = useAdminLogs(logsLimit, logsPage * logsLimit);
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<AdminAdapterStatus | null>(null);
-  const [syncFeedback, setSyncFeedback] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
 
   const syncMutation = useMutation({
     mutationFn: (adapterId: string) => triggerAdapterSync(adapterId),
     onMutate: (adapterId) => {
       setSyncingId(adapterId);
-      setSyncFeedback(null);
     },
     onSuccess: (data) => {
       setSyncingId(null);
-      setSyncFeedback({ id: data.adapter_id, ok: data.triggered, msg: data.message });
-      queryClient.invalidateQueries({ queryKey: ['admin-adapters'] });
-      setTimeout(() => setSyncFeedback(null), 6000);
-    },
-    onError: (err, adapterId) => {
-      setSyncingId(null);
-      setSyncFeedback({
-        id: adapterId,
-        ok: false,
-        msg: err instanceof Error ? err.message : 'Sync failed',
+      showToast({
+        title: data.triggered ? 'Sync started' : 'Sync already in progress',
+        subtitle: `Adapter: ${data.adapter_id}`,
+        variant: data.triggered ? 'success' : 'warning',
+        duration: 3000,
       });
-      setTimeout(() => setSyncFeedback(null), 6000);
+      queryClient.invalidateQueries({ queryKey: ['admin-adapters'] });
+    },
+    onError: (err) => {
+      setSyncingId(null);
+      showToast({
+        title: 'Sync failed',
+        subtitle: err instanceof Error ? err.message : 'Unknown error',
+        variant: 'error',
+        duration: 4000,
+      });
     },
   });
 
@@ -343,10 +174,20 @@ export default function AdminPage(): ReactNode {
     return m;
   }, [adapters, errorAdapterIds]);
 
-  const errorCount = Array.from(adapterHealthMap.values()).filter(h => h === 'error').length;
-  const staleCount = Array.from(adapterHealthMap.values()).filter(h => h === 'stale').length;
+  const adapterHealthCounts = useMemo(() => {
+    let errorCount = 0;
+    let staleCount = 0;
+    for (const health of adapterHealthMap.values()) {
+      if (health === 'error') errorCount++;
+      if (health === 'stale') staleCount++;
+    }
+    return { errorCount, staleCount };
+  }, [adapterHealthMap]);
 
-  const totalChunks = adapters.reduce((s, a) => s + a.active_chunk_count, 0);
+  const totalChunkCount = useMemo(() => {
+    return adapters.reduce((sum, adapter) => sum + (adapter.active_chunk_count ?? 0), 0);
+  }, [adapters]);
+
   const totalLogs = logsQuery.data?.total ?? 0;
   const totalLogPages = Math.ceil(totalLogs / logsLimit);
 
@@ -360,22 +201,51 @@ export default function AdminPage(): ReactNode {
         className="flex items-center shrink-0 px-5"
         style={{
           height: 52,
-          background: '#111111',
-          borderBottom: '1px solid #1A1A1A',
+          background: 'rgb(var(--shell-bg-2))',
+          borderBottom: `1px solid rgb(var(--shell-border))`,
           gap: 12,
         }}
       >
         <span
           className="flex-1 font-semibold"
-          style={{ fontSize: 16, color: '#FFFFFF', fontFamily: 'Inter, sans-serif' }}
+          style={{ fontSize: 16, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
         >
           Admin
         </span>
-        {health && (
+        {healthQuery.isError ? (
           <div
             className="flex items-center"
             style={{
-              background: isSystemHealthy ? '#052E16' : '#2D1B1B',
+              background: 'rgb(var(--status-error) / 0.08)',
+              borderRadius: 6,
+              padding: '5px 12px',
+              gap: 6,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: 'rgb(var(--status-error))',
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 12,
+                color: 'rgb(var(--status-error))',
+                fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              Health check failed
+            </span>
+          </div>
+        ) : health && (
+          <div
+            className="flex items-center"
+            style={{
+              background: isSystemHealthy ? 'rgb(var(--status-ok) / 0.08)' : 'rgb(var(--status-error) / 0.08)',
               borderRadius: 6,
               padding: '5px 12px',
               gap: 6,
@@ -406,356 +276,403 @@ export default function AdminPage(): ReactNode {
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* ── Stat Cards ── */}
-        <div className="flex gap-3">
-          <StatCard
+        {/* ── Stat Grid ── */}
+        <StatGrid columns={4} className="shrink-0">
+          <StatTile
             label="SQLite DB"
             value={config ? formatBytes(config.db_size_bytes) : '—'}
-            sub={totalChunks > 0 ? `${totalChunks.toLocaleString()} chunks` : 'No data'}
           />
-          <StatCard
-            label="ChromaDB"
-            value={health ? `${(health.vector_count / 1000).toFixed(1)}K` : '—'}
-            sub={health ? `${health.vector_count.toLocaleString()} vectors` : 'Loading…'}
-          />
-          <StatCard
-            label="Adapters"
-            value={adapters.length > 0 ? `${adapters.length} configured` : '—'}
-            sub={
-              errorCount > 0 || staleCount > 0
-                ? `${errorCount > 0 ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : ''}${errorCount > 0 && staleCount > 0 ? ' · ' : ''}${staleCount > 0 ? `${staleCount} stale` : ''}`
-                : 'All healthy'
+          <StatTile
+            label="Total Chunks"
+            value={totalChunkCount > 0 ? totalChunkCount.toLocaleString() : '—'}
+            delta={
+              adapterHealthCounts.staleCount > 0
+                ? { value: adapterHealthCounts.staleCount, direction: 'down', label: 'stale' }
+                : undefined
             }
-            subColor={errorCount > 0 ? 'rgb(var(--status-error))' : staleCount > 0 ? 'rgb(var(--status-amber))' : '#4B5563'}
           />
-          <StatCard
-            label="Embedding Model"
-            value={health ? health.embedding_model.replace(/^all-/, '').split('-').slice(0, 2).join('-') : '—'}
-            sub={health ? `${health.embedding_model} · ${health.embedding_dimension}d` : 'Loading…'}
+          <StatTile
+            label="Adapters"
+            value={adapters.length > 0 ? `${adapters.length}` : '—'}
+            delta={
+              adapters.length > 0 && adapterHealthCounts.errorCount > 0
+                ? { value: adapterHealthCounts.errorCount, direction: 'down', label: 'errors' }
+                : undefined
+            }
           />
-        </div>
+          <StatTile
+            label="Embedding Dimension"
+            value={health ? `${health.embedding_dimension}d` : '—'}
+          />
+        </StatGrid>
 
         {/* ── Adapter Status Table ── */}
         <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF', fontFamily: 'Inter, sans-serif' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}>
             Adapter Status
           </span>
-          <div
-            style={{
-              background: '#161616',
-              borderRadius: 8,
-              border: '1px solid #1E1E1E',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Header */}
+          {adminAdaptersQuery.isLoading ? (
             <div
-              className="flex"
               style={{
-                height: 36,
-                background: '#111111',
-                borderBottom: '1px solid #1A1A1A',
+                background: 'rgb(var(--shell-surface))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--shell-border))`,
+                padding: '16px',
               }}
             >
-              {[
-                { label: 'ADAPTER', width: 200 },
-                { label: 'DOMAIN', width: 110 },
-                { label: 'LAST RUN', width: 160 },
-                { label: 'ITEMS', width: 90 },
-                { label: 'STATUS', width: 110 },
-                { label: 'ACTIONS', width: undefined },
-              ].map(col => (
-                <div
-                  key={col.label}
-                  className="flex items-center"
-                  style={{
-                    width: col.width,
-                    flex: col.width ? undefined : 1,
-                    padding: '0 14px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: '#4B5563',
-                      fontFamily: 'Inter, sans-serif',
-                    }}
-                  >
-                    {col.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Rows */}
-            {adminAdaptersQuery.isLoading ? (
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-2">
                 {[1, 2, 3].map(i => (
                   <div
                     key={i}
-                    className="animate-pulse"
-                    style={{ height: 44, borderBottom: '1px solid #1A1A1A' }}
+                    className="h-10 rounded animate-pulse"
+                    style={{ background: 'rgb(var(--shell-border))' }}
                   />
                 ))}
               </div>
-            ) : adminAdaptersQuery.isError ? (
-              <div
-                className="flex items-center justify-center py-6"
-                style={{ color: 'rgb(var(--status-error))', fontSize: 13 }}
-              >
-                Failed to load adapter status
-              </div>
-            ) : adapters.length === 0 ? (
-              <div
-                className="flex items-center justify-center py-8"
-                style={{ color: '#4B5563', fontSize: 13 }}
-              >
-                No adapters registered
-              </div>
-            ) : (
-              adapters.map(adapter => (
-                <AdapterRow
-                  key={adapter.adapter_id}
-                  adapter={adapter}
-                  health={adapterHealthMap.get(adapter.adapter_id) ?? 'unknown'}
-                  onSync={id => syncMutation.mutate(id)}
-                  onReset={setResetTarget}
-                  syncingId={syncingId}
-                />
-              ))
-            )}
-          </div>
-
-          {/* Sync feedback */}
-          {syncFeedback && (
+            </div>
+          ) : adminAdaptersQuery.isError ? (
             <div
               style={{
-                padding: '8px 12px',
-                borderRadius: 6,
-                background: syncFeedback.ok ? '#052E16' : '#1A0E0E',
-                border: `1px solid ${syncFeedback.ok ? '#14532D' : '#3B1515'}`,
+                background: 'rgb(var(--shell-surface))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--shell-border))`,
+                padding: '24px',
+                textAlign: 'center',
+                color: 'rgb(var(--status-error))',
+                fontSize: 13,
               }}
             >
-              <span
-                style={{
-                  fontSize: 12,
-                  color: syncFeedback.ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
-                  fontFamily: 'Inter, sans-serif',
-                }}
-              >
-                {syncFeedback.id}: {syncFeedback.msg}
-              </span>
+              Failed to load adapter status
+            </div>
+          ) : adapters.length === 0 ? (
+            <div
+              style={{
+                background: 'rgb(var(--shell-surface))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--shell-border))`,
+                padding: '32px',
+                textAlign: 'center',
+                color: 'rgb(var(--shell-fg-4))',
+                fontSize: 13,
+              }}
+            >
+              No adapters registered
+            </div>
+          ) : (
+            <div
+              style={{
+                background: 'rgb(var(--shell-surface))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--shell-border))`,
+                overflow: 'hidden',
+              }}
+            >
+              <Table<AdminAdapterStatus & { health: AdapterHealth; _actions: string }>
+                data={adapters.map(adapter => ({
+                  ...adapter,
+                  health: adapterHealthMap.get(adapter.adapter_id) ?? 'unknown',
+                  _actions: '',
+                }))}
+                rowKey="adapter_id"
+                columns={[
+                  {
+                    key: 'adapter_id',
+                    label: 'ADAPTER',
+                    width: '200px',
+                    render: (value, row) => (
+                      <div className="flex items-center gap-2">
+                        <Badge color={healthToBadgeColor(row.health)} pulse />
+                        <span className="truncate">{String(value)}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'domain',
+                    label: 'DOMAIN',
+                    width: '110px',
+                    render: (value) => <span>{String(value)}</span>,
+                  },
+                  {
+                    key: 'last_run',
+                    label: 'LAST RUN',
+                    width: '160px',
+                    render: (value, row) => (
+                      <span
+                        style={{
+                          color:
+                            row.health === 'error'
+                              ? 'rgb(var(--status-error))'
+                              : row.health === 'stale'
+                                ? 'rgb(var(--status-amber))'
+                                : 'rgb(var(--shell-fg-2))',
+                        }}
+                      >
+                        {formatRelativeTime(value as string | null)}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'active_chunk_count',
+                    label: 'ITEMS',
+                    width: '90px',
+                    render: (value) => {
+                      const count = value as number;
+                      return (
+                        <span style={{ color: count > 0 ? 'rgb(var(--shell-fg-2))' : 'rgb(var(--shell-fg-4))' }}>
+                          {count > 0 ? count.toLocaleString() : '—'}
+                        </span>
+                      );
+                    },
+                  },
+                  {
+                    key: 'health',
+                    label: 'STATUS',
+                    width: '110px',
+                    render: (value) => <StatusBadge color={healthToBadgeColor(value as AdapterHealth)}>{String(value)}</StatusBadge>,
+                  },
+                  {
+                    key: '_actions',
+                    label: 'ACTIONS',
+                    render: (_, row) => (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant={row.health === 'error' ? 'danger' : 'secondary'}
+                          onClick={() => syncMutation.mutate(row.adapter_id)}
+                          disabled={syncingId === row.adapter_id}
+                        >
+                          {getSyncButtonLabel(row.health, syncingId === row.adapter_id)}
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setResetTarget(row)}>
+                          Reset
+                        </Button>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
             </div>
           )}
         </div>
 
         {/* ── System Configuration ── */}
-        {config && (
-          <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
-            <span
-              style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF', fontFamily: 'Inter, sans-serif' }}
-            >
-              System Configuration
-            </span>
-            <div
-              style={{
-                background: '#161616',
-                borderRadius: 8,
-                border: '1px solid #1E1E1E',
-                overflow: 'hidden',
-              }}
-            >
-              <ConfigRow label="Embedding Model" value={config.embedding_model} />
-              <ConfigRow label="Reranker" value={config.enable_reranker ? config.reranker_model : 'Disabled'} />
-              <ConfigRow label="SQLite Path" value={config.sqlite_db_path} />
-              <ConfigRow label="ChromaDB Path" value={config.chromadb_path} />
-              <ConfigRow label="Webhook Secret" value="••••••" masked />
-              <ConfigRow label="Helper Service" value={config.helper_url_set ? 'Configured' : 'Not configured'} />
-              <ConfigRow label="Oura Adapter" value={config.helper_oura_enabled ? 'Enabled' : 'Disabled'} />
-              <ConfigRow label="Filesystem Adapter" value={config.helper_filesystem_enabled ? 'Enabled' : 'Disabled'} />
-              <ConfigRow
-                label="YouTube Adapters"
-                value={config.youtube_enabled ? 'Enabled' : 'Disabled'}
-              />
-            </div>
+        <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
+          <span
+            style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
+          >
+            System Configuration
+          </span>
+          <div
+            style={{
+              background: 'rgb(var(--shell-surface))',
+              borderRadius: 8,
+              border: `1px solid rgb(var(--shell-border))`,
+              overflow: 'hidden',
+            }}
+          >
+            {adminConfigQuery.isLoading ? (
+              <div className="flex flex-col gap-1 p-4">
+                {[1, 2, 3].map(i => (
+                  <div
+                    key={i}
+                    className="h-8 rounded animate-pulse"
+                    style={{ background: 'rgb(var(--shell-border))' }}
+                  />
+                ))}
+              </div>
+            ) : adminConfigQuery.isError ? (
+              <div
+                style={{
+                  padding: '24px',
+                  textAlign: 'center',
+                  color: 'rgb(var(--status-error))',
+                  fontSize: 13,
+                }}
+              >
+                Failed to load system configuration
+              </div>
+            ) : config ? (
+              <>
+                <ConfigRow label="Embedding Model" value={config.embedding_model} />
+                <ConfigRow label="Reranker" value={config.enable_reranker ? config.reranker_model : 'Disabled'} />
+                <ConfigRow label="SQLite Path" value={config.sqlite_db_path} />
+                <ConfigRow label="ChromaDB Path" value={config.chromadb_path} />
+                <ConfigRow label="Webhook Secret" value="••••••" masked />
+                <ConfigRow label="Helper Service" value={config.helper_url_set ? 'Configured' : 'Not configured'} />
+                <ConfigRow label="Oura Adapter" value={config.helper_oura_enabled ? 'Enabled' : 'Disabled'} />
+                <ConfigRow label="Filesystem Adapter" value={config.helper_filesystem_enabled ? 'Enabled' : 'Disabled'} />
+                <ConfigRow
+                  label="YouTube Adapters"
+                  value={config.youtube_enabled ? 'Enabled' : 'Disabled'}
+                />
+              </>
+            ) : null}
           </div>
-        )}
+        </div>
 
         {/* ── Sync Log ── */}
         <div className="flex flex-col gap-2" style={{ flex: '0 0 auto', paddingBottom: 16 }}>
           <div className="flex items-center gap-3">
             <span
-              style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF', fontFamily: 'Inter, sans-serif' }}
+              style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
             >
               Sync Log
             </span>
             {totalLogs > 0 && (
-              <span style={{ fontSize: 11, color: '#4B5563', fontFamily: 'Inter, sans-serif' }}>
+              <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
                 {totalLogs.toLocaleString()} entries
               </span>
             )}
           </div>
           <div
             style={{
-              background: '#161616',
+              background: 'rgb(var(--shell-surface))',
               borderRadius: 8,
-              border: '1px solid #1E1E1E',
+              border: `1px solid rgb(var(--shell-border))`,
               overflow: 'hidden',
             }}
           >
-            {/* Log table header */}
-            <div
-              className="flex"
-              style={{
-                height: 32,
-                background: '#111111',
-                borderBottom: '1px solid #1A1A1A',
-              }}
-            >
-              {['OPERATION', 'CHUNK HASH', 'TIMESTAMP'].map((label, i) => (
-                <div
-                  key={label}
-                  className="flex items-center"
-                  style={{
-                    width: i === 0 ? 100 : i === 1 ? undefined : 180,
-                    flex: i === 1 ? 1 : undefined,
-                    padding: '0 14px',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: '#4B5563',
-                      fontFamily: 'Inter, sans-serif',
-                    }}
-                  >
-                    {label}
-                  </span>
-                </div>
-              ))}
-            </div>
-
             {logsQuery.isLoading ? (
-              <div className="flex flex-col">
+              <div className="flex flex-col gap-1 p-4">
                 {[1, 2, 3].map(i => (
                   <div
                     key={i}
-                    className="animate-pulse"
-                    style={{ height: 36, borderBottom: '1px solid #1A1A1A' }}
+                    className="h-8 rounded animate-pulse"
+                    style={{ background: 'rgb(var(--shell-border))' }}
                   />
                 ))}
               </div>
             ) : logsQuery.isError ? (
               <div
-                className="flex items-center justify-center py-5"
-                style={{ color: 'rgb(var(--status-error))', fontSize: 13 }}
+                style={{
+                  padding: '20px',
+                  textAlign: 'center',
+                  color: 'rgb(var(--status-error))',
+                  fontSize: 13,
+                }}
               >
                 Failed to load sync log
               </div>
             ) : !logsQuery.data?.entries.length ? (
               <div
-                className="flex items-center justify-center py-6"
-                style={{ color: '#4B5563', fontSize: 13 }}
+                style={{
+                  padding: '24px',
+                  textAlign: 'center',
+                  color: 'rgb(var(--shell-fg-4))',
+                  fontSize: 13,
+                }}
               >
                 No sync log entries
               </div>
             ) : (
-              logsQuery.data.entries.map(entry => (
-                <div
-                  key={entry.id}
-                  className="flex items-center"
-                  style={{ height: 36, borderBottom: '1px solid #1A1A1A' }}
-                >
-                  <div style={{ width: 100, padding: '0 14px' }}>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontFamily: 'Inter, sans-serif',
-                        color: entry.operation === 'insert' ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {entry.operation.charAt(0).toUpperCase() + entry.operation.slice(1)}
-                    </span>
-                  </div>
-                  <div style={{ flex: 1, padding: '0 14px', minWidth: 0 }}>
-                    <span
-                      className="block truncate"
-                      style={{
-                        fontSize: 11,
-                        color: '#6B7280',
-                        fontFamily: 'monospace',
-                      }}
-                    >
-                      {entry.chunk_hash}
-                    </span>
-                  </div>
-                  <div style={{ width: 180, padding: '0 14px' }}>
-                    <span style={{ fontSize: 11, color: '#4B5563', fontFamily: 'Inter, sans-serif' }}>
-                      {entry.synced_at
-                        ? new Date(entry.synced_at).toLocaleString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : '—'}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-
-            {/* Pagination */}
-            {totalLogPages > 1 && (
-              <div
-                className="flex items-center justify-between"
-                style={{
-                  padding: '8px 14px',
-                  borderTop: '1px solid #1A1A1A',
-                  background: '#111111',
-                }}
-              >
-                <span style={{ fontSize: 11, color: '#4B5563', fontFamily: 'Inter, sans-serif' }}>
-                  Page {logsPage + 1} of {totalLogPages}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setLogsPage(p => Math.max(0, p - 1))}
-                    disabled={logsPage === 0}
+              <>
+                <Table
+                  data={logsQuery.data.entries}
+                  rowKey="id"
+                  columns={[
+                    {
+                      key: 'operation',
+                      label: 'OPERATION',
+                      width: '100px',
+                      render: (value) => (
+                        <span
+                          style={{
+                            color: value === 'insert' ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {String(value).charAt(0).toUpperCase() + String(value).slice(1)}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: 'chunk_hash',
+                      label: 'CHUNK HASH',
+                      render: (value) => (
+                        <span
+                          className="block truncate"
+                          style={{
+                            color: 'rgb(var(--shell-fg-3))',
+                            fontFamily: 'monospace',
+                            fontSize: '11px',
+                          }}
+                        >
+                          {value}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: 'synced_at',
+                      label: 'TIMESTAMP',
+                      width: '180px',
+                      render: (value) => (
+                        <span style={{ color: 'rgb(var(--shell-fg-4))', fontSize: '11px' }}>
+                          {value
+                            ? new Date(value as string).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+                {totalLogPages > 1 && (
+                  <div
+                    className="flex items-center justify-between"
                     style={{
-                      padding: '3px 10px',
-                      borderRadius: 4,
-                      background: '#1A1A1A',
-                      border: 'none',
-                      cursor: logsPage === 0 ? 'default' : 'pointer',
-                      opacity: logsPage === 0 ? 0.4 : 1,
+                      padding: '8px 14px',
+                      borderTop: `1px solid rgb(var(--shell-border))`,
+                      background: 'rgb(var(--shell-bg-2))',
                     }}
                   >
-                    <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'Inter, sans-serif' }}>
-                      Prev
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setLogsPage(p => Math.min(totalLogPages - 1, p + 1))}
-                    disabled={logsPage >= totalLogPages - 1}
-                    style={{
-                      padding: '3px 10px',
-                      borderRadius: 4,
-                      background: '#1A1A1A',
-                      border: 'none',
-                      cursor: logsPage >= totalLogPages - 1 ? 'default' : 'pointer',
-                      opacity: logsPage >= totalLogPages - 1 ? 0.4 : 1,
-                    }}
-                  >
-                    <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'Inter, sans-serif' }}>
-                      Next
-                    </span>
-                  </button>
-                </div>
-              </div>
+                    <div className="flex items-center gap-3">
+                      <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
+                        Page {logsPage + 1} of {totalLogPages}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <label style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
+                          Per page:
+                        </label>
+                        <Select
+                          value={String(logsLimit)}
+                          onChange={(e) => {
+                            setLogsLimit(parseInt(e.target.value, 10));
+                            setLogsPage(0);
+                          }}
+                          style={{ fontSize: 11 }}
+                        >
+                          <option value="10">10</option>
+                          <option value="20">20</option>
+                          <option value="30">30</option>
+                          <option value="50">50</option>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setLogsPage(p => Math.max(0, p - 1))}
+                        disabled={logsPage === 0}
+                      >
+                        Prev
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setLogsPage(p => Math.min(totalLogPages - 1, p + 1))}
+                        disabled={logsPage >= totalLogPages - 1}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

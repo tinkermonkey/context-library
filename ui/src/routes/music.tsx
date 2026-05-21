@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { MagnifyingGlassIcon, MusicalNoteIcon } from '@heroicons/react/24/outline';
+import { MusicalNoteIcon } from '@heroicons/react/24/outline';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -537,7 +538,9 @@ export default function MusicPage(): ReactNode {
                 padding: '0 10px',
               }}
             >
-              <MagnifyingGlassIcon className="w-3.5 h-3.5 shrink-0" style={{ color: '#4B5563' }} />
+              <span style={{ color: '#4B5563', flexShrink: 0 }}>
+                <Icon name="search" size={14} />
+              </span>
               <input
                 type="text"
                 value={searchText}

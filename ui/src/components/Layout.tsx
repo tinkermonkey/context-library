@@ -2,6 +2,10 @@ import type { ReactNode } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
 import { ShellLayout, type IconName } from '@tinkermonkey/heimdall-ui';
 import { HealthIndicator } from './HealthIndicator';
+import { CommandPaletteWrapper } from './CommandPaletteWrapper';
+import { useAdminAdapters } from '../hooks/useAdminAdapters';
+import { useHealth } from '../hooks/useHealth';
+import { ICON_MAP, PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM, type ValidRoute } from './layoutConfig';
 
 interface SidebarItem {
   id: string;
@@ -15,49 +19,14 @@ interface SidebarSection {
   items: SidebarItem[];
 }
 
-// Icon mapping from Heroicons to Heimdall IconName
-const ICON_MAP: Record<string, IconName> = {
-  dashboard: 'dashboard',
-  search: 'search',
-  notes: 'component',
-  messages: 'info',
-  events: 'calendar',
-  tasks: 'check',
-  health: 'heart',
-  documents: 'table',
-  people: 'user',
-  location: 'link',
-  music: 'palette',
-  admin: 'settings',
-};
+const VALID_ROUTES = new Set<ValidRoute>([
+  ...PRIMARY_NAV_ITEMS.map((item) => item.id),
+  ADMIN_NAV_ITEM.id,
+]);
 
-interface NavigationItem {
-  id: string;
-  label: string;
-  iconKey: string;
+function isValidRoute(value: string): value is ValidRoute {
+  return VALID_ROUTES.has(value as ValidRoute);
 }
-
-const PRIMARY_NAV: NavigationItem[] = [
-  { id: '/', label: 'Dashboard', iconKey: 'dashboard' },
-  { id: '/search', label: 'Search', iconKey: 'search' },
-  { id: '/notes', label: 'Notes', iconKey: 'notes' },
-  { id: '/messages', label: 'Messages', iconKey: 'messages' },
-  { id: '/events', label: 'Events', iconKey: 'events' },
-  { id: '/tasks', label: 'Tasks', iconKey: 'tasks' },
-  { id: '/health', label: 'Health', iconKey: 'health' },
-  { id: '/documents', label: 'Documents', iconKey: 'documents' },
-  { id: '/people', label: 'People', iconKey: 'people' },
-  { id: '/location', label: 'Location', iconKey: 'location' },
-  { id: '/music', label: 'Music', iconKey: 'music' },
-];
-
-const ADMIN_NAV: NavigationItem = {
-  id: '/admin',
-  label: 'Admin',
-  iconKey: 'admin',
-};
-
-type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
 
 interface PageMeta {
   title: string;
@@ -93,28 +62,34 @@ export function Layout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { location } = useRouterState();
   const path = location.pathname;
+  const { data: adaptersData } = useAdminAdapters(120_000);
+  const { data: healthData } = useHealth(120_000);
 
-  const isActive = (itemId: string) => {
+  const isActive = (itemId: string): boolean => {
     if (itemId === '/') return path === '/';
     return path === itemId || path.startsWith(itemId + '/');
   };
 
   const activeItemId = (() => {
     if (path === '/') return '/';
-    for (const item of [...PRIMARY_NAV, ADMIN_NAV]) {
+    for (const item of [...PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM]) {
       if (isActive(item.id)) return item.id;
     }
     return undefined;
   })();
 
   const handleSelectItem = (itemId: string) => {
-    router.navigate({ to: itemId as ValidRoute });
+    if (!isValidRoute(itemId)) {
+      console.error(`Invalid route: ${itemId}`);
+      return;
+    }
+    router.navigate({ to: itemId });
   };
 
   const sections: SidebarSection[] = [
     {
       title: 'Primary',
-      items: PRIMARY_NAV.map((item) => ({
+      items: PRIMARY_NAV_ITEMS.map((item) => ({
         id: item.id,
         label: item.label,
         icon: ICON_MAP[item.iconKey] as IconName,
@@ -124,9 +99,9 @@ export function Layout({ children }: { children: ReactNode }) {
       title: 'Admin',
       items: [
         {
-          id: ADMIN_NAV.id,
-          label: ADMIN_NAV.label,
-          icon: ICON_MAP[ADMIN_NAV.iconKey] as IconName,
+          id: ADMIN_NAV_ITEM.id,
+          label: ADMIN_NAV_ITEM.label,
+          icon: ICON_MAP[ADMIN_NAV_ITEM.iconKey] as IconName,
         },
       ],
     },
@@ -134,8 +109,33 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const { title, subtitle } = getPageMeta(path);
 
+  // Format last sync timestamp
+  const lastSyncTimestamp = (() => {
+    if (!healthData?.helper?.watermark) return 'Never';
+    const date = new Date(healthData.helper.watermark);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  })();
+
+  // Count active adapters
+  const activeAdapterCount = adaptersData?.adapters.length || 0;
+
+  // Statusbar left content
+  const statusbarLeft = (
+    <div className="text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
+      Last sync: {lastSyncTimestamp}
+    </div>
+  );
+
+  // Statusbar right content
+  const statusbarRight = (
+    <div className="text-xs" style={{ color: 'rgb(var(--shell-fg-3))' }}>
+      {activeAdapterCount} adapter{activeAdapterCount !== 1 ? 's' : ''}
+    </div>
+  );
+
   return (
     <div style={{ background: 'rgb(var(--canvas-bg))', height: '100vh' }}>
+      <CommandPaletteWrapper primaryNav={PRIMARY_NAV_ITEMS} adminNav={ADMIN_NAV_ITEM} />
       <ShellLayout
         appTitle={{ title: 'Context Library' }}
         sidebar={{
@@ -150,6 +150,10 @@ export function Layout({ children }: { children: ReactNode }) {
               <HealthIndicator />
             </div>
           ),
+        }}
+        statusbar={{
+          left: statusbarLeft,
+          right: statusbarRight,
         }}
       >
       {/* Subtitle */}

@@ -2,58 +2,17 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  CheckCircleIcon,
-  XMarkIcon,
-  CalendarIcon,
-  TagIcon,
-  UserGroupIcon,
-  ClockIcon,
-  FlagIcon,
-  AdjustmentsHorizontalIcon,
-  ExclamationTriangleIcon,
-} from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
-import type { ChunkResponse } from '../types/api';
+import type { ChunkResponse, TaskMetadata } from '../types/api';
+import { extractTaskMetadata } from '../types/api';
 
 const taskColor = getDomainColor('tasks'); // #F97316
 
 // ── Types ──────────────────────────────────────────────────────────
 
-interface TaskMeta {
-  task_id: string;
-  // Mirrors TaskMetadata.ALLOWED_STATUSES: 'open' | 'in-progress' | 'completed' | 'cancelled'
-  status: string;
-  title: string;
-  due_date: string | null;
-  // 1=Urgent, 2=High, 3=Medium, 4=Low; null if not set
-  priority: number | null;
-  // Python tuples serialize to JSON arrays via Pydantic model_dump()
-  dependencies: string[];
-  collaborators: string[];
-  date_first_observed: string;
-  source_type: string;
-}
-
-function extractTaskMeta(chunk: ChunkResponse): TaskMeta | null {
-  const dm = chunk.domain_metadata;
-  if (!dm) {
-    console.warn('[TasksView] chunk missing domain_metadata:', chunk.chunk_hash);
-    return null;
-  }
-  return {
-    task_id: typeof dm.task_id === 'string' ? dm.task_id : chunk.chunk_hash,
-    status: typeof dm.status === 'string' ? dm.status : 'open',
-    title: typeof dm.title === 'string' ? dm.title : 'Untitled Task',
-    due_date: typeof dm.due_date === 'string' ? dm.due_date : null,
-    priority: typeof dm.priority === 'number' ? dm.priority : null,
-    dependencies: Array.isArray(dm.dependencies) ? (dm.dependencies as string[]) : [],
-    collaborators: Array.isArray(dm.collaborators) ? (dm.collaborators as string[]) : [],
-    date_first_observed: typeof dm.date_first_observed === 'string' ? dm.date_first_observed : '',
-    source_type: typeof dm.source_type === 'string' ? dm.source_type : 'unknown',
-  };
-}
+type TaskMeta = TaskMetadata;
 
 // ── Status helpers ─────────────────────────────────────────────────
 
@@ -75,11 +34,11 @@ const STATUS_CONFIG: Record<DisplayStatus, {
   dotFill: string | null;
   dotStroke: string;
 }> = {
-  active:        { label: 'Active',      badgeBg: '#1F2937', badgeText: '#6B7280', dotFill: null,      dotStroke: '#6366F1' },
-  urgent:        { label: 'Urgent',      badgeBg: '#2D1B1B', badgeText: '#EF4444', dotFill: null,      dotStroke: '#EF4444' },
-  'in-progress': { label: 'In Progress', badgeBg: '#1C1A00', badgeText: '#F59E0B', dotFill: null,      dotStroke: '#F59E0B' },
-  done:          { label: 'Done',        badgeBg: '#052E16', badgeText: '#22C55E', dotFill: '#22C55E', dotStroke: '#22C55E' },
-  cancelled:     { label: 'Cancelled',   badgeBg: '#1F2937', badgeText: '#4B5563', dotFill: null,      dotStroke: '#4B5563' },
+  active:        { label: 'Active',      badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-2))', dotFill: null,      dotStroke: 'rgb(var(--accent-primary))' },
+  urgent:        { label: 'Urgent',      badgeBg: `rgb(var(--status-error) / 0.13)`, badgeText: 'rgb(var(--status-error))', dotFill: null,      dotStroke: 'rgb(var(--status-error))' },
+  'in-progress': { label: 'In Progress', badgeBg: `rgb(var(--status-amber) / 0.13)`, badgeText: 'rgb(var(--status-amber))', dotFill: null,      dotStroke: 'rgb(var(--status-amber))' },
+  done:          { label: 'Done',        badgeBg: `rgb(var(--status-ok) / 0.13)`, badgeText: 'rgb(var(--status-ok))', dotFill: 'rgb(var(--status-ok))', dotStroke: 'rgb(var(--status-ok))' },
+  cancelled:     { label: 'Cancelled',   badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-3))', dotFill: null,      dotStroke: 'rgb(var(--canvas-fg-3))' },
 };
 
 const PRIORITY_LABELS: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
@@ -232,7 +191,7 @@ function TaskRow({
         padding: '0 14px',
         borderRadius: 6,
         flexShrink: 0,
-        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : '#161616',
+        background: isSelected ? getDomainColorWithAlpha('tasks', '12') : 'rgb(var(--canvas-bg))',
         border: `1px solid ${isSelected ? getDomainColorWithAlpha('tasks', '40') : 'rgb(var(--canvas-border))'}`,
       }}
     >
@@ -252,7 +211,7 @@ function TaskRow({
       <div className="flex flex-col gap-0.5 flex-1 min-w-0">
         <span
           className="truncate"
-          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : '#E5E7EB' }}
+          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-fg-1))' }}
         >
           {meta.title}
         </span>
@@ -260,7 +219,7 @@ function TaskRow({
           {dueLabel && (
             <span className="shrink-0" style={{ fontSize: 11, color: dueColor }}>{dueLabel}</span>
           )}
-          <span className="truncate" style={{ fontSize: 11, color: '#4B5563' }}>
+          <span className="truncate" style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-3))' }}>
             {dueLabel ? '· ' : ''}{sourceLabel(meta.source_type)}
           </span>
         </div>
@@ -326,7 +285,7 @@ function DetailPanel({
           style={{ color: 'rgb(var(--canvas-fg-3))' }}
           aria-label="Close detail panel"
         >
-          <XMarkIcon className="w-4 h-4" />
+          <Icon name="x" size={16} />
         </button>
       </div>
 
@@ -337,7 +296,9 @@ function DetailPanel({
       >
         {/* Due date */}
         <div className="flex items-center gap-2">
-          <CalendarIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="calendar" size={14} />
+          </span>
           <span style={{ fontSize: 12, color: meta.due_date ? dueColor : 'rgb(var(--canvas-fg-3))' }}>
             {meta.due_date ? formatFullDate(meta.due_date) : 'No due date'}
           </span>
@@ -346,7 +307,9 @@ function DetailPanel({
         {/* Priority */}
         {meta.priority != null && (
           <div className="flex items-center gap-2">
-            <FlagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="alert" size={14} />
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {PRIORITY_LABELS[meta.priority] ?? `Priority ${meta.priority}`}
             </span>
@@ -355,14 +318,18 @@ function DetailPanel({
 
         {/* Source */}
         <div className="flex items-center gap-2">
-          <TagIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="filter" size={14} />
+          </span>
           <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
         </div>
 
         {/* Collaborators */}
         {meta.collaborators.length > 0 && (
           <div className="flex items-start gap-2">
-            <UserGroupIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="user" size={14} />
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
               {meta.collaborators.join(', ')}
             </span>
@@ -372,7 +339,9 @@ function DetailPanel({
         {/* Created */}
         {meta.date_first_observed && (
           <div className="flex items-center gap-2">
-            <ClockIcon className="w-3.5 h-3.5 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="clock" size={14} />
+            </span>
             <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
               Created {formatFullDate(meta.date_first_observed)}
             </span>
@@ -406,7 +375,9 @@ function EmptyState({ filtered }: { filtered: boolean }): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: getDomainColorWithAlpha('tasks', '20') }}
       >
-        <CheckCircleIcon className="w-8 h-8" style={{ color: taskColor }} />
+        <span style={{ color: taskColor }}>
+          <Icon name="check" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -431,7 +402,9 @@ function ErrorState(): ReactNode {
         className="flex items-center justify-center rounded-2xl"
         style={{ width: 64, height: 64, background: `rgb(var(--status-error) / 0.13)` }}
       >
-        <ExclamationTriangleIcon className="w-8 h-8" style={{ color: 'rgb(var(--status-error))' }} />
+        <span style={{ color: 'rgb(var(--status-error))' }}>
+          <Icon name="alert" size={32} />
+        </span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
@@ -500,7 +473,7 @@ export default function TasksPage(): ReactNode {
   const allTasks = useMemo(() => {
     const result: Array<{ chunk: ChunkResponse; meta: TaskMeta }> = [];
     for (const chunk of allChunks) {
-      const meta = extractTaskMeta(chunk);
+      const meta = extractTaskMetadata(chunk);
       if (meta) result.push({ chunk, meta });
     }
     return result;
@@ -541,15 +514,15 @@ export default function TasksPage(): ReactNode {
       {/* ── Top bar ── */}
       <div
         className="flex items-center gap-3 px-5 shrink-0"
-        style={{ height: 52, borderBottom: `1px solid #1A1A1A`, background: '#111111' }}
+        style={{ height: 52, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="flex-1" style={{ fontSize: 16, fontWeight: 600, color: '#FFFFFF' }}>
+        <span className="flex-1" style={{ fontSize: 16, fontWeight: 600, color: 'rgb(var(--canvas-fg-1))' }}>
           Tasks
         </span>
 
         {!isLoading && !isError && (
-          <div style={{ borderRadius: 10, padding: '3px 10px', background: '#1F2937' }}>
-            <span style={{ fontSize: 11, color: '#6B7280' }}>
+          <div style={{ borderRadius: 10, padding: '3px 10px', background: 'rgb(var(--canvas-bg))' }}>
+            <span style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-2))' }}>
               {countAll.toLocaleString()} task{countAll !== 1 ? 's' : ''}
             </span>
           </div>
@@ -558,13 +531,13 @@ export default function TasksPage(): ReactNode {
         {/* View toggle — List active; Kanban is future work */}
         <div
           className="flex items-center"
-          style={{ height: 32, borderRadius: 6, background: '#1A1A1A', border: '1px solid #2D2D2D', padding: 2 }}
+          style={{ height: 32, borderRadius: 6, background: 'rgb(var(--canvas-bg))', border: `1px solid rgb(var(--canvas-border))`, padding: 2 }}
         >
-          <div style={{ borderRadius: 5, background: '#312E81', padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: '#A5B4FC' }}>List</span>
+          <div style={{ borderRadius: 5, background: 'rgb(var(--accent-primary) / 0.2)', padding: '6px 14px' }}>
+            <span style={{ fontSize: 12, color: 'rgb(var(--accent-primary))' }}>List</span>
           </div>
           <div style={{ padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: '#6B7280' }}>Kanban</span>
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>Kanban</span>
           </div>
         </div>
       </div>
@@ -572,7 +545,7 @@ export default function TasksPage(): ReactNode {
       {/* ── Filter row ── */}
       <div
         className="flex items-center gap-2 px-5 shrink-0"
-        style={{ height: 40, borderBottom: `1px solid #1A1A1A`, background: '#0D0D0D' }}
+        style={{ height: 40, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-bg))' }}
       >
         {tabs.map(tab => {
           const isActive = filterTab === tab.key;
@@ -583,9 +556,9 @@ export default function TasksPage(): ReactNode {
               style={{
                 borderRadius: 4,
                 padding: '4px 10px',
-                background: isActive ? '#312E81' : 'transparent',
+                background: isActive ? 'rgb(var(--accent-primary) / 0.2)' : 'transparent',
                 fontSize: 12,
-                color: isActive ? '#A5B4FC' : '#6B7280',
+                color: isActive ? 'rgb(var(--accent-primary))' : 'rgb(var(--canvas-fg-2))',
                 border: 'none',
                 cursor: 'pointer',
               }}
@@ -605,14 +578,14 @@ export default function TasksPage(): ReactNode {
             style={{
               borderRadius: 4,
               padding: '4px 10px',
-              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '22') : 'rgb(var(--canvas-surface))',
+              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '18') : 'rgb(var(--canvas-surface))',
               fontSize: 12,
               color: sourceFilter !== 'all' ? taskColor : 'rgb(var(--canvas-fg-2))',
               border: 'none',
               cursor: 'pointer',
             }}
           >
-            <AdjustmentsHorizontalIcon className="w-3 h-3" />
+            <Icon name="settings" size={12} />
             {sourceFilter === 'all' ? 'All Sources' : sourceLabel(sourceFilter)}
           </button>
 
@@ -644,7 +617,7 @@ export default function TasksPage(): ReactNode {
                     style={{
                       fontSize: 12,
                       color: sourceFilter === opt.value ? taskColor : 'rgb(var(--canvas-fg-2))',
-                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '18') : 'transparent',
+                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '12') : 'transparent',
                     }}
                   >
                     {opt.label}

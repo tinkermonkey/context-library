@@ -68,8 +68,8 @@ function endpointLabel(ep: EndpointDeliveryStatus, newestCursorMs: number, water
 function StatusRow({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={ok ? 'text-green-500' : 'text-red-500'}>{ok ? '✓' : '✗'}</span>
-      <span className="text-gray-700 dark:text-gray-300">{label}</span>
+      <span style={{ color: ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>{ok ? '✓' : '✗'}</span>
+      <span style={{ color: 'rgb(var(--canvas-fg-2))' }}>{label}</span>
     </div>
   );
 }
@@ -84,20 +84,20 @@ function CollectorRow({
   watermark: string | null;
 }) {
   let icon: string;
-  let iconClass: string;
+  let iconColor: string;
 
   if (!helperReachable) {
     icon = '—';
-    iconClass = 'text-gray-400';
+    iconColor = 'rgb(var(--canvas-fg-3))';
   } else if (collector.healthy === null || collector.healthy === undefined) {
     icon = '·';
-    iconClass = 'text-gray-400';
+    iconColor = 'rgb(var(--canvas-fg-3))';
   } else if (collector.healthy) {
     icon = '✓';
-    iconClass = 'text-green-500';
+    iconColor = 'rgb(var(--status-ok))';
   } else {
     icon = '✗';
-    iconClass = 'text-red-500';
+    iconColor = 'rgb(var(--status-error))';
   }
 
   const delivery = helperReachable ? collector.delivery : null;
@@ -109,25 +109,25 @@ function CollectorRow({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex flex-col min-w-0">
-        <span className="text-gray-700 dark:text-gray-300 text-xs">
+        <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
           {friendlyName(collector.adapter_type)}
         </span>
         {endpointEntries ? (
-          <div className="mt-0.5 pl-2 border-l border-gray-200 dark:border-gray-600 space-y-0.5">
+          <div className="mt-0.5 pl-2 space-y-0.5" style={{ borderLeft: `1px solid rgb(var(--canvas-border))` }}>
             {endpointEntries.map(([name, ep]) => (
               <div key={name} className="flex items-center justify-between gap-3">
-                <span className="text-gray-400 dark:text-gray-500 text-xs">{name}</span>
-                <span className="text-gray-400 dark:text-gray-500 text-xs">{endpointLabel(ep, newestCursorMs, watermark)}</span>
+                <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{name}</span>
+                <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{endpointLabel(ep, newestCursorMs, watermark)}</span>
               </div>
             ))}
           </div>
         ) : delivery ? (
-          <span className="text-gray-400 dark:text-gray-500 text-xs leading-tight">
+          <span className="text-xs leading-tight" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             {deliveryLabel(delivery, watermark)}
           </span>
         ) : null}
       </div>
-      <span className={`font-mono text-xs font-bold flex-shrink-0 self-start ${iconClass}`} title={collector.error ?? undefined}>
+      <span className="font-mono text-xs font-bold flex-shrink-0 self-start" style={{ color: iconColor }} title={collector.error ?? undefined}>
         {icon}
       </span>
     </div>
@@ -137,12 +137,10 @@ function CollectorRow({
 function HelperSection({ helper }: { helper: HelperHealth }) {
   return (
     <>
-      <hr className="my-2 border-gray-200 dark:border-gray-600" />
+      <hr className="my-2" style={{ borderColor: 'rgb(var(--canvas-border))' }} />
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="font-semibold text-gray-800 dark:text-white text-xs">Helper Service</span>
-        <span
-          className={`text-xs font-medium ${helper.reachable ? 'text-green-600' : 'text-red-500'}`}
-        >
+        <span className="font-semibold text-xs" style={{ color: 'rgb(var(--canvas-fg-1))' }}>Helper Service</span>
+        <span className="text-xs font-medium" style={{ color: helper.reachable ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>
           {helper.reachable ? '● online' : '● offline'}
         </span>
       </div>
@@ -154,14 +152,11 @@ function HelperSection({ helper }: { helper: HelperHealth }) {
         </div>
       )}
       {helper.error && (
-        <p
-          className="text-xs text-red-500 truncate max-w-[240px]"
-          title={helper.error}
-        >
+        <p className="text-xs truncate max-w-[240px]" style={{ color: 'rgb(var(--status-error))' }} title={helper.error}>
           {helper.error}
         </p>
       )}
-      <p className="mt-1.5 text-xs text-gray-400">Checked {timeAgo(helper.probed_at)}</p>
+      <p className="mt-1.5 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Checked {timeAgo(helper.probed_at)}</p>
     </>
   );
 }
@@ -169,11 +164,11 @@ function HelperSection({ helper }: { helper: HelperHealth }) {
 function HealthDetail({ data }: { data: HealthResponse }) {
   return (
     <div className="min-w-[200px]">
-      <p className="mb-1.5 font-semibold text-gray-800 dark:text-white text-xs">Server</p>
+      <p className="mb-1.5 font-semibold text-xs" style={{ color: 'rgb(var(--canvas-fg-1))' }}>Server</p>
       <div className="space-y-0.5 text-xs">
         <StatusRow label="SQLite" ok={data.sqlite_ok} />
         <StatusRow label="ChromaDB" ok={data.chromadb_ok} />
-        <p className="text-gray-500 dark:text-gray-400 pt-0.5">
+        <p className="pt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           {data.vector_count.toLocaleString()} vectors &nbsp;·&nbsp; {data.embedding_model}
         </p>
       </div>
@@ -185,7 +180,7 @@ function HealthDetail({ data }: { data: HealthResponse }) {
 // ── Main export ──────────────────────────────────────────────────
 
 export function HealthIndicator() {
-  const { data, isLoading, isError } = useHealth();
+  const { data, isLoading, isError } = useHealth(120_000);
   const [open, setOpen] = useState(false);
 
   let badgeColor: 'emerald' | 'amber' | 'rose' | 'neutral';
@@ -218,7 +213,7 @@ export function HealthIndicator() {
       </div>
 
       {open && data && (
-        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border border-gray-200 bg-white shadow-lg p-3 text-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg p-3 text-sm" style={{ border: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}>
           <HealthDetail data={data} />
         </div>
       )}

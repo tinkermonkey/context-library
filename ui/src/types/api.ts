@@ -410,3 +410,54 @@ export function extractDocumentMetadata(domainMetadata: Record<string, unknown>)
     published_at: typeof domainMetadata.published_at === 'string' ? domainMetadata.published_at : null,
   };
 }
+
+// ── Task Domain Metadata ────────────────────────────────────────
+
+export type TaskStatus = 'open' | 'in-progress' | 'completed' | 'cancelled';
+
+/**
+ * Task domain metadata structure.
+ * Matches the backend TaskMetadata model.
+ */
+export interface TaskMetadata {
+  task_id: string;
+  status: TaskStatus;
+  title: string;
+  due_date: string | null;
+  priority: number | null;
+  dependencies: string[];
+  collaborators: string[];
+  date_first_observed: string;
+  source_type: string;
+}
+
+/**
+ * Extract task metadata from domain_metadata with safety checks.
+ * Validates that required fields are present and have correct types.
+ */
+export function extractTaskMetadata(chunk: ChunkResponse): TaskMetadata | null {
+  const domainMetadata = chunk.domain_metadata;
+  if (!domainMetadata) return null;
+
+  if (
+    typeof domainMetadata.task_id !== 'string' ||
+    typeof domainMetadata.status !== 'string' ||
+    typeof domainMetadata.title !== 'string'
+  ) {
+    return null;
+  }
+
+  const status = domainMetadata.status as TaskStatus;
+
+  return {
+    task_id: domainMetadata.task_id,
+    status,
+    title: domainMetadata.title,
+    due_date: typeof domainMetadata.due_date === 'string' ? domainMetadata.due_date : null,
+    priority: typeof domainMetadata.priority === 'number' ? domainMetadata.priority : null,
+    dependencies: Array.isArray(domainMetadata.dependencies) ? domainMetadata.dependencies as string[] : [],
+    collaborators: Array.isArray(domainMetadata.collaborators) ? domainMetadata.collaborators as string[] : [],
+    date_first_observed: typeof domainMetadata.date_first_observed === 'string' ? domainMetadata.date_first_observed : '',
+    source_type: typeof domainMetadata.source_type === 'string' ? domainMetadata.source_type : 'unknown',
+  };
+}

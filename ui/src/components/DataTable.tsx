@@ -17,8 +17,7 @@ import {
   type SortingState,
   type PaginationState,
 } from '@tanstack/react-table';
-import { TextInput, Button, Icon } from '@tinkermonkey/heimdall-ui';
-import { ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { TextInput, Button, Icon, Select } from '@tinkermonkey/heimdall-ui';
 
 
 /**
@@ -324,13 +323,12 @@ export function DataTable<TData>({
             {facets.map((facet) => (
               <div key={facet.column} className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{facet.label}</label>
-                <select
+                <Select
                   value={filters[facet.column]?.[0] ?? ''}
                   onChange={(e) => {
                     const value = e.target.value;
                     handleFacetChange(facet.column, value ? [value] : []);
                   }}
-                  className="w-full rounded border border-gray-300 dark:border-slate-600 p-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
                 >
                   <option value="">All</option>
                   {facet.values.map((value) => (
@@ -338,7 +336,7 @@ export function DataTable<TData>({
                       {value}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             ))}
           </div>
@@ -372,9 +370,9 @@ export function DataTable<TData>({
                             <span className="text-gray-400">
                               {sortColumn === header.column.id ? (
                                 sortDir === 'asc' ? (
-                                  <ChevronUpIcon className="h-4 w-4" />
+                                  <Icon name="chevronUp" size={16} />
                                 ) : (
-                                  <ChevronDownIcon className="h-4 w-4" />
+                                  <Icon name="chevronDown" size={16} />
                                 )
                               ) : (
                                 <span className="text-xs">⇅</span>
@@ -433,17 +431,16 @@ export function DataTable<TData>({
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t dark:border-slate-700 pt-4">
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600 dark:text-gray-400">Page size:</label>
-          <select
+          <Select
             value={String(pageSize)}
             onChange={(e) => handlePageSizeChange(e.target.value)}
-            className="rounded border border-gray-300 dark:border-slate-600 px-2 py-1 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100"
           >
             {[10, 25, 50, 100].map((size) => (
               <option key={size} value={size}>
                 {size}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div className="flex items-center gap-2">
@@ -460,7 +457,7 @@ export function DataTable<TData>({
             variant="secondary"
             className="flex items-center gap-1"
           >
-            <ChevronLeftIcon className="h-4 w-4" />
+            <Icon name="chevronLeft" size={16} />
             Previous
           </Button>
           <Button
@@ -471,7 +468,7 @@ export function DataTable<TData>({
             className="flex items-center gap-1"
           >
             Next
-            <ChevronRightIcon className="h-4 w-4" />
+            <Icon name="chevronRight" size={16} />
           </Button>
         </div>
       </div>

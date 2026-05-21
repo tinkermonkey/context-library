@@ -1,27 +1,20 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import type { IconName } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Panel, Chip, Icon } from '@tinkermonkey/heimdall-ui';
 import {
   DocumentTextIcon,
-  MagnifyingGlassIcon,
-  ChatBubbleLeftIcon,
-  CalendarIcon,
-  CheckCircleIcon,
-  HeartIcon,
-  FolderIcon,
-  UsersIcon,
   MapPinIcon,
   MusicalNoteIcon,
-  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
-import { useMemo } from 'react';
-import type { ComponentType, SVGProps } from 'react';
-import { StatTile, StatGrid, Panel } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
+import { type ValidRoute } from '../components/layoutConfig';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -45,23 +38,25 @@ function capitalize(s: string): string {
 
 // ── Domain config ─────────────────────────────────────────────────
 
+type IconType = IconName | React.ComponentType<{ className?: string }>;
+
 interface DomainConfig {
   label: string;
-  to: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  to: ValidRoute;
+  icon: IconType;
 }
 
-const DOMAIN_CONFIG: Record<string, DomainConfig> = {
-  notes:     { label: 'Notes',     to: '/notes',     icon: DocumentTextIcon },
-  messages:  { label: 'Messages',  to: '/messages',  icon: ChatBubbleLeftIcon },
-  events:    { label: 'Events',    to: '/events',    icon: CalendarIcon },
-  tasks:     { label: 'Tasks',     to: '/tasks',     icon: CheckCircleIcon },
-  health:    { label: 'Health',    to: '/health',    icon: HeartIcon },
-  documents: { label: 'Documents', to: '/documents', icon: FolderIcon },
-  people:    { label: 'People',    to: '/people',    icon: UsersIcon },
+const DOMAIN_CONFIG = {
+  notes:     { label: 'Notes',     to: '/notes',     icon: 'component' as const },
+  messages:  { label: 'Messages',  to: '/messages',  icon: 'info' as const },
+  events:    { label: 'Events',    to: '/events',    icon: 'calendar' as const },
+  tasks:     { label: 'Tasks',     to: '/tasks',     icon: 'check' as const },
+  health:    { label: 'Health',    to: '/health',    icon: 'heart' as const },
+  documents: { label: 'Documents', to: '/documents', icon: DocumentTextIcon },
+  people:    { label: 'People',    to: '/people',    icon: 'user' as const },
   location:  { label: 'Location',  to: '/location',  icon: MapPinIcon },
   music:     { label: 'Music',     to: '/music',     icon: MusicalNoteIcon },
-};
+} as const satisfies Record<string, DomainConfig>;
 
 // ── Sub-components ────────────────────────────────────────────────
 
@@ -76,6 +71,18 @@ function DomainBreakdownSkeleton() {
             <div className="w-12 h-3 rounded animate-pulse shrink-0" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
           </div>
         ))}
+      </div>
+    </Panel>
+  );
+}
+
+function DomainBreakdownError() {
+  return (
+    <Panel title="Domain Breakdown">
+      <div className="flex items-center justify-center py-8">
+        <span className="text-sm" style={{ color: 'rgb(var(--accent-error))' }}>
+          Error loading domain breakdown
+        </span>
       </div>
     </Panel>
   );
@@ -130,14 +137,17 @@ interface ActivityFeedProps {
   sources: SourceSummary[];
   isLoading: boolean;
   isRefetching: boolean;
+  isError: boolean;
 }
 
-function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
+function ActivityFeed({ sources, isLoading, isRefetching, isError }: ActivityFeedProps) {
   return (
     <Panel title="Recent Activity">
       {isRefetching && (
         <div className="absolute top-4 right-4">
-          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+          <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            <Icon name="reload" size={14} className="animate-spin" />
+          </span>
         </div>
       )}
 
@@ -150,6 +160,12 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
               style={{ background: 'rgb(var(--canvas-bg-2))' }}
             />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="flex items-center justify-center py-8">
+          <span className="text-sm" style={{ color: 'rgb(var(--accent-error))' }}>
+            Error loading activity
+          </span>
         </div>
       ) : sources.length === 0 ? (
         <div className="flex items-center justify-center py-8">
@@ -181,9 +197,12 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
                       {s.adapter_id}
                     </span>
                     <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>→</span>
-                    <span className="text-xs font-medium" style={{ color }}>
+                    <Chip
+                      className="text-xs font-medium"
+                      style={{ color, background: getDomainColorWithAlpha(s.domain, '20'), border: 'none' }}
+                    >
                       {capitalize(s.domain)}
-                    </span>
+                    </Chip>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
@@ -217,9 +236,17 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
   );
 }
 
+function DomainIcon({ icon }: { icon: IconType }) {
+  if (typeof icon === 'string') {
+    return <Icon name={icon} size={16} />;
+  }
+  const Component = icon;
+  return <Component className="w-4 h-4" />;
+}
+
 interface QuickLaunchTilesProps {
   domainCounts: Record<string, number>;
-  onNavigate: (to: string) => void;
+  onNavigate: (to: ValidRoute) => void;
 }
 
 function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
@@ -229,7 +256,7 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
         {Object.entries(DOMAIN_CONFIG).map(([domain, cfg]) => {
           const color = getDomainColor(domain);
           const count = domainCounts[domain] ?? 0;
-          const Icon = cfg.icon;
+
           return (
             <button
               key={domain}
@@ -245,9 +272,9 @@ function QuickLaunchTiles({ domainCounts, onNavigate }: QuickLaunchTilesProps) {
             >
               <div
                 className="flex items-center justify-center rounded-lg w-8 h-8"
-                style={{ background: getDomainColorWithAlpha(domain, '1A') }}
+                style={{ background: getDomainColorWithAlpha(domain, '1A'), color }}
               >
-                <Icon className="w-4 h-4" style={{ color }} />
+                <DomainIcon icon={cfg.icon} />
               </div>
               <span className="text-xs font-medium leading-tight" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
                 {cfg.label}
@@ -284,7 +311,7 @@ function SearchBar({ onSearch }: { onSearch: () => void }) {
         (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
       }}
     >
-      <MagnifyingGlassIcon className="w-4 h-4 shrink-0" />
+      <Icon name="search" size={16} className="shrink-0" />
       <span className="text-sm">Search across all your knowledge…</span>
       <kbd
         className="ml-auto text-[10px] rounded px-1.5 py-0.5"
@@ -329,9 +356,8 @@ export default function DashboardPage() {
     [domainData]
   );
 
-  const handleDomainNavigate = (to: string) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    navigate({ to: to as any });
+  const handleDomainNavigate = (to: ValidRoute) => {
+    navigate({ to });
   };
 
   const handleSearch = () => {
@@ -369,6 +395,8 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 w-[55%] shrink-0 min-h-0">
           {stats.isLoading ? (
             <DomainBreakdownSkeleton />
+          ) : stats.isError ? (
+            <DomainBreakdownError />
           ) : domainData.length > 0 ? (
             <DomainBreakdown data={domainData} />
           ) : null}
@@ -384,6 +412,7 @@ export default function DashboardPage() {
             sources={recentSources}
             isLoading={activityQuery.isLoading}
             isRefetching={activityQuery.isRefetching}
+            isError={activityQuery.isError}
           />
         </div>
       </div>

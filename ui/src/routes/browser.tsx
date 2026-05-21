@@ -2,8 +2,9 @@ import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { createColumnHelper } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Button, Modal } from '@tinkermonkey/heimdall-ui';
+import { Button, Modal, TabBar } from '@tinkermonkey/heimdall-ui';
 import { DataTable, type FetchParams } from '../components/DataTable';
+import { useToast } from '../hooks/useToast';
 import type { SourceSummary, ChunkResponse, VersionSummary } from '../types/api';
 import { useAdapters } from '../hooks/useAdapters';
 import { useSource } from '../hooks/useSources';
@@ -608,6 +609,7 @@ function ChunkDetailPanel({ chunk }: { chunk: ChunkResponse }) {
 export default function BrowserPage() {
   const navigate = useNavigate();
   const routerState = useRouterState();
+  const { showToast } = useToast();
 
   const search = useMemo(
     () => (routerState.location.search ?? {}) as BrowserPageSearch,
@@ -814,26 +816,24 @@ export default function BrowserPage() {
 
       {/* Table Type Selector */}
       <div className="mb-6">
-        <div className="flex gap-0">
-          {['sources', 'chunks', 'versions'].map((type, index, arr) => (
-            <Button
-              key={type}
-              onClick={() => handleTableTypeChange(type)}
-              variant={tableType === type ? 'primary' : 'secondary'}
-              className={`${
-                index === 0
-                  ? 'rounded-l-md rounded-r-none'
-                  : index === arr.length - 1
-                    ? 'rounded-r-md rounded-l-none'
-                    : 'rounded-none'
-              } ${tableType === type ? '' : 'border border-gray-300'}`}
-              disabled={type === 'versions' && !sourceIdFilter}
-              title={type === 'versions' && !sourceIdFilter ? 'Select a source first to view versions' : ''}
-            >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-            </Button>
-          ))}
-        </div>
+        <TabBar
+          tabs={[
+            { id: 'sources', label: 'Sources' },
+            { id: 'chunks', label: 'Chunks' },
+            { id: 'versions', label: 'Versions', count: sourceIdFilter ? undefined : 0 },
+          ]}
+          activeTabId={tableType}
+          onSelectTab={(tabId) => {
+            if (tabId === 'versions' && !sourceIdFilter) {
+              showToast({
+                title: 'Select a source first to view versions',
+                variant: 'info',
+              });
+            } else {
+              handleTableTypeChange(tabId);
+            }
+          }}
+        />
       </div>
 
       {/* Sources Table */}

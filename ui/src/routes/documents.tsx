@@ -5,7 +5,6 @@ import type { ReactNode } from 'react';
 import {
   FolderIcon,
   FolderOpenIcon,
-  MagnifyingGlassIcon,
   Squares2X2Icon,
   ListBulletIcon,
   DocumentTextIcon,
@@ -16,18 +15,17 @@ import {
   TableCellsIcon,
   FilmIcon,
   MusicalNoteIcon,
-  ChevronRightIcon,
   HomeIcon,
   ArrowsUpDownIcon,
-  ChevronDownIcon,
 } from '@heroicons/react/24/outline';
+import { Icon } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, ChunkResponse } from '../types/api';
 import { extractDocumentMetadata } from '../types/api';
 
-const docColor = getDomainColor('documents'); // #22C55E
+const docColor = getDomainColor('documents');
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -388,7 +386,10 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
   const docMeta = useMemo(() => {
     const first = chunks[0];
     if (!first?.domain_metadata) return null;
-    try { return extractDocumentMetadata(first.domain_metadata); } catch { return null; }
+    try { return extractDocumentMetadata(first.domain_metadata); } catch (error) {
+      console.error('Failed to extract document metadata:', error);
+      return null;
+    }
   }, [chunks]);
 
   // Content preview: first 500 chars from first text chunk
@@ -676,7 +677,9 @@ export default function DocumentsPage(): ReactNode {
               const isLast = i === breadcrumbSegments.length - 1;
               return (
                 <span key={path} className="flex items-center gap-1.5 shrink-0">
-                  <ChevronRightIcon style={{ width: 12, height: 12, color: '#4B5563' }} />
+                  <span style={{ color: '#4B5563' }}>
+                    <Icon name="chevronRight" size={12} />
+                  </span>
                   <button
                     onClick={() => selectFolder(path)}
                     className="text-xs transition-colors hover:opacity-80"
@@ -734,7 +737,9 @@ export default function DocumentsPage(): ReactNode {
             className="flex items-center gap-2 px-2.5 py-1.5 rounded flex-1"
             style={{ background: 'rgb(var(--canvas-surface))', maxWidth: 260 }}
           >
-            <MagnifyingGlassIcon style={{ width: 12, height: 12, color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }} />
+            <span style={{ color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }}>
+              <Icon name="search" size={12} />
+            </span>
             <input
               type="text"
               value={filterText}
@@ -759,7 +764,9 @@ export default function DocumentsPage(): ReactNode {
             >
               <ArrowsUpDownIcon style={{ width: 12, height: 12, color: '#6B7280' }} />
               {SORT_LABELS[sort]}
-              <ChevronDownIcon style={{ width: 10, height: 10, color: '#6B7280' }} />
+              <span style={{ color: '#6B7280' }}>
+                <Icon name="chevronDown" size={10} />
+              </span>
             </button>
             {showSortMenu && (
               <div
