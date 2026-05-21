@@ -76,6 +76,18 @@ function DomainBreakdownSkeleton() {
   );
 }
 
+function DomainBreakdownError() {
+  return (
+    <Panel title="Domain Breakdown">
+      <div className="flex items-center justify-center py-8">
+        <span className="text-sm" style={{ color: 'rgb(var(--accent-error))' }}>
+          Error loading domain breakdown
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
 interface DomainBreakdownProps {
   data: { domain: string; active_chunk_count: number }[];
 }
@@ -125,9 +137,10 @@ interface ActivityFeedProps {
   sources: SourceSummary[];
   isLoading: boolean;
   isRefetching: boolean;
+  isError: boolean;
 }
 
-function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
+function ActivityFeed({ sources, isLoading, isRefetching, isError }: ActivityFeedProps) {
   return (
     <Panel title="Recent Activity">
       {isRefetching && (
@@ -147,6 +160,12 @@ function ActivityFeed({ sources, isLoading, isRefetching }: ActivityFeedProps) {
               style={{ background: 'rgb(var(--canvas-bg-2))' }}
             />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="flex items-center justify-center py-8">
+          <span className="text-sm" style={{ color: 'rgb(var(--accent-error))' }}>
+            Error loading activity
+          </span>
         </div>
       ) : sources.length === 0 ? (
         <div className="flex items-center justify-center py-8">
@@ -376,6 +395,8 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 w-[55%] shrink-0 min-h-0">
           {stats.isLoading ? (
             <DomainBreakdownSkeleton />
+          ) : stats.isError ? (
+            <DomainBreakdownError />
           ) : domainData.length > 0 ? (
             <DomainBreakdown data={domainData} />
           ) : null}
@@ -391,6 +412,7 @@ export default function DashboardPage() {
             sources={recentSources}
             isLoading={activityQuery.isLoading}
             isRefetching={activityQuery.isRefetching}
+            isError={activityQuery.isError}
           />
         </div>
       </div>
