@@ -18,7 +18,7 @@ interface SidebarSection {
   items: SidebarItem[];
 }
 
-const ICON_MAP: Record<string, IconName> = {
+export const ICON_MAP: Record<string, IconName> = {
   dashboard: 'dashboard',
   search: 'search',
   notes: 'component',

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
-import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
+import { CommandPalette, type Command, type IconName } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { type ValidRoute } from './Layout';
+import { type ValidRoute, ICON_MAP } from './Layout';
 
 interface NavItem {
   id: ValidRoute;
   label: string;
+  iconKey: string;
 }
 
 export function CommandPaletteWrapper({
@@ -41,6 +42,7 @@ export function CommandPaletteWrapper({
     ...primaryNav.map((item) => ({
       id: `nav-${item.id}`,
       label: item.label,
+      icon: ICON_MAP[item.iconKey] as IconName,
       onSelect: () => {
         router.navigate({ to: item.id });
       },
@@ -48,6 +50,7 @@ export function CommandPaletteWrapper({
     {
       id: `nav-${adminNav.id}`,
       label: adminNav.label,
+      icon: ICON_MAP[adminNav.iconKey] as IconName,
       onSelect: () => {
         router.navigate({ to: adminNav.id });
       },
