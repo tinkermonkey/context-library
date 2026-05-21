@@ -4,7 +4,7 @@ import { CommandPalette, type Command, type IconName } from '@tinkermonkey/heimd
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { type ValidRoute, ICON_MAP } from './Layout';
+import { type ValidRoute, ICON_MAP } from './layoutConfig';
 
 interface NavItem {
   id: ValidRoute;

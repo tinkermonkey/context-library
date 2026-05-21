@@ -9,7 +9,7 @@ import { useHealth } from '../hooks/useHealth';
 import { fetchSources } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
-import { type ValidRoute } from '../components/Layout';
+import { type ValidRoute } from '../components/layoutConfig';
 
 // ── Helpers ──────────────────────────────────────────────────────
 

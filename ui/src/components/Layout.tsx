@@ -5,6 +5,7 @@ import { HealthIndicator } from './HealthIndicator';
 import { CommandPaletteWrapper } from './CommandPaletteWrapper';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { useHealth } from '../hooks/useHealth';
+import { ICON_MAP, PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM, type ValidRoute } from './layoutConfig';
 
 interface SidebarItem {
   id: string;
@@ -18,46 +19,9 @@ interface SidebarSection {
   items: SidebarItem[];
 }
 
-export const ICON_MAP: Record<string, IconName> = {
-  dashboard: 'dashboard',
-  search: 'search',
-  notes: 'component',
-  messages: 'info',
-  events: 'calendar',
-  tasks: 'check',
-  health: 'heart',
-  documents: 'table',
-  people: 'user',
-  location: 'link',
-  music: 'palette',
-  admin: 'settings',
-};
-
-const PRIMARY_NAV = [
-  { id: '/', label: 'Dashboard', iconKey: 'dashboard' },
-  { id: '/search', label: 'Search', iconKey: 'search' },
-  { id: '/notes', label: 'Notes', iconKey: 'notes' },
-  { id: '/messages', label: 'Messages', iconKey: 'messages' },
-  { id: '/events', label: 'Events', iconKey: 'events' },
-  { id: '/tasks', label: 'Tasks', iconKey: 'tasks' },
-  { id: '/health', label: 'Health', iconKey: 'health' },
-  { id: '/documents', label: 'Documents', iconKey: 'documents' },
-  { id: '/people', label: 'People', iconKey: 'people' },
-  { id: '/location', label: 'Location', iconKey: 'location' },
-  { id: '/music', label: 'Music', iconKey: 'music' },
-] as const;
-
-const ADMIN_NAV = {
-  id: '/admin',
-  label: 'Admin',
-  iconKey: 'admin',
-} as const;
-
-export type ValidRoute = typeof PRIMARY_NAV[number]['id'] | typeof ADMIN_NAV['id'];
-
 const VALID_ROUTES = new Set<ValidRoute>([
-  ...PRIMARY_NAV.map((item) => item.id),
-  ADMIN_NAV.id,
+  ...PRIMARY_NAV_ITEMS.map((item) => item.id),
+  ADMIN_NAV_ITEM.id,
 ]);
 
 function isValidRoute(value: string): value is ValidRoute {
@@ -108,7 +72,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const activeItemId = (() => {
     if (path === '/') return '/';
-    for (const item of [...PRIMARY_NAV, ADMIN_NAV]) {
+    for (const item of [...PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM]) {
       if (isActive(item.id)) return item.id;
     }
     return undefined;
@@ -125,7 +89,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const sections: SidebarSection[] = [
     {
       title: 'Primary',
-      items: PRIMARY_NAV.map((item) => ({
+      items: PRIMARY_NAV_ITEMS.map((item) => ({
         id: item.id,
         label: item.label,
         icon: ICON_MAP[item.iconKey] as IconName,
@@ -135,9 +99,9 @@ export function Layout({ children }: { children: ReactNode }) {
       title: 'Admin',
       items: [
         {
-          id: ADMIN_NAV.id,
-          label: ADMIN_NAV.label,
-          icon: ICON_MAP[ADMIN_NAV.iconKey] as IconName,
+          id: ADMIN_NAV_ITEM.id,
+          label: ADMIN_NAV_ITEM.label,
+          icon: ICON_MAP[ADMIN_NAV_ITEM.iconKey] as IconName,
         },
       ],
     },
@@ -171,7 +135,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ background: 'rgb(var(--canvas-bg))', height: '100vh' }}>
-      <CommandPaletteWrapper primaryNav={PRIMARY_NAV} adminNav={ADMIN_NAV} />
+      <CommandPaletteWrapper primaryNav={PRIMARY_NAV_ITEMS} adminNav={ADMIN_NAV_ITEM} />
       <ShellLayout
         appTitle={{ title: 'Context Library' }}
         sidebar={{
