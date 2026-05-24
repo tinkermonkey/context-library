@@ -1,0 +1,341 @@
+/* =========================================================================
+   Heimdall Design System — Foundations
+   Two-surface architecture: shell (always dark slate navy) + canvas (light by default)
+   Light canvas is :root default; dark canvas is toggled via body.dark-canvas
+   Primary accent: AMBER. Mono+sans typography: Inter + JetBrains Mono.
+   ========================================================================= */
+
+/* ===== Self-hosted fonts ===== */
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-Light.woff2') format('woff2');     font-weight: 300; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-Regular.woff2') format('woff2');   font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-Medium.woff2') format('woff2');    font-weight: 500; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-SemiBold.woff2') format('woff2');  font-weight: 600; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-Bold.woff2') format('woff2');      font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-ExtraBold.woff2') format('woff2'); font-weight: 800; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('fonts/inter/Inter-Black.woff2') format('woff2');     font-weight: 900; font-style: normal; font-display: block; }
+
+@font-face { font-family: 'JetBrains Mono'; src: url('fonts/jetbrains-mono/JetBrainsMono-Regular.woff2')  format('woff2'); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: 'JetBrains Mono'; src: url('fonts/jetbrains-mono/JetBrainsMono-Medium.woff2')   format('woff2'); font-weight: 500; font-style: normal; font-display: block; }
+@font-face { font-family: 'JetBrains Mono'; src: url('fonts/jetbrains-mono/JetBrainsMono-SemiBold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: block; }
+
+:root {
+  /* ============================================================
+     COLOR — Shell surface (always dark slate navy)
+     ============================================================ */
+  --shell-bg:        #0F1729;  /* outermost frame, body */
+  --shell-bg-2:      #13203A;  /* sidebar, topbar, statusbar */
+  --shell-surface:   #1B2949;  /* nav hover, ws-chip, panels-in-shell */
+  --shell-surface-2: #243763;  /* elevated, hover-up-one-step */
+  --shell-border:    #1E2A44;  /* shell dividers */
+  --shell-border-2:  #2A3A5C;  /* input border, scrollbar thumb */
+  --shell-fg-1:      #E6EDF3;  /* primary chrome text */
+  --shell-fg-2:      #A6B1BD;  /* secondary chrome text */
+  --shell-fg-3:      #6E7A87;  /* tertiary / counts / icons */
+  --shell-fg-4:      #4A5563;  /* disabled / separators */
+
+  /* ============================================================
+     COLOR — Canvas surface (light canvas DEFAULT)
+     ============================================================ */
+  --canvas-bg:            #FFFFFF;
+  --canvas-bg-2:          #F7F9FB;  /* table headers, insets, id-tags */
+  --canvas-surface:       #FFFFFF;
+  --canvas-surface-2:     #F3F4F6;  /* elevated, hover */
+  --canvas-card:          #FFFFFF;
+  --canvas-fg-1:          #0B1220;  /* primary text, h1 */
+  --canvas-fg-2:          #475569;  /* body text */
+  --canvas-fg-3:          #64748B;  /* muted, eyebrows */
+  --canvas-fg-4:          #94A3B8;  /* disabled */
+  --canvas-border:        #E5E9EE;  /* card border, divider */
+  --canvas-border-2:      #DDE2E8;  /* secondary */
+  --canvas-border-strong: #D6DCE3;  /* input border, scrollbar */
+
+  /* ============================================================
+     COLOR — Accent (AMBER brand)
+     ============================================================ */
+  --accent-primary:        #FBBF24;  /* amber-400, active states, indicator bars */
+  --accent-primary-hover:  #F59E0B;  /* amber-500, hover */
+  --accent-primary-deep:   #B45309;  /* amber-700, primary CTA on light canvas */
+
+  /* ============================================================
+     COLOR — Semantic status
+     ============================================================ */
+  --status-ok:        #22C55E;
+  --status-ok-bg:     #DCFCE7;
+  --status-ok-fg:     #15803D;
+  --status-warn:      #EAB308;
+  --status-warn-bg:   #FEF9C3;
+  --status-warn-fg:   #854D0E;
+  --status-error:     #EF4444;
+  --status-error-bg:  #FEE2E2;
+  --status-error-fg:  #B91C1C;
+
+  --status-cyan:      #22D3EE;
+  --status-emerald:   #10B981;
+  --status-amber:     #F59E0B;
+  --status-rose:      #F43F5E;
+  --status-violet:    #8B5CF6;
+  --status-neutral:   #6B7280;
+
+  /* Semantic chips (light backgrounds, borders, fg) */
+  --semantic-cyan-fg:      #0E7490;
+  --semantic-cyan-bg:      #ECFEFF;
+  --semantic-cyan-border:  #A5F3FC;
+  --semantic-amber-fg:     #92400E;
+  --semantic-amber-bg:     #FFFBEB;
+  --semantic-amber-border: #FDE68A;
+  --semantic-violet-fg:    #5B21B6;
+  --semantic-violet-bg:    #F5F3FF;
+  --semantic-violet-border:#DDD6FE;
+  --semantic-emerald-fg:   #065F46;
+  --semantic-emerald-bg:   #ECFDF5;
+  --semantic-emerald-border:#A7F3D0;
+  --semantic-rose-fg:      #9F1239;
+  --semantic-rose-bg:      #FFF1F2;
+  --semantic-rose-border:  #FECDD3;
+  --semantic-neutral-fg:   #475569;
+  --semantic-neutral-bg:   #F7F9FB;
+  --semantic-neutral-border:#E5E9EE;
+
+  /* Domain colors (taxonomy / topology / role marks) */
+  --dom-default:  #6B7280;  /* neutral */
+  --dom-life:     #10B981;  /* emerald */
+  --dom-climate:  #F59E0B;  /* amber */
+  --dom-software: #818CF8;  /* indigo */
+
+  /* ============================================================
+     COLOR — Neutral gray scale (Tailwind)
+     ============================================================ */
+  --gray-50:  #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  /* ============================================================
+     TYPE — Families
+     ============================================================ */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Menlo, Consolas, 'Courier New', monospace;
+
+  /* ============================================================
+     TYPE — Scale (Tailwind)
+     ============================================================ */
+  --text-xs:   0.75rem;    /* 12px — mono eyebrows, badges */
+  --text-sm:   0.875rem;   /* 14px — body, button, table */
+  --text-base: 1rem;       /* 16px */
+  --text-lg:   1.125rem;   /* 18px */
+  --text-xl:   1.25rem;    /* 20px */
+  --text-2xl:  1.5rem;     /* 24px — page H1 (IDE density) */
+  --text-3xl:  1.875rem;   /* 30px — stat tile values */
+  --text-4xl:  2.25rem;
+  --text-5xl:  3rem;
+
+  /* TYPE — Weights */
+  --font-weight-normal:    400;
+  --font-weight-medium:    500;
+  --font-weight-semibold:  600;
+  --font-weight-bold:      700;
+  --font-weight-extrabold: 800;
+
+  /* ============================================================
+     SHAPE — Radius (small)
+     ============================================================ */
+  --radius-sm:   4px;  /* chips, badges, table cells, kg-node */
+  --radius-md:   6px;  /* buttons, inputs, nav items, port pills */
+  --radius-lg:   8px;  /* cards, panels, stat tiles */
+  --radius-xl:  12px;  /* modals only */
+  --radius-full: 9999px;
+
+  /* ============================================================
+     SHADOWS — Rare, mostly hairline borders
+     ============================================================ */
+  --shadow-none:  0 0 0 rgba(0, 0, 0, 0);
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md:    0 4px 6px rgba(0, 0, 0, 0.10);
+  --shadow-lg:    0 10px 15px rgba(0, 0, 0, 0.10);
+  --shadow-xl:    0 20px 25px rgba(0, 0, 0, 0.10);
+  --shadow-modal: 0 24px 64px -16px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 14px 40px -16px rgba(0, 0, 0, 0.50);
+
+  /* ============================================================
+     SPACING — 4px base
+     ============================================================ */
+  --space-0_5: 0.125rem;
+  --space-1:   0.25rem;
+  --space-1_5: 0.375rem;
+  --space-2:   0.5rem;
+  --space-2_5: 0.625rem;
+  --space-3:   0.75rem;
+  --space-4:   1rem;
+  --space-5:   1.25rem;
+  --space-6:   1.5rem;
+  --space-8:   2rem;
+  --space-10:  2.5rem;
+  --space-12:  3rem;
+  --space-16:  4rem;
+
+  /* ============================================================
+     FOCUS — Amber accent ring
+     ============================================================ */
+  --focus-ring: 0 0 0 3px rgba(251, 191, 36, 0.18);
+
+  /* ============================================================
+     SEMANTIC TYPE TOKENS (h1/h2/eyebrow/body/code)
+     ============================================================ */
+  --type-h1-size:    1.5rem;     /* 24px */
+  --type-h1-weight:  700;
+  --type-h1-track:   -0.02em;
+  --type-h2-size:    1.125rem;
+  --type-h2-weight:  600;
+  --type-h2-track:   -0.015em;
+  --type-h3-size:    0.875rem;
+  --type-h3-weight:  600;
+
+  --type-body-size:   0.875rem;  /* 14px — UI default */
+  --type-body-weight: 400;
+  --type-body-line:   1.55;
+
+  --type-stat-size:   1.875rem;  /* 30px stat tile number */
+  --type-stat-weight: 700;
+  --type-stat-track:  -0.02em;
+
+  --type-eyebrow-size:   0.6875rem;  /* 11px mono caps */
+  --type-eyebrow-weight: 500;
+  --type-eyebrow-track:  0.08em;
+  --type-eyebrow-case:   uppercase;
+
+  --type-mono-id-size:   0.75rem;
+  --type-mono-id-weight: 500;
+}
+
+/* ===== Dark Canvas Mode (slate navy) ===== */
+body.dark-canvas {
+  --canvas-bg:            #0B1426;  /* darker than shell-bg */
+  --canvas-bg-2:          #13203A;  /* matches shell-bg-2 */
+  --canvas-surface:       #1B2949;  /* matches shell-surface */
+  --canvas-surface-2:     #243763;
+  --canvas-card:          #1B2949;
+  --canvas-fg-1:          #E2E8F0;
+  --canvas-fg-2:          #94A3B8;
+  --canvas-fg-3:          #64748B;
+  --canvas-fg-4:          #475569;
+  --canvas-border:        #243763;
+  --canvas-border-2:      #2A3A5C;
+  --canvas-border-strong: #354973;
+}
+
+/* =========================================================================
+   BASE ELEMENT STYLES (semantic mappings: h1, p, code, kbd, a, …)
+   ========================================================================= */
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: var(--type-body-line);
+  color: var(--canvas-fg-1);
+  background-color: var(--canvas-bg);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--canvas-fg-1);
+  line-height: 1.2;
+}
+
+h1 {
+  font-size: var(--type-h1-size);
+  font-weight: var(--type-h1-weight);
+  letter-spacing: var(--type-h1-track);
+}
+h2 {
+  font-size: var(--type-h2-size);
+  font-weight: var(--type-h2-weight);
+  letter-spacing: var(--type-h2-track);
+}
+h3 {
+  font-size: var(--type-h3-size);
+  font-weight: var(--type-h3-weight);
+}
+
+p {
+  margin: 0;
+  color: var(--canvas-fg-2);
+  line-height: var(--type-body-line);
+}
+
+a {
+  color: var(--accent-primary-deep);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent-primary-hover);
+}
+
+code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+code {
+  padding: 0.1em 0.3em;
+  border-radius: var(--radius-sm);
+  background-color: var(--canvas-bg-2);
+  color: var(--canvas-fg-1);
+}
+
+kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--canvas-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--canvas-bg-2);
+  color: var(--canvas-fg-3);
+  font-size: 0.75em;
+  line-height: 1.4;
+}
+
+/* Mono identifier / id-tag pattern */
+.mono, .id-tag {
+  font-family: var(--font-mono);
+}
+
+.id-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--canvas-bg-2);
+  color: var(--canvas-fg-3);
+  font-size: 11px;
+  border: 1px solid var(--canvas-border);
+}
+
+/* Mono eyebrow label */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow-size);
+  font-weight: var(--type-eyebrow-weight);
+  letter-spacing: var(--type-eyebrow-track);
+  text-transform: var(--type-eyebrow-case);
+  color: var(--canvas-fg-3);
+}
+
+/* Focus-visible default */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

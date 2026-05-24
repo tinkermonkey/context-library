@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1400, initial-scale=1" />
+  <title>Context Library · Refresh</title>
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    /* Each artboard is fixed-size: shell + canvas */
+    .artboard { position: relative; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="ds/icons.jsx"></script>
+  <script type="text/babel" src="screens/Shell.jsx"></script>
+  <script type="text/babel" src="screens/Overview.jsx"></script>
+  <script type="text/babel" src="screens/Search.jsx"></script>
+  <script type="text/babel" src="screens/Sources.jsx"></script>
+  <script type="text/babel" src="screens/SourceDetail.jsx"></script>
+  <script type="text/babel" src="screens/Notes.jsx"></script>
+  <script type="text/babel" src="screens/Messages.jsx"></script>
+  <script type="text/babel" src="screens/Events.jsx"></script>
+  <script type="text/babel" src="screens/Tasks.jsx"></script>
+  <script type="text/babel" src="screens/Documents.jsx"></script>
+  <script type="text/babel" src="screens/Health.jsx"></script>
+  <script type="text/babel" src="screens/Location.jsx"></script>
+  <script type="text/babel" src="screens/People.jsx"></script>
+  <script type="text/babel" src="screens/Music.jsx"></script>
+  <script type="text/babel" src="screens/Adapters.jsx"></script>
+  <script type="text/babel" src="screens/ChunkInspector.jsx"></script>
+
+  <script type="text/babel">
+    const { useState } = React;
+    const W = 1440, H = 900;
+
+    function Wrap({ children }) {
+      return <div className="artboard">{children}</div>;
+    }
+
+    function App() {
+      return (
+        <DesignCanvas
+          title="Context Library — Refresh"
+          subtitle="Heimdall design system × versioned-RAG workflows. Eight workspace screens covering query, browse, version-diff, domain reading, and pipeline admin."
+        >
+          <DCSection
+            id="primary"
+            title="Primary workspace"
+            subtitle="The three screens users live in. Overview anchors the homelab, Search is the centerpiece query surface, Sources is the data browser."
+          >
+            <DCArtboard id="overview" label="01 · Overview" width={W} height={H}>
+              <Wrap><OverviewScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="search" label="02 · Semantic search" width={W} height={H}>
+              <Wrap><SearchScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="sources" label="03 · Sources browser" width={W} height={H}>
+              <Wrap><SourcesScreen/></Wrap>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection
+            id="versioning"
+            title="Versioning & provenance"
+            subtitle="The Context Library superpower. Hash-set diffs, side-by-side content diff, single-chunk provenance with full ancestry."
+          >
+            <DCArtboard id="source-detail" label="04 · Source detail · v2 → v3 diff" width={W} height={H}>
+              <Wrap><SourceDetailScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="chunk-inspector" label="05 · Chunk inspector · provenance" width={W} height={H}>
+              <Wrap><ChunkInspectorScreen/></Wrap>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection
+            id="domains"
+            title="Domain views — all 9 domains"
+            subtitle="Each domain renders sources in its native shape — calendar grid for Events, kanban for Tasks, time-series for Health, map for Location, etc. The version pill, chunk markers, and lineage rail stay consistent across all of them."
+          >
+            <DCArtboard id="notes" label="06 · Notes · three-pane" width={W} height={H}>
+              <Wrap><NotesScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="messages" label="07 · Messages · thread reader" width={W} height={H}>
+              <Wrap><MessagesScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="events" label="08 · Events · calendar" width={W} height={H}>
+              <Wrap><EventsScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="tasks" label="09 · Tasks · kanban + lifecycle" width={W} height={H}>
+              <Wrap><TasksScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="documents" label="10 · Documents · catalog" width={W} height={H}>
+              <Wrap><DocumentsScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="health" label="11 · Health · metrics dashboard" width={W} height={H}>
+              <Wrap><HealthScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="location" label="12 · Location · map + visits" width={W} height={H}>
+              <Wrap><LocationScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="people" label="13 · People · contact directory" width={W} height={H}>
+              <Wrap><PeopleScreen/></Wrap>
+            </DCArtboard>
+            <DCArtboard id="music" label="14 · Music · listening history" width={W} height={H}>
+              <Wrap><MusicScreen/></Wrap>
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection
+            id="system"
+            title="System & pipeline"
+            subtitle="Admin surface for adapter health, ingest pipeline runs, and the dual-store sync log."
+          >
+            <DCArtboard id="adapters" label="15 · Adapters · pipeline runs" width={W} height={H}>
+              <Wrap><AdaptersScreen/></Wrap>
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('app')).render(<App/>);
+  </script>
+</body>
+</html>
