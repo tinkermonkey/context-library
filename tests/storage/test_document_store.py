@@ -78,13 +78,13 @@ class TestDocumentStoreInit:
             store.close()
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 4 (people domain support)."""
+        """Test that user_version is verified to be 5 (location domain support)."""
         store = DocumentStore(":memory:")
         try:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 4
+            assert version == 5
         finally:
             store.close()
 
@@ -6279,11 +6279,11 @@ class TestSchemaMigrationV3toV4:
             # Trigger migration by opening DocumentStore
             store = DocumentStore(str(db_path))
 
-            # Verify schema version is now 4
+            # Verify schema version is now 5
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 4
+            assert version == 5
 
             # Verify entity_links table exists
             cursor.execute("""
@@ -6361,11 +6361,11 @@ class TestSchemaMigrationV3toV4:
             store.close()
 
     def test_migrate_v3_to_v4_idempotent(self) -> None:
-        """Test that migration is idempotent (v4 DB not re-migrated)."""
+        """Test that migration is idempotent (DB not re-migrated after reaching current version)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create v3 database and migrate to v4
+            # Create v3 database and migrate to current version
             self._create_v3_database(db_path)
             store1 = DocumentStore(str(db_path))
             store1.close()
@@ -6376,7 +6376,7 @@ class TestSchemaMigrationV3toV4:
             cursor = store2.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 4
+            assert version == 5
 
             # Verify entity_links table still exists
             cursor.execute("""

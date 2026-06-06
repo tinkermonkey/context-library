@@ -117,7 +117,14 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=4)
+        if version == 4:
+            # Migrate from v4 to v5 BEFORE executing new schema
+            self._migrate_v4_to_v5()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=5)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -146,9 +153,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 4:
+        if final_version != 5:
             raise RuntimeError(
-                f"Schema version mismatch: expected 4, got {final_version}"
+                f"Schema version mismatch: expected 5, got {final_version}"
             )
 
     def _make_connection(self) -> sqlite3.Connection:
@@ -696,6 +703,179 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v3 to v4: {e}"
+            ) from e
+
+    def _migrate_v4_to_v5(self) -> None:
+        """Migrate schema from v4 to v5: add 'location' to domain CHECK constraints.
+
+        SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so we must
+        use the rename-recreate-copy pattern for each affected table (adapters,
+        sources, chunks). All operations are wrapped in a transaction and foreign
+        key enforcement is temporarily disabled.
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v4 to v5 (adding location domain support)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            # Disable foreign key enforcement temporarily
+            cursor.execute("PRAGMA foreign_keys=OFF")
+
+            # Start transaction
+            cursor.execute("BEGIN")
+
+            # Migrate adapters table: rename old, create new with location domain, copy data
+            cursor.execute("ALTER TABLE adapters RENAME TO _adapters_old")
+            cursor.execute("""
+                CREATE TABLE adapters (
+                    adapter_id          TEXT PRIMARY KEY,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people', 'location')),
+                    adapter_type        TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    config              TEXT,
+                    enabled             BOOLEAN NOT NULL DEFAULT 1,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("INSERT INTO adapters SELECT * FROM _adapters_old")
+            cursor.execute("DROP TABLE _adapters_old")
+
+            # Recreate adapters_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS adapters_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER adapters_update_timestamp
+                AFTER UPDATE ON adapters
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+                END
+            """)
+
+            # Migrate sources table: rename old, create new with location domain, copy data
+            cursor.execute("ALTER TABLE sources RENAME TO _sources_old")
+            cursor.execute("""
+                CREATE TABLE sources (
+                    source_id           TEXT PRIMARY KEY,
+                    adapter_id          TEXT NOT NULL,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people', 'location')),
+                    origin_ref          TEXT NOT NULL,
+                    display_name        TEXT,
+                    current_version     INTEGER NOT NULL DEFAULT 0,
+                    last_fetched_at     DATETIME,
+                    poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+                    poll_interval_sec   INTEGER,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO sources SELECT * FROM _sources_old")
+            cursor.execute("DROP TABLE _sources_old")
+
+            # Recreate indices for sources
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+            # Recreate sources_update_timestamp trigger
+            cursor.execute("DROP TRIGGER IF EXISTS sources_update_timestamp")
+            cursor.execute("""
+                CREATE TRIGGER sources_update_timestamp
+                AFTER UPDATE ON sources
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+                END
+            """)
+
+            # Migrate source_versions table: rename old, create new with correct foreign keys, copy data
+            cursor.execute("ALTER TABLE source_versions RENAME TO _source_versions_old")
+            cursor.execute("""
+                CREATE TABLE source_versions (
+                    source_id           TEXT NOT NULL,
+                    version             INTEGER NOT NULL,
+                    markdown            TEXT NOT NULL,
+                    chunk_hashes        TEXT NOT NULL,
+                    adapter_id          TEXT NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (source_id, version),
+                    FOREIGN KEY (source_id) REFERENCES sources(source_id),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+                )
+            """)
+            cursor.execute("INSERT INTO source_versions SELECT * FROM _source_versions_old")
+            cursor.execute("DROP TABLE _source_versions_old")
+
+            # Recreate index for source_versions
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+            # Migrate chunks table: rename old, create new with location domain, copy data
+            cursor.execute("ALTER TABLE chunks RENAME TO _chunks_old")
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    chunk_hash          TEXT NOT NULL,
+                    source_id           TEXT NOT NULL,
+                    source_version      INTEGER NOT NULL,
+                    chunk_index         INTEGER NOT NULL,
+                    content             TEXT NOT NULL,
+                    context_header      TEXT,
+                    domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people', 'location')),
+                    adapter_id          TEXT NOT NULL,
+                    fetch_timestamp     DATETIME NOT NULL,
+                    normalizer_version  TEXT NOT NULL,
+                    embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+                    parent_chunk_hash   TEXT,
+                    domain_metadata     TEXT,
+                    chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+                    retired_at          DATETIME,
+                    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (chunk_hash, source_id, source_version),
+                    FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+                    FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+                    UNIQUE (source_id, source_version, chunk_index)
+                )
+            """)
+            cursor.execute("INSERT INTO chunks SELECT * FROM _chunks_old")
+            cursor.execute("DROP TABLE _chunks_old")
+
+            # Recreate indices for chunks
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+            # Update schema version to 5
+            cursor.execute("PRAGMA user_version=5")
+
+            # Commit transaction using connection object
+            self.conn.commit()
+
+            # Re-enable foreign key enforcement
+            cursor.execute("PRAGMA foreign_keys=ON")
+
+            logger.info("Successfully migrated schema from v4 to v5")
+
+        except Exception as e:
+            # Rollback transaction using connection object, catching any rollback errors
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except Exception as pragma_error:
+                logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v4 to v5: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
