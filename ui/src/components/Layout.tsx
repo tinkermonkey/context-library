@@ -5,7 +5,7 @@ import { HealthIndicator } from './HealthIndicator';
 import { CommandPaletteWrapper } from './CommandPaletteWrapper';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { useHealth } from '../hooks/useHealth';
-import { ICON_MAP, PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM, type ValidRoute } from './layoutConfig';
+import { ICON_MAP, PRIMARY_NAV_ITEMS, ADMIN_NAV_ITEM, resolveHeimdallIcon, type ValidRoute } from './layoutConfig';
 
 interface SidebarItem {
   id: string;
@@ -92,7 +92,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items: PRIMARY_NAV_ITEMS.map((item) => ({
         id: item.id,
         label: item.label,
-        icon: ICON_MAP[item.iconKey] as IconName,
+        icon: resolveHeimdallIcon(ICON_MAP[item.iconKey]),
       })),
     },
     {
@@ -101,7 +101,7 @@ export function Layout({ children }: { children: ReactNode }) {
         {
           id: ADMIN_NAV_ITEM.id,
           label: ADMIN_NAV_ITEM.label,
-          icon: ICON_MAP[ADMIN_NAV_ITEM.iconKey] as IconName,
+          icon: resolveHeimdallIcon(ICON_MAP[ADMIN_NAV_ITEM.iconKey]),
         },
       ],
     },
