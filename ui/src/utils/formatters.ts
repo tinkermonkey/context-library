@@ -2,6 +2,10 @@
  * Shared formatting utilities used across domain views.
  */
 
+export function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 /**
  * Format duration in minutes to a human-readable string.
  * Returns null if duration is null or 0.

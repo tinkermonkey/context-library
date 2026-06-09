@@ -4,10 +4,7 @@ import { useStats } from '../hooks/useStats';
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { getDomainColor } from '../lib/designTokens';
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+import { capitalize } from '../utils/formatters';
 
 function formatNumber(n: number): string {
   return n.toLocaleString();

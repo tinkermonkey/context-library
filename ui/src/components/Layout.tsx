@@ -7,7 +7,6 @@ import { useStats } from '../hooks/useStats';
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import {
-  ICON_MAP,
   LIBRARY_NAV_ITEMS,
   DOMAIN_NAV_ITEMS,
   SYSTEM_NAV_ITEMS,
@@ -153,7 +152,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items: LIBRARY_NAV_ITEMS.map((item) => ({
         id: item.id,
         label: item.label,
-        icon: ICON_MAP[item.iconKey] as IconName,
+        icon: item.icon as IconName,
         count: item.id === '/sources' ? (totalSources || undefined) : undefined,
       })),
     },
@@ -165,7 +164,7 @@ export function Layout({ children }: { children: ReactNode }) {
         return {
           id: item.id,
           label: item.label,
-          icon: ICON_MAP[item.iconKey] as IconName,
+          icon: item.icon as IconName,
           count: count || undefined,
         };
       }),
@@ -175,7 +174,7 @@ export function Layout({ children }: { children: ReactNode }) {
       items: SYSTEM_NAV_ITEMS.map((item) => ({
         id: item.id,
         label: item.label,
-        icon: ICON_MAP[item.iconKey] as IconName,
+        icon: item.icon as IconName,
       })),
     },
   ];

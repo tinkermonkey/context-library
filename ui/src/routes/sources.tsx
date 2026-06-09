@@ -5,10 +5,7 @@ import { PageHeader, Chip } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { useStats } from '../hooks/useStats';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+import { capitalize } from '../utils/formatters';
 
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return 'Never';

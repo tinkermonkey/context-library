@@ -6,12 +6,9 @@ import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
+import { capitalize } from '../utils/formatters';
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 function shortId(id: string): string {
   return id.length > 28 ? `${id.substring(0, 28)}…` : id;

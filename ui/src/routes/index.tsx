@@ -15,6 +15,7 @@ import { fetchSources } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary } from '../types/api';
 import { type ValidRoute } from '../components/layoutConfig';
+import { capitalize } from '../utils/formatters';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -30,10 +31,6 @@ function timeAgo(isoString: string | null | undefined): string {
 
 function formatNumber(n: number): string {
   return n.toLocaleString();
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 // ── Domain config ─────────────────────────────────────────────────

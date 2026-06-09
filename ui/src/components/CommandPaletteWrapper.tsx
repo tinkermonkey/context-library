@@ -4,7 +4,7 @@ import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { ICON_MAP, ALL_NAV_ITEMS } from './layoutConfig';
+import { ALL_NAV_ITEMS } from './layoutConfig';
 
 export function CommandPaletteWrapper() {
   const [isOpen, setIsOpen] = useState(false);
@@ -28,7 +28,7 @@ export function CommandPaletteWrapper() {
   const navigationCommands: Command[] = ALL_NAV_ITEMS.map((item) => ({
     id: `nav-${item.id}`,
     label: item.label,
-    icon: ICON_MAP[item.iconKey],
+    icon: item.icon,
     onSelect: () => {
       // item.id is always a concrete registered route from ALL_NAV_ITEMS
       router.navigate({ to: item.id as string });
