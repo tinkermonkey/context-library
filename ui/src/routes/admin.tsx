@@ -639,16 +639,15 @@ export default function AdminPage(): ReactNode {
                         </label>
                         <Select
                           value={String(logsLimit)}
-                          onChange={(e) => {
-                            setLogsLimit(parseInt(e.target.value, 10));
+                          onChange={(value) => {
+                            setLogsLimit(parseInt(value, 10));
                             setLogsPage(0);
                           }}
-                          style={{ fontSize: 11 }}
                         >
-                          <option value="10">10</option>
-                          <option value="20">20</option>
-                          <option value="30">30</option>
-                          <option value="50">50</option>
+                          <Select.Item value="10">10</Select.Item>
+                          <Select.Item value="20">20</Select.Item>
+                          <Select.Item value="30">30</Select.Item>
+                          <Select.Item value="50">50</Select.Item>
                         </Select>
                       </div>
                     </div>
