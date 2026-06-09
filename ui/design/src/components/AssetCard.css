@@ -1,0 +1,221 @@
+.asset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background-color: rgb(var(--canvas-card));
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: var(--radius-md);
+  transition: border-color 80ms ease-out, background-color 80ms ease-out;
+  cursor: default;
+  outline: none;
+}
+
+.asset-card:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.asset-card--selected {
+  border-color: rgb(var(--accent-primary));
+  background-color: rgb(var(--canvas-surface-2));
+}
+
+/* Thumbnail wrapper and positioning for badge */
+.asset-card__thumb-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+/* Base thumbnail styles */
+.asset-card__thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: rgb(var(--canvas-surface));
+}
+
+/* Doc thumbnail — pure CSS page with fold and extension tab */
+.asset-card__thumb--doc {
+  background: linear-gradient(135deg, rgb(var(--doc-page-bg-surface-light)) 0%, rgb(var(--doc-page-fold-surface-light)) 100%);
+  position: relative;
+}
+
+.asset-card__doc-page {
+  width: 100%;
+  height: 100%;
+  background-color: rgb(var(--doc-page-bg-light));
+  position: relative;
+}
+
+/* Page fold effect */
+.asset-card__doc-page::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 20px 20px 0;
+  border-color: transparent rgb(var(--doc-page-bg-surface-light)) transparent transparent;
+}
+
+/* Extension tab */
+.asset-card__doc-tab {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  background-color: rgb(var(--canvas-fg-2));
+  color: white;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  min-width: 24px;
+  text-align: center;
+}
+
+/* Color-code by extension type */
+.asset-card__doc-tab--pdf {
+  background-color: rgb(var(--doc-tab-pdf));
+}
+
+.asset-card__doc-tab--docx,
+.asset-card__doc-tab--doc {
+  background-color: rgb(var(--doc-tab-docx));
+}
+
+.asset-card__doc-tab--xlsx,
+.asset-card__doc-tab--xls {
+  background-color: rgb(var(--doc-tab-xlsx));
+}
+
+.asset-card__doc-tab--pptx,
+.asset-card__doc-tab--ppt {
+  background-color: rgb(var(--doc-tab-pptx));
+}
+
+.asset-card__doc-tab--txt {
+  background-color: rgb(var(--doc-tab-txt));
+}
+
+/* Cover thumbnail — gradient + icon */
+.asset-card__thumb--cover {
+  background: var(--cover-gradient);
+}
+
+.asset-card__cover-glyph {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Image thumbnail — real image with cover fit */
+.asset-card__thumb--image {
+  background-color: rgb(var(--canvas-bg-2));
+  position: relative;
+}
+
+.asset-card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Image fallback — when image fails to load or no image src provided */
+.asset-card__thumb--image-fallback {
+  background-color: rgb(var(--canvas-surface));
+  color: rgb(var(--canvas-fg-3));
+}
+
+.asset-card__image-glyph {
+  color: inherit;
+}
+
+/* Badge — corner chip with amber tint */
+.asset-card__badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background-color: var(--status-amber-bg-alpha-md);
+  border: 1px solid var(--status-amber-border-alpha-md);
+  border-radius: var(--radius-sm);
+  color: rgb(var(--status-amber));
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  backdrop-filter: blur(4px);
+  z-index: 1;
+}
+
+/* Body section — title, subtitle, meta */
+.asset-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Title — two-line clamp */
+.asset-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--canvas-fg-1));
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+/* Subtitle — secondary mono styling */
+.asset-card__subtitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgb(var(--canvas-fg-3));
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Meta node */
+.asset-card__meta {
+  font-size: 12px;
+  color: rgb(var(--canvas-fg-3));
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dark canvas overrides */
+.dark-canvas .asset-card__doc-page {
+  background-color: rgb(var(--doc-page-bg-dark));
+}
+
+.dark-canvas .asset-card__doc-page::after {
+  border-right-color: rgb(var(--doc-page-fold-dark));
+}
+
+.dark-canvas .asset-card__thumb--doc {
+  background: linear-gradient(135deg, rgb(var(--doc-page-fold-dark)) 0%, rgb(var(--doc-page-bg-dark-gradient)) 100%);
+}

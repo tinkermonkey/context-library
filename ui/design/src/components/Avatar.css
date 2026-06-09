@@ -1,0 +1,120 @@
+.avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  flex-shrink: 0;
+  background: rgb(var(--canvas-bg-2));
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: 50%;
+}
+
+/* Sizes */
+.avatar--xs {
+  width: 20px;
+  height: 20px;
+}
+
+.avatar--sm {
+  width: 28px;
+  height: 28px;
+}
+
+.avatar--md {
+  width: 36px;
+  height: 36px;
+}
+
+.avatar--lg {
+  width: 64px;
+  height: 64px;
+}
+
+/* Shapes */
+.avatar--rounded {
+  border-radius: var(--radius-md);
+}
+
+/* Initials */
+.avatar__initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-medium);
+  color: rgb(255 255 255);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border-radius: inherit;
+}
+
+.avatar--xs .avatar__initials {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.avatar--sm .avatar__initials {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.avatar--md .avatar__initials {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.avatar--lg .avatar__initials {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* Image */
+.avatar__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* Status indicator */
+.avatar__status {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  border: 2px solid rgb(var(--canvas-card));
+  box-sizing: border-box;
+}
+
+/* Status color variants */
+.avatar__status--emerald {
+  background-color: rgb(var(--status-emerald));
+}
+
+.avatar__status--amber {
+  background-color: rgb(var(--status-amber));
+}
+
+.avatar__status--rose {
+  background-color: rgb(var(--status-rose));
+}
+
+.avatar__status--cyan {
+  background-color: rgb(var(--status-cyan));
+}
+
+.avatar__status--violet {
+  background-color: rgb(var(--status-violet));
+}
+
+.avatar__status--neutral {
+  background-color: rgb(var(--status-neutral));
+}
+

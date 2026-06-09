@@ -1,0 +1,122 @@
+.log-stream {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overflow-anchor: auto;
+  background: rgb(var(--canvas-bg));
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgb(var(--canvas-fg-2));
+}
+
+.log-stream__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-stream__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  color: rgb(var(--canvas-fg-3));
+}
+
+.log-stream__empty-text {
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-3));
+}
+
+.log-stream__row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 12px;
+  padding: 0 12px;
+  white-space: nowrap;
+  align-items: center;
+}
+
+.log-stream__row--with-ops {
+  grid-template-columns: auto auto auto auto 1fr;
+}
+
+.log-stream__time {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-4));
+  min-width: 8.5ch;
+  font-feature-settings: 'tnum';
+}
+
+.log-stream__level {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  min-width: 6ch;
+  letter-spacing: 0.5px;
+}
+
+.log-stream__level--info {
+  color: rgb(var(--canvas-fg-2));
+}
+
+.log-stream__level--warn {
+  color: rgb(var(--status-amber));
+}
+
+.log-stream__level--error {
+  color: rgb(var(--status-rose));
+}
+
+.log-stream__level--debug {
+  color: rgb(var(--canvas-fg-3));
+}
+
+.log-stream__op {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-3));
+  min-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-stream__target {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-3));
+  min-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-stream__message {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-1));
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.log-stream__sentinel {
+  height: 0;
+  visibility: hidden;
+}
+
+/* Dark canvas mode */
+body.dark-canvas .log-stream {
+  background: rgb(var(--canvas-bg));
+  border-color: rgb(var(--canvas-border));
+}
+
+body.dark-canvas .log-stream__message {
+  color: rgb(var(--canvas-fg-1));
+}

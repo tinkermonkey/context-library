@@ -1,0 +1,192 @@
+.result-card {
+  background-color: rgb(var(--canvas-card));
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 150ms ease, background-color 150ms ease;
+  outline: none;
+}
+
+.result-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: rgb(var(--domain-color));
+}
+
+.result-card[tabindex='0'] {
+  cursor: pointer;
+}
+
+.result-card[tabindex='0']:hover {
+  border-color: rgb(var(--canvas-border-strong));
+}
+
+.result-card[tabindex='0']:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.result-card--selected {
+  border-color: rgb(var(--accent-primary));
+  background-color: rgb(var(--canvas-surface-2));
+}
+
+/* Header row */
+.result-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.result-card__header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Domain dot */
+.result-card__domain-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.result-card__domain-dot--emerald {
+  background-color: rgb(var(--status-emerald));
+}
+
+.result-card__domain-dot--cyan {
+  background-color: rgb(var(--status-cyan));
+}
+
+.result-card__domain-dot--amber {
+  background-color: rgb(var(--status-amber));
+}
+
+.result-card__domain-dot--rose {
+  background-color: rgb(var(--status-rose));
+}
+
+.result-card__domain-dot--violet {
+  background-color: rgb(var(--status-violet));
+}
+
+/* Source name */
+.result-card__source {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--canvas-fg-1));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Score label */
+.result-card__score-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgb(var(--canvas-fg-2));
+  font-feature-settings: 'tnum';
+  flex-shrink: 0;
+}
+
+/* Score bar */
+.result-card__score-bar {
+  margin-bottom: 12px;
+  margin-left: 3px;
+}
+
+/* Snippet area */
+.result-card__snippet {
+  font-size: 13px;
+  color: rgb(var(--canvas-fg-2));
+  line-height: 1.5;
+  margin-bottom: 12px;
+  word-break: break-word;
+}
+
+.result-card__snippet mark {
+  background-color: var(--accent-primary-bg-alpha-md);
+  color: inherit;
+  font-weight: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+  text-decoration: none;
+}
+
+/* Divider */
+.result-card__divider {
+  height: 1px;
+  background-color: rgb(var(--canvas-border));
+  margin: 10px 0;
+  margin-left: 3px;
+  margin-right: 0;
+}
+
+/* Provenance row */
+.result-card__provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.result-card__provenance-field {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.result-card__provenance-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--canvas-fg-3));
+  font-weight: var(--font-weight-medium);
+  flex-shrink: 0;
+}
+
+.result-card__provenance-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgb(var(--canvas-fg-2));
+  word-break: break-word;
+}
+
+/* Actions area */
+.result-card__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  margin-left: 3px;
+}
+
+.result-card__actions .btn {
+  background-color: rgb(var(--canvas-surface));
+  border-color: rgb(var(--canvas-border));
+}
+
+.result-card__actions .btn:hover {
+  background-color: rgb(var(--canvas-surface-2));
+  border-color: rgb(var(--canvas-border-strong));
+  color: rgb(var(--canvas-fg-1));
+}
+
+.result-card__actions .btn:active {
+  background-color: rgb(var(--canvas-bg-2));
+}

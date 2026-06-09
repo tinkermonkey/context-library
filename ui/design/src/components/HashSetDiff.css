@@ -1,0 +1,117 @@
+.hash-set-diff {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: 6px;
+  background-color: rgb(var(--canvas-surface));
+  overflow: hidden;
+}
+
+.hash-set-diff__empty {
+  padding: 20px;
+  text-align: center;
+  color: rgb(var(--canvas-fg-2));
+  font-size: 14px;
+}
+
+.hash-set-diff__header {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid rgb(var(--canvas-border));
+  background-color: rgb(var(--canvas-surface-2));
+  padding: 12px;
+}
+
+.hash-set-diff__column {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hash-set-diff__pill {
+  font-size: 10px;
+}
+
+.hash-set-diff__count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgb(var(--canvas-fg-2));
+  font-weight: 500;
+}
+
+.hash-set-diff__viewport {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 200px;
+  max-height: 400px;
+}
+
+.hash-set-diff__content {
+  position: relative;
+  width: 100%;
+}
+
+.hash-set-diff__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+  border-bottom: 1px solid rgb(var(--canvas-border));
+  background-color: rgb(var(--canvas-bg));
+}
+
+.hash-set-diff__row:last-child {
+  border-bottom: none;
+}
+
+.hash-set-diff__cell {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  border-left: 3px solid transparent;
+}
+
+.hash-set-diff__cell--added {
+  border-left-color: rgb(var(--status-emerald));
+  background-color: var(--status-emerald-bg-alpha);
+}
+
+.hash-set-diff__cell--removed {
+  border-left-color: rgb(var(--status-rose));
+  background-color: var(--status-rose-bg-alpha);
+}
+
+.hash-set-diff__cell--kept {
+  border-left-color: rgb(var(--canvas-border));
+}
+
+.hash-set-diff__item {
+  color: rgb(var(--canvas-fg-1));
+  white-space: normal;
+  overflow: hidden;
+}
+
+.hash-set-diff__expand-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: rgb(var(--canvas-fg-2));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 80ms ease;
+}
+
+.hash-set-diff__expand-button:hover {
+  color: rgb(var(--canvas-fg-1));
+}
+
+.hash-set-diff__expand-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

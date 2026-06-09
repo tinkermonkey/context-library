@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1280, initial-scale=1" />
+  <title>Custom Component Audit · Context Library × heimdall</title>
+  <link rel="stylesheet" href="heimdall/heimdall.css" />
+  <style>
+    html, body { background: rgb(var(--canvas-bg-2)); }
+    .audit { max-width: 1180px; margin: 0 auto; padding: 40px 32px 80px; }
+    .audit .panel { background: rgb(var(--canvas-card)); }
+    .sec-title {
+      font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+      letter-spacing: 0.10em; text-transform: uppercase; color: rgb(var(--canvas-fg-3));
+      margin: 38px 0 14px; display: flex; align-items: center; gap: 10px;
+    }
+    .sec-title::after { content: ''; flex: 1; height: 1px; background: rgb(var(--canvas-border)); }
+    /* base-component chip cluster */
+    .basecluster { display: flex; flex-wrap: wrap; gap: 4px; }
+    .basechip {
+      font-family: var(--font-mono); font-size: 11px;
+      padding: 1px 6px; border-radius: var(--radius-sm);
+      background: rgb(var(--canvas-bg-2)); border: 1px solid rgb(var(--canvas-border));
+      color: rgb(var(--canvas-fg-2));
+    }
+    .basechip.none { color: rgb(var(--canvas-fg-4)); font-style: italic; border-style: dashed; }
+    .audit .table td { vertical-align: top; }
+    .compname { font-weight: 600; color: rgb(var(--canvas-fg-1)); font-size: 13px; }
+    .compsub { font-family: var(--font-mono); font-size: 10.5px; color: rgb(var(--canvas-fg-3)); margin-top: 2px; }
+    .shipsas {
+      display: inline-flex; align-items: center; gap: 5px; margin-top: 5px;
+      font-family: var(--font-mono); font-size: 10.5px; color: rgb(var(--status-emerald));
+    }
+    .shipsas .arrow { color: rgb(var(--canvas-fg-4)); }
+    /* rationale cards */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .rcard { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+    .rcard .rc-head { display: flex; align-items: center; gap: 10px; }
+    .rcard .rc-name { font-size: 14px; font-weight: 600; color: rgb(var(--canvas-fg-1)); }
+    .rcard .rc-where { font-family: var(--font-mono); font-size: 10.5px; color: rgb(var(--canvas-fg-3)); }
+    .rcard .rc-ships { font-family: var(--font-mono); font-size: 11px; color: rgb(var(--status-emerald)); display: flex; align-items: center; gap: 6px; }
+    .rcard .rc-ships .arrow { color: rgb(var(--canvas-fg-4)); }
+    .rcard .rc-note { font-size: 12.5px; line-height: 1.55; color: rgb(var(--canvas-fg-2)); }
+    .rcard .rc-base { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .rcard .rc-base .lbl { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(var(--canvas-fg-4)); margin-right: 4px; }
+    .legend { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+    .legend .li { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: rgb(var(--canvas-fg-2)); }
+    /* status banner */
+    .statusbanner {
+      display: flex; align-items: center; gap: 16px; padding: 16px 20px; margin-bottom: 4px;
+      border: 1px solid rgb(var(--status-emerald) / 0.35);
+      background: rgb(var(--status-emerald) / 0.07);
+      border-radius: var(--radius-md);
+    }
+    .statusbanner .big {
+      font-family: var(--font-mono); font-size: 30px; font-weight: 700; line-height: 1;
+      color: rgb(var(--status-emerald)); flex-shrink: 0;
+    }
+    .statusbanner .txt { font-size: 13px; line-height: 1.55; color: rgb(var(--canvas-fg-2)); }
+    .statusbanner .txt b { color: rgb(var(--canvas-fg-1)); }
+  </style>
+</head>
+<body>
+  <div id="app" class="audit"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="heimdall/primitives.jsx"></script>
+  <script type="text/babel" src="heimdall/shell.jsx"></script>
+  <script type="text/babel" src="heimdall/data.jsx"></script>
+
+  <script type="text/babel">
+    // Each custom surface from the rebuild, with: where it appears, the heimdall
+    // base components it reuses, its current STATUS against the live design system,
+    // and the rationale. Reconciled against github.com/tinkermonkey/heimdall —
+    // every pattern flagged for promotion has since shipped in the kit.
+    const STATUS = {
+      shipped: { variant: 'emerald', label: '✓ in heimdall' },
+      reuse:   { variant: 'violet',  label: 'reuse existing' },
+      compose: { variant: 'neutral', label: 'compose-only' },
+    };
+    const PRIO = { High: 'rose', Medium: 'amber', Low: 'neutral' };
+
+    const ROWS = [
+      // ---- SHIPPED TO HEIMDALL (was: promote) ----
+      { name: 'Map canvas + pins + track', where: 'Location', base: ['Badge (pin label)', 'Chip', 'Icon'],
+        status: 'shipped', ships: 'MapCanvas', prio: 'High',
+        note: 'No spatial primitive existed in the kit. A pan/zoom canvas with place pins and a GPS track recurs in any location, floor-plan, or geo-topology view — now shipped as MapCanvas, sharing pan/zoom machinery with GraphCanvas (usePanZoom).' },
+      { name: 'Calendar (month grid + mini)', where: 'Events', base: ['Heatmap (cell scale)', 'Chip', 'Button'],
+        status: 'shipped', ships: 'Calendar · MiniCalendar', prio: 'High',
+        note: 'Month / week / day grid plus a mini-calendar picker. Useful far beyond Events (scheduling, availability, audit ranges). Shipped as Calendar + MiniCalendar; event-density cells reuse Heatmap’s color-scale tokens.' },
+      { name: 'Kanban board + column + card', where: 'Tasks', base: ['Panel (column)', 'Chip', 'VersionPill', 'TriState/checkbox'],
+        status: 'shipped', ships: 'KanbanBoard', prio: 'High',
+        note: 'A generic status/flow board. The card composes Chip + VersionPill + a checkbox; the column shell and drag affordance were net-new. Shipped as KanbanBoard (with KanbanColumn / KanbanCard types).' },
+      { name: 'LineageRail', where: 'Chunk inspector · Messages · Events', base: ['Chip / kg-node-pill', 'Icon'],
+        status: 'shipped', ships: 'LineageRail', prio: 'High',
+        note: 'Horizontal stage→stage provenance chain — used on THREE screens. Each node is effectively the existing .kg-node-pill. Shipped as LineageRail; pairs naturally with PipelineCard.' },
+      { name: 'VersionTimeline', where: 'Source detail · Chunk inspector · Tasks', base: ['ActivityTimeline (rail)', 'VersionPill', 'Chip'],
+        status: 'shipped', ships: 'VersionTimeline', prio: 'High',
+        note: 'Dot-and-line version history with +added / −removed / ∩kept stats. Appeared 3× in slightly different shapes — a strong unify signal. Shipped on ActivityTimeline’s dot rail plus a VersionPill + diff-stat row.' },
+      { name: 'Diff viewer (hash-set + side-by-side)', where: 'Source detail', base: ['Panel', 'VersionPill', 'Chip'],
+        status: 'shipped', ships: 'DiffViewer · HashSetDiff · SideBySideDiff', prio: 'High',
+        note: 'Added/removed/kept hash-set columns and a gutter-marked two-column content diff. Core to the versioned-RAG story. Shipped as DiffViewer wrapping HashSetDiff + SideBySideDiff.' },
+      { name: 'ResultCard (retrieval hit)', where: 'Search', base: ['ProgressBar (similarity)', 'VersionPill', 'Chip', 'Button'],
+        status: 'shipped', ships: 'ResultCard', prio: 'Medium',
+        note: 'A search hit carrying provenance + a similarity bar. Reusable in any retrieval / RAG product. Shipped as ResultCard; the similarity bar is a horizontal ProgressBar, the rest composes existing chips and buttons.' },
+      { name: 'AssetCard + grid (docs / albums)', where: 'Documents · Music', base: ['Chip', 'mono type tokens'],
+        status: 'shipped', ships: 'AssetCard · AssetGrid', prio: 'Medium',
+        note: 'The Documents doc-tile and the Music album-tile are the same shape: thumbnail + title + meta row. Shipped as one AssetCard (+ responsive AssetGrid) with a configurable thumbnail (file-fold, cover, OCR badge).' },
+      { name: 'LogStream', where: 'Chunk inspector (sync log) · Adapters (events)', base: ['ActivityTimeline', 'Chip (level)'],
+        status: 'shipped', ships: 'LogStream', prio: 'Medium',
+        note: 'Monospace timestamped log lines with INFO/WARN/ERROR level tags. Two near-identical copies before. Shipped as a dedicated LogStream primitive.' },
+      { name: 'Avatar (sub-primitive)', where: 'Rail user · Messages · People', base: ['—'],
+        status: 'shipped', ships: 'Avatar', prio: 'Medium',
+        note: 'Initials-on-gradient avatar was hand-rolled in three places with subtly different sizes/shapes. The kit had no Avatar primitive — now shipped as Avatar (size + shape + deterministic color-from-string), de-duplicating all three.' },
+
+      // ---- REUSE EXISTING ----
+      { name: 'FileTree', where: 'Notes · Documents', base: ['HierarchyTree', 'HierarchyRow', 'Icon'],
+        status: 'reuse', prio: 'High',
+        note: 'The kit already ships HierarchyTree / HierarchyRow. The file tree should be refactored onto it, adding a file-type icon slot and a version-count badge — not maintained as a parallel tree.' },
+      { name: 'Stacked daily chart', where: 'Music', base: ['StackedBar', 'BarChart'],
+        status: 'reuse', prio: 'High',
+        note: 'The hand-drawn stacked-by-genre bars duplicate the existing StackedBar component. Swap to StackedBar with a category legend; delete the bespoke SVG.' },
+      { name: 'Message thread (bubbles)', where: 'Messages', base: ['ChatMessage', 'ChatContainer', 'ChatDivider'],
+        status: 'reuse', prio: 'Medium',
+        note: 'The kit already ships a chat-message stack. Generalize ChatMessage’s sender/avatar/timestamp to cover email-style threads rather than maintaining custom .msg bubbles.' },
+      { name: 'AdapterCard', where: 'Adapters', base: ['ConfigTile', 'Chip (status)', 'VersionPill', 'StatTile (mini)'],
+        status: 'reuse', prio: 'Medium',
+        note: 'ConfigTile already gives icon + title + description + kv summary. Extend it with an optional status chip + version slot instead of a separate card — adapter/resource monitoring is the canonical ConfigTile use-case.' },
+      { name: 'MailboxRail (sectioned nav)', where: 'Messages', base: ['Sidebar', 'NavItem'],
+        status: 'reuse', prio: 'Medium',
+        note: 'Sectioned nav with counts is exactly what Sidebar does. Render a secondary, in-canvas Sidebar variant rather than a bespoke rail.' },
+      { name: 'TrackList', where: 'Music', base: ['Table', 'Chip (genre)'],
+        status: 'reuse', prio: 'Low',
+        note: 'A dense mono row list = Table with render columns (time, title/artist, duration, genre chip). No new component needed.' },
+      { name: 'SourceBar (breakdown)', where: 'Health', base: ['MetricRow', 'ProgressBar'],
+        status: 'reuse', prio: 'Low',
+        note: 'MetricRow already = label + progress + value (+ optional sparkline). Use MetricRow with the sparkline omitted instead of the custom bar.' },
+      { name: 'ChunkPill (typed count)', where: 'Documents', base: ['Chip', 'Badge'],
+        status: 'reuse', prio: 'Low',
+        note: 'A labelled count is just a Chip (or Badge with a count). Drop the custom pill.' },
+      { name: 'VisitTimeline', where: 'Location', base: ['ActivityTimeline'],
+        status: 'reuse', prio: 'Low',
+        note: 'Arrive/leave entries with time + dot + content map cleanly onto ActivityTimeline with a custom dot color.' },
+
+      // ---- COMPOSE-ONLY ----
+      { name: 'SearchHero', where: 'Search', base: ['TextInput', 'FilterDropdown', 'SegmentedControl', 'Button'],
+        status: 'compose', prio: 'Low',
+        note: 'An app-specific arrangement of existing inputs. Document the recipe; no promotion warranted.' },
+      { name: 'DomainTile', where: 'Overview', base: ['StatTile', 'Chip'],
+        status: 'compose', prio: 'Low',
+        note: 'Color-bar + count + adapter chips. Close to StatTile; keep as an app composition unless domain tiles spread to more surfaces.' },
+      { name: 'FacetList', where: 'Search · Documents · People', base: ['FilterDropdown rows', 'Chip'],
+        status: 'compose', prio: 'Medium',
+        note: 'Static faceted count list. Borderline — appears 3×. If a 4th use lands, promote a FacetList; for now reuse FilterDropdown’s row + checkbox styling.' },
+      { name: 'Outline / TOC', where: 'Notes · Documents', base: ['NavItem (depth)'],
+        status: 'compose', prio: 'Low',
+        note: 'Heading list with active state and indent. Reuses NavItem depth styling; keep app-level.' },
+      { name: 'LinkList (wikilinks / backlinks)', where: 'Notes', base: ['Chip', 'Icon'],
+        status: 'compose', prio: 'Low',
+        note: 'Mono rows with an exists/missing chip. Compose from Chip + Icon.' },
+      { name: 'NowPlaying', where: 'Music', base: ['ProgressBar (scrubber)', 'Avatar'],
+        status: 'compose', prio: 'Low',
+        note: 'Cover + title + scrubber. Scrubber is a ProgressBar; cover folds into the shipped Avatar / AssetCard. Otherwise app-specific.' },
+      { name: 'MentionsList', where: 'People', base: ['domain dot', 'mono rows'],
+        status: 'compose', prio: 'Low',
+        note: 'Cross-domain mention rows. App-specific; keep as a composition.' },
+      { name: 'AlphabetIndex', where: 'People', base: ['—'],
+        status: 'compose', prio: 'Low',
+        note: 'A→Z jump index. Niche; keep app-level.' },
+    ];
+
+    function BaseChips({ items }) {
+      return (
+        <div className="basecluster">
+          {items.map((b, i) => <span key={i} className={'basechip' + (b === '—' ? ' none' : '')}>{b === '—' ? 'none' : b}</span>)}
+        </div>
+      );
+    }
+
+    function Count({ status }) { return ROWS.filter(r => r.status === status).length; }
+
+    function App() {
+      const columns = [
+        { key: 'name', label: 'Custom component', width: '230px', render: (_v, r) => (
+          <div>
+            <div className="compname">{r.name}</div>
+            <div className="compsub">{r.where}</div>
+            {r.ships ? <div className="shipsas"><span className="arrow">→</span>{r.ships}</div> : null}
+          </div>
+        ) },
+        { key: 'base', label: 'Reusable heimdall base components', render: (v) => <BaseChips items={v} /> },
+        { key: 'status', label: 'Status', width: '128px', render: (v) => <Chip variant={STATUS[v].variant}>{STATUS[v].label}</Chip> },
+        { key: 'prio', label: 'Priority', width: '92px', render: (v) => <Chip variant={PRIO[v]}>{v}</Chip> },
+      ];
+
+      const shipped = ROWS.filter(r => r.status === 'shipped');
+      const reuse = ROWS.filter(r => r.status === 'reuse');
+
+      const RCard = ({ r }) => (
+        <Panel className="rcard">
+          <div className="rc-head">
+            <span className="rc-name">{r.name}</span>
+            <Chip variant={STATUS[r.status].variant}>{STATUS[r.status].label}</Chip>
+          </div>
+          <div className="rc-where">{r.where}</div>
+          {r.ships ? <div className="rc-ships"><span className="arrow">ships as</span>{r.ships}</div> : null}
+          <div className="rc-note">{r.note}</div>
+          <div className="rc-base"><span className="lbl">reuses</span><BaseChips items={r.base} /></div>
+        </Panel>
+      );
+
+      return (
+        <React.Fragment>
+          <PageHeader
+            eyebrow="CONTEXT LIBRARY × HEIMDALL · COMPONENT STATUS"
+            title="Custom component audit"
+            subtitle="Every surface flagged “custom” in the rebuild, reconciled against the live heimdall design system (github.com/tinkermonkey/heimdall). Each pattern is analyzed two ways: which existing heimdall primitives it assembles from, and its current status — already shipped in the kit, reuse an existing component, or keep as an app-level composition."
+          />
+
+          <div className="statusbanner">
+            <span className="big">0</span>
+            <span className="txt"><b>net-new components remain to build.</b> All {shipped.length} patterns originally flagged for promotion have since shipped in heimdall. What’s left is {reuse.length} reuse-onto-existing refactors and {ROWS.filter(r=>r.status==='compose').length} app-level compositions — none require a new design-system component.</span>
+          </div>
+
+          <StatGrid columns={4} style={{ marginBottom: 8 }}>
+            <StatTile label="CUSTOM SURFACES" value={ROWS.length} color="neutral" meta="audited across 15 screens" />
+            <StatTile label="SHIPPED IN HEIMDALL" value={<Count status="shipped" />} color="emerald" meta="promoted — now in the kit" />
+            <StatTile label="REUSE EXISTING" value={<Count status="reuse" />} color="violet" meta="kit already ships it" />
+            <StatTile label="COMPOSE-ONLY" value={<Count status="compose" />} color="amber" meta="remain app-level" />
+          </StatGrid>
+
+          <div className="sec-title">Status legend</div>
+          <Panel style={{ marginBottom: 4 }}>
+            <div className="legend">
+              <span className="li"><Chip variant="emerald">✓ in heimdall</Chip> Promoted and now shipping in the kit — refactor the prototype onto the real component.</span>
+              <span className="li"><Chip variant="violet">reuse existing</Chip> A component already exists — refactor onto it instead of maintaining a copy.</span>
+              <span className="li"><Chip variant="neutral">compose-only</Chip> An app-specific arrangement of existing parts; document the recipe, don’t promote.</span>
+            </div>
+          </Panel>
+
+          <div className="sec-title">Full matrix · {ROWS.length} surfaces</div>
+          <Panel noPadding>
+            <Table columns={columns} data={ROWS} rowKey="name" />
+          </Panel>
+
+          <div className="sec-title">Shipped to heimdall · {shipped.length}</div>
+          <div className="cards">
+            {shipped.map(r => <RCard key={r.name} r={r} />)}
+          </div>
+
+          <div className="sec-title">Reuse an existing component — don’t rebuild · {reuse.length}</div>
+          <div className="cards">
+            {reuse.map(r => <RCard key={r.name} r={r} />)}
+          </div>
+
+          <div className="sec-title">Where things landed</div>
+          <Panel>
+            <div style={{ fontSize: 13, lineHeight: 1.65, color: 'rgb(var(--canvas-fg-2))' }}>
+              <p style={{ marginBottom: 10 }}><b style={{ color: 'rgb(var(--canvas-fg-1))' }}>1 · The promotion backlog is closed.</b> The Avatar sub-primitive, the versioning suite (LineageRail, VersionTimeline, DiffViewer), the cards &amp; lists (ResultCard, AssetCard / AssetGrid, LogStream), and the big layout canvases (Calendar / MiniCalendar, KanbanBoard, MapCanvas) all ship in heimdall today. The prototype screens can now drop their bespoke copies and import the real components.</p>
+              <p style={{ marginBottom: 10 }}><b style={{ color: 'rgb(var(--canvas-fg-1))' }}>2 · Close the reuse gaps next (cheap, high consistency).</b> FileTree → HierarchyTree, the Music chart → StackedBar, message bubbles → ChatMessage, AdapterCard → ConfigTile, SourceBar → MetricRow. These remove duplicated code and tighten consistency at near-zero design cost.</p>
+              <p><b style={{ color: 'rgb(var(--canvas-fg-1))' }}>3 · Leave the compose-only surfaces app-level.</b> SearchHero, DomainTile, FacetList, Outline/TOC, LinkList, NowPlaying, MentionsList and AlphabetIndex are app-specific arrangements of existing parts. Document the recipes; no further promotion is warranted unless one spreads to more surfaces (watch FacetList — it’s at three already).</p>
+            </div>
+          </Panel>
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('app')).render(<App/>);
+  </script>
+</body>
+</html>

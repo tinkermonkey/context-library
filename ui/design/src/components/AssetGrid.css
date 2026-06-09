@@ -1,0 +1,23 @@
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--asset-columns), 1fr);
+  gap: var(--asset-gap);
+}
+
+@media (max-width: 1400px) {
+  .asset-grid {
+    grid-template-columns: repeat(max(2, var(--asset-columns) - 1), 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .asset-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .asset-grid {
+    grid-template-columns: 1fr;
+  }
+}

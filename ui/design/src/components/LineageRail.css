@@ -1,0 +1,73 @@
+/* LineageRail container */
+.lineage-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.lineage-rail--wrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+/* Arrow separator */
+.lineage-rail__arrow {
+  color: rgb(var(--canvas-fg-4));
+  font-size: 14px;
+  font-family: var(--font-sans);
+  flex-shrink: 0;
+  margin: 0 -4px;
+}
+
+/* Base node styles */
+.lineage-rail__node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  background-color: rgb(var(--canvas-surface));
+  color: rgb(var(--canvas-fg-2));
+  border-color: rgb(var(--canvas-border));
+  flex-shrink: 0;
+}
+
+.lineage-rail__node .chip__dot {
+  display: none;
+}
+
+/* Head node styling */
+.lineage-rail__node--head {
+  background-color: var(--accent-primary-bg-alpha-sm);
+  border-color: var(--accent-primary-border-alpha-sm);
+  color: rgb(var(--canvas-fg-1));
+}
+
+/* Interactive node (button) */
+.lineage-rail__node--interactive {
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.lineage-rail__node--interactive:hover {
+  border-color: rgb(var(--canvas-border-strong));
+}
+
+.lineage-rail__node--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Label text */
+.lineage-rail__label {
+  display: inline;
+}

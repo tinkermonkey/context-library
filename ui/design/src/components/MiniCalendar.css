@@ -1,0 +1,143 @@
+/* Mini calendar container */
+.mini-calendar {
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--canvas-surface));
+  border: 1px solid rgb(var(--canvas-border));
+  border-radius: var(--radius-md);
+  padding: 12px;
+  min-width: 240px;
+}
+
+.mini-calendar__header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgb(var(--canvas-border));
+}
+
+.mini-calendar__title {
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+  color: rgb(var(--canvas-fg-1));
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Grid layout */
+.mini-calendar__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mini-calendar__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.mini-calendar__weekday {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  color: rgb(var(--canvas-fg-3));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mini-calendar__dates {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+/* Date button styling */
+.mini-calendar__date {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: rgb(var(--canvas-fg-1));
+  cursor: pointer;
+  transition: background-color 0.08s, border-color 0.08s, color 0.08s;
+  outline: none;
+}
+
+.mini-calendar__date:hover:not(.mini-calendar__date--out-of-month) {
+  background: rgb(var(--canvas-bg-2));
+}
+
+.mini-calendar__date:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.mini-calendar__date--out-of-month {
+  color: rgb(var(--canvas-fg-4));
+  cursor: default;
+}
+
+.mini-calendar__date--out-of-month:hover {
+  background: transparent;
+}
+
+.mini-calendar__date--today {
+  border-color: rgb(var(--accent-primary));
+  color: rgb(var(--accent-primary));
+  font-weight: var(--font-weight-semibold);
+}
+
+.mini-calendar__date--selected {
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--canvas-bg));
+  border-color: rgb(var(--accent-primary));
+  font-weight: var(--font-weight-semibold);
+}
+
+.mini-calendar__date--selected:focus-visible {
+  box-shadow: 0 0 0 2px rgb(var(--canvas-surface)), var(--focus-ring);
+}
+
+.mini-calendar__date--has-marker .mini-calendar__date-number {
+  position: relative;
+}
+
+.mini-calendar__marker {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 9999px;
+}
+
+.mini-calendar__date-number {
+  line-height: 1;
+}
+
+/* Dark canvas overrides */
+body.dark-canvas .mini-calendar__date--selected {
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--canvas-bg));
+}
+
+body.dark-canvas .mini-calendar__date--today {
+  border-color: rgb(var(--accent-primary));
+  color: rgb(var(--accent-primary));
+}
