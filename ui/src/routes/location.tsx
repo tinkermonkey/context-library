@@ -6,6 +6,7 @@ import { MapPinIcon } from '@heroicons/react/24/outline';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
+import { PageHeader } from '@tinkermonkey/heimdall-ui';
 
 const locationColor = getDomainColor('location'); // #14B8A6
 
@@ -514,6 +515,11 @@ export default function LocationPage(): ReactNode {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Location"
+        subtitle="Place visits and location history"
+      />
       {/* ── Topbar ── */}
       <div
         className="flex items-center gap-3 shrink-0 px-5"

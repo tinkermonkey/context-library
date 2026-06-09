@@ -11,6 +11,8 @@ import BrowserPage from './routes/browser'
 import BrowserVersionsPage from './routes/browser.versions.$sourceId'
 import BrowserFilesPage from './routes/browser.files'
 import SearchPage from './routes/search'
+import SourcesPage from './routes/sources'
+import PipelinePage from './routes/pipeline'
 import {
   indexSearchSchema,
   browserSearchSchema,
@@ -169,6 +171,18 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const sourcesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sources',
+  component: SourcesPage,
+})
+
+const pipelineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/pipeline',
+  component: PipelinePage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   searchRoute,
@@ -182,6 +196,8 @@ const routeTree = rootRoute.addChildren([
   locationRoute,
   musicRoute,
   adminRoute,
+  sourcesRoute,
+  pipelineRoute,
   browserRoute,
   browserVersionsRoute,
   browserFilesRoute,

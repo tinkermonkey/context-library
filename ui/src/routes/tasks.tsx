@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchChunks } from '../api/client';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse, TaskMetadata } from '../types/api';
 import { extractTaskMetadata } from '../types/api';
@@ -510,6 +510,11 @@ export default function TasksPage(): ReactNode {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Tasks"
+        subtitle="To-dos from Reminders and CalDAV"
+      />
 
       {/* ── Top bar ── */}
       <div

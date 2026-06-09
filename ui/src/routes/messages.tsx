@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import {
   ChatBubbleLeftIcon,
 } from "@heroicons/react/24/outline";
-import { SplitPane, Icon } from "@tinkermonkey/heimdall-ui";
+import { SplitPane, Icon, PageHeader } from "@tinkermonkey/heimdall-ui";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
 import { getDomainColor, getDomainColorWithAlpha } from "../lib/designTokens";
@@ -776,9 +776,15 @@ export default function MessagesPage(): ReactNode {
 
   return (
     <div
-      className="h-full overflow-hidden"
+      className="flex flex-col h-full overflow-hidden"
       style={{ background: 'rgb(var(--canvas-bg))' }}
     >
+      <PageHeader
+        eyebrow="Domains"
+        title="Messages"
+        subtitle="iMessage conversation history"
+      />
+      <div className="flex-1 min-h-0 overflow-hidden">
       <SplitPane
         direction="horizontal"
         initialSplitPercent={30}
@@ -786,6 +792,7 @@ export default function MessagesPage(): ReactNode {
         first={threadListPanel}
         second={threadViewPanel}
       />
+      </div>
     </div>
   );
 }

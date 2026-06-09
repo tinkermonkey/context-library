@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { Drawer, Icon, TabBar } from '@tinkermonkey/heimdall-ui';
+import { Drawer, Icon, TabBar, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { useSearch } from '../hooks/useSearch';
 import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
@@ -543,9 +543,15 @@ export default function SearchPage() {
 
   return (
     <div
-      className="flex flex-col h-full min-h-0 p-6 gap-4"
+      className="flex flex-col h-full min-h-0"
       onKeyDown={handleKeyDown}
     >
+      <PageHeader
+        eyebrow="Library"
+        title="Search"
+        subtitle="Semantic search across your knowledge base"
+      />
+      <div className="flex flex-col flex-1 min-h-0 p-6 gap-4 overflow-auto">
       {/* Search input */}
       <div
         className="flex items-center gap-3 rounded-xl px-4 h-12 shrink-0"
@@ -694,6 +700,7 @@ export default function SearchPage() {
           onClose={() => setSelectedResult(null)}
           onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
         />
+      </div>
       </div>
     </div>
   );

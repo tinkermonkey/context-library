@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Chip, SplitPane, Icon } from '@tinkermonkey/heimdall-ui';
+import { Chip, SplitPane, Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -821,7 +821,13 @@ export default function NotesPage(): ReactNode {
   );
 
   return (
-    <div className="h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Notes"
+        subtitle="Browse notes from Obsidian and Apple Notes"
+      />
+      <div className="flex-1 min-h-0 overflow-hidden">
       <SplitPane
         direction="horizontal"
         initialSplitPercent={20}
@@ -837,6 +843,7 @@ export default function NotesPage(): ReactNode {
           />
         }
       />
+      </div>
     </div>
   );
 }

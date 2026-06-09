@@ -18,7 +18,7 @@ import {
   HomeIcon,
   ArrowsUpDownIcon,
 } from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -585,7 +585,13 @@ export default function DocumentsPage(): ReactNode {
   const SORT_LABELS: Record<string, string> = { name: 'Name', date: 'Modified', size: 'Size', type: 'Type' };
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Documents"
+        subtitle="Ingested filesystem documents"
+      />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
       {/* ── Left panel: folder tree ── */}
       <div
@@ -862,6 +868,7 @@ export default function DocumentsPage(): ReactNode {
           <FileDetail source={selectedSource} />
         </div>
       )}
+      </div>
     </div>
   );
 }

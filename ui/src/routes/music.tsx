@@ -3,7 +3,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MusicalNoteIcon } from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -481,6 +481,11 @@ export default function MusicPage(): ReactNode {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Music"
+        subtitle="Apple Music library and listening history"
+      />
       {/* Equalizer bar animation */}
       <style>{`@keyframes eqBar { from { height: 4px; } to { height: 14px; } }`}</style>
 

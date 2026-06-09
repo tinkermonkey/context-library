@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UsersIcon } from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../hooks/useSources';
 import { postQuery, fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -446,7 +446,13 @@ export default function PeoplePage(): ReactNode {
   }
 
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="People"
+        subtitle="Contacts and their connections"
+      />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
       {/* ── Left panel: search + contact grid ── */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar */}
@@ -552,6 +558,7 @@ export default function PeoplePage(): ReactNode {
       ) : (
         <EmptyDetail />
       )}
+      </div>
     </div>
   );
 }

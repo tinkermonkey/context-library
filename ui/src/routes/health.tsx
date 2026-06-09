@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   MinusIcon,
 } from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -676,6 +676,11 @@ export default function HealthPage(): ReactNode {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Health"
+        subtitle="Health metrics from Oura Ring and Apple Health"
+      />
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-5 py-2.5 shrink-0 flex-wrap"

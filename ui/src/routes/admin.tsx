@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { StatTile, StatGrid, Table, Button, StatusBadge, Badge, Select } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Table, Button, StatusBadge, Badge, Select, PageHeader } from '@tinkermonkey/heimdall-ui';
 
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
@@ -196,82 +196,26 @@ export default function AdminPage(): ReactNode {
       className="flex flex-col h-full overflow-hidden"
       style={{ background: 'rgb(var(--canvas-bg))' }}
     >
-      {/* ── Topbar ── */}
-      <div
-        className="flex items-center shrink-0 px-5"
-        style={{
-          height: 52,
-          background: 'rgb(var(--shell-bg-2))',
-          borderBottom: `1px solid rgb(var(--shell-border))`,
-          gap: 12,
-        }}
-      >
-        <span
-          className="flex-1 font-semibold"
-          style={{ fontSize: 16, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
-        >
-          Admin
-        </span>
-        {healthQuery.isError ? (
-          <div
-            className="flex items-center"
-            style={{
-              background: 'rgb(var(--status-error) / 0.08)',
-              borderRadius: 6,
-              padding: '5px 12px',
-              gap: 6,
-            }}
-          >
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: 'rgb(var(--status-error))',
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                fontSize: 12,
-                color: 'rgb(var(--status-error))',
-                fontFamily: 'Inter, sans-serif',
-              }}
-            >
-              Health check failed
-            </span>
-          </div>
-        ) : health && (
-          <div
-            className="flex items-center"
-            style={{
-              background: isSystemHealthy ? 'rgb(var(--status-ok) / 0.08)' : 'rgb(var(--status-error) / 0.08)',
-              borderRadius: 6,
-              padding: '5px 12px',
-              gap: 6,
-            }}
-          >
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                fontSize: 12,
-                color: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
-                fontFamily: 'Inter, sans-serif',
-              }}
-            >
-              {isSystemHealthy ? 'System Healthy' : 'System Degraded'}
-            </span>
-          </div>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="System"
+        title="Admin"
+        subtitle="System administration and adapter management"
+        actions={
+          healthQuery.isError ? (
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'rgb(var(--status-error))' }} />
+              <span className="text-xs" style={{ color: 'rgb(var(--status-error))' }}>Health check failed</span>
+            </div>
+          ) : health ? (
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }} />
+              <span className="text-xs" style={{ color: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>
+                {isSystemHealthy ? 'System Healthy' : 'System Degraded'}
+              </span>
+            </div>
+          ) : null
+        }
+      />
 
       {/* ── Scrollable body ── */}
       <div className="flex-1 overflow-y-auto" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>

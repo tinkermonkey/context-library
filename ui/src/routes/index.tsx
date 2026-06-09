@@ -2,7 +2,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import type { IconName } from '@tinkermonkey/heimdall-ui';
-import { StatTile, StatGrid, Panel, Chip, Icon } from '@tinkermonkey/heimdall-ui';
+import { StatTile, StatGrid, Panel, Chip, Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
 import {
   DocumentTextIcon,
   MapPinIcon,
@@ -357,7 +357,7 @@ export default function DashboardPage() {
   );
 
   const handleDomainNavigate = (to: ValidRoute) => {
-    navigate({ to });
+    navigate({ to: to as string });
   };
 
   const handleSearch = () => {
@@ -365,7 +365,13 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex flex-col gap-5 p-6 h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0">
+      <PageHeader
+        eyebrow="Context Library"
+        title="Overview"
+        subtitle="System overview and activity"
+      />
+      <div className="flex flex-col gap-5 p-6 flex-1 overflow-auto">
       {/* Search bar */}
       <SearchBar onSearch={handleSearch} />
 
@@ -415,6 +421,7 @@ export default function DashboardPage() {
             isError={activityQuery.isError}
           />
         </div>
+      </div>
       </div>
     </div>
   );
