@@ -761,10 +761,10 @@ class TestSchemaMigrationV1ToV2:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 4 (v1→v2 then v2→v3 then v3→v4)
+            # Verify it's now version 5 (v1→v2 then v2→v3 then v3→v4 then v4→v5)
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 4
+            assert cursor.fetchone()[0] == 5
 
             # Verify the actual CHECK constraint includes 'documents' and 'people' (not just version number)
             # This ensures the migrations actually updated the table constraints
@@ -780,13 +780,13 @@ class TestSchemaMigrationV1ToV2:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
 
-            # Create fresh database (DocumentStore should create v4 schema directly)
+            # Create fresh database (DocumentStore should create v5 schema directly)
             store = DocumentStore(str(db_path))
 
-            # Verify it's version 4
+            # Verify it's version 5
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 4
+            assert cursor.fetchone()[0] == 5
 
             # Verify 'health', 'documents', and 'people' domains are in CHECK constraints
             cursor.execute("""
@@ -1021,12 +1021,12 @@ class TestSchemaPragmasAndConfiguration:
         assert mode in ("wal", "memory")
         store.conn.close()
 
-    def test_schema_user_version_is_4(self) -> None:
-        """Test that user_version is set to 4."""
+    def test_schema_user_version_is_5(self) -> None:
+        """Test that user_version is set to 5."""
         store = DocumentStore(":memory:")
         cursor = store.conn.cursor()
         cursor.execute("PRAGMA user_version")
-        assert cursor.fetchone()[0] == 4
+        assert cursor.fetchone()[0] == 5
         store.conn.close()
 
 
@@ -1062,16 +1062,17 @@ class TestSchemaMigrationV2ToV3:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 4
+            # Verify it's now version 5
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 4
+            assert cursor.fetchone()[0] == 5
 
-            # Verify the actual CHECK constraint includes 'documents' and 'people'
+            # Verify the actual CHECK constraint includes 'documents', 'people', and 'location'
             cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
             ddl = cursor.fetchone()[0]
             assert "'documents'" in ddl, "adapters table CHECK constraint missing 'documents' domain"
             assert "'people'" in ddl, "adapters table CHECK constraint missing 'people' domain"
+            assert "'location'" in ddl, "adapters table CHECK constraint missing 'location' domain"
 
             store.conn.close()
 
@@ -1241,9 +1242,9 @@ class TestSchemaMigrationV2ToV3:
             ddl2 = cursor.fetchone()[0]
             store2.conn.close()
 
-            # Verify both are v4 and DDL is identical
-            assert version1 == 4
-            assert version2 == 4
+            # Verify both are v5 and DDL is identical
+            assert version1 == 5
+            assert version2 == 5
             assert ddl1 == ddl2
 
     def test_migrate_v2_to_v3_migration_failure_raises_runtime_error(self) -> None:
@@ -1313,15 +1314,16 @@ class TestSchemaMigrationV3ToV4:
             # Migrate
             store = DocumentStore(str(db_path))
 
-            # Verify it's now version 4
+            # Verify it's now version 5
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 4
+            assert cursor.fetchone()[0] == 5
 
-            # Verify the actual CHECK constraint includes 'people'
+            # Verify the actual CHECK constraint includes 'people' and 'location'
             cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
             ddl = cursor.fetchone()[0]
             assert "'people'" in ddl, "adapters table CHECK constraint missing 'people' domain"
+            assert "'location'" in ddl, "adapters table CHECK constraint missing 'location' domain"
 
             store.conn.close()
 
@@ -1498,7 +1500,7 @@ class TestSchemaMigrationV3ToV4:
             store1 = DocumentStore(str(db_path))
             cursor = store1.conn.cursor()
             cursor.execute("PRAGMA user_version")
-            assert cursor.fetchone()[0] == 4
+            assert cursor.fetchone()[0] == 5
             cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
             ddl1 = cursor.fetchone()[0]
             store1.conn.close()
@@ -1512,6 +1514,6 @@ class TestSchemaMigrationV3ToV4:
             ddl2 = cursor.fetchone()[0]
             store2.conn.close()
 
-            # Verify both are v4 and DDL is identical
-            assert version2 == 4
+            # Verify both are v5 and DDL is identical
+            assert version2 == 5
             assert ddl1 == ddl2
