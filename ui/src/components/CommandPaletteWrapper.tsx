@@ -4,7 +4,7 @@ import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { type ValidRoute, ICON_MAP, resolveHeimdallIcon } from './layoutConfig';
+import { type ValidRoute, ICON_MAP } from './layoutConfig';
 
 interface NavItem {
   id: ValidRoute;
@@ -42,7 +42,7 @@ export function CommandPaletteWrapper({
     ...primaryNav.map((item) => ({
       id: `nav-${item.id}`,
       label: item.label,
-      icon: resolveHeimdallIcon(ICON_MAP[item.iconKey]),
+      icon: ICON_MAP[item.iconKey],
       onSelect: () => {
         router.navigate({ to: item.id });
       },
@@ -50,7 +50,7 @@ export function CommandPaletteWrapper({
     {
       id: `nav-${adminNav.id}`,
       label: adminNav.label,
-      icon: resolveHeimdallIcon(ICON_MAP[adminNav.iconKey]),
+      icon: ICON_MAP[adminNav.iconKey],
       onSelect: () => {
         router.navigate({ to: adminNav.id });
       },
