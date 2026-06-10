@@ -13,6 +13,7 @@ import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { SourceSummary, QueryResultItem } from '../types/api';
 
 const peopleColor = getDomainColor('people');
+const EMPTY_SOURCES: SourceSummary[] = [];
 
 // ── People metadata ────────────────────────────────────────────────
 
@@ -255,7 +256,7 @@ function RelationshipGraphPanel({
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | undefined>(source.source_id);
 
   const { data: chunksData, isLoading: isChunksLoading } = useQuery({
-    queryKey: ['graph-person-chunks', source.source_id],
+    queryKey: ['source-chunks-people', source.source_id],
     queryFn: () => fetchSourceChunks(source.source_id, undefined, 1, 0),
     staleTime: 60_000,
   });
@@ -308,7 +309,7 @@ function RelationshipGraphPanel({
     }
 
     return { nodes: graphNodes, edges: graphEdges };
-  }, [source, name, orgQuery.data, allSources]);
+  }, [source.source_id, name, orgQuery.data, allSources]);
 
   const renderNode = useCallback(
     (node: GraphNodeData, selected: boolean) => (
@@ -321,7 +322,7 @@ function RelationshipGraphPanel({
         onSelect={setSelectedGraphNodeId}
       />
     ),
-    [],
+    [setSelectedGraphNodeId],
   );
 
   const isLoading = isChunksLoading || (!!meta?.organization && orgQuery.isLoading);
@@ -392,7 +393,7 @@ export default function PeoplePage(): ReactNode {
   const [adapterFilter, setAdapterFilter] = useState<string[]>([]);
 
   const sourcesQuery = useSources({ domain: 'people', limit: 500 });
-  const sources = sourcesQuery.data?.sources ?? [];
+  const sources = sourcesQuery.data?.sources ?? EMPTY_SOURCES;
 
   const uniqueAdapters = useMemo(() => {
     const seen = new Set<string>();
@@ -612,6 +613,7 @@ export default function PeoplePage(): ReactNode {
               onGoToEvents={goToEvents}
             />
             <RelationshipGraphPanel
+              key={selectedSource.source_id}
               source={selectedSource}
               allSources={sources}
             />
