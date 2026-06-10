@@ -3,6 +3,7 @@
 
 import logging
 import pytest
+from unittest.mock import MagicMock, patch
 
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
 from context_library.telemetry.config import TelemetryConfig
@@ -72,6 +73,8 @@ def test_shutdown_telemetry_safe_when_not_initialized():
     shutdown_telemetry()
 
 
+@patch("opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter", MagicMock())
+@patch("opentelemetry.exporter.otlp.proto.grpc._log_exporter.OTLPLogExporter", MagicMock())
 def test_setup_telemetry_resource_has_service_version():
     """The OTLP Resource includes service.version from package metadata."""
     config = TelemetryConfig(
@@ -101,6 +104,8 @@ def test_setup_telemetry_resource_has_service_version():
     shutdown_telemetry()
 
 
+@patch("opentelemetry.exporter.otlp.proto.grpc.trace_exporter.OTLPSpanExporter", MagicMock())
+@patch("opentelemetry.exporter.otlp.proto.grpc._log_exporter.OTLPLogExporter", MagicMock())
 def test_setup_telemetry_resource_has_service_version_override():
     """The OTLP Resource respects optional service_version override."""
     config = TelemetryConfig(
