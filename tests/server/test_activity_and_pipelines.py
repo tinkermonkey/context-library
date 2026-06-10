@@ -87,7 +87,7 @@ class TestGetPipelines:
             run_id="test-run-id",
             adapter_id="test-adapter",
             started_at=started,
-            current_step="processing",
+            current_step="fetch",
             sources_ingested=5,
             chunks_created=10,
             chunks_unchanged=3,
@@ -100,7 +100,7 @@ class TestGetPipelines:
         run = data["runs"][0]
         assert run["run_id"] == "test-run-id"
         assert run["adapter_id"] == "test-adapter"
-        assert run["current_step"] == "processing"
+        assert run["current_step"] == "fetch"
         assert run["ingested"] == 5
         assert run["created"] == 10
         assert run["unchanged"] == 3
