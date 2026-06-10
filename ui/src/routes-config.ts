@@ -53,6 +53,7 @@ export type DomainViewPageSearch = z.infer<typeof domainViewSearchSchema>;
 // Domain-specific search schemas for runtime parsing and parameter stripping
 export const messagesViewSearchSchema = z.object({
   thread_id: z.string().optional(),
+  adapter: z.string().optional(), // comma-separated adapter prefix filter
 });
 
 export type MessagesViewPageSearch = z.infer<typeof messagesViewSearchSchema>;

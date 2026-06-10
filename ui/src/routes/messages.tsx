@@ -124,10 +124,13 @@ function adapterLabel(adapterId: string): string {
   return base.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-/** Remove quoted reply content (lines starting with >) from message text. */
+/** Remove quoted reply content (lines starting with > or email reply headers) from message text. */
 function stripQuotedReplies(content: string): string {
   const lines = content.split('\n');
-  const stripped = lines.filter(line => !line.startsWith('>') && !line.startsWith('On ') || !line.includes(' wrote:'));
+  const stripped = lines.filter(line =>
+    !line.startsWith('>') &&
+    !(line.startsWith('On ') && line.includes(' wrote:'))
+  );
   return stripped.join('\n').trim();
 }
 
@@ -565,7 +568,7 @@ function EmptyState(): ReactNode {
 
 export default function MessagesPage(): ReactNode {
   const navigate = useNavigate();
-  const { thread_id: selectedThreadId } = useSearch({ from: "/messages" });
+  const { thread_id: selectedThreadId, adapter: adapterParam } = useSearch({ from: "/messages" });
   const [filterText, setFilterText] = useState("");
 
   const sourcesQuery = useSources({ domain: "messages", limit: 500 });
@@ -578,7 +581,18 @@ export default function MessagesPage(): ReactNode {
     return Array.from(set).sort();
   }, [sources]);
 
-  const [activeAdapterFilters, setActiveAdapterFilters] = useState<string[]>([]);
+  // Adapter filter persisted in URL as comma-separated string (consistent with notes.tsx)
+  const activeAdapterFilters = useMemo(() => {
+    if (!adapterParam) return [];
+    return adapterParam.split(',').filter(Boolean);
+  }, [adapterParam]);
+
+  function setActiveAdapterFilters(values: string[]): void {
+    void navigate({
+      to: "/messages",
+      search: { thread_id: selectedThreadId, adapter: values.length > 0 ? values.join(',') : undefined },
+    });
+  }
 
   const filteredSources = useMemo(() => {
     let list = sources;
@@ -603,7 +617,7 @@ export default function MessagesPage(): ReactNode {
   );
 
   function selectThread(sourceId: string): void {
-    void navigate({ to: "/messages", search: { thread_id: sourceId } });
+    void navigate({ to: "/messages", search: { thread_id: sourceId, adapter: adapterParam } });
   }
 
   const adapterFilterSummary = activeAdapterFilters.length > 0
