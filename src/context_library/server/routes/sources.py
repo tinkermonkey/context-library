@@ -1,6 +1,7 @@
 """Source inspection endpoints."""
 
 import asyncio
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -62,8 +63,8 @@ async def list_sources(
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
     state: str | None = Query(default=None, pattern="^(active|inactive)$"),
-    last_fetched_after: str | None = Query(default=None),
-    last_fetched_before: str | None = Query(default=None),
+    last_fetched_after: datetime | None = Query(default=None),
+    last_fetched_before: datetime | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),
@@ -77,8 +78,8 @@ async def list_sources(
         adapter_id,
         source_id_prefix,
         state,
-        last_fetched_after,
-        last_fetched_before,
+        last_fetched_after.isoformat() if last_fetched_after is not None else None,
+        last_fetched_before.isoformat() if last_fetched_before is not None else None,
         limit,
         offset,
         sort_by,

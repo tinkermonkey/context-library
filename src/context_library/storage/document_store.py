@@ -2713,7 +2713,14 @@ class DocumentStore:
             - tags: [domain, adapter_type]
         """
         cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) AS cnt FROM source_versions")
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM source_versions sv
+            JOIN sources s ON sv.source_id = s.source_id
+            JOIN adapters a ON sv.adapter_id = a.adapter_id
+            """
+        )
         total: int = cursor.fetchone()["cnt"]
 
         cursor.execute(
