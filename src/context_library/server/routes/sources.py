@@ -1,9 +1,12 @@
 """Source inspection endpoints."""
 
 import asyncio
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
+
+logger = logging.getLogger(__name__)
 
 from context_library.retrieval.provenance import get_version_diff
 from context_library.storage.models import Domain
@@ -209,13 +212,22 @@ async def get_source_chunks(
     else:
         actual_version = version
     chunks, total = await asyncio.to_thread(ds.get_chunks_by_source, source_id, version, limit, offset)
+    chunk_hashes = [c.chunk_hash for c in chunks]
+    lineage_map = await asyncio.to_thread(ds.get_lineage_batch, chunk_hashes, source_id)
     chunk_responses = []
+    dropped = 0
     for chunk in chunks:
-        lineage = await asyncio.to_thread(ds.get_lineage, chunk.chunk_hash, source_id)
+        lineage = lineage_map.get(chunk.chunk_hash)
         if lineage is None:
+            logger.warning(
+                "Lineage missing for chunk %s in source %s — omitting from response",
+                chunk.chunk_hash,
+                source_id,
+            )
+            dropped += 1
             continue
         chunk_responses.append(_chunk_response(chunk, lineage, source_id))
-    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total, limit=limit, offset=offset)
+    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total - dropped, limit=limit, offset=offset)
 
 
 @router.get("/{source_id:path}/diff", response_model=VersionDiffResponse)

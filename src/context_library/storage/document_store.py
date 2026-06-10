@@ -1976,6 +1976,51 @@ class DocumentStore:
             embedding_model_id=row["embedding_model_id"],
         )
 
+    def get_lineage_batch(self, chunk_hashes: list[str], source_id: str) -> dict[str, LineageRecord]:
+        """Get lineage records for multiple chunks in a single query.
+
+        Fetches lineage for all given chunk hashes scoped to source_id.
+        For chunks appearing in multiple versions, returns the earliest-created record
+        (matching the behavior of get_lineage with source_id).
+
+        Args:
+            chunk_hashes: List of chunk hashes to look up.
+            source_id: Source ID to scope the lookup.
+
+        Returns:
+            Dict mapping chunk_hash to LineageRecord. Hashes with no matching record
+            are absent from the returned dict.
+        """
+        if not chunk_hashes:
+            return {}
+        placeholders = ",".join("?" * len(chunk_hashes))
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT chunk_hash, source_id, source_version, adapter_id, domain,
+                   normalizer_version, embedding_model_id
+            FROM chunks
+            WHERE source_id = ? AND chunk_hash IN ({placeholders})
+            ORDER BY created_at ASC
+            """,
+            [source_id, *chunk_hashes],
+        )
+        rows = cursor.fetchall()
+        result: dict[str, LineageRecord] = {}
+        for row in rows:
+            h = row["chunk_hash"]
+            if h not in result:
+                result[h] = LineageRecord(
+                    chunk_hash=row["chunk_hash"],
+                    source_id=row["source_id"],
+                    source_version_id=row["source_version"],
+                    adapter_id=row["adapter_id"],
+                    domain=Domain(row["domain"]),
+                    normalizer_version=row["normalizer_version"],
+                    embedding_model_id=row["embedding_model_id"],
+                )
+        return result
+
     def get_adapter(self, adapter_id: str) -> Optional[AdapterConfig]:
         """Get an adapter configuration by ID.
 

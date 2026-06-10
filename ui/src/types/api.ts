@@ -262,6 +262,9 @@ export interface SourceQueryParams {
   adapter_id?: string;
   domain?: string;
   source_id_prefix?: string;
+  state?: 'active' | 'inactive';
+  last_fetched_after?: string;
+  last_fetched_before?: string;
   limit?: number;
   offset?: number;
   sort_by?: 'created_at' | 'updated_at' | 'chunk_count';

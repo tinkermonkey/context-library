@@ -207,8 +207,13 @@ class SourceQueryParams(BaseModel):
     adapter_id: str | None = None
     domain: str | None = None
     source_id_prefix: str | None = None
+    state: str | None = None
+    last_fetched_after: str | None = None
+    last_fetched_before: str | None = None
     limit: int = 50
     offset: int = 0
+    sort_by: str = "created_at"
+    order: str = "asc"
 
 
 class SourceSummary(BaseModel):
