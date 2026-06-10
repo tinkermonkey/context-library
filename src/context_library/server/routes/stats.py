@@ -4,7 +4,6 @@ import asyncio
 
 from fastapi import APIRouter, Query, Request
 
-from context_library.server.auth import require_auth
 from context_library.server.schemas import (
     ActivityEvent,
     ActivityFeedResponse,
@@ -50,7 +49,6 @@ async def get_activity_feed(
     ordered newest-first and include the event type, entity name, source identifier,
     timestamp, and domain/adapter tags.
     """
-    require_auth(request)
     ds = request.app.state.document_store
     raw_events, total = await asyncio.to_thread(ds.get_activity_feed, limit, offset)
     return ActivityFeedResponse(

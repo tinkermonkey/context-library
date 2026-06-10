@@ -58,62 +58,6 @@ class TestGetActivity:
         assert "timestamp" in event
         assert event["timestamp"] is not None
 
-    def test_auth_required_when_secret_set(self, ds) -> None:
-        """Verify 401 is returned when webhook secret is set and auth header is missing."""
-        mock_config = MagicMock()
-        mock_config.webhook_secret = "test-secret"
-
-        # Build a client with a secret configured
-        from contextlib import asynccontextmanager
-        from typing import AsyncGenerator, Any
-        from context_library.server.app import create_app
-
-        @asynccontextmanager
-        async def lifespan_with_secret(app: Any) -> AsyncGenerator[None, None]:
-            app.state.document_store = ds
-            app.state.embedder = MagicMock()
-            app.state.vector_store = MagicMock()
-            app.state.pipeline = MagicMock()
-            app.state.reranker = None
-            app.state.config = mock_config
-            app.state.helper_adapters = []
-            app.state.helper_health_cache = None
-            app.state.poller = MagicMock()
-            yield
-
-        app = create_app()
-        app.router.lifespan_context = lifespan_with_secret
-        with TestClient(app, raise_server_exceptions=True) as c:
-            resp = c.get("/stats/activity")
-            assert resp.status_code == 401
-
-    def test_auth_succeeds_with_correct_token(self, ds) -> None:
-        from contextlib import asynccontextmanager
-        from typing import AsyncGenerator, Any
-        from context_library.server.app import create_app
-
-        mock_config = MagicMock()
-        mock_config.webhook_secret = "my-secret"
-
-        @asynccontextmanager
-        async def lifespan_with_secret(app: Any) -> AsyncGenerator[None, None]:
-            app.state.document_store = ds
-            app.state.embedder = MagicMock()
-            app.state.vector_store = MagicMock()
-            app.state.pipeline = MagicMock()
-            app.state.reranker = None
-            app.state.config = mock_config
-            app.state.helper_adapters = []
-            app.state.helper_health_cache = None
-            app.state.poller = MagicMock()
-            yield
-
-        app = create_app()
-        app.router.lifespan_context = lifespan_with_secret
-        with TestClient(app, raise_server_exceptions=True) as c:
-            resp = c.get("/stats/activity", headers={"Authorization": "Bearer my-secret"})
-            assert resp.status_code == 200
-
 
 class TestGetPipelines:
     def test_returns_200(self, client: TestClient) -> None:
