@@ -146,7 +146,7 @@ class TestGetPipelines:
             current_step="processing",
             sources_ingested=5,
             chunks_created=10,
-            chunks_updated=3,
+            chunks_unchanged=3,
             errors=1,
         )
         pipeline.get_active_runs = lambda: [fake_run]
@@ -159,7 +159,7 @@ class TestGetPipelines:
         assert run["current_step"] == "processing"
         assert run["ingested"] == 5
         assert run["created"] == 10
-        assert run["updated"] == 3
+        assert run["unchanged"] == 3
         assert run["errors"] == 1
         assert run["duration_sec"] >= 0
 

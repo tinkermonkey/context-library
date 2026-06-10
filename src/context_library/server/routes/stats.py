@@ -1,10 +1,10 @@
 """Dataset statistics endpoint."""
 
 import asyncio
-import secrets
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
+from context_library.server.auth import require_auth
 from context_library.server.schemas import (
     ActivityEvent,
     ActivityFeedResponse,
@@ -15,14 +15,6 @@ from context_library.server.schemas import (
 )
 
 router = APIRouter(tags=["stats"])
-
-
-def _require_auth(request: Request) -> None:
-    config = request.app.state.config
-    if config.webhook_secret:
-        auth = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {config.webhook_secret}"):
-            raise HTTPException(status_code=401, detail="Invalid or missing credentials")
 
 
 @router.get("/stats", response_model=DatasetStatsResponse)
@@ -58,7 +50,7 @@ async def get_activity_feed(
     ordered newest-first and include the event type, entity name, source identifier,
     timestamp, and domain/adapter tags.
     """
-    _require_auth(request)
+    require_auth(request)
     ds = request.app.state.document_store
     raw_events, total = await asyncio.to_thread(ds.get_activity_feed, limit, offset)
     return ActivityFeedResponse(

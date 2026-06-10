@@ -540,7 +540,7 @@ class PipelineRun(BaseModel):
     duration_sec: float
     ingested: int
     created: int
-    updated: int
+    unchanged: int
     errors: int
 
 
