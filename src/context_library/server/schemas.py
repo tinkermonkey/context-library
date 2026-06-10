@@ -535,7 +535,7 @@ class PipelineRun(BaseModel):
 
     run_id: str
     adapter_id: str
-    current_step: str
+    current_step: Literal["fetch", "chunk", "diff", "embed", "store"]
     started_at: str
     duration_sec: float
     ingested: int

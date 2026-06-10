@@ -1,10 +1,11 @@
-"""Orchestrates the full ingestion pipeline: fetch → normalize → diff → chunk → embed → store."""
+"""Orchestrates the full ingestion pipeline: fetch → chunk → diff → embed → store."""
 
 import logging
 import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Literal
 
 from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.differ import Differ
@@ -36,7 +37,7 @@ class _PipelineRun:
     run_id: str
     adapter_id: str
     started_at: datetime
-    current_step: str = "fetch"
+    current_step: Literal["fetch", "chunk", "diff", "embed", "store"] = "fetch"
     sources_ingested: int = 0
     chunks_created: int = 0
     chunks_unchanged: int = 0
@@ -52,8 +53,8 @@ class IngestionPipeline:
     Key responsibilities:
     - Register adapters with the document store (idempotent)
     - Fetch and normalize content via adapters
-    - Detect changes via the Differ
     - Chunk content via domain-specific chunkers
+    - Detect changes via the Differ
     - Embed new/modified chunks
     - Write to SQLite and vector store sequentially with per-source error isolation
     - Retire deleted chunks from both stores
@@ -226,7 +227,6 @@ class IngestionPipeline:
                 _run.current_step = "fetch"
                 try:
                     for content in adapter.fetch(source_ref):
-                        _run.current_step = "chunk"
                         with tracer.start_as_current_span("pipeline.source") as source_span:
                             source_span.set_attribute("source_id", content.source_id)
                             source_span.set_attribute("adapter_id", adapter.adapter_id)
@@ -256,6 +256,7 @@ class IngestionPipeline:
                                     prev_version = self.document_store.get_latest_version(content.source_id)
 
                                     # Chunk the current content
+                                    _run.current_step = "chunk"
                                     with tracer.start_as_current_span(f"domain.chunk {effective_domain.value}") as chunk_span:
                                         chunks = effective_chunker.chunk(content)
                                         chunk_span.set_attribute("chunk_count", len(chunks))

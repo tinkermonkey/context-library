@@ -299,10 +299,12 @@ export interface ActivityFeedResponse {
 
 // ── Pipelines ────────────────────────────────────────────────────
 
+export type PipelineStep = "fetch" | "chunk" | "diff" | "embed" | "store";
+
 export interface PipelineRun {
   run_id: string;
   adapter_id: string;
-  current_step: string;
+  current_step: PipelineStep;
   started_at: string;
   duration_sec: number;
   ingested: number;
