@@ -1517,3 +1517,444 @@ class TestSchemaMigrationV3ToV4:
             # Verify both are v5 and DDL is identical
             assert version2 == 5
             assert ddl1 == ddl2
+
+
+def _create_v4_schema(conn: sqlite3.Connection) -> None:
+    """Create a v4 schema database (includes 'people' but not 'location' in CHECK constraints).
+
+    Args:
+        conn: SQLite connection to populate with v4 schema.
+    """
+    cursor = conn.cursor()
+
+    cursor.execute("PRAGMA user_version=4")
+
+    cursor.execute("""
+        CREATE TABLE adapters (
+            adapter_id          TEXT PRIMARY KEY,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+            adapter_type        TEXT NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            config              TEXT,
+            enabled             BOOLEAN NOT NULL DEFAULT 1,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE sources (
+            source_id           TEXT PRIMARY KEY,
+            adapter_id          TEXT NOT NULL,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+            origin_ref          TEXT NOT NULL,
+            display_name        TEXT,
+            current_version     INTEGER NOT NULL DEFAULT 0,
+            last_fetched_at     DATETIME,
+            poll_strategy       TEXT NOT NULL CHECK (poll_strategy IN ('push', 'pull', 'webhook')),
+            poll_interval_sec   INTEGER,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_adapter ON sources(adapter_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_domain ON sources(domain)")
+
+    cursor.execute("""
+        CREATE TABLE source_versions (
+            source_id           TEXT NOT NULL,
+            version             INTEGER NOT NULL,
+            markdown            TEXT NOT NULL,
+            chunk_hashes        TEXT NOT NULL,
+            adapter_id          TEXT NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            fetch_timestamp     DATETIME NOT NULL,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (source_id, version),
+            FOREIGN KEY (source_id) REFERENCES sources(source_id),
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id)")
+
+    cursor.execute("""
+        CREATE TABLE chunks (
+            chunk_hash          TEXT NOT NULL,
+            source_id           TEXT NOT NULL,
+            source_version      INTEGER NOT NULL,
+            chunk_index         INTEGER NOT NULL,
+            content             TEXT NOT NULL,
+            context_header      TEXT,
+            domain              TEXT NOT NULL CHECK (domain IN ('messages', 'notes', 'events', 'tasks', 'health', 'documents', 'people')),
+            adapter_id          TEXT NOT NULL,
+            fetch_timestamp     DATETIME NOT NULL,
+            normalizer_version  TEXT NOT NULL,
+            embedding_model_id  TEXT NOT NULL DEFAULT 'unspecified',
+            parent_chunk_hash   TEXT,
+            domain_metadata     TEXT,
+            chunk_type          TEXT DEFAULT 'standard' CHECK (chunk_type IN ('standard', 'oversized', 'table_part', 'code', 'table')),
+            retired_at          DATETIME,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (chunk_hash, source_id, source_version),
+            FOREIGN KEY (source_id, source_version) REFERENCES source_versions(source_id, version),
+            FOREIGN KEY (adapter_id) REFERENCES adapters(adapter_id),
+            UNIQUE (source_id, source_version, chunk_index)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(chunk_hash)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id, source_version)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_domain ON chunks(domain)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent ON chunks(parent_chunk_hash)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_retired ON chunks(retired_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_adapter ON chunks(adapter_id)")
+
+    cursor.execute("""
+        CREATE TRIGGER sources_update_timestamp
+        AFTER UPDATE ON sources
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE sources SET updated_at = CURRENT_TIMESTAMP WHERE source_id = NEW.source_id;
+        END
+    """)
+
+    cursor.execute("""
+        CREATE TRIGGER adapters_update_timestamp
+        AFTER UPDATE ON adapters
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE adapters SET updated_at = CURRENT_TIMESTAMP WHERE adapter_id = NEW.adapter_id;
+        END
+    """)
+
+    cursor.execute("""
+        CREATE TABLE entity_links (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_chunk_hash   TEXT NOT NULL,
+            target_chunk_hash   TEXT NOT NULL,
+            link_type           TEXT NOT NULL,
+            confidence          REAL NOT NULL DEFAULT 1.0,
+            created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(source_chunk_hash, target_chunk_hash, link_type)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_source ON entity_links(source_chunk_hash)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_links_target ON entity_links(target_chunk_hash)")
+
+    cursor.execute("""
+        CREATE TABLE lancedb_sync_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            chunk_hash      TEXT NOT NULL,
+            operation       TEXT NOT NULL CHECK (operation IN ('insert', 'delete')),
+            synced_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (chunk_hash, operation)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at)")
+
+    conn.commit()
+
+
+class TestSchemaMigrationV4ToV5:
+    """Test suite for v4→v5 schema migration.
+
+    Tests migration from schema version 4 (includes 'people' domain) to version 5
+    (adds 'location' domain). Covers version update, CHECK constraints, data preservation,
+    domain insertability, triggers, idempotency, rollback, and DDL equivalence.
+    """
+
+    def test_migrate_v4_to_v5_version_updated_and_constraint_includes_location(self) -> None:
+        """Test that v4 database migrates to v5 and CHECK constraints include 'location'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            assert cursor.fetchone()[0] == 4
+
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl = cursor.fetchone()[0]
+            assert "'location'" not in ddl
+
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            assert cursor.fetchone()[0] == 5
+
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl = cursor.fetchone()[0]
+            assert "'location'" in ddl, "adapters table CHECK constraint missing 'location' domain"
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_all_tables_have_location_constraint(self) -> None:
+        """Test that adapters, sources, and chunks all have 'location' in CHECK after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            for table_name in ("adapters", "sources", "chunks"):
+                cursor.execute(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                ddl = cursor.fetchone()[0]
+                assert "'location'" in ddl, f"{table_name} table missing 'location' in CHECK constraint"
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_data_preservation(self) -> None:
+        """Test that existing data across all four tables is preserved after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("test-adapter", "people", "apple_contacts", "1.0"))
+
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("test-source", "test-adapter", "people", "contacts://local", "push"))
+
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("test-source", 1, "# Contact", "hash1", "test-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("a" * 64, "test-source", 1, 0, "Contact content", "people", "test-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+            conn.commit()
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            cursor.execute("SELECT adapter_id, domain FROM adapters WHERE adapter_id = 'test-adapter'")
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == "test-adapter"
+            assert row[1] == "people"
+
+            cursor.execute("SELECT source_id, domain FROM sources WHERE source_id = 'test-source'")
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[0] == "test-source"
+            assert row[1] == "people"
+
+            cursor.execute("SELECT source_id, markdown FROM source_versions WHERE source_id = 'test-source' AND version = 1")
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[1] == "# Contact"
+
+            cursor.execute("SELECT chunk_hash, domain FROM chunks WHERE chunk_hash = ?", ("a" * 64,))
+            row = cursor.fetchone()
+            assert row is not None
+            assert row[1] == "people"
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_location_domain_insertable(self) -> None:
+        """Test that 'location' domain rows can be inserted after migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("loc-adapter", "location", "apple_location", "1.0"))
+
+            cursor.execute("""
+                INSERT INTO sources (source_id, adapter_id, domain, origin_ref, poll_strategy)
+                VALUES (?, ?, ?, ?, ?)
+            """, ("loc-source", "loc-adapter", "location", "location://device", "push"))
+
+            cursor.execute("""
+                INSERT INTO source_versions (source_id, version, markdown, chunk_hashes, adapter_id, normalizer_version, fetch_timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("loc-source", 1, "# Visit", "hash1", "loc-adapter", "1.0", "2024-01-01T00:00:00Z"))
+
+            cursor.execute("""
+                INSERT INTO chunks (chunk_hash, source_id, source_version, chunk_index, content, domain, adapter_id, fetch_timestamp, normalizer_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("b" * 64, "loc-source", 1, 0, "Location content", "location", "loc-adapter", "2024-01-01T00:00:00Z", "1.0"))
+
+            store.conn.commit()
+
+            cursor.execute("SELECT domain FROM adapters WHERE adapter_id = 'loc-adapter'")
+            assert cursor.fetchone()[0] == "location"
+
+            cursor.execute("SELECT domain FROM sources WHERE source_id = 'loc-source'")
+            assert cursor.fetchone()[0] == "location"
+
+            cursor.execute("SELECT domain FROM chunks WHERE chunk_hash = ?", ("b" * 64,))
+            assert cursor.fetchone()[0] == "location"
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_idempotent(self) -> None:
+        """Test that opening a v5 database again does not re-run migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            store1 = DocumentStore(str(db_path))
+            cursor = store1.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version1 = cursor.fetchone()[0]
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl1 = cursor.fetchone()[0]
+            store1.conn.close()
+
+            store2 = DocumentStore(str(db_path))
+            cursor = store2.conn.cursor()
+            cursor.execute("PRAGMA user_version")
+            version2 = cursor.fetchone()[0]
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='adapters'")
+            ddl2 = cursor.fetchone()[0]
+            store2.conn.close()
+
+            assert version1 == 5
+            assert version2 == 5
+            assert ddl1 == ddl2
+
+    def test_migrate_v4_to_v5_migration_failure_raises_runtime_error(self) -> None:
+        """Test that v4-to-v5 migration failure raises RuntimeError with descriptive message."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            # Drop chunks table to force migration failure when trying to rename it
+            conn = sqlite3.connect(str(db_path))
+            conn.execute("DROP TABLE chunks")
+            conn.execute("PRAGMA user_version=4")
+            conn.commit()
+            conn.close()
+
+            with pytest.raises(RuntimeError, match="Failed to migrate schema from v4 to v5"):
+                DocumentStore(str(db_path))
+
+    def test_migrate_v4_to_v5_foreign_keys_reenabled_after_migration(self) -> None:
+        """Test that foreign key enforcement is re-enabled after migration completes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+
+            cursor = store.conn.cursor()
+            cursor.execute("PRAGMA foreign_keys")
+            assert cursor.fetchone()[0] == 1
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_triggers_recreated(self) -> None:
+        """Test that update triggers fire correctly after migration."""
+        import time
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO adapters (adapter_id, domain, adapter_type, normalizer_version)
+                VALUES (?, ?, ?, ?)
+            """, ("trigger-adapter", "people", "apple_contacts", "1.0"))
+            conn.commit()
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+
+            cursor = store.conn.cursor()
+            # Set updated_at to a known past value so the trigger fires on next update
+            cursor.execute("UPDATE adapters SET updated_at = '2020-01-01' WHERE adapter_id = ?", ("trigger-adapter",))
+            store.conn.commit()
+
+            time.sleep(0.01)
+
+            # Update a field – trigger should update updated_at
+            cursor.execute("UPDATE adapters SET enabled = 1 WHERE adapter_id = ?", ("trigger-adapter",))
+            store.conn.commit()
+
+            cursor.execute("SELECT updated_at FROM adapters WHERE adapter_id = 'trigger-adapter'")
+            updated_at = cursor.fetchone()[0]
+            assert updated_at > "2020-01-01"
+
+            store.conn.close()
+
+    def test_migrate_v4_to_v5_check_constraint_domains_complete(self) -> None:
+        """Test that CHECK constraints after migration list the full expected domain set."""
+        import re
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            conn = sqlite3.connect(str(db_path))
+            _create_v4_schema(conn)
+            conn.close()
+
+            store = DocumentStore(str(db_path))
+            cursor = store.conn.cursor()
+
+            expected_domains = {
+                "messages", "notes", "events", "tasks",
+                "health", "documents", "people", "location",
+            }
+
+            for table_name in ("adapters", "sources", "chunks"):
+                cursor.execute(
+                    f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+                )
+                ddl = cursor.fetchone()[0]
+
+                # Extract all quoted strings from the domain CHECK constraint
+                found = set(re.findall(r"'([^']+)'", ddl))
+                # Filter to known domain values only
+                found_domains = found & expected_domains
+                assert found_domains == expected_domains, (
+                    f"{table_name}: expected domains {expected_domains}, got {found_domains}"
+                )
+
+            store.conn.close()
