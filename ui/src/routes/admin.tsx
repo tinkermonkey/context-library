@@ -4,8 +4,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   StatTile,
   StatGrid,
-  StatusBadge,
-  Button,
   Select,
   PageHeader,
   Panel,
@@ -22,7 +20,7 @@ import { useAdminLogs } from '../hooks/useAdminLogs';
 import { useToast } from '../hooks/useToast';
 import { triggerAdapterSync } from '../api/client';
 import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
-import { ConfigTile } from '../components/ConfigTile';
+import { AdapterCard } from '../components/AdapterCard';
 import type { AdminAdapterStatus } from '../types/api';
 import {
   DOMAIN_ORDER,
@@ -303,65 +301,15 @@ export default function AdminPage(): ReactNode {
                         const adapterHealth = adapterHealthMap.get(adapter.adapter_id) ?? 'unknown';
                         const isSyncing = syncingId === adapter.adapter_id;
                         return (
-                          <div
+                          <AdapterCard
                             key={adapter.adapter_id}
-                            style={{
-                              border: `1px solid rgb(var(--canvas-border))`,
-                              borderRadius: 'var(--radius-md)',
-                              background: 'rgb(var(--canvas-card))',
-                              overflow: 'hidden',
-                              display: 'flex',
-                              flexDirection: 'column',
-                            }}
-                          >
-                            <ConfigTile
-                              icon={DOMAIN_ICONS[domain] ?? 'component'}
-                              title={adapter.adapter_id}
-                              description={adapter.adapter_type}
-                              summary={[
-                                { label: 'Sources', value: adapter.source_count.toLocaleString() },
-                                { label: 'Last Poll', value: formatRelativeTime(adapter.last_run) },
-                              ]}
-                            />
-                            <div
-                              style={{
-                                padding: '6px 12px',
-                                borderTop: `1px solid rgb(var(--canvas-border))`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                              }}
-                            >
-                              <StatusBadge color={healthToBadgeColor(adapterHealth)}>
-                                {adapterHealth}
-                              </StatusBadge>
-                            </div>
-                            <div
-                              style={{
-                                display: 'flex',
-                                gap: 6,
-                                padding: '8px 12px',
-                                borderTop: `1px solid rgb(var(--canvas-border))`,
-                                background: `rgb(var(--canvas-bg-2))`,
-                              }}
-                            >
-                              <Button
-                                variant={adapterHealth === 'error' ? 'danger' : 'ghost'}
-                                size="sm"
-                                disabled={isSyncing}
-                                onClick={() => syncMutation.mutate(adapter.adapter_id)}
-                              >
-                                {isSyncing ? 'Syncing…' : 'Re-poll'}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setResetTarget(adapter)}
-                              >
-                                Reset
-                              </Button>
-                            </div>
-                          </div>
+                            adapter={adapter}
+                            domain={domain}
+                            adapterHealth={adapterHealth}
+                            isSyncing={isSyncing}
+                            onSync={() => syncMutation.mutate(adapter.adapter_id)}
+                            onReset={() => setResetTarget(adapter)}
+                          />
                         );
                       })}
                     </div>

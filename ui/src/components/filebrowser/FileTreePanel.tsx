@@ -1,6 +1,7 @@
 import { useState, useMemo, Fragment, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Icon, HierarchyTree, HierarchyRow } from '@tinkermonkey/heimdall-ui';
+import { Icon } from '@tinkermonkey/heimdall-ui';
+import { HierarchyTree, HierarchyRow } from '../HierarchyTree';
 import { useSources } from '../../hooks/useSources';
 import { buildFileTree, type FileTreeNode, type FileNode } from '../../utils/fileTree';
 import type { FileBrowserPageSearch } from '../../router';
