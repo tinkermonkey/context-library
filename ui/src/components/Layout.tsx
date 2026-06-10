@@ -120,6 +120,7 @@ function NotificationButton() {
 // ── Workspace footer ───────────────────────────────────────────────
 
 function WorkspaceFooter() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -163,7 +164,10 @@ function WorkspaceFooter() {
             style={{ color: 'rgb(var(--shell-fg-2))' }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgb(var(--canvas-hover))'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              setOpen(false);
+              router.navigate({ to: '/admin' });
+            }}
           >
             <Icon name="settings" size={13} />
             Settings

@@ -8,7 +8,6 @@ import {
   Chip,
   StatusBadge,
 } from '@tinkermonkey/heimdall-ui';
-import type { IconName } from '@tinkermonkey/heimdall-ui';
 
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { useHealth } from '../hooks/useHealth';
@@ -17,56 +16,15 @@ import { triggerAdapterSync } from '../api/client';
 import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
 import { ConfigTile } from '../components/ConfigTile';
 import type { AdminAdapterStatus } from '../types/api';
-
-const DOMAIN_ORDER = [
-  'notes', 'messages', 'events', 'tasks', 'health',
-  'documents', 'people', 'location', 'music',
-];
-
-const DOMAIN_LABELS: Record<string, string> = {
-  notes: 'Notes', messages: 'Messages', events: 'Events', tasks: 'Tasks',
-  health: 'Health', documents: 'Documents', people: 'People',
-  location: 'Location', music: 'Music',
-};
-
-const DOMAIN_ICONS: Record<string, IconName> = {
-  notes: 'edit', messages: 'send', events: 'calendar', tasks: 'check',
-  health: 'heart', documents: 'file', people: 'user',
-  location: 'tag', music: 'bell',
-};
-
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return 'Never';
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const minutes = Math.floor(diff / 60_000);
-    if (minutes < 2) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  } catch {
-    return iso;
-  }
-}
-
-type AdapterHealth = 'healthy' | 'stale' | 'error' | 'unknown';
-
-function getAdapterHealth(adapter: AdminAdapterStatus, errorIds: Set<string>): AdapterHealth {
-  if (errorIds.has(adapter.adapter_id)) return 'error';
-  if (!adapter.last_run) return 'unknown';
-  if (Date.now() - new Date(adapter.last_run).getTime() > 24 * 60 * 60 * 1000) return 'stale';
-  return 'healthy';
-}
-
-type BadgeColor = 'emerald' | 'amber' | 'rose' | 'neutral';
-
-function healthToBadgeColor(h: AdapterHealth): BadgeColor {
-  if (h === 'healthy') return 'emerald';
-  if (h === 'stale') return 'amber';
-  if (h === 'error') return 'rose';
-  return 'neutral';
-}
+import {
+  DOMAIN_ORDER,
+  DOMAIN_LABELS,
+  DOMAIN_ICONS,
+  formatRelativeTime,
+  getAdapterHealth,
+  healthToBadgeColor,
+} from '../utils/adapterHelpers';
+import type { AdapterHealth } from '../utils/adapterHelpers';
 
 export default function AdaptersPage(): ReactNode {
   const queryClient = useQueryClient();

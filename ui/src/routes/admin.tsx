@@ -13,7 +13,7 @@ import {
   TextInput,
   NumberInput,
 } from '@tinkermonkey/heimdall-ui';
-import type { IconName, LogEntry } from '@tinkermonkey/heimdall-ui';
+import type { LogEntry } from '@tinkermonkey/heimdall-ui';
 
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
@@ -24,37 +24,15 @@ import { triggerAdapterSync } from '../api/client';
 import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
 import { ConfigTile } from '../components/ConfigTile';
 import type { AdminAdapterStatus } from '../types/api';
-
-// ── Constants ──────────────────────────────────────────────────────
-
-const DOMAIN_ORDER = [
-  'notes', 'messages', 'events', 'tasks', 'health',
-  'documents', 'people', 'location', 'music',
-];
-
-const DOMAIN_LABELS: Record<string, string> = {
-  notes: 'Notes',
-  messages: 'Messages',
-  events: 'Events',
-  tasks: 'Tasks',
-  health: 'Health',
-  documents: 'Documents',
-  people: 'People',
-  location: 'Location',
-  music: 'Music',
-};
-
-const DOMAIN_ICONS: Record<string, IconName> = {
-  notes: 'edit',
-  messages: 'send',
-  events: 'calendar',
-  tasks: 'check',
-  health: 'heart',
-  documents: 'file',
-  people: 'user',
-  location: 'star',
-  music: 'zap',
-};
+import {
+  DOMAIN_ORDER,
+  DOMAIN_LABELS,
+  DOMAIN_ICONS,
+  formatRelativeTime,
+  getAdapterHealth,
+  healthToBadgeColor,
+} from '../utils/adapterHelpers';
+import type { AdapterHealth } from '../utils/adapterHelpers';
 
 // ── Utilities ──────────────────────────────────────────────────────
 
@@ -64,46 +42,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatRelativeTime(iso: string | null): string {
-  if (!iso) return 'Never';
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    const minutes = Math.floor(diff / 60_000);
-    if (minutes < 2) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  } catch {
-    return iso;
-  }
-}
-
-type AdapterHealth = 'healthy' | 'stale' | 'error' | 'unknown';
-
-function getAdapterHealth(
-  adapter: AdminAdapterStatus,
-  errorAdapterIds: Set<string>,
-): AdapterHealth {
-  if (errorAdapterIds.has(adapter.adapter_id)) return 'error';
-  if (!adapter.last_run) return 'unknown';
-  const ageMs = Date.now() - new Date(adapter.last_run).getTime();
-  if (ageMs > 24 * 60 * 60 * 1000) return 'stale';
-  return 'healthy';
-}
-
-type BadgeColor = 'emerald' | 'amber' | 'rose' | 'neutral';
-
-function healthToBadgeColor(health: AdapterHealth): BadgeColor {
-  switch (health) {
-    case 'healthy': return 'emerald';
-    case 'stale': return 'amber';
-    case 'error': return 'rose';
-    case 'unknown': return 'neutral';
-  }
 }
 
 function domainColor(domain: string): string {

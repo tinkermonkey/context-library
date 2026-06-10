@@ -15,7 +15,7 @@ const DOMAIN_NAV = [
   { id: '/documents', label: 'Documents', icon: 'file' satisfies IconName },
   { id: '/people', label: 'People', icon: 'user' satisfies IconName },
   { id: '/location', label: 'Location', icon: 'tag' satisfies IconName },
-  { id: '/music', label: 'Music', icon: 'bell' satisfies IconName },
+  { id: '/music', label: 'Music', icon: 'palette' satisfies IconName },
 ] as const;
 
 const SYSTEM_NAV = [
