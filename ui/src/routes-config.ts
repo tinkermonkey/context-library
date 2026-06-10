@@ -77,6 +77,10 @@ export const tasksViewSearchSchema = z.object({
   status: z.string().optional(),
   priority: z.number().optional(),
   selectedHash: z.string().optional(),
+  // Kanban filter params
+  sources: z.array(z.string()).optional(),
+  states: z.array(z.string()).optional(),
+  dueDate: z.string().optional(),
 });
 
 export type TasksViewPageSearch = z.infer<typeof tasksViewSearchSchema>;

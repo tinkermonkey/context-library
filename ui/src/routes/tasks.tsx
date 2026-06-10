@@ -1,14 +1,17 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { fetchChunks } from '../api/client';
-import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader, KanbanBoard, VersionTimeline, VersionPill } from '@tinkermonkey/heimdall-ui';
+import type { KanbanCard, KanbanColumn, VersionEntry } from '@tinkermonkey/heimdall-ui';
+import { FilterDropdown } from '../components/FilterDropdown';
+import { useVersionHistory } from '../hooks/useSources';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse, TaskMetadata } from '../types/api';
 import { extractTaskMetadata } from '../types/api';
 
-const taskColor = getDomainColor('tasks'); // #F97316
+const taskColor = getDomainColor('tasks');
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -22,26 +25,25 @@ function resolveDisplayStatus(meta: TaskMeta): DisplayStatus {
   if (meta.status === 'completed') return 'done';
   if (meta.status === 'cancelled') return 'cancelled';
   if (meta.status === 'in-progress') return 'in-progress';
-  // open + priority=1 is the "urgent" display tier
   if (meta.priority === 1) return 'urgent';
   return 'active';
 }
 
-const STATUS_CONFIG: Record<DisplayStatus, {
-  label: string;
-  badgeBg: string;
-  badgeText: string;
-  dotFill: string | null;
-  dotStroke: string;
-}> = {
-  active:        { label: 'Active',      badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-2))', dotFill: null,      dotStroke: 'rgb(var(--accent-primary))' },
-  urgent:        { label: 'Urgent',      badgeBg: `rgb(var(--status-error) / 0.13)`, badgeText: 'rgb(var(--status-error))', dotFill: null,      dotStroke: 'rgb(var(--status-error))' },
-  'in-progress': { label: 'In Progress', badgeBg: `rgb(var(--status-amber) / 0.13)`, badgeText: 'rgb(var(--status-amber))', dotFill: null,      dotStroke: 'rgb(var(--status-amber))' },
-  done:          { label: 'Done',        badgeBg: `rgb(var(--status-ok) / 0.13)`, badgeText: 'rgb(var(--status-ok))', dotFill: 'rgb(var(--status-ok))', dotStroke: 'rgb(var(--status-ok))' },
-  cancelled:     { label: 'Cancelled',   badgeBg: 'rgb(var(--canvas-surface))', badgeText: 'rgb(var(--canvas-fg-3))', dotFill: null,      dotStroke: 'rgb(var(--canvas-fg-3))' },
-};
+// ── Kanban column assignment ───────────────────────────────────────
 
-const PRIORITY_LABELS: Record<number, string> = { 1: 'Urgent', 2: 'High', 3: 'Medium', 4: 'Low' };
+const KANBAN_COLUMNS: KanbanColumn[] = [
+  { id: 'open',        title: 'Open',        statusColor: 'cyan' },
+  { id: 'in-progress', title: 'In Progress',  statusColor: 'amber' },
+  { id: 'blocked',     title: 'Blocked',      statusColor: 'rose' },
+  { id: 'done',        title: 'Done',         statusColor: 'emerald' },
+];
+
+function taskColumnId(meta: TaskMeta): string {
+  if (meta.status === 'completed' || meta.status === 'cancelled') return 'done';
+  if (meta.status === 'in-progress') return 'in-progress';
+  if (meta.dependencies.length > 0) return 'blocked';
+  return 'open';
+}
 
 // ── Date helpers ───────────────────────────────────────────────────
 
@@ -84,13 +86,11 @@ function dueDateColor(cls: DueDateClass): string {
   return 'rgb(var(--canvas-fg-3))';
 }
 
-function formatDueLabel(dueIso: string | null, ds: DisplayStatus): string {
-  const isDone = ds === 'done' || ds === 'cancelled';
-  if (!dueIso) return isDone ? '' : 'No due date';
+function formatDueLabel(dueIso: string | null): string {
+  if (!dueIso) return '';
   const due = parseIsoDate(dueIso);
-  if (!due) return isDone ? '' : 'No due date';
+  if (!due) return '';
   const shortDate = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  if (isDone) return `Due ${shortDate}`;
   const cls = dueDateClass(dueIso);
   if (cls === 'overdue') return `Overdue · ${shortDate}`;
   if (cls === 'today') return 'Due today';
@@ -108,11 +108,11 @@ function formatFullDate(iso: string | null): string {
 
 function sourceLabel(sourceType: string): string {
   const map: Record<string, string> = {
-    apple_reminders: 'Reminders',
-    caldav: 'CalDAV Tasks',
-    caldav_tasks: 'CalDAV Tasks',
-    obsidian_tasks: 'Obsidian Tasks',
-    obsidian: 'Obsidian Tasks',
+    apple_reminders:  'Reminders',
+    caldav:           'CalDAV Tasks',
+    caldav_tasks:     'CalDAV Tasks',
+    obsidian_tasks:   'Obsidian Tasks',
+    obsidian:         'Obsidian Tasks',
   };
   return (
     map[sourceType.toLowerCase()] ??
@@ -120,122 +120,132 @@ function sourceLabel(sourceType: string): string {
   );
 }
 
-// ── Sort tasks ─────────────────────────────────────────────────────
+// ── KanbanCard builder ─────────────────────────────────────────────
 
-function sortTasks(tasks: Array<{ chunk: ChunkResponse; meta: TaskMeta }>): typeof tasks {
-  return [...tasks].sort((a, b) => {
-    const dsA = resolveDisplayStatus(a.meta);
-    const dsB = resolveDisplayStatus(b.meta);
-
-    // Done/cancelled always last
-    const isInactiveA = dsA === 'done' || dsA === 'cancelled';
-    const isInactiveB = dsB === 'done' || dsB === 'cancelled';
-    if (isInactiveA !== isInactiveB) return isInactiveA ? 1 : -1;
-
-    // Overdue/today before future
-    const clsA = dueDateClass(a.meta.due_date);
-    const clsB = dueDateClass(b.meta.due_date);
-    const overdueA = clsA === 'overdue' || clsA === 'today';
-    const overdueB = clsB === 'overdue' || clsB === 'today';
-    if (overdueA !== overdueB) return overdueA ? -1 : 1;
-
-    // Urgent before other active statuses
-    if (dsA === 'urgent' && dsB !== 'urgent') return -1;
-    if (dsB === 'urgent' && dsA !== 'urgent') return 1;
-
-    // By due date ascending; no due date sorts to end
-    if (a.meta.due_date && b.meta.due_date) return a.meta.due_date.localeCompare(b.meta.due_date);
-    if (a.meta.due_date) return -1;
-    if (b.meta.due_date) return 1;
-    return 0;
-  });
+function toKanbanCard(chunk: ChunkResponse, meta: TaskMeta): KanbanCard {
+  return {
+    id:       chunk.chunk_hash,
+    columnId: taskColumnId(meta),
+    title:    meta.title,
+    context:  chunk.context_header ?? undefined,
+    version:  `v${chunk.lineage.source_version_id}`,
+    dueDate:  meta.due_date ?? undefined,
+    badges:   [sourceLabel(meta.source_type)],
+    blocked:  meta.dependencies.length > 0 ? meta.dependencies.join(', ') : undefined,
+    done:     meta.status === 'completed' || meta.status === 'cancelled',
+  };
 }
 
-// ── Filter tab ─────────────────────────────────────────────────────
+// ── Custom task card renderer ──────────────────────────────────────
 
-// "active" covers open+in-progress statuses regardless of priority.
-// Urgency (priority=1) is surfaced via badge within the active tab, not a separate filter.
-type FilterTab = 'all' | 'active' | 'completed';
-
-function matchesTab(meta: TaskMeta, tab: FilterTab): boolean {
-  if (tab === 'all') return true;
-  if (tab === 'active') return meta.status === 'open' || meta.status === 'in-progress';
-  return meta.status === 'completed' || meta.status === 'cancelled';
-}
-
-// ── Task row ───────────────────────────────────────────────────────
-
-function TaskRow({
+function TaskCard({
+  chunk,
   meta,
   isSelected,
-  onClick,
 }: {
+  chunk: ChunkResponse;
   meta: TaskMeta;
   isSelected: boolean;
-  onClick: () => void;
 }): ReactNode {
   const ds = resolveDisplayStatus(meta);
-  const cfg = STATUS_CONFIG[ds];
   const isDone = ds === 'done' || ds === 'cancelled';
-  const dueLabel = formatDueLabel(meta.due_date, ds);
+  const dueLabel = formatDueLabel(meta.due_date);
   const dueCls = isDone ? 'none' as DueDateClass : dueDateClass(meta.due_date);
   const dueColor = isDone ? 'rgb(var(--canvas-fg-3))' : dueDateColor(dueCls);
+  const isBlocked = meta.dependencies.length > 0 && meta.status !== 'completed' && meta.status !== 'cancelled';
+  const notesExcerpt = chunk.content.slice(0, 120).replace(/\n/g, ' ');
 
   return (
-    <button
-      onClick={onClick}
-      title={meta.title}
-      className="flex items-center gap-3 w-full text-left transition-colors"
+    <div
       style={{
-        height: 48,
-        padding: '0 14px',
+        padding: '10px 12px',
         borderRadius: 6,
-        flexShrink: 0,
         background: isSelected ? getDomainColorWithAlpha('tasks', '12') : 'rgb(var(--canvas-bg))',
         border: `1px solid ${isSelected ? getDomainColorWithAlpha('tasks', '40') : 'rgb(var(--canvas-border))'}`,
+        cursor: 'pointer',
+        userSelect: 'none',
       }}
     >
-      {/* Status dot */}
-      <div
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          flexShrink: 0,
-          background: cfg.dotFill ?? 'transparent',
-          border: `2px solid ${cfg.dotStroke}`,
-        }}
-      />
-
-      {/* Info */}
-      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-        <span
-          className="truncate"
-          style={{ fontSize: 13, fontWeight: 500, color: isDone ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-fg-1))' }}
-        >
-          {meta.title}
-        </span>
-        <div className="flex items-center gap-1.5 min-w-0">
-          {dueLabel && (
-            <span className="shrink-0" style={{ fontSize: 11, color: dueColor }}>{dueLabel}</span>
-          )}
-          <span className="truncate" style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-3))' }}>
-            {dueLabel ? '· ' : ''}{sourceLabel(meta.source_type)}
+      {/* Top row: checkbox + context label + version pill */}
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: '50%',
+            flexShrink: 0,
+            background: isDone ? 'rgb(var(--status-ok))' : 'transparent',
+            border: `2px solid ${isDone ? 'rgb(var(--status-ok))' : 'rgb(var(--canvas-fg-3))'}`,
+          }}
+        />
+        {chunk.context_header && (
+          <span className="truncate flex-1" style={{ fontSize: 10, color: 'rgb(var(--canvas-fg-3))' }}>
+            {chunk.context_header}
           </span>
-        </div>
+        )}
+        <VersionPill style={{ fontSize: 9, flexShrink: 0 }}>
+          v{chunk.lineage.source_version_id}
+        </VersionPill>
       </div>
 
-      {/* Status badge */}
-      <div style={{ borderRadius: 10, padding: '2px 8px', background: cfg.badgeBg, flexShrink: 0 }}>
-        <span style={{ fontSize: 10, color: cfg.badgeText }}>{cfg.label}</span>
+      {/* Title */}
+      <div
+        className="leading-snug mb-1"
+        style={{
+          fontSize: 13,
+          fontWeight: 500,
+          color: isDone ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-fg-1))',
+          textDecoration: isDone ? 'line-through' : 'none',
+        }}
+      >
+        {meta.title}
       </div>
-    </button>
+
+      {/* Notes excerpt */}
+      {notesExcerpt && (
+        <div
+          className="mb-1.5 line-clamp-2"
+          style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-3))', lineHeight: 1.4 }}
+        >
+          {notesExcerpt}
+          {chunk.content.length > 120 ? '…' : ''}
+        </div>
+      )}
+
+      {/* Bottom row: blocked indicator + due date + source adapter */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {isBlocked && (
+          <span
+            className="flex items-center gap-0.5"
+            style={{ fontSize: 10, color: 'rgb(var(--status-error))' }}
+          >
+            <Icon name="lock" size={10} />
+            Blocked
+          </span>
+        )}
+        {dueLabel && (
+          <span style={{ fontSize: 10, color: dueColor }}>{dueLabel}</span>
+        )}
+        <span
+          className="ml-auto"
+          style={{
+            fontSize: 10,
+            color: 'rgb(var(--canvas-fg-3))',
+            background: 'rgb(var(--canvas-surface))',
+            borderRadius: 4,
+            padding: '1px 5px',
+          }}
+        >
+          {sourceLabel(meta.source_type)}
+        </span>
+      </div>
+    </div>
   );
 }
 
-// ── Detail panel ───────────────────────────────────────────────────
+// ── Task detail pane with VersionTimeline ──────────────────────────
 
-function DetailPanel({
+function TaskDetailPane({
   chunk,
   meta,
   onClose,
@@ -244,14 +254,48 @@ function DetailPanel({
   meta: TaskMeta;
   onClose: () => void;
 }): ReactNode {
+  const sourceId = chunk.lineage.source_id;
+  const historyQuery = useVersionHistory(sourceId);
   const ds = resolveDisplayStatus(meta);
-  const cfg = STATUS_CONFIG[ds];
   const isDone = ds === 'done' || ds === 'cancelled';
+
+  const timelineEntries: VersionEntry[] = useMemo(() => {
+    const entries: VersionEntry[] = [];
+
+    if (meta.date_first_observed) {
+      entries.push({
+        id:        'created',
+        label:     'First observed',
+        headline:  meta.title,
+        timestamp: meta.date_first_observed,
+        transition: { from: '', to: 'open' },
+      });
+    }
+
+    for (const v of historyQuery.data?.versions ?? []) {
+      const isCurrent = v.version === chunk.lineage.source_version_id;
+      entries.push({
+        id:        String(v.version),
+        label:     `v${v.version}`,
+        timestamp: v.fetch_timestamp,
+        head:      isCurrent,
+        stats: {
+          added:   v.added_chunks,
+          removed: v.removed_chunks,
+          kept:    v.unchanged_chunks,
+        },
+        ...(isCurrent ? { transition: { from: 'open', to: meta.status } } : {}),
+      });
+    }
+
+    return entries;
+  }, [meta, historyQuery.data, chunk.lineage.source_version_id]);
+
   const dueCls = isDone ? 'none' as DueDateClass : dueDateClass(meta.due_date);
   const dueColor = isDone ? 'rgb(var(--canvas-fg-3))' : dueDateColor(dueCls);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-surface))' }}>
       {/* Header */}
       <div
         className="flex items-start gap-3 px-4 py-3 shrink-0"
@@ -259,24 +303,32 @@ function DetailPanel({
       >
         <div
           style={{
-            width: 18,
-            height: 18,
+            width: 16,
+            height: 16,
             borderRadius: '50%',
             flexShrink: 0,
             marginTop: 3,
-            background: cfg.dotFill ?? 'transparent',
-            border: `2px solid ${cfg.dotStroke}`,
+            background: isDone ? 'rgb(var(--status-ok))' : 'transparent',
+            border: `2px solid ${isDone ? 'rgb(var(--status-ok))' : taskColor}`,
           }}
         />
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold leading-snug" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
             {meta.title}
           </h3>
-          <div
-            className="mt-1 inline-flex"
-            style={{ borderRadius: 10, padding: '2px 8px', background: cfg.badgeBg }}
-          >
-            <span style={{ fontSize: 10, color: cfg.badgeText }}>{cfg.label}</span>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <VersionPill>v{chunk.lineage.source_version_id}</VersionPill>
+            <span
+              style={{
+                fontSize: 10,
+                borderRadius: 8,
+                padding: '2px 7px',
+                background: isDone ? 'rgb(var(--status-ok) / 0.13)' : getDomainColorWithAlpha('tasks', '18'),
+                color: isDone ? 'rgb(var(--status-ok))' : taskColor,
+              }}
+            >
+              {ds.charAt(0).toUpperCase() + ds.slice(1)}
+            </span>
           </div>
         </div>
         <button
@@ -289,81 +341,88 @@ function DetailPanel({
         </button>
       </div>
 
-      {/* Metadata */}
-      <div
-        className="px-4 py-3 flex flex-col gap-2.5 shrink-0"
-        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
-      >
-        {/* Due date */}
-        <div className="flex items-center gap-2">
-          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            <Icon name="calendar" size={14} />
-          </span>
-          <span style={{ fontSize: 12, color: meta.due_date ? dueColor : 'rgb(var(--canvas-fg-3))' }}>
-            {meta.due_date ? formatFullDate(meta.due_date) : 'No due date'}
-          </span>
+      <div className="flex-1 overflow-y-auto">
+        {/* Metadata */}
+        <div
+          className="px-4 py-3 flex flex-col gap-2 shrink-0"
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
+        >
+          <div className="flex items-center gap-2">
+            <Icon name="calendar" size={13} style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span style={{ fontSize: 12, color: meta.due_date ? dueColor : 'rgb(var(--canvas-fg-3))' }}>
+              {meta.due_date ? formatFullDate(meta.due_date) : 'No due date'}
+            </span>
+          </div>
+          {meta.priority != null && (
+            <div className="flex items-center gap-2">
+              <Icon name="alert" size={13} style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+              <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
+                Priority {meta.priority}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Icon name="filter" size={13} style={{ color: 'rgb(var(--canvas-fg-3))' }} />
+            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
+          </div>
+          {meta.dependencies.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Icon name="lock" size={13} style={{ color: 'rgb(var(--status-error))', marginTop: 1 }} />
+              <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
+                Blocked by: {meta.dependencies.join(', ')}
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Priority */}
-        {meta.priority != null && (
-          <div className="flex items-center gap-2">
-            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              <Icon name="alert" size={14} />
-            </span>
-            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
-              {PRIORITY_LABELS[meta.priority] ?? `Priority ${meta.priority}`}
-            </span>
+        {/* Notes content */}
+        {chunk.content && (
+          <div className="px-4 py-3" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
+            <div
+              className="text-xs font-medium uppercase tracking-wider mb-2"
+              style={{ color: 'rgb(var(--canvas-fg-3))' }}
+            >
+              Notes
+            </div>
+            <pre
+              className="whitespace-pre-wrap font-sans"
+              style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))', lineHeight: '1.6' }}
+            >
+              {chunk.content}
+            </pre>
           </div>
         )}
 
-        {/* Source */}
-        <div className="flex items-center gap-2">
-          <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            <Icon name="filter" size={14} />
-          </span>
-          <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{sourceLabel(meta.source_type)}</span>
-        </div>
-
-        {/* Collaborators */}
-        {meta.collaborators.length > 0 && (
-          <div className="flex items-start gap-2">
-            <span className="shrink-0 mt-0.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              <Icon name="user" size={14} />
-            </span>
-            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>
-              {meta.collaborators.join(', ')}
-            </span>
-          </div>
-        )}
-
-        {/* Created */}
-        {meta.date_first_observed && (
-          <div className="flex items-center gap-2">
-            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              <Icon name="clock" size={14} />
-            </span>
-            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
-              Created {formatFullDate(meta.date_first_observed)}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Notes / content */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {chunk.content ? (
-          <pre
-            className="whitespace-pre-wrap font-sans"
-            style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-2))', lineHeight: '1.6' }}
+        {/* Version timeline */}
+        <div className="px-4 py-3">
+          <div
+            className="text-xs font-medium uppercase tracking-wider mb-2"
+            style={{ color: 'rgb(var(--canvas-fg-3))' }}
           >
-            {chunk.content}
-          </pre>
-        ) : (
-          <p style={{ fontSize: 13, color: 'rgb(var(--canvas-fg-3))' }}>No notes.</p>
-        )}
+            State Transitions
+          </div>
+          <VersionTimeline
+            entries={timelineEntries}
+            order="newest-first"
+            emptyState="No history available"
+          />
+        </div>
       </div>
     </div>
   );
+}
+
+// ── Filter helpers ─────────────────────────────────────────────────
+
+type DueDateFilter = 'all' | 'overdue' | 'today' | 'this-week';
+
+function matchesDueDateFilter(meta: TaskMeta, filter: DueDateFilter): boolean {
+  if (filter === 'all') return true;
+  const cls = dueDateClass(meta.due_date);
+  if (filter === 'overdue') return cls === 'overdue';
+  if (filter === 'today') return cls === 'today';
+  if (filter === 'this-week') return cls === 'this-week' || cls === 'today';
+  return true;
 }
 
 // ── Empty state ────────────────────────────────────────────────────
@@ -385,7 +444,7 @@ function EmptyState({ filtered }: { filtered: boolean }): ReactNode {
         </p>
         <p style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-3))' }}>
           {filtered
-            ? 'Try a different filter or source.'
+            ? 'Try a different filter.'
             : 'Connect Apple Reminders or a CalDAV source to see tasks here.'}
         </p>
       </div>
@@ -424,26 +483,7 @@ export default function TasksPage(): ReactNode {
   const navigate = useNavigate();
   const search = useSearch({ from: '/tasks' });
 
-  // filterTab and selectedHash are URL-persisted for deep-linking and back-nav consistency
-  const filterTab: FilterTab = (['all', 'active', 'completed'].includes(search.status ?? '')
-    ? (search.status as FilterTab)
-    : 'all');
   const selectedHash = search.selectedHash ?? null;
-
-  // Source filter is local state — source types are data-driven and not meaningful as share URLs
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
-  const [showSourceMenu, setShowSourceMenu] = useState(false);
-
-  function setFilterTab(tab: FilterTab): void {
-    void navigate({
-      to: '/tasks',
-      search: (prev: Record<string, unknown>) => ({
-        ...prev,
-        status: tab === 'all' ? undefined : tab,
-        selectedHash: undefined,
-      }),
-    });
-  }
 
   function toggleSelectedHash(hash: string): void {
     void navigate({
@@ -468,7 +508,7 @@ export default function TasksPage(): ReactNode {
     staleTime: 30_000,
   });
 
-  const allChunks = data?.chunks ?? [];
+  const allChunks = useMemo(() => data?.chunks ?? [], [data]);
 
   const allTasks = useMemo(() => {
     const result: Array<{ chunk: ChunkResponse; meta: TaskMeta }> = [];
@@ -479,34 +519,95 @@ export default function TasksPage(): ReactNode {
     return result;
   }, [allChunks]);
 
+  // Build lookup map for renderCard access
+  const taskMap = useMemo(() => {
+    const m = new Map<string, { chunk: ChunkResponse; meta: TaskMeta }>();
+    for (const item of allTasks) m.set(item.chunk.chunk_hash, item);
+    return m;
+  }, [allTasks]);
+
   const sourcesAvailable = useMemo(() => {
     const set = new Set<string>();
     for (const { meta } of allTasks) set.add(meta.source_type);
     return Array.from(set).sort();
   }, [allTasks]);
 
-  const visibleTasks = useMemo(() => {
-    let tasks = allTasks.filter(({ meta }) => matchesTab(meta, filterTab));
-    if (sourceFilter !== 'all') {
-      tasks = tasks.filter(({ meta }) => meta.source_type === sourceFilter);
-    }
-    return sortTasks(tasks);
-  }, [allTasks, filterTab, sourceFilter]);
+  // FilterDropdown state
+  const activeSourceFilters = useMemo(() => (search.sources as string[] | undefined) ?? [], [search.sources]);
+  const activeStateFilters = useMemo(() => (search.states as string[] | undefined) ?? [], [search.states]);
+  const activeDueDateFilter: DueDateFilter = (search.dueDate as DueDateFilter | undefined) ?? 'all';
+
+  function setSourceFilters(values: string[]): void {
+    void navigate({
+      to: '/tasks',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        sources: values.length > 0 ? values : undefined,
+        selectedHash: undefined,
+      }),
+    });
+  }
+
+  function setStateFilters(values: string[]): void {
+    void navigate({
+      to: '/tasks',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        states: values.length > 0 ? values : undefined,
+        selectedHash: undefined,
+      }),
+    });
+  }
+
+  function setDueDateFilter(values: string[]): void {
+    const val = values[0] as DueDateFilter ?? 'all';
+    void navigate({
+      to: '/tasks',
+      search: (prev: Record<string, unknown>) => ({
+        ...prev,
+        dueDate: val === 'all' ? undefined : val,
+        selectedHash: undefined,
+      }),
+    });
+  }
+
+  const filteredTasks = useMemo(() => {
+    return allTasks.filter(({ meta }) => {
+      if (activeSourceFilters.length > 0 && !activeSourceFilters.includes(meta.source_type)) return false;
+      if (activeStateFilters.length > 0 && !activeStateFilters.includes(meta.status)) return false;
+      if (!matchesDueDateFilter(meta, activeDueDateFilter)) return false;
+      return true;
+    });
+  }, [allTasks, activeSourceFilters, activeStateFilters, activeDueDateFilter]);
+
+  const kanbanCards: KanbanCard[] = useMemo(
+    () => filteredTasks.map(({ chunk, meta }) => toKanbanCard(chunk, meta)),
+    [filteredTasks],
+  );
 
   const selectedItem = useMemo(
-    () => (selectedHash ? (visibleTasks.find(t => t.chunk.chunk_hash === selectedHash) ?? null) : null),
-    [visibleTasks, selectedHash],
+    () => (selectedHash ? (taskMap.get(selectedHash) ?? null) : null),
+    [taskMap, selectedHash],
   );
 
   const countAll = allTasks.length;
+  const isFiltered = activeSourceFilters.length > 0 || activeStateFilters.length > 0 || activeDueDateFilter !== 'all';
 
-  const isFiltered = filterTab !== 'all' || sourceFilter !== 'all';
+  const renderCard = useCallback((card: KanbanCard, isSelected: boolean): ReactNode => {
+    const item = taskMap.get(card.id);
+    if (!item) return null;
+    return <TaskCard chunk={item.chunk} meta={item.meta} isSelected={isSelected} />;
+  }, [taskMap]);
 
-  const tabs: Array<{ key: FilterTab; label: string }> = [
-    { key: 'all',       label: 'All' },
-    { key: 'active',    label: 'Active' },
-    { key: 'completed', label: 'Completed' },
-  ];
+  const sourceFilterSummary = activeSourceFilters.length > 0
+    ? `${activeSourceFilters.length} selected`
+    : 'All';
+  const stateFilterSummary = activeStateFilters.length > 0
+    ? `${activeStateFilters.length} selected`
+    : 'All';
+  const dueDateFilterSummary: Record<DueDateFilter, string> = {
+    all: 'All', overdue: 'Overdue', today: 'Today', 'this-week': 'This week',
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
@@ -516,15 +617,11 @@ export default function TasksPage(): ReactNode {
         subtitle="To-dos from Reminders and CalDAV"
       />
 
-      {/* ── Top bar ── */}
+      {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-5 shrink-0"
-        style={{ height: 52, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
+        style={{ height: 48, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="flex-1" style={{ fontSize: 16, fontWeight: 600, color: 'rgb(var(--canvas-fg-1))' }}>
-          Tasks
-        </span>
-
         {!isLoading && !isError && (
           <div style={{ borderRadius: 10, padding: '3px 10px', background: 'rgb(var(--canvas-bg))' }}>
             <span style={{ fontSize: 11, color: 'rgb(var(--canvas-fg-2))' }}>
@@ -533,105 +630,54 @@ export default function TasksPage(): ReactNode {
           </div>
         )}
 
-        {/* View toggle — List active; Kanban is future work */}
-        <div
-          className="flex items-center"
-          style={{ height: 32, borderRadius: 6, background: 'rgb(var(--canvas-bg))', border: `1px solid rgb(var(--canvas-border))`, padding: 2 }}
-        >
-          <div style={{ borderRadius: 5, background: 'rgb(var(--accent-primary) / 0.2)', padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: 'rgb(var(--accent-primary))' }}>List</span>
-          </div>
-          <div style={{ padding: '6px 14px' }}>
-            <span style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>Kanban</span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Filter row ── */}
-      <div
-        className="flex items-center gap-2 px-5 shrink-0"
-        style={{ height: 40, borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-bg))' }}
-      >
-        {tabs.map(tab => {
-          const isActive = filterTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setFilterTab(tab.key)}
-              style={{
-                borderRadius: 4,
-                padding: '4px 10px',
-                background: isActive ? 'rgb(var(--accent-primary) / 0.2)' : 'transparent',
-                fontSize: 12,
-                color: isActive ? 'rgb(var(--accent-primary))' : 'rgb(var(--canvas-fg-2))',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-
         <div className="flex-1" />
 
-        {/* Source filter dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setShowSourceMenu(v => !v)}
-            className="flex items-center gap-1.5"
-            style={{
-              borderRadius: 4,
-              padding: '4px 10px',
-              background: sourceFilter !== 'all' ? getDomainColorWithAlpha('tasks', '18') : 'rgb(var(--canvas-surface))',
-              fontSize: 12,
-              color: sourceFilter !== 'all' ? taskColor : 'rgb(var(--canvas-fg-2))',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            <Icon name="settings" size={12} />
-            {sourceFilter === 'all' ? 'All Sources' : sourceLabel(sourceFilter)}
-          </button>
+        <FilterDropdown
+          mode="checkbox"
+          value={activeSourceFilters}
+          onChange={setSourceFilters}
+        >
+          <FilterDropdown.Trigger label="Source" summary={sourceFilterSummary} />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Source adapter">
+              {sourcesAvailable.map(s => (
+                <FilterDropdown.Checkbox key={s} value={s} label={sourceLabel(s)} />
+              ))}
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
 
-          {showSourceMenu && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowSourceMenu(false)} />
-              <div
-                className="absolute right-0 top-full mt-1 z-20 py-1"
-                style={{
-                  minWidth: 160,
-                  borderRadius: 6,
-                  background: 'rgb(var(--canvas-surface))',
-                  border: `1px solid rgb(var(--canvas-border))`,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-                }}
-              >
-                {[
-                  { value: 'all', label: 'All Sources' },
-                  ...sourcesAvailable.map(s => ({ value: s, label: sourceLabel(s) })),
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => {
-                      setSourceFilter(opt.value);
-                      setShowSourceMenu(false);
-                      clearSelectedHash();
-                    }}
-                    className="w-full text-left px-3 py-1.5"
-                    style={{
-                      fontSize: 12,
-                      color: sourceFilter === opt.value ? taskColor : 'rgb(var(--canvas-fg-2))',
-                      background: sourceFilter === opt.value ? getDomainColorWithAlpha('tasks', '12') : 'transparent',
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <FilterDropdown
+          mode="checkbox"
+          value={activeStateFilters}
+          onChange={setStateFilters}
+        >
+          <FilterDropdown.Trigger label="State" summary={stateFilterSummary} />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Task status">
+              <FilterDropdown.Checkbox value="open"        label="Open" />
+              <FilterDropdown.Checkbox value="in-progress" label="In Progress" />
+              <FilterDropdown.Checkbox value="completed"   label="Completed" />
+              <FilterDropdown.Checkbox value="cancelled"   label="Cancelled" />
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
+
+        <FilterDropdown
+          mode="radio"
+          value={activeDueDateFilter !== 'all' ? [activeDueDateFilter] : []}
+          onChange={setDueDateFilter}
+        >
+          <FilterDropdown.Trigger label="Due" summary={dueDateFilterSummary[activeDueDateFilter]} />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Due date">
+              <FilterDropdown.Radio value="all"       label="All dates" />
+              <FilterDropdown.Radio value="overdue"   label="Overdue" />
+              <FilterDropdown.Radio value="today"     label="Due today" />
+              <FilterDropdown.Radio value="this-week" label="This week" />
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
       </div>
 
       {/* ── Body ── */}
@@ -644,29 +690,32 @@ export default function TasksPage(): ReactNode {
         </div>
       ) : isError ? (
         <ErrorState />
-      ) : visibleTasks.length === 0 ? (
+      ) : filteredTasks.length === 0 ? (
         <EmptyState filtered={isFiltered} />
       ) : (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Task list */}
-          <div className="flex-1 flex flex-col overflow-y-auto gap-1.5 p-3">
-            {visibleTasks.map(({ chunk, meta }) => (
-              <TaskRow
-                key={chunk.chunk_hash}
-                meta={meta}
-                isSelected={chunk.chunk_hash === selectedHash}
-                onClick={() => toggleSelectedHash(chunk.chunk_hash)}
-              />
-            ))}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Kanban board */}
+          <div className="flex-1 overflow-hidden">
+            <KanbanBoard
+              columns={KANBAN_COLUMNS}
+              cards={kanbanCards}
+              selectedId={selectedHash ?? undefined}
+              onSelectCard={toggleSelectedHash}
+              onMoveCard={() => {
+                // Tasks are read-only from external sources; moves are no-ops
+              }}
+              renderCard={renderCard}
+              style={{ height: '100%' }}
+            />
           </div>
 
           {/* Detail panel */}
           {selectedItem && (
             <div
               className="w-80 shrink-0 flex flex-col overflow-hidden"
-              style={{ borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
+              style={{ borderLeft: `1px solid rgb(var(--canvas-border))` }}
             >
-              <DetailPanel
+              <TaskDetailPane
                 chunk={selectedItem.chunk}
                 meta={selectedItem.meta}
                 onClose={clearSelectedHash}
@@ -678,4 +727,3 @@ export default function TasksPage(): ReactNode {
     </div>
   );
 }
-
