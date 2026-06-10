@@ -1,89 +1,131 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Icon } from '@tinkermonkey/heimdall-ui';
-import { FolderIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useSources } from '../../hooks/useSources';
-import { buildFileTree, type FileTreeNode } from '../../utils/fileTree';
+import { buildFileTree, type FileTreeNode, type FileNode } from '../../utils/fileTree';
+import { HierarchyTree, type TreeNode } from '../HierarchyTree';
 import type { FileBrowserPageSearch } from '../../router';
 
 interface FileTreePanelProps {
   /** The selected source ID from URL, or null if no selection */
   selectedSourceId: string | null;
-  /** Optional source ID prefix for subtree loading. If provided, only sources matching this prefix are fetched. */
+  /** Optional source ID prefix for subtree loading */
   sourceIdPrefix?: string;
 }
 
-// Limit for fetching document sources from the API
 const FILE_TREE_LIMIT = 5000;
 
-/**
- * Left panel component that displays a hierarchical file tree.
- * Fetches all document sources, builds a tree structure, and allows navigation.
- * Updates the URL when a file is selected, supports expanding/collapsing folders,
- * and highlights the selected file.
- *
- * @example
- * <FileTreePanel selectedSourceId="filesystem:///path/to/file.txt" />
- */
+function toTreeNodes(nodes: FileTreeNode[]): TreeNode[] {
+  return nodes.map((node) => {
+    if (node.type === 'folder') {
+      return {
+        id: node.path,
+        label: node.name,
+        type: 'folder',
+        children: toTreeNodes(node.children),
+      };
+    }
+    return {
+      id: node.path,
+      label: node.name,
+      type: 'file',
+      data: node.source,
+    };
+  });
+}
+
 export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePanelProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/files' });
-  const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
+  const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(
+    new Set()
+  );
+  const [manuallyClosedFolders, setManuallyClosedFolders] = useState<Set<string>>(new Set());
 
-  // Fetch document sources with generous limit to ensure we capture all filesystem files.
-  // Filter to filesystem-based adapters by checking adapter_id prefix to exclude non-filesystem
-  // sources (music, YouTube, etc. from document-domain adapters).
-  // If sourceIdPrefix is provided, use backend filtering for efficient subtree loading.
   const { data: sourcesData, isLoading, isError, error } = useSources({
     domain: 'documents',
     source_id_prefix: sourceIdPrefix,
     limit: FILE_TREE_LIMIT,
   });
 
-  // Filter to only filesystem-based adapters
   const allSources = sourcesData?.sources ?? [];
-  const sources = allSources.filter((source) => {
-    // Accept adapters whose adapter_id starts with "filesystem" (filesystem:...,
-    // filesystem_helper:..., filesystem_rich:..., etc.)
-    // This correctly identifies filesystem adapters by their unique identifier rather than
-    // relying on the adapter_type field (class name), which could be incorrect.
-    return source.adapter_id.startsWith('filesystem');
-  });
+  // Filter to filesystem-based adapters only
+  const sources = allSources.filter((source) =>
+    source.adapter_id.startsWith('filesystem')
+  );
 
-  // Build file tree from sources
-  const fileTree = buildFileTree(sources);
+  const fileTree = useMemo(() => buildFileTree(sources), [sources]);
+  const treeNodes = useMemo(() => toTreeNodes(fileTree), [fileTree]);
 
-  // Compute ancestor paths of selected file for auto-expansion
-  const getSelectedFileAncestors = (): string[] => {
+  // Compute ancestor folder paths for the selected file so they auto-expand
+  const ancestorIds = useMemo((): string[] => {
     if (!selectedSourceId) return [];
+    const match = sources.find((s) => s.source_id === selectedSourceId);
+    if (!match) return [];
 
-    // Find the matching source to determine its adapter_id
-    const matchingSource = sources.find((s) => s.source_id === selectedSourceId);
-    if (!matchingSource) return [];
-
-    const adapterId = matchingSource.adapter_id;
-
-    // Build paths with adapter_id prefix, matching tree node structure
-    // The source_id is a relative path like "projects/alpha/file.md"
-    // We need to build ancestor paths like "adapter_id/projects", "adapter_id/projects/alpha"
+    const adapterId = match.adapter_id;
     const parts = selectedSourceId.split('/').filter(Boolean);
     let currentPath = adapterId;
-    const ancestorPaths: string[] = [adapterId]; // Include root adapter node
-
+    const paths: string[] = [adapterId];
     for (let i = 0; i < parts.length - 1; i++) {
       currentPath += '/' + parts[i];
-      ancestorPaths.push(currentPath);
+      paths.push(currentPath);
     }
+    return paths;
+  }, [selectedSourceId, sources]);
 
-    return ancestorPaths;
+  // expandedIds = manually opened + ancestors (minus anything explicitly closed by user)
+  const expandedIds = useMemo((): Set<string> => {
+    const ids = new Set([...manuallyExpandedFolders]);
+    for (const id of ancestorIds) {
+      if (!manuallyClosedFolders.has(id)) ids.add(id);
+    }
+    return ids;
+  }, [manuallyExpandedFolders, ancestorIds, manuallyClosedFolders]);
+
+  const handleExpandToggle = (id: string) => {
+    if (expandedIds.has(id)) {
+      setManuallyExpandedFolders((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      // Track explicit close so ancestor auto-expand doesn't reopen it
+      if (ancestorIds.includes(id)) {
+        setManuallyClosedFolders((prev) => new Set([...prev, id]));
+      }
+    } else {
+      setManuallyExpandedFolders((prev) => new Set([...prev, id]));
+      setManuallyClosedFolders((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
   };
 
-  // Combine manually expanded folders with auto-expanded ancestors
-  const expandedFolders = new Set([...manuallyExpandedFolders, ...getSelectedFileAncestors()]);
+  // Map the selected source_id to the corresponding tree node path
+  const selectedNodeId = useMemo((): string | null => {
+    if (!selectedSourceId) return null;
+    const match = sources.find((s) => s.source_id === selectedSourceId);
+    if (!match) return null;
+    const parts = selectedSourceId.split('/').filter(Boolean);
+    let path = match.adapter_id;
+    for (const part of parts) path += '/' + part;
+    return path;
+  }, [selectedSourceId, sources]);
 
-  // Check if API results are truncated by examining whether we hit the limit
-  // If allSources.length equals the limit and total is higher, we got a full page with more available
-  // Note: sourcesData.total includes ALL document sources (music, YouTube, etc.), not just filesystem ones,
-  // so we must check against the limit/length, not against sourcesData.total directly
+  const handleSelect = (node: TreeNode) => {
+    const source = node.data as FileNode['source'] | undefined;
+    if (source?.source_id) {
+      navigate({
+        search: (prev: FileBrowserPageSearch) => ({
+          ...prev,
+          file: source.source_id,
+        }),
+      });
+    }
+  };
+
   const isTruncated =
     allSources.length > 0 &&
     allSources.length === (sourcesData?.limit ?? FILE_TREE_LIMIT) &&
@@ -100,9 +142,19 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   if (isError) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to load file tree';
     return (
-      <div className="p-4 rounded" style={{ background: `rgb(var(--status-error) / 0.13)`, border: `1px solid rgb(var(--status-error) / 0.3)` }}>
-        <p className="font-semibold text-sm" style={{ color: 'rgb(var(--status-error))' }}>Error loading files</p>
-        <p className="text-sm mt-2" style={{ color: 'rgb(var(--status-error) / 0.9)' }}>{errorMessage}</p>
+      <div
+        className="p-4 rounded"
+        style={{
+          background: `rgb(var(--status-error) / 0.13)`,
+          border: `1px solid rgb(var(--status-error) / 0.3)`,
+        }}
+      >
+        <p className="font-semibold text-sm" style={{ color: 'rgb(var(--status-error))' }}>
+          Error loading files
+        </p>
+        <p className="text-sm mt-2" style={{ color: 'rgb(var(--status-error) / 0.9)' }}>
+          {errorMessage}
+        </p>
       </div>
     );
   }
@@ -110,93 +162,36 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   if (sources.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No files available</p>
-        </div>
+        <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          No files available
+        </p>
       </div>
     );
   }
 
-  const toggleFolder = (path: string) => {
-    const newExpanded = new Set(manuallyExpandedFolders);
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path);
-    } else {
-      newExpanded.add(path);
-    }
-    setManuallyExpandedFolders(newExpanded);
-  };
-
-  const handleFileClick = (node: FileTreeNode) => {
-    if (node.type === 'file') {
-      // Navigate and update URL with selected file
-      navigate({
-        search: (prev: FileBrowserPageSearch) => ({
-          ...prev,
-          file: node.source.source_id,
-        }),
-      });
-    }
-  };
-
-  const renderNode = (node: FileTreeNode, level: number = 0): ReactNode => {
-    const isFolder = node.type === 'folder';
-    const isExpanded = expandedFolders.has(node.path);
-    const isSelected = node.type === 'file' && selectedSourceId === node.source.source_id;
-
-    return (
-      <div key={node.path}>
-        <div
-          className="flex items-center gap-1 px-2 py-1 text-sm cursor-pointer rounded"
-          style={{
-            paddingLeft: `${level * 12 + 8}px`,
-            background: isSelected ? `rgb(var(--accent-primary) / 0.15)` : 'transparent',
-            borderLeft: isSelected ? `2px solid rgb(var(--accent-primary))` : 'none',
-          }}
-          onMouseEnter={(e) => !isSelected && (e.currentTarget.style.background = `rgb(var(--canvas-fg-1) / 0.08)`)}
-          onMouseLeave={(e) => !isSelected && (e.currentTarget.style.background = 'transparent')}
-          onClick={() => {
-            if (isFolder) {
-              toggleFolder(node.path);
-            } else {
-              handleFileClick(node);
-            }
-          }}
-        >
-          {isFolder && (
-            <span className="flex-shrink-0" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-              {isExpanded ? (
-                <Icon name="chevronDown" size={16} />
-              ) : (
-                <Icon name="chevronRight" size={16} />
-              )}
-            </span>
-          )}
-          {isFolder && <FolderIcon className="w-4 h-4 flex-shrink-0" style={{ color: 'rgb(var(--domain-documents))' }} />}
-          {node.type === 'file' && <DocumentIcon className="w-4 h-4 flex-shrink-0" style={{ color: 'rgb(var(--accent-primary))' }} />}
-          <span className="truncate" style={{ color: 'rgb(var(--canvas-fg-1))' }}>{node.name}</span>
-        </div>
-
-        {isFolder && isExpanded && (
-          <div>
-            {node.children.map((child) => renderNode(child, level + 1))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="h-full flex flex-col">
       {isTruncated && (
-        <div className="p-3" style={{ borderBottom: `1px solid rgb(var(--status-amber) / 0.3)`, background: `rgb(var(--status-amber) / 0.13)` }}>
+        <div
+          className="p-3"
+          style={{
+            borderBottom: `1px solid rgb(var(--status-amber) / 0.3)`,
+            background: `rgb(var(--status-amber) / 0.13)`,
+          }}
+        >
           <p className="text-xs" style={{ color: 'rgb(var(--status-amber))' }}>
             Showing {sources.length} filesystem files. More are available.
           </p>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto">
-        {fileTree.map((node) => renderNode(node))}
+      <div className="flex-1 overflow-y-auto py-1">
+        <HierarchyTree
+          nodes={treeNodes}
+          selectedId={selectedNodeId}
+          expandedIds={expandedIds}
+          onExpandToggle={handleExpandToggle}
+          onSelect={handleSelect}
+        />
       </div>
     </div>
   );
