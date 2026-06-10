@@ -9,6 +9,7 @@ import {
   PipelineCard,
   MetricRow,
   QuickAccessGrid,
+  Icon,
 } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useAdapterStats } from '../hooks/useAdapterStats';
@@ -148,6 +149,15 @@ export default function DashboardPage() {
                     style={{ borderColor: 'rgb(var(--accent-primary)) transparent transparent transparent' }}
                   />
                 </div>
+              ) : pipelineStatus.isError ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-2">
+                  <span style={{ color: 'rgb(var(--status-error))' }}>
+                    <Icon name="alert" size={20} />
+                  </span>
+                  <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                    Failed to load pipeline status
+                  </span>
+                </div>
               ) : pipelineStatus.data && pipelineStatus.data.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   {pipelineStatus.data.map((pipeline) => (
@@ -195,10 +205,21 @@ export default function DashboardPage() {
 
             {/* Recent ingests activity timeline */}
             <Panel title="Recent Ingests">
-              <ActivityTimeline
-                events={activity.data ?? []}
-                emptyState="No recent activity"
-              />
+              {activity.isError ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-2">
+                  <span style={{ color: 'rgb(var(--status-error))' }}>
+                    <Icon name="alert" size={20} />
+                  </span>
+                  <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                    Failed to load activity
+                  </span>
+                </div>
+              ) : (
+                <ActivityTimeline
+                  events={activity.data ?? []}
+                  emptyState="No recent activity"
+                />
+              )}
             </Panel>
 
             {/* Quick actions */}

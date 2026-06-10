@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { PageHeader, StatGrid, StatTile, Panel } from '@tinkermonkey/heimdall-ui';
+import { PageHeader, StatGrid, StatTile, Panel, Icon } from '@tinkermonkey/heimdall-ui';
 import { useStats } from '../hooks/useStats';
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
@@ -42,52 +42,59 @@ export default function PipelinePage(): ReactNode {
         <StatGrid columns={4} className="shrink-0">
           <StatTile
             label="Total Sources"
-            value={statsQuery.isLoading ? '—' : formatNumber(totalSources)}
+            value={statsQuery.isLoading ? '—' : statsQuery.isError ? 'Error' : formatNumber(totalSources)}
           />
           <StatTile
             label="Active Chunks"
-            value={statsQuery.isLoading ? '—' : formatNumber(totalChunks)}
+            value={statsQuery.isLoading ? '—' : statsQuery.isError ? 'Error' : formatNumber(totalChunks)}
           />
           <StatTile
             label="Retired Chunks"
-            value={statsQuery.isLoading ? '—' : formatNumber(retiredChunks)}
+            value={statsQuery.isLoading ? '—' : statsQuery.isError ? 'Error' : formatNumber(retiredChunks)}
           />
           <StatTile
             label="Active Adapters"
-            value={adaptersQuery.isLoading ? '—' : `${healthyAdapters} / ${adapters.length}`}
+            value={adaptersQuery.isLoading ? '—' : adaptersQuery.isError ? 'Error' : `${healthyAdapters} / ${adapters.length}`}
           />
         </StatGrid>
 
         {/* ── Sync queue ── */}
         <Panel title="Sync Queue">
-          <div className="flex gap-6">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-wide font-medium" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                Pending Inserts
-              </span>
-              <span
-                className="text-2xl font-semibold font-mono"
-                style={{ color: pendingInserts > 0 ? 'rgb(var(--accent-primary))' : 'rgb(var(--canvas-fg-2))' }}
-              >
-                {statsQuery.isLoading ? '—' : formatNumber(pendingInserts)}
-              </span>
+          {statsQuery.isError ? (
+            <div className="flex items-center gap-2 py-2" style={{ color: 'rgb(var(--status-error))' }}>
+              <Icon name="alert" size={16} />
+              <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Failed to load sync queue</span>
             </div>
-            <div
-              className="w-px shrink-0"
-              style={{ background: 'rgb(var(--canvas-border))' }}
-            />
-            <div className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-wide font-medium" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                Pending Deletes
-              </span>
-              <span
-                className="text-2xl font-semibold font-mono"
-                style={{ color: pendingDeletes > 0 ? 'rgb(var(--status-error))' : 'rgb(var(--canvas-fg-2))' }}
-              >
-                {statsQuery.isLoading ? '—' : formatNumber(pendingDeletes)}
-              </span>
+          ) : (
+            <div className="flex gap-6">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs uppercase tracking-wide font-medium" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  Pending Inserts
+                </span>
+                <span
+                  className="text-2xl font-semibold font-mono"
+                  style={{ color: pendingInserts > 0 ? 'rgb(var(--accent-primary))' : 'rgb(var(--canvas-fg-2))' }}
+                >
+                  {statsQuery.isLoading ? '—' : formatNumber(pendingInserts)}
+                </span>
+              </div>
+              <div
+                className="w-px shrink-0"
+                style={{ background: 'rgb(var(--canvas-border))' }}
+              />
+              <div className="flex flex-col gap-1">
+                <span className="text-xs uppercase tracking-wide font-medium" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  Pending Deletes
+                </span>
+                <span
+                  className="text-2xl font-semibold font-mono"
+                  style={{ color: pendingDeletes > 0 ? 'rgb(var(--status-error))' : 'rgb(var(--canvas-fg-2))' }}
+                >
+                  {statsQuery.isLoading ? '—' : formatNumber(pendingDeletes)}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </Panel>
 
         {/* ── Domain breakdown ── */}
@@ -136,31 +143,38 @@ export default function PipelinePage(): ReactNode {
 
         {/* ── Storage health ── */}
         <Panel title="Storage">
-          <div className="flex gap-6">
-            <div className="flex items-center gap-2">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ background: health?.sqlite_ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}
-              />
-              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                SQLite · {health?.sqlite_ok ? 'ok' : healthQuery.isLoading ? '…' : 'error'}
-              </span>
+          {healthQuery.isError ? (
+            <div className="flex items-center gap-2 py-2" style={{ color: 'rgb(var(--status-error))' }}>
+              <Icon name="alert" size={16} />
+              <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Failed to load storage health</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ background: health?.chromadb_ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}
-              />
-              <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                ChromaDB · {health?.chromadb_ok ? 'ok' : healthQuery.isLoading ? '…' : 'error'}
-              </span>
+          ) : (
+            <div className="flex gap-6">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: health?.sqlite_ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}
+                />
+                <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                  SQLite · {health?.sqlite_ok ? 'ok' : healthQuery.isLoading ? '…' : 'error'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: health?.chromadb_ok ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}
+                />
+                <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                  ChromaDB · {health?.chromadb_ok ? 'ok' : healthQuery.isLoading ? '…' : 'error'}
+                </span>
+              </div>
+              {health && (
+                <span className="text-xs font-mono ml-auto" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  {health.vector_count.toLocaleString()} vectors · {health.embedding_model}
+                </span>
+              )}
             </div>
-            {health && (
-              <span className="text-xs font-mono ml-auto" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {health.vector_count.toLocaleString()} vectors · {health.embedding_model}
-              </span>
-            )}
-          </div>
+          )}
         </Panel>
       </div>
     </div>
