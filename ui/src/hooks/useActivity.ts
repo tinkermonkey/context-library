@@ -1,23 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import type { ActivityEvent } from '@tinkermonkey/heimdall-ui';
-import { fetchSources } from '../api/client';
+import { fetchActivityFeed } from '../api/client';
 import { capitalize } from '../utils/formatters';
 
 export const useActivity = (limit = 20) =>
   useQuery({
-    queryKey: ['activity', limit],
+    queryKey: ['activity'],
     queryFn: async (): Promise<ActivityEvent[]> => {
-      const resp = await fetchSources({ limit, sort_by: 'updated_at', order: 'desc' });
-      return resp.sources.map((s) => ({
-        id: s.source_id,
-        type: (s.created_at === s.updated_at ? 'create' : 'update') as 'create' | 'update',
-        subject: s.display_name ?? s.adapter_id,
-        timestamp: s.updated_at,
-        kind: s.domain,
-        kindLabel: capitalize(s.domain),
-        meta: `${s.chunk_count.toLocaleString()} chunks`,
+      const resp = await fetchActivityFeed(limit);
+      return resp.events.map((e) => ({
+        id: e.identifier,
+        type: 'run' as const,
+        subject: e.entity_name,
+        timestamp: e.timestamp,
+        kind: e.tags[0],
+        kindLabel: capitalize(e.tags[0] ?? ''),
+        meta: e.tags[1],
       }));
     },
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
   });

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Pipeline, FlowNode } from '@tinkermonkey/heimdall-ui';
-import { fetchAdminAdapters } from '../api/client';
+import { fetchAdminPipelines } from '../api/client';
 
 const PIPELINE_FLOW: FlowNode[] = [
   { id: 'fetch', name: 'fetch', label: 'Fetch', icon: 'download' },
@@ -15,22 +15,22 @@ export const usePipelineStatus = () =>
   useQuery({
     queryKey: ['pipeline-status'],
     queryFn: async (): Promise<Pipeline[]> => {
-      const resp = await fetchAdminAdapters();
-      return resp.adapters.map((a) => ({
-        id: a.adapter_id,
-        name: a.adapter_id,
-        status: (a.last_run === null ? 'pending' : 'success') as 'pending' | 'success',
+      const resp = await fetchAdminPipelines();
+      return resp.runs.map((r) => ({
+        id: r.run_id,
+        name: r.adapter_id,
+        status: 'running' as const,
         flow: PIPELINE_FLOW,
         recent: {
-          ingested: a.source_count,
-          created: a.active_chunk_count,
-          updated: 0,
-          errors: 0,
+          ingested: r.ingested,
+          created: r.created,
+          updated: r.unchanged,
+          errors: r.errors,
         },
-        tags: [a.domain],
-        lastRun: a.last_run ?? undefined,
+        tags: [r.adapter_id],
+        lastRun: r.started_at,
       }));
     },
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
   });

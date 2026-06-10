@@ -277,6 +277,42 @@ export interface ChunkQueryParams {
   metadata_filter?: Record<string, string>;
 }
 
+// ── Activity Feed ────────────────────────────────────────────────
+
+export interface ActivityFeedEvent {
+  event_type: string;
+  entity_name: string;
+  identifier: string;
+  timestamp: string;
+  tags: string[];
+}
+
+export interface ActivityFeedResponse {
+  events: ActivityFeedEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ── Pipelines ────────────────────────────────────────────────────
+
+export interface PipelineRun {
+  run_id: string;
+  adapter_id: string;
+  current_step: string;
+  started_at: string;
+  duration_sec: number;
+  ingested: number;
+  created: number;
+  unchanged: number;
+  errors: number;
+}
+
+export interface PipelineListResponse {
+  runs: PipelineRun[];
+  total: number;
+}
+
 // ── Admin ────────────────────────────────────────────────────────
 
 export interface AdminAdapterStatus {

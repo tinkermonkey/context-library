@@ -14,6 +14,8 @@ import type {
   AdminConfigResponse,
   SyncLogResponse,
   TriggerSyncResponse,
+  ActivityFeedResponse,
+  PipelineListResponse,
   SourceListResponse,
   SourceDetailResponse,
   ChunkListResponse,
@@ -76,6 +78,11 @@ export const fetchStats = () => apiFetch<DatasetStatsResponse>('/stats');
 
 export const fetchAdapterStats = () => apiFetch<AdapterStatsResponse>('/stats/adapters');
 
+export const fetchActivityFeed = (limit = 50, offset = 0) => {
+  const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  return apiFetch<ActivityFeedResponse>(`/stats/activity?${qs}`);
+};
+
 // ── Adapters ────────────────────────────────────────────────────
 
 export const fetchAdapters = () => apiFetch<AdapterListResponse>('/adapters');
@@ -97,6 +104,9 @@ export const triggerAdapterSync = (adapterId: string) =>
   apiFetch<TriggerSyncResponse>(`/admin/adapters/${encodeURIComponent(adapterId)}/sync`, {
     method: 'POST',
   });
+
+export const fetchAdminPipelines = () =>
+  apiFetch<PipelineListResponse>('/admin/pipelines');
 
 export const fetchAdminConfig = () =>
   apiFetch<AdminConfigResponse>('/admin/config');
