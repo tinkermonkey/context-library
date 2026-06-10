@@ -24,7 +24,8 @@ export const usePipelineStatus = () =>
         recent: {
           ingested: r.ingested,
           created: r.created,
-          updated: r.unchanged,
+          // Backend tracks created/unchanged but not updates as a distinct counter.
+          updated: 0,
           errors: r.errors,
         },
         tags: [r.adapter_id],

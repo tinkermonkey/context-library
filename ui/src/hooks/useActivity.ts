@@ -1,7 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ActivityEvent } from '@tinkermonkey/heimdall-ui';
+import type { ActivityEvent, ActivityEventType } from '@tinkermonkey/heimdall-ui';
 import { fetchActivityFeed } from '../api/client';
 import { capitalize } from '../utils/formatters';
+
+const EVENT_TYPE_MAP: Record<string, ActivityEventType> = {
+  ingested: 'run',
+  created: 'create',
+  updated: 'update',
+  deleted: 'delete',
+};
+
+const toActivityEventType = (eventType: string): ActivityEventType =>
+  EVENT_TYPE_MAP[eventType] ?? 'run';
 
 export const useActivity = (limit = 20) =>
   useQuery({
@@ -10,7 +20,7 @@ export const useActivity = (limit = 20) =>
       const resp = await fetchActivityFeed(limit);
       return resp.events.map((e) => ({
         id: e.identifier,
-        type: 'run' as const,
+        type: toActivityEventType(e.event_type),
         subject: e.entity_name,
         timestamp: e.timestamp,
         kind: e.tags[0],
