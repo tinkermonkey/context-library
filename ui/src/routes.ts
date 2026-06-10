@@ -3,7 +3,7 @@
  * Separated to a .ts file to comply with react-refresh/only-export-components.
  */
 
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router'
 import { lazy } from 'react'
 import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
@@ -11,7 +11,6 @@ import BrowserPage from './routes/browser'
 import BrowserVersionsPage from './routes/browser.versions.$sourceId'
 import BrowserFilesPage from './routes/browser.files'
 import SearchPage from './routes/search'
-import SourcesPage from './routes/sources'
 import PipelinePage from './routes/pipeline'
 import {
   indexSearchSchema,
@@ -29,7 +28,12 @@ import {
   peopleViewSearchSchema,
   locationViewSearchSchema,
   musicViewSearchSchema,
+  sourcesSearchSchema,
 } from './routes-config'
+
+// Lazy load route components to enable code splitting
+const SourcesPage = lazy(() => import('./routes/sources'))
+const SourceDetailPage = lazy(() => import('./routes/source-detail'))
 
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
@@ -65,6 +69,9 @@ const browserRoute = createRoute({
   path: '/browser',
   component: BrowserPage,
   validateSearch: (search: unknown) => browserSearchSchema.parse(search),
+  beforeLoad: () => {
+    throw redirect({ to: '/sources' });
+  },
 })
 
 const browserVersionsRoute = createRoute({
@@ -175,6 +182,13 @@ const sourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sources',
   component: SourcesPage,
+  validateSearch: (search: unknown) => sourcesSearchSchema.parse(search),
+})
+
+const sourceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sources/$sourceId',
+  component: SourceDetailPage,
 })
 
 const pipelineRoute = createRoute({
@@ -197,6 +211,7 @@ const routeTree = rootRoute.addChildren([
   musicRoute,
   adminRoute,
   sourcesRoute,
+  sourceDetailRoute,
   pipelineRoute,
   browserRoute,
   browserVersionsRoute,

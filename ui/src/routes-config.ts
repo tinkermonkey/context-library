@@ -151,3 +151,17 @@ export const musicViewSearchSchema = z.object({
 });
 
 export type MusicViewPageSearch = z.infer<typeof musicViewSearchSchema>;
+
+export const sourcesSearchSchema = z
+  .object({
+    tab: z.enum(['sources', 'chunks', 'versions', 'retired']).optional(),
+    domain: z.string().optional(),
+    adapter_id: z.string().optional(),
+    sort: z.string().optional(),
+    dir: z.enum(['asc', 'desc']).optional(),
+    page: z.number().optional(),
+    pageSize: z.number().optional(),
+  })
+  .passthrough();
+
+export type SourcesPageSearch = z.infer<typeof sourcesSearchSchema>;
