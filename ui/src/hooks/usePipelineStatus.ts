@@ -4,8 +4,8 @@ import { fetchAdminPipelines } from '../api/client';
 
 const PIPELINE_FLOW: FlowNode[] = [
   { id: 'fetch', name: 'fetch', label: 'Fetch', icon: 'download' },
-  { id: 'diff', name: 'diff', label: 'Diff', icon: 'gitBranch' },
   { id: 'chunk', name: 'chunk', label: 'Chunk', icon: 'layout' },
+  { id: 'diff', name: 'diff', label: 'Diff', icon: 'gitBranch' },
   { id: 'embed', name: 'embed', label: 'Embed', icon: 'zap' },
   { id: 'store', name: 'store', label: 'Store', icon: 'hardDrive' },
 ];

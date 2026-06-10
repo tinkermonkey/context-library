@@ -23,9 +23,9 @@ export const useActivity = (limit = 20) =>
         type: toActivityEventType(e.event_type),
         subject: e.entity_name,
         timestamp: e.timestamp,
-        kind: e.tags[0] ?? undefined,
+        kind: e.tags[0],
         kindLabel: capitalize(e.tags[0] ?? ''),
-        meta: e.tags[1] ?? undefined,
+        meta: e.tags[1],
       }));
     },
     staleTime: 15_000,
