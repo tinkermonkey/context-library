@@ -36,7 +36,7 @@ class _PipelineRun:
     run_id: str
     adapter_id: str
     started_at: datetime
-    current_step: str = "starting"
+    current_step: str = "fetch"
     sources_ingested: int = 0
     chunks_created: int = 0
     chunks_unchanged: int = 0
@@ -223,10 +223,10 @@ class IngestionPipeline:
                 ingest_span.set_attribute("adapter_id", adapter.adapter_id)
                 ingest_span.set_attribute("domain", adapter.domain.value)
 
-                _run.current_step = "fetching"
+                _run.current_step = "fetch"
                 try:
                     for content in adapter.fetch(source_ref):
-                        _run.current_step = "processing"
+                        _run.current_step = "chunk"
                         with tracer.start_as_current_span("pipeline.source") as source_span:
                             source_span.set_attribute("source_id", content.source_id)
                             source_span.set_attribute("adapter_id", adapter.adapter_id)
@@ -275,6 +275,7 @@ class IngestionPipeline:
                                     prev_chunk_hashes = set(prev_version.chunk_hashes) if prev_version else None
 
                                     # Run the differ
+                                    _run.current_step = "diff"
                                     with tracer.start_as_current_span("differ.diff") as diff_span:
                                         diff_result = self.differ.diff(
                                             prev_markdown, content.markdown, prev_chunk_hashes, curr_chunk_hashes
@@ -343,6 +344,7 @@ class IngestionPipeline:
                                             text = f"{c.context_header}\n\n{text}"
                                         chunk_contents_for_embedding.append(text)
 
+                                    _run.current_step = "embed"
                                     vectors = []
                                     if chunk_contents_for_embedding:
                                         vectors = self.embedder.embed(chunk_contents_for_embedding)
@@ -411,6 +413,7 @@ class IngestionPipeline:
                                         unchanged_lineage_records.append(lineage)
 
                                     # Write all chunks (both added and unchanged) + lineage to SQLite
+                                    _run.current_step = "store"
                                     all_chunks_to_write = added_chunks + unchanged_chunks
                                     all_lineage_records = added_lineage_records + unchanged_lineage_records
 

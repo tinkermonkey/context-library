@@ -1499,7 +1499,7 @@ class TestPipelineRunLifecycle:
         assert len(pipeline.get_active_runs()) == 0, "Should have 0 active runs after ingest"
 
     def test_current_step_is_fetching_during_fetch(self, pipeline, domain_chunker):
-        """current_step should be 'fetching' while adapter.fetch() is iterating."""
+        """current_step should be 'fetch' while adapter.fetch() is iterating."""
         import threading
         from unittest.mock import MagicMock
         from context_library.storage.models import Domain
@@ -1531,7 +1531,7 @@ class TestPipelineRunLifecycle:
         allow_fetch.set()
         ingest_thread.join(timeout=10)
 
-        assert "fetching" in observed_step, f"Expected 'fetching' step, got: {observed_step}"
+        assert "fetch" in observed_step, f"Expected 'fetch' step, got: {observed_step}"
 
     def test_sources_ingested_counter_via_return_dict(
         self, pipeline, temp_markdown_dir, domain_chunker

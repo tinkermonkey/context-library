@@ -4,7 +4,6 @@ import { fetchAdminPipelines } from '../api/client';
 
 const PIPELINE_FLOW: FlowNode[] = [
   { id: 'fetch', name: 'fetch', label: 'Fetch', icon: 'download' },
-  { id: 'normalize', name: 'normalize', label: 'Normalize', icon: 'component' },
   { id: 'diff', name: 'diff', label: 'Diff', icon: 'gitBranch' },
   { id: 'chunk', name: 'chunk', label: 'Chunk', icon: 'layout' },
   { id: 'embed', name: 'embed', label: 'Embed', icon: 'zap' },
@@ -20,12 +19,14 @@ export const usePipelineStatus = () =>
         id: r.run_id,
         name: r.adapter_id,
         status: 'running' as const,
-        flow: PIPELINE_FLOW,
+        flow: PIPELINE_FLOW.map((node) => ({
+          ...node,
+          color: node.id === r.current_step ? 'amber' : undefined,
+        })),
         recent: {
           ingested: r.ingested,
           created: r.created,
-          // Backend tracks created/unchanged but not updates as a distinct counter.
-          updated: 0,
+          updated: 'N/A',
           errors: r.errors,
         },
         tags: [r.adapter_id],

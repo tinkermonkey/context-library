@@ -3,19 +3,19 @@ import type { AdminAdapterStatus } from '../types/api';
 
 export const DOMAIN_ORDER = [
   'notes', 'messages', 'events', 'tasks', 'health',
-  'documents', 'people', 'location', 'music',
+  'documents', 'people', 'location',
 ];
 
 export const DOMAIN_LABELS: Record<string, string> = {
   notes: 'Notes', messages: 'Messages', events: 'Events', tasks: 'Tasks',
   health: 'Health', documents: 'Documents', people: 'People',
-  location: 'Location', music: 'Music',
+  location: 'Location',
 };
 
 export const DOMAIN_ICONS: Record<string, IconName> = {
   notes: 'edit', messages: 'send', events: 'calendar', tasks: 'check',
   health: 'heart', documents: 'file', people: 'user',
-  location: 'tag', music: 'palette',
+  location: 'tag',
 };
 
 export function formatRelativeTime(iso: string | null): string {
