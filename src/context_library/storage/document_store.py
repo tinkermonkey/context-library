@@ -124,7 +124,14 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=5)
+        if version == 5:
+            # Migrate from v5 to v6 BEFORE executing new schema
+            self._migrate_v5_to_v6()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=6)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -153,9 +160,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 5:
+        if final_version != 6:
             raise RuntimeError(
-                f"Schema version mismatch: expected 5, got {final_version}"
+                f"Schema version mismatch: expected 6, got {final_version}"
             )
 
     def _make_connection(self) -> sqlite3.Connection:
@@ -703,6 +710,34 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v3 to v4: {e}"
+            ) from e
+
+    def _migrate_v5_to_v6(self) -> None:
+        """Migrate schema from v5 to v6: add index on source_versions(created_at).
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v5 to v6 (adding index on source_versions.created_at)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            cursor.execute("BEGIN")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_source_versions_created_at ON source_versions(created_at)"
+            )
+            cursor.execute("PRAGMA user_version=6")
+            self.conn.commit()
+            logger.info("Successfully migrated schema from v5 to v6")
+
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v5 to v6: {e}"
             ) from e
 
     def _migrate_v4_to_v5(self) -> None:

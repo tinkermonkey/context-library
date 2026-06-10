@@ -78,13 +78,13 @@ class TestDocumentStoreInit:
             store.close()
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 5 (location domain support)."""
+        """Test that user_version is verified to be 6 (activity feed index)."""
         store = DocumentStore(":memory:")
         try:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
         finally:
             store.close()
 
@@ -6279,11 +6279,11 @@ class TestSchemaMigrationV3toV4:
             # Trigger migration by opening DocumentStore
             store = DocumentStore(str(db_path))
 
-            # Verify schema version is now 5
+            # Verify schema version is now 6
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
 
             # Verify entity_links table exists
             cursor.execute("""
@@ -6376,7 +6376,7 @@ class TestSchemaMigrationV3toV4:
             cursor = store2.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
 
             # Verify entity_links table still exists
             cursor.execute("""
