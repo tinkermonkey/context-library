@@ -47,10 +47,11 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
     limit: FILE_TREE_LIMIT,
   });
 
-  const allSources = sourcesData?.sources ?? [];
+  const allSources = useMemo(() => sourcesData?.sources ?? [], [sourcesData?.sources]);
   // Filter to filesystem-based adapters only
-  const sources = allSources.filter((source) =>
-    source.adapter_id.startsWith('filesystem')
+  const sources = useMemo(
+    () => allSources.filter((source) => source.adapter_id.startsWith('filesystem')),
+    [allSources]
   );
 
   const fileTree = useMemo(() => buildFileTree(sources), [sources]);

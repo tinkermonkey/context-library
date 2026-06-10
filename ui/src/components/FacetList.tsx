@@ -75,10 +75,8 @@ export function FacetList({ groups, onItemClick, className }: FacetListProps): R
               ) : (
                 <span
                   style={{
-                    width: 11,
-                    height: 11,
-                    border: `1px solid rgb(var(--canvas-border-strong))`,
-                    borderRadius: 2,
+                    width: 7,
+                    height: 7,
                     flexShrink: 0,
                     display: 'inline-block',
                   }}
