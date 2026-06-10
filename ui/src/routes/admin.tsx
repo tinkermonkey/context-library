@@ -211,8 +211,8 @@ export default function AdminPage(): ReactNode {
     const entries = logsQuery.data?.entries ?? [];
     return entries.map((e) => ({
       id: String(e.id),
-      timestamp: e.synced_at ?? new Date().toISOString(),
-      level: e.operation === 'insert' ? ('INFO' as const) : ('WARN' as const),
+      timestamp: e.synced_at ?? '—',
+      level: 'INFO' as const,
       message: `${e.operation}: ${e.chunk_hash.substring(0, 16)}…`,
       op: e.operation,
       target: e.chunk_hash.substring(0, 12),
