@@ -34,6 +34,7 @@ import {
 // Lazy load route components to enable code splitting
 const SourcesPage = lazy(() => import('./routes/sources'))
 const SourceDetailPage = lazy(() => import('./routes/source-detail'))
+const ChunkInspectorPage = lazy(() => import('./routes/chunk-inspector'))
 
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
@@ -191,6 +192,12 @@ const sourceDetailRoute = createRoute({
   component: SourceDetailPage,
 })
 
+const chunkInspectorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chunks/$chunkHash',
+  component: ChunkInspectorPage,
+})
+
 const pipelineRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/pipeline',
@@ -212,6 +219,7 @@ const routeTree = rootRoute.addChildren([
   adminRoute,
   sourcesRoute,
   sourceDetailRoute,
+  chunkInspectorRoute,
   pipelineRoute,
   browserRoute,
   browserVersionsRoute,

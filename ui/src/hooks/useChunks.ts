@@ -3,6 +3,7 @@ import {
   fetchChunks,
   fetchChunk,
   fetchChunkProvenance,
+  fetchChunkVersionChain,
   fetchSourceChunks,
   fetchVersionDiff,
 } from '../api/client';
@@ -20,6 +21,7 @@ export const useChunk = (hash: string, sourceId?: string) =>
     queryKey: ['chunk', hash, sourceId],
     queryFn: () => fetchChunk(hash, sourceId),
     staleTime: 10_000,
+    enabled: !!hash,
   });
 
 export const useChunkProvenance = (hash: string, sourceId?: string) =>
@@ -27,6 +29,15 @@ export const useChunkProvenance = (hash: string, sourceId?: string) =>
     queryKey: ['chunk-provenance', hash, sourceId],
     queryFn: () => fetchChunkProvenance(hash, sourceId),
     staleTime: 10_000,
+    enabled: !!hash,
+  });
+
+export const useChunkVersionChain = (hash: string, sourceId: string, enabled = true) =>
+  useQuery({
+    queryKey: ['chunk-version-chain', hash, sourceId],
+    queryFn: () => fetchChunkVersionChain(hash, sourceId),
+    staleTime: Infinity,
+    enabled: enabled && !!hash && !!sourceId,
   });
 
 export const useSourceChunks = (sourceId: string, version?: number, limit?: number, offset?: number, enabled: boolean = true) =>
