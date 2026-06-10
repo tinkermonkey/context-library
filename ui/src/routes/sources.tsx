@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate, useRouterState } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { PageHeader, TabBar, Chip } from '@tinkermonkey/heimdall-ui';
 import { FilterDropdown } from '../components/FilterDropdown';
 import { useSources } from '../hooks/useSources';
@@ -22,18 +22,13 @@ function timeAgo(iso: string | null | undefined): string {
 
 export default function SourcesPage(): ReactNode {
   const navigate = useNavigate();
-  const routerState = useRouterState();
-
-  const search = useMemo(
-    () => (routerState.location.search ?? {}) as SourcesPageSearch,
-    [routerState.location.search]
-  );
+  const search = useSearch({ from: '/sources' });
 
   const activeTab = search.tab ?? 'sources';
-  const domainFilter = (search.domain as string) ?? '';
-  const adapterFilter = (search.adapter_id as string) ?? '';
-  const page = (search.page as number) ?? 0;
-  const pageSize = (search.pageSize as number) ?? 50;
+  const domainFilter = search.domain ?? '';
+  const adapterFilter = search.adapter_id ?? '';
+  const page = search.page ?? 0;
+  const pageSize = search.pageSize ?? 50;
 
   const updateSearch = useCallback(
     (updates: Partial<SourcesPageSearch>) => {
