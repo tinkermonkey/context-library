@@ -1,10 +1,10 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { UsersIcon } from '@heroicons/react/24/outline';
-import { Icon, PageHeader, Avatar, ActivityTimeline } from '@tinkermonkey/heimdall-ui';
-import type { ActivityEvent } from '@tinkermonkey/heimdall-ui';
+import { Icon, PageHeader, Avatar, ActivityTimeline, GraphCanvas, GraphNode } from '@tinkermonkey/heimdall-ui';
+import type { ActivityEvent, GraphNodeData, GraphEdgeData } from '@tinkermonkey/heimdall-ui';
 import { AlphabetIndex } from '../components/AlphabetIndex';
 import { FilterDropdown } from '../components/FilterDropdown';
 import { useSources } from '../hooks/useSources';
@@ -242,6 +242,146 @@ function EmptyDetail(): ReactNode {
   );
 }
 
+// ── Relationship Graph Panel ───────────────────────────────────────
+
+function RelationshipGraphPanel({
+  source,
+  allSources,
+}: {
+  source: SourceSummary;
+  allSources: SourceSummary[];
+}): ReactNode {
+  const name = source.display_name ?? source.origin_ref;
+  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | undefined>(source.source_id);
+
+  const { data: chunksData, isLoading: isChunksLoading } = useQuery({
+    queryKey: ['graph-person-chunks', source.source_id],
+    queryFn: () => fetchSourceChunks(source.source_id, undefined, 1, 0),
+    staleTime: 60_000,
+  });
+
+  const meta = useMemo((): PeopleMeta | null => {
+    const firstChunk = chunksData?.chunks?.[0];
+    return firstChunk ? extractPeopleMeta(firstChunk.domain_metadata) : null;
+  }, [chunksData]);
+
+  const orgQuery = useQuery({
+    queryKey: ['graph-org-search', meta?.organization],
+    queryFn: () =>
+      postQuery({
+        query: meta!.organization!,
+        top_k: 8,
+        domain_filter: 'people',
+        source_filter: null,
+        rerank: false,
+      }),
+    enabled: !!meta?.organization,
+    staleTime: 60_000,
+  });
+
+  const { nodes, edges } = useMemo((): { nodes: GraphNodeData[]; edges: GraphEdgeData[] } => {
+    const graphNodes: GraphNodeData[] = [
+      { id: source.source_id, label: name, kind: 'person', domainColor: 'people' },
+    ];
+    const graphEdges: GraphEdgeData[] = [];
+
+    if (orgQuery.data?.results) {
+      const seenIds = new Set<string>([source.source_id]);
+      for (const result of orgQuery.data.results) {
+        if (seenIds.has(result.source_id)) continue;
+        const peer = allSources.find(s => s.source_id === result.source_id);
+        if (!peer) continue;
+        seenIds.add(result.source_id);
+        graphNodes.push({
+          id: peer.source_id,
+          label: peer.display_name ?? peer.origin_ref,
+          kind: 'person',
+          domainColor: 'people',
+        });
+        graphEdges.push({
+          id: `edge-${source.source_id}-${peer.source_id}`,
+          sourceId: source.source_id,
+          targetId: peer.source_id,
+          label: 'colleague',
+        });
+      }
+    }
+
+    return { nodes: graphNodes, edges: graphEdges };
+  }, [source, name, orgQuery.data, allSources]);
+
+  const renderNode = useCallback(
+    (node: GraphNodeData, selected: boolean) => (
+      <GraphNode
+        id={node.id}
+        label={node.label}
+        kind={node.kind}
+        domainColor={node.domainColor}
+        selected={selected}
+        onSelect={setSelectedGraphNodeId}
+      />
+    ),
+    [],
+  );
+
+  const isLoading = isChunksLoading || (!!meta?.organization && orgQuery.isLoading);
+  const hasConnections = nodes.length > 1;
+
+  return (
+    <div
+      className="flex flex-col h-full overflow-hidden shrink-0"
+      style={{
+        width: 320,
+        background: 'rgb(var(--canvas-bg))',
+        borderLeft: '1px solid rgb(var(--canvas-border))',
+      }}
+    >
+      <div
+        className="flex items-center shrink-0 px-4"
+        style={{
+          height: 44,
+          borderBottom: '1px solid rgb(var(--canvas-border))',
+          background: 'rgb(var(--canvas-surface))',
+        }}
+      >
+        <span className="text-[10px] font-bold tracking-wider" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          CONNECTIONS
+        </span>
+      </div>
+
+      <div className="flex-1 min-h-0">
+        {isLoading ? (
+          <div className="flex flex-wrap gap-2 p-4">
+            {[1, 2, 3].map(i => (
+              <div
+                key={i}
+                className="animate-pulse rounded-full"
+                style={{ width: 64, height: 64, background: 'rgb(var(--canvas-border))' }}
+              />
+            ))}
+          </div>
+        ) : !hasConnections ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 px-4">
+            <p className="text-sm text-center" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              No connections found
+            </p>
+          </div>
+        ) : (
+          <GraphCanvas
+            nodes={nodes}
+            edges={edges}
+            layout="force"
+            selectedNodeId={selectedGraphNodeId}
+            onNodeSelect={setSelectedGraphNodeId}
+            renderNode={renderNode}
+            style={{ height: '100%' }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── PeoplePage ─────────────────────────────────────────────────────
 
 export default function PeoplePage(): ReactNode {
@@ -463,13 +603,19 @@ export default function PeoplePage(): ReactNode {
           )}
         </div>
 
-        {/* ── Right panel: detail or empty state ── */}
+        {/* ── Right panels: detail + relationship graph, or empty state ── */}
         {selectedSource ? (
-          <DetailPanel
-            source={selectedSource}
-            onGoToMessages={goToMessages}
-            onGoToEvents={goToEvents}
-          />
+          <>
+            <DetailPanel
+              source={selectedSource}
+              onGoToMessages={goToMessages}
+              onGoToEvents={goToEvents}
+            />
+            <RelationshipGraphPanel
+              source={selectedSource}
+              allSources={sources}
+            />
+          </>
         ) : (
           <EmptyDetail />
         )}
