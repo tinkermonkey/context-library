@@ -540,13 +540,7 @@ export default function HealthPage(): ReactNode {
                 Sleep Score — Last {allDates.length} Days
               </span>
               <StackedBar
-                stacks={metricStacks('sleep_score').map(s => ({
-                  ...s,
-                  parts: s.parts.map(v => {
-                    const reading = orderedBuckets[metricStacks('sleep_score').indexOf(s)]?.sleep_score;
-                    return reading?.value ?? v;
-                  }),
-                }))}
+                stacks={metricStacks('sleep_score')}
                 colors={[sleepScoreColor(sleepTrend.current?.value ?? 0)]}
                 axes
                 grid

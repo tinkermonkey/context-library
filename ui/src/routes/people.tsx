@@ -67,8 +67,8 @@ function ContactCard({
       style={{
         width: 192,
         padding: 16,
-        background: isSelected ? getDomainColorWithAlpha('people', '18') : '#161616',
-        border: `1px solid ${isSelected ? peopleColor : '#1E1E1E'}`,
+        background: isSelected ? getDomainColorWithAlpha('people', '18') : 'rgb(var(--canvas-surface))',
+        border: `1px solid ${isSelected ? peopleColor : 'rgb(var(--canvas-border))'}`,
         borderRadius: 8,
         flexShrink: 0,
       }}
@@ -84,9 +84,9 @@ function ContactCard({
       </div>
       <div
         className="flex items-center self-start"
-        style={{ background: '#1F2937', borderRadius: 4, padding: '3px 8px' }}
+        style={{ background: 'rgb(var(--canvas-border))', borderRadius: 4, padding: '3px 8px' }}
       >
-        <span className="text-[10px]" style={{ color: '#6B7280' }}>{label}</span>
+        <span className="text-[10px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{label}</span>
       </div>
     </button>
   );
@@ -170,12 +170,12 @@ function DetailPanel({
   return (
     <div
       className="flex flex-col h-full overflow-hidden shrink-0"
-      style={{ width: 320, background: '#111111', borderLeft: '1px solid #1A1A1A' }}
+      style={{ width: 320, background: 'rgb(var(--canvas-surface))', borderLeft: '1px solid rgb(var(--canvas-border))' }}
     >
       {/* Header */}
       <div
         className="flex flex-col items-center gap-3 shrink-0"
-        style={{ padding: '20px 16px', borderBottom: '1px solid #1A1A1A' }}
+        style={{ padding: '20px 16px', borderBottom: '1px solid rgb(var(--canvas-border))' }}
       >
         <Avatar name={name} size="lg" />
         <div className="flex flex-col items-center gap-1 w-full text-center">
@@ -183,22 +183,22 @@ function DetailPanel({
             {name}
           </span>
           {roleLabel && (
-            <span className="text-[13px]" style={{ color: '#A5B4FC' }}>
+            <span className="text-[13px]" style={{ color: peopleColor }}>
               {roleLabel}
             </span>
           )}
         </div>
         <div
           className="flex items-center"
-          style={{ background: '#312E81', borderRadius: 10, padding: '3px 8px' }}
+          style={{ background: getDomainColorWithAlpha('people', '20'), borderRadius: 10, padding: '3px 8px' }}
         >
-          <span className="text-[10px]" style={{ color: '#818CF8' }}>{label}</span>
+          <span className="text-[10px]" style={{ color: peopleColor }}>{label}</span>
         </div>
       </div>
 
       {/* Interactions */}
       <div className="flex flex-col shrink-0 px-4 pt-4 pb-1">
-        <span className="text-[10px] font-bold tracking-wider" style={{ color: '#4B5563' }}>
+        <span className="text-[10px] font-bold tracking-wider" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
           RECENT INTERACTIONS
         </span>
       </div>
@@ -207,7 +207,7 @@ function DetailPanel({
         {isLoading ? (
           <div className="space-y-2 px-2 pt-2">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="animate-pulse rounded-lg h-12" style={{ background: '#1A1A1A' }} />
+              <div key={i} className="animate-pulse rounded-lg h-12" style={{ background: 'rgb(var(--canvas-border))' }} />
             ))}
           </div>
         ) : (
@@ -227,7 +227,7 @@ function EmptyDetail(): ReactNode {
   return (
     <div
       className="flex flex-col items-center justify-center h-full shrink-0 gap-3"
-      style={{ width: 320, background: '#111111', borderLeft: '1px solid #1A1A1A' }}
+      style={{ width: 320, background: 'rgb(var(--canvas-surface))', borderLeft: '1px solid rgb(var(--canvas-border))' }}
     >
       <div
         className="flex items-center justify-center rounded-2xl"
@@ -318,12 +318,6 @@ export default function PeoplePage(): ReactNode {
     setAlphaFilter(prev => (prev === letter ? undefined : letter));
   }
 
-  function toggleAdapter(id: string): void {
-    setAdapterFilter(prev =>
-      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id],
-    );
-  }
-
   function goToMessages(): void {
     void navigate({ to: '/messages', search: {} });
   }
@@ -345,23 +339,23 @@ export default function PeoplePage(): ReactNode {
           {/* Toolbar */}
           <div
             className="flex items-center gap-3 shrink-0 px-5"
-            style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
+            style={{ height: 52, background: 'rgb(var(--canvas-surface))', borderBottom: '1px solid rgb(var(--canvas-border))' }}
           >
             {/* Adapter filter */}
             {uniqueAdapters.length > 1 && (
-              <FilterDropdown>
-                <FilterDropdown.Trigger>
-                  {adapterFilter.length > 0 ? `${adapterFilter.length} source${adapterFilter.length > 1 ? 's' : ''}` : 'All Sources'}
-                </FilterDropdown.Trigger>
+              <FilterDropdown
+                mode="checkbox"
+                value={adapterFilter}
+                onChange={setAdapterFilter}
+              >
+                <FilterDropdown.Trigger
+                  label="Source"
+                  summary={adapterFilter.length > 0 ? `${adapterFilter.length} source${adapterFilter.length > 1 ? 's' : ''}` : 'All sources'}
+                />
                 <FilterDropdown.Panel>
-                  <FilterDropdown.Section label="Source">
+                  <FilterDropdown.Section title="Source">
                     {uniqueAdapters.map(a => (
-                      <FilterDropdown.Checkbox
-                        key={a.id}
-                        label={a.label}
-                        checked={adapterFilter.includes(a.id)}
-                        onChange={() => toggleAdapter(a.id)}
-                      />
+                      <FilterDropdown.Checkbox key={a.id} value={a.id} label={a.label} />
                     ))}
                   </FilterDropdown.Section>
                 </FilterDropdown.Panel>
@@ -376,13 +370,13 @@ export default function PeoplePage(): ReactNode {
               style={{
                 width: 220,
                 height: 34,
-                background: '#1A1A1A',
-                border: '1px solid #2D2D2D',
+                background: 'rgb(var(--canvas-border))',
+                border: '1px solid rgb(var(--canvas-border))',
                 borderRadius: 6,
                 padding: '0 12px',
               }}
             >
-              <span style={{ color: '#4B5563', flexShrink: 0 }}>
+              <span style={{ color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }}>
                 <Icon name="search" size={14} />
               </span>
               <input
@@ -398,7 +392,7 @@ export default function PeoplePage(): ReactNode {
 
           {/* Alphabet index strip */}
           {sources.length > 0 && (
-            <div style={{ borderBottom: '1px solid #1A1A1A', background: '#111111' }}>
+            <div style={{ borderBottom: '1px solid rgb(var(--canvas-border))', background: 'rgb(var(--canvas-surface))' }}>
               <AlphabetIndex
                 available={availableLetters}
                 active={alphaFilter}
@@ -415,14 +409,14 @@ export default function PeoplePage(): ReactNode {
                   <div
                     key={i}
                     className="animate-pulse rounded-lg"
-                    style={{ width: 192, height: 128, background: '#161616' }}
+                    style={{ width: 192, height: 128, background: 'rgb(var(--canvas-surface))' }}
                   />
                 ))}
               </div>
             ) : sourcesQuery.isError ? (
               <div
                 className="rounded-lg p-4 text-sm"
-                style={{ background: '#1F1010', color: 'rgb(var(--canvas-fg-2))' }}
+                style={{ background: 'rgb(var(--status-error) / 0.13)', color: 'rgb(var(--canvas-fg-2))' }}
               >
                 Failed to load contacts.
               </div>

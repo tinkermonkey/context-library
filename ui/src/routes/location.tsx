@@ -266,7 +266,6 @@ export default function LocationPage(): ReactNode {
         subject: v.display_name,
         timestamp: date ?? new Date().toISOString(),
         meta: [formatVisitDate(date), dur].filter(Boolean).join(' · '),
-        dotColor: color ? undefined : undefined,
         onClick: () => handleSelectVisit(v),
       };
     });
