@@ -287,7 +287,8 @@ export interface ActivityFeedEvent {
   entity_name: string;
   identifier: string;
   timestamp: string;
-  tags: string[];
+  domain: string;
+  adapter_type: string;
 }
 
 export interface ActivityFeedResponse {

@@ -2790,46 +2790,52 @@ class DocumentStore:
             - entity_name: display_name or source_id
             - identifier: source_id
             - timestamp: fetch_timestamp from the source_version
-            - tags: [domain, adapter_type]
+            - domain: domain name for the source
+            - adapter_type: adapter type string
         """
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT COUNT(*) AS cnt
-            FROM source_versions sv
-            JOIN sources s ON sv.source_id = s.source_id
-            JOIN adapters a ON sv.adapter_id = a.adapter_id
-            """
-        )
-        total: int = cursor.fetchone()["cnt"]
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM source_versions sv
+                JOIN sources s ON sv.source_id = s.source_id
+                JOIN adapters a ON sv.adapter_id = a.adapter_id
+                """
+            )
+            total: int = cursor.fetchone()["cnt"]
 
-        cursor.execute(
-            """
-            SELECT
-                sv.source_id,
-                COALESCE(s.display_name, sv.source_id) AS entity_name,
-                a.adapter_type,
-                s.domain,
-                sv.fetch_timestamp AS timestamp
-            FROM source_versions sv
-            JOIN sources s ON sv.source_id = s.source_id
-            JOIN adapters a ON sv.adapter_id = a.adapter_id
-            ORDER BY sv.created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            [limit, offset],
-        )
-        events = [
-            {
-                "event_type": "ingested",
-                "entity_name": row["entity_name"],
-                "identifier": row["source_id"],
-                "timestamp": row["timestamp"],
-                "tags": [row["domain"], row["adapter_type"]],
-            }
-            for row in cursor.fetchall()
-        ]
-        return events, total
+            cursor.execute(
+                """
+                SELECT
+                    sv.source_id,
+                    COALESCE(s.display_name, sv.source_id) AS entity_name,
+                    a.adapter_type,
+                    s.domain,
+                    sv.fetch_timestamp AS timestamp
+                FROM source_versions sv
+                JOIN sources s ON sv.source_id = s.source_id
+                JOIN adapters a ON sv.adapter_id = a.adapter_id
+                ORDER BY sv.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                [limit, offset],
+            )
+            events = [
+                {
+                    "event_type": "ingested",
+                    "entity_name": row["entity_name"],
+                    "identifier": row["source_id"],
+                    "timestamp": row["timestamp"],
+                    "domain": row["domain"],
+                    "adapter_type": row["adapter_type"],
+                }
+                for row in cursor.fetchall()
+            ]
+            return events, total
+        except sqlite3.Error as e:
+            logger.error("Failed to query activity feed: %s", e)
+            raise
 
     def get_sync_log(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
         """Get paginated sync log entries from lancedb_sync_log.

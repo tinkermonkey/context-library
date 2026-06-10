@@ -15,17 +15,17 @@ const toActivityEventType = (eventType: string): ActivityEventType =>
 
 export const useActivity = (limit = 20) =>
   useQuery({
-    queryKey: ['activity'],
+    queryKey: ['activity', limit],
     queryFn: async (): Promise<ActivityEvent[]> => {
       const resp = await fetchActivityFeed(limit);
       return resp.events.map((e) => ({
-        id: e.identifier,
+        id: `${e.identifier}::${e.timestamp}`,
         type: toActivityEventType(e.event_type),
         subject: e.entity_name,
         timestamp: e.timestamp,
-        kind: e.tags[0],
-        kindLabel: capitalize(e.tags[0] ?? ''),
-        meta: e.tags[1],
+        kind: e.domain,
+        kindLabel: capitalize(e.domain),
+        meta: e.adapter_type,
       }));
     },
     staleTime: 15_000,

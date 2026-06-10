@@ -517,7 +517,8 @@ class ActivityEvent(BaseModel):
     entity_name: str
     identifier: str
     timestamp: str
-    tags: list[str]
+    domain: str
+    adapter_type: str
 
 
 class ActivityFeedResponse(BaseModel):

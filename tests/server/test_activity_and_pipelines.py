@@ -22,9 +22,8 @@ class TestGetActivity:
         event = data["events"][0]
         assert event["event_type"] == "ingested"
         assert event["identifier"] == "src-1"
-        assert isinstance(event["tags"], list)
-        assert "notes" in event["tags"]
-        assert "filesystem" in event["tags"]
+        assert event["domain"] == "notes"
+        assert event["adapter_type"] == "filesystem"
 
     def test_entity_name_falls_back_to_source_id(self, client: TestClient) -> None:
         data = client.get("/stats/activity").json()
