@@ -712,34 +712,6 @@ class DocumentStore:
                 f"Failed to migrate schema from v3 to v4: {e}"
             ) from e
 
-    def _migrate_v5_to_v6(self) -> None:
-        """Migrate schema from v5 to v6: add index on source_versions(created_at).
-
-        Raises:
-            RuntimeError: If migration fails at any step.
-        """
-        logger.info("Migrating schema from v5 to v6 (adding index on source_versions.created_at)")
-
-        cursor = self.conn.cursor()
-
-        try:
-            cursor.execute("BEGIN")
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_source_versions_created_at ON source_versions(created_at)"
-            )
-            cursor.execute("PRAGMA user_version=6")
-            self.conn.commit()
-            logger.info("Successfully migrated schema from v5 to v6")
-
-        except Exception as e:
-            try:
-                self.conn.rollback()
-            except Exception as rollback_error:
-                logger.error(f"Failed to rollback migration: {rollback_error}")
-            raise RuntimeError(
-                f"Failed to migrate schema from v5 to v6: {e}"
-            ) from e
-
     def _migrate_v4_to_v5(self) -> None:
         """Migrate schema from v4 to v5: add 'location' to domain CHECK constraints.
 
@@ -911,6 +883,34 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v4 to v5: {e}"
+            ) from e
+
+    def _migrate_v5_to_v6(self) -> None:
+        """Migrate schema from v5 to v6: add index on source_versions(created_at).
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v5 to v6 (adding index on source_versions.created_at)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            cursor.execute("BEGIN")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_source_versions_created_at ON source_versions(created_at)"
+            )
+            cursor.execute("PRAGMA user_version=6")
+            self.conn.commit()
+            logger.info("Successfully migrated schema from v5 to v6")
+
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v5 to v6: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
