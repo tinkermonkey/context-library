@@ -1,22 +1,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { Drawer, Icon, TabBar, PageHeader } from '@tinkermonkey/heimdall-ui';
+import { Drawer, Panel, PageHeader, ResultCard, SegmentedControl } from '@tinkermonkey/heimdall-ui';
+import { FilterDropdown } from '../components/FilterDropdown';
+import { FacetList } from '../components/FacetList';
+import { SearchHero } from '../components/SearchHero';
 import { useSearch } from '../hooks/useSearch';
+import { useAdapterStats } from '../hooks/useAdapterStats';
 import { useToast } from '../hooks/useToast';
 import type { SearchPageSearch } from '../router';
 import type { QueryResultItem } from '../types/api';
 import { getDomainColor, getDomainColorWithAlpha, domainColors } from '../lib/designTokens';
 import { capitalize } from '../utils/formatters';
 
-// ── Helpers ───────────────────────────────────────────────────────
-
-function shortId(id: string): string {
-  return id.length > 28 ? `${id.substring(0, 28)}…` : id;
-}
-
 // ── Constants ─────────────────────────────────────────────────────
 
-// All searchable domains — full set from design tokens (superset of registry)
 const SEARCH_DOMAINS = Object.keys(domainColors);
 
 const SUGGESTED_QUERIES = [
@@ -26,6 +23,12 @@ const SUGGESTED_QUERIES = [
   'Open tasks due soon',
   'Notes about architecture decisions',
   'Documents related to my projects',
+];
+
+const SORT_OPTIONS = [
+  { value: 'relevance', label: 'Relevance' },
+  { value: 'date', label: 'Date' },
+  { value: 'source', label: 'Source' },
 ];
 
 // ── Debounce hook ─────────────────────────────────────────────────
@@ -39,157 +42,48 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────
 
-// ── Score bar ─────────────────────────────────────────────────────
-
-function ScoreBar({ score }: { score: number }) {
-  const pct = Math.round(score * 100);
-  const color = score >= 0.8 ? 'rgb(var(--status-ok))' : score >= 0.6 ? 'rgb(var(--status-amber))' : 'rgb(var(--canvas-fg-3))';
-  return (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <div
-        className="rounded-full overflow-hidden"
-        style={{ width: 36, height: 4, background: 'rgb(var(--canvas-surface))' }}
-      >
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${pct}%`, background: color }}
-        />
-      </div>
-      <span className="text-[11px] tabular-nums font-medium" style={{ color }}>
-        {score.toFixed(2)}
-      </span>
-    </div>
-  );
+function shortHash(hash: string): string {
+  return hash.length > 16 ? `${hash.substring(0, 16)}…` : hash;
 }
 
-// ── Result card ───────────────────────────────────────────────────
-
-function ResultCard({
-  result,
-  selected,
-  focused,
-  query,
-  onClick,
-  registerRef,
-}: {
-  result: QueryResultItem;
-  selected: boolean;
-  focused: boolean;
-  query: string;
-  onClick: () => void;
-  registerRef?: (el: HTMLButtonElement | null) => void;
-}) {
-  const domainColor = getDomainColor(result.domain);
-
-  // Keyword highlight: split with a capture-group regex so odd indices are matches.
-  // e.g. "foo bar baz".split(/(bar)/i) → ["foo ", "bar", " baz"]
-  const highlightedParts = useMemo(() => {
-    const snippet = result.context_header
-      ? `${result.context_header}\n\n${result.chunk_text}`
-      : result.chunk_text;
-    const preview = snippet.substring(0, 280);
-    const terms = query
-      .split(/\s+/)
-      .filter((t) => t.length > 2)
-      .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    if (terms.length === 0) return [preview];
-    const pattern = new RegExp(`(${terms.join('|')})`, 'gi');
-    return preview.split(pattern);
-  }, [result, query]);
-
+function highlightSnippet(
+  result: QueryResultItem,
+  query: string
+): React.ReactNode {
+  const text = result.context_header
+    ? `${result.context_header}\n\n${result.chunk_text}`
+    : result.chunk_text;
+  const preview = text.substring(0, 300);
+  const terms = query
+    .split(/\s+/)
+    .filter((t) => t.length > 2)
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (terms.length === 0) return <span className="text-xs leading-relaxed whitespace-pre-wrap">{preview}</span>;
+  const pattern = new RegExp(`(${terms.join('|')})`, 'gi');
+  const parts = preview.split(pattern);
   return (
-    <button
-      ref={registerRef}
-      onClick={onClick}
-      className="w-full text-left rounded-xl p-4 transition-colors flex flex-col gap-2"
-      style={{
-        background: selected ? getDomainColorWithAlpha(result.domain, '12') : 'rgb(var(--canvas-surface))',
-        border: `1px solid ${selected ? domainColor : focused ? 'rgb(var(--canvas-fg-3))' : 'rgb(var(--canvas-border))'}`,
-        outline: 'none',
-      }}
-    >
-      {/* Top row: domain badge + adapter + score */}
-      <div className="flex items-center gap-2">
-        <span
-          className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
-          style={{ background: getDomainColorWithAlpha(result.domain, '20'), color: domainColor }}
-        >
-          {capitalize(result.domain)}
-        </span>
-        <span className="text-xs truncate flex-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          {result.adapter_id}
-        </span>
-        <ScoreBar score={result.similarity_score} />
-      </div>
-
-      {/* Snippet */}
-      <p
-        className="text-xs leading-relaxed line-clamp-3"
-        style={{ color: 'rgb(var(--canvas-fg-2))' }}
-      >
-        {highlightedParts.map((part, i) =>
-          i % 2 === 1 ? (
-            <mark
-              key={i}
-              className="rounded px-0.5"
-              style={{
-                background: getDomainColorWithAlpha(result.domain, '30'),
-                color: 'rgb(var(--canvas-fg-1))',
-                fontWeight: 500,
-              }}
-            >
-              {part}
-            </mark>
-          ) : (
-            <span key={i}>{part}</span>
-          )
-        )}
-        {result.chunk_text.length > 280 ? '…' : ''}
-      </p>
-
-      {/* Bottom row: source + chunk type */}
-      <div className="flex items-center gap-2">
-        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          {shortId(result.source_id)}
-        </span>
-        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>·</span>
-        <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          {result.chunk_type}
-        </span>
-        <span className="ml-auto shrink-0" style={{ color: selected ? domainColor : 'rgb(var(--canvas-fg-3))' }}>
-          <Icon
-            name="chevronRight"
-            size={12}
-          />
-        </span>
-      </div>
-    </button>
-  );
-}
-
-// ── Skeleton card ─────────────────────────────────────────────────
-
-function SkeletonCard() {
-  return (
-    <div
-      className="rounded-xl p-4 flex flex-col gap-3"
-      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
-    >
-      <div className="flex items-center gap-2">
-        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-        <div className="w-16 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <div className="h-3 rounded animate-pulse w-full" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-      </div>
-      <div className="flex gap-2">
-        <div className="h-3 rounded animate-pulse w-32" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
-      </div>
-    </div>
+    <span className="text-xs leading-relaxed whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        i % 2 === 1 ? (
+          <mark
+            key={i}
+            className="rounded px-0.5"
+            style={{
+              background: getDomainColorWithAlpha(result.domain, '30'),
+              color: 'rgb(var(--canvas-fg-1))',
+              fontWeight: 500,
+            }}
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+      {text.length > 300 ? '…' : ''}
+    </span>
   );
 }
 
@@ -214,16 +108,9 @@ function DetailDrawer({
     : '';
 
   return (
-    <Drawer
-      isOpen={isOpen}
-      onClose={onClose}
-      position="right"
-      title="Result Detail"
-      className="flex flex-col"
-    >
+    <Drawer isOpen={isOpen} onClose={onClose} position="right" title="Result Detail">
       {result && (
         <div className="flex flex-col gap-5 p-4 overflow-y-auto flex-1">
-          {/* Metadata grid */}
           <div className="flex flex-col gap-2.5">
             {[
               { label: 'Source', value: result.adapter_id },
@@ -236,62 +123,39 @@ function DetailDrawer({
                 <span className="text-xs shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
                   {label}
                 </span>
-                <span
-                  className="text-xs font-medium text-right"
-                  style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}
-                >
+                <span className="text-xs font-medium text-right" style={{ color: color ?? 'rgb(var(--canvas-fg-1))' }}>
                   {value}
                 </span>
               </div>
             ))}
-
-            {/* Hash (full row, monospace) */}
             <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunk hash</span>
-              <span
-                className="text-[11px] font-mono break-all"
-                style={{ color: 'rgb(var(--canvas-fg-2))' }}
-              >
+              <span className="text-[11px] font-mono break-all" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 {result.chunk_hash}
               </span>
             </div>
-
-            {/* Source ID */}
             <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Source ID</span>
-              <span
-                className="text-[11px] font-mono break-all"
-                style={{ color: 'rgb(var(--canvas-fg-2))' }}
-              >
+              <span className="text-[11px] font-mono break-all" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
                 {result.source_id}
               </span>
             </div>
           </div>
-
-          {/* Divider */}
           <div className="h-px" style={{ background: 'rgb(var(--canvas-border))' }} />
-
-          {/* Full content */}
           <div className="flex flex-col gap-2">
             <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
               Full Content
             </span>
-            <p
-              className="text-xs leading-relaxed whitespace-pre-wrap"
-              style={{ color: 'rgb(var(--canvas-fg-2))' }}
-            >
+            <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
               {fullContent}
             </p>
           </div>
-
-          {/* Footer action */}
           <div className="pt-4 border-t" style={{ borderColor: 'rgb(var(--canvas-border))' }}>
             <button
               onClick={onViewInBrowser}
-              className="flex items-center gap-1.5 text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 text-xs font-medium"
               style={{ color: domainColor }}
             >
-              <Icon name="send" size={14} />
               View in Browser
             </button>
           </div>
@@ -308,11 +172,9 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
     <div className="flex flex-col items-center gap-6 py-16">
       <div
         className="flex items-center justify-center rounded-2xl"
-        style={{ width: 56, height: 56, background: `rgb(var(--accent-primary) / 0.1)` }}
+        style={{ width: 56, height: 56, background: 'rgb(var(--accent-primary) / 0.1)' }}
       >
-        <span style={{ color: 'rgb(var(--accent-primary))' }}>
-          <Icon name="search" size={28} />
-        </span>
+        <span style={{ color: 'rgb(var(--accent-primary))', fontSize: 28 }}>⌕</span>
       </div>
       <div className="text-center">
         <p className="text-sm font-medium mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
@@ -330,8 +192,11 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
           <button
             key={q}
             onClick={() => onSelect(q)}
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-left transition-colors group"
-            style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-left transition-colors"
+            style={{
+              background: 'rgb(var(--canvas-surface))',
+              border: '1px solid rgb(var(--canvas-border))',
+            }}
             onMouseEnter={(e) => {
               (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--accent-primary))';
             }}
@@ -339,14 +204,31 @@ function EmptyState({ onSelect }: { onSelect: (q: string) => void }) {
               (e.currentTarget as HTMLElement).style.borderColor = 'rgb(var(--canvas-border))';
             }}
           >
-            <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              <Icon name="arrowRight" size={14} />
-            </span>
-            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-              {q}
-            </span>
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-2))' }}>{q}</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Skeleton card ─────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div
+      className="rounded-xl p-4 flex flex-col gap-3"
+      style={{ background: 'rgb(var(--canvas-surface))', border: '1px solid rgb(var(--canvas-border))' }}
+    >
+      <div className="flex items-center gap-2">
+        <div className="w-16 h-5 rounded-full animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="flex-1 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="w-16 h-3 rounded animate-pulse" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="h-3 rounded animate-pulse w-full" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="h-3 rounded animate-pulse w-4/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
+        <div className="h-3 rounded animate-pulse w-3/5" style={{ background: 'rgb(var(--canvas-bg-2))' }} />
       </div>
     </div>
   );
@@ -360,94 +242,69 @@ export default function SearchPage() {
   const search = (routerState.location.search ?? {}) as SearchPageSearch;
   const { showToast } = useToast();
 
-  const inputRef = useRef<HTMLInputElement>(null);
-  const cardRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
-  // Always holds the latest search params — used by debounce effect to avoid stale closures
   const searchRef = useRef(search);
-  // Track previous search params to detect external URL changes (back/forward)
   const prevSearchRef = useRef(search);
 
   // Local input value — debounced to URL
   const [inputValue, setInputValue] = useState(search.q ?? '');
-  // Selected domain chip — also drives URL
-  const [selectedDomain, setSelectedDomain] = useState(search.domain ?? '');
+  // Client-side filter state
+  const [domainFilter, setDomainFilter] = useState<string[]>(search.domain ? [search.domain] : []);
+  const [adapterFilter, setAdapterFilter] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<string>('any');
+  const [minScore, setMinScore] = useState<string>('any');
+  const [sortOrder, setSortOrder] = useState<string | number>('relevance');
   // Selected result for detail panel
   const [selectedResult, setSelectedResult] = useState<QueryResultItem | null>(null);
-  // Keyboard-focused index
-  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
-  // Sync input if URL changes externally (browser back/forward)
+  const adapterStats = useAdapterStats();
+  const availableAdapters = useMemo(
+    () => adapterStats.data?.adapters.map((a) => a.adapter_id) ?? [],
+    [adapterStats.data]
+  );
+
+  // Sync input if URL changes externally
   useEffect(() => {
     if (search.q !== prevSearchRef.current.q) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInputValue(search.q ?? '');
     }
     if (search.domain !== prevSearchRef.current.domain) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSelectedDomain(search.domain ?? '');
+      setDomainFilter(search.domain ? [search.domain] : []);
     }
     prevSearchRef.current = search;
   }, [search]);
 
-  // Keep searchRef current so debounce effect always reads the latest URL params
   useEffect(() => {
     searchRef.current = search;
   }, [search]);
 
-  // Debounce the input value (300ms) then push to URL.
-  // Uses searchRef (not search directly) so the effect never captures stale params —
-  // a domain chip click that fires between a keystroke and the debounce won't be overwritten.
+  // Debounce + URL sync
   const debouncedQuery = useDebounce(inputValue, 300);
   useEffect(() => {
     if (debouncedQuery === (searchRef.current.q ?? '')) return;
     navigate({
       to: '/search',
-      search: {
-        ...searchRef.current,
-        q: debouncedQuery || undefined,
-      },
+      search: { ...searchRef.current, q: debouncedQuery || undefined },
     });
   }, [debouncedQuery, navigate]);
 
-  // Update URL when domain chip changes
-  const handleDomainSelect = useCallback(
-    (domain: string) => {
-      setSelectedDomain(domain);
+  // Domain filter → also sync to URL (single value; use first selected)
+  const handleDomainFilterChange = useCallback(
+    (values: string[]) => {
+      setDomainFilter(values);
       setSelectedResult(null);
-      setFocusedIndex(-1);
+      const domain = values.length === 1 ? values[0] : undefined;
       navigate({
         to: '/search',
-        search: {
-          ...search,
-          q: inputValue || undefined,
-          domain: domain || undefined,
-        },
+        search: { ...searchRef.current, q: inputValue || undefined, domain },
       });
     },
-    [navigate, search, inputValue]
+    [navigate, inputValue]
   );
 
-  // Focus input on '/' keypress (global shortcut)
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (
-        e.key === '/' &&
-        document.activeElement !== inputRef.current &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
-      ) {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
   const { data, isLoading, error } = useSearch(search);
-  const results = data?.results ?? [];
+  const allResults = data?.results ?? [];
 
-  // Show Toast on search errors
+  // Toast on error
   useEffect(() => {
     if (error) {
       showToast({
@@ -459,66 +316,79 @@ export default function SearchPage() {
     }
   }, [error, showToast]);
 
-  // Keyboard navigation on the results list
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (results.length === 0) return;
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const next = Math.min(focusedIndex + 1, results.length - 1);
-        setFocusedIndex(next);
-        cardRefs.current.get(next)?.focus();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        const prev = Math.max(focusedIndex - 1, 0);
-        setFocusedIndex(prev);
-        cardRefs.current.get(prev)?.focus();
-      } else if (e.key === 'Escape') {
-        setSelectedResult(null);
-        setFocusedIndex(-1);
-        inputRef.current?.focus();
-      } else if (e.key === 'Enter' && focusedIndex >= 0) {
-        setSelectedResult(results[focusedIndex]);
-      }
-    },
-    [results, focusedIndex]
-  );
-
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      // Bypass the 300ms debounce — fire immediately on Enter
-      const trimmed = inputValue.trim();
-      if (!trimmed) return;
-      navigate({
-        to: '/search',
-        search: { ...searchRef.current, q: trimmed },
-      });
-    } else if (e.key === 'Escape') {
-      setSelectedResult(null);
-      (e.currentTarget as HTMLInputElement).blur();
-    } else if (e.key === 'ArrowDown' && results.length > 0) {
-      e.preventDefault();
-      setFocusedIndex(0);
-      cardRefs.current.get(0)?.focus();
+  // Apply client-side filters
+  const filteredResults = useMemo(() => {
+    let results = allResults;
+    if (adapterFilter.length > 0) {
+      results = results.filter((r) => adapterFilter.includes(r.adapter_id));
     }
-  };
+    if (minScore !== 'any') {
+      const thresholds: Record<string, number> = { high: 0.8, medium: 0.6, low: 0.4 };
+      const threshold = thresholds[minScore] ?? 0;
+      results = results.filter((r) => r.similarity_score >= threshold);
+    }
+    return results;
+  }, [allResults, adapterFilter, minScore]);
 
-  const handleClear = () => {
-    setInputValue('');
-    setSelectedDomain('');
-    setSelectedResult(null);
-    setFocusedIndex(-1);
-    navigate({ to: '/search', search: {} });
-    inputRef.current?.focus();
-  };
+  // Apply sort
+  const sortedResults = useMemo(() => {
+    const arr = [...filteredResults];
+    if (sortOrder === 'date') {
+      arr.sort((a, b) => b.source_version_id - a.source_version_id);
+    } else if (sortOrder === 'source') {
+      arr.sort((a, b) => a.source_id.localeCompare(b.source_id));
+    }
+    // 'relevance' keeps original API order
+    return arr;
+  }, [filteredResults, sortOrder]);
+
+  // Facets derived from all (unfiltered) results
+  const facetGroups = useMemo(() => {
+    const domainCounts = new Map<string, number>();
+    const adapterCounts = new Map<string, number>();
+    allResults.forEach((r) => {
+      domainCounts.set(r.domain, (domainCounts.get(r.domain) ?? 0) + 1);
+      adapterCounts.set(r.adapter_id, (adapterCounts.get(r.adapter_id) ?? 0) + 1);
+    });
+    const scoreBuckets = [
+      { value: 'high', label: 'High (≥0.80)', count: allResults.filter((r) => r.similarity_score >= 0.8).length },
+      { value: 'medium', label: 'Medium (≥0.60)', count: allResults.filter((r) => r.similarity_score >= 0.6 && r.similarity_score < 0.8).length },
+      { value: 'low', label: 'Low (<0.60)', count: allResults.filter((r) => r.similarity_score < 0.6).length },
+    ].filter((b) => b.count > 0);
+
+    return [
+      {
+        title: 'Domain',
+        items: Array.from(domainCounts.entries()).map(([domain, count]) => ({
+          value: domain,
+          label: capitalize(domain),
+          count,
+          color: getDomainColor(domain),
+        })),
+      },
+      {
+        title: 'Similarity',
+        items: scoreBuckets,
+      },
+      {
+        title: 'Adapter',
+        items: Array.from(adapterCounts.entries()).map(([adapter, count]) => ({
+          value: adapter,
+          label: adapter,
+          count,
+        })),
+      },
+    ].filter((g) => g.items.length > 0);
+  }, [allResults]);
+
+  const hasQuery = !!(search.q?.trim());
+  const resultMeta = hasQuery && !isLoading && !error
+    ? `${sortedResults.length} result${sortedResults.length !== 1 ? 's' : ''}`
+    : undefined;
 
   const handleSuggestedQuery = (q: string) => {
     setInputValue(q);
-    navigate({
-      to: '/search',
-      search: { q, domain: selectedDomain || undefined },
-    });
-    inputRef.current?.focus();
+    navigate({ to: '/search', search: { q, domain: domainFilter[0] } });
   };
 
   const handleViewInBrowser = useCallback(
@@ -536,157 +406,238 @@ export default function SearchPage() {
     [navigate]
   );
 
-  const hasQuery = !!(search.q?.trim());
+  const filterBar = (
+    <>
+      <FilterDropdown
+        mode="radio"
+        value={domainFilter}
+        onChange={handleDomainFilterChange}
+      >
+        <FilterDropdown.Trigger
+          label="Domain"
+          summary={domainFilter.length > 0 ? capitalize(domainFilter[0]) : 'All'}
+        />
+        <FilterDropdown.Panel>
+          <FilterDropdown.Section>
+            <FilterDropdown.Radio value="" label="All Domains" />
+            {SEARCH_DOMAINS.map((d) => (
+              <FilterDropdown.Radio key={d} value={d} label={capitalize(d)} />
+            ))}
+          </FilterDropdown.Section>
+        </FilterDropdown.Panel>
+      </FilterDropdown>
+
+      <FilterDropdown
+        mode="checkbox"
+        value={adapterFilter}
+        onChange={setAdapterFilter}
+      >
+        <FilterDropdown.Trigger
+          label="Adapter"
+          summary={adapterFilter.length > 0 ? `${adapterFilter.length} selected` : 'All'}
+        />
+        <FilterDropdown.Panel>
+          <FilterDropdown.Section>
+            {availableAdapters.map((id) => (
+              <FilterDropdown.Checkbox key={id} value={id} label={id} />
+            ))}
+          </FilterDropdown.Section>
+        </FilterDropdown.Panel>
+      </FilterDropdown>
+
+      <FilterDropdown
+        mode="radio"
+        value={[dateRange]}
+        onChange={(vals) => setDateRange(vals[0] ?? 'any')}
+      >
+        <FilterDropdown.Trigger
+          label="Date"
+          summary={dateRange === 'any' ? 'Any time' : dateRange === 'today' ? 'Today' : dateRange === 'week' ? 'This week' : dateRange === 'month' ? 'This month' : 'This year'}
+        />
+        <FilterDropdown.Panel>
+          <FilterDropdown.Section title="Date range">
+            <FilterDropdown.Radio value="any" label="Any time" />
+            <FilterDropdown.Radio value="today" label="Today" />
+            <FilterDropdown.Radio value="week" label="This week" />
+            <FilterDropdown.Radio value="month" label="This month" />
+            <FilterDropdown.Radio value="year" label="This year" />
+          </FilterDropdown.Section>
+        </FilterDropdown.Panel>
+      </FilterDropdown>
+
+      <FilterDropdown
+        mode="radio"
+        value={[minScore]}
+        onChange={(vals) => setMinScore(vals[0] ?? 'any')}
+      >
+        <FilterDropdown.Trigger
+          label="Score"
+          summary={minScore === 'any' ? 'Any' : minScore.charAt(0).toUpperCase() + minScore.slice(1)}
+        />
+        <FilterDropdown.Panel>
+          <FilterDropdown.Section title="Minimum similarity">
+            <FilterDropdown.Radio value="any" label="Any" />
+            <FilterDropdown.Radio value="high" label="High (≥0.80)" />
+            <FilterDropdown.Radio value="medium" label="Medium (≥0.60)" />
+            <FilterDropdown.Radio value="low" label="Low (≥0.40)" />
+          </FilterDropdown.Section>
+        </FilterDropdown.Panel>
+      </FilterDropdown>
+    </>
+  );
 
   return (
-    <div
-      className="flex flex-col h-full min-h-0"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="flex flex-col h-full min-h-0">
       <PageHeader
         eyebrow="Library"
         title="Search"
         subtitle="Semantic search across your knowledge base"
       />
       <div className="flex flex-col flex-1 min-h-0 p-6 gap-4 overflow-auto">
-      {/* Search input */}
-      <div
-        className="flex items-center gap-3 rounded-xl px-4 h-12 shrink-0"
-        style={{
-          background: 'rgb(var(--canvas-surface))',
-          border: `1px solid rgb(var(--canvas-border))`,
-        }}
-        onClick={() => inputRef.current?.focus()}
-      >
-        <span className="shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          <Icon name="search" size={20} />
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          className="flex-1 bg-transparent text-sm outline-none placeholder:text-[#6B7280]"
-          style={{ color: 'rgb(var(--canvas-fg-1))' }}
-          placeholder="Search your knowledge base…"
-          value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value);
+
+        {/* Search hero with filters */}
+        <SearchHero
+          query={inputValue}
+          onQueryChange={(val) => {
+            setInputValue(val);
             setSelectedResult(null);
-            setFocusedIndex(-1);
           }}
-          onKeyDown={handleInputKeyDown}
-          autoFocus
-          autoComplete="off"
-          spellCheck={false}
+          onSearch={() => {
+            const trimmed = inputValue.trim();
+            if (!trimmed) return;
+            navigate({ to: '/search', search: { ...searchRef.current, q: trimmed } });
+          }}
+          resultMeta={resultMeta}
+          filters={filterBar}
+          className="shrink-0"
         />
-        {isLoading && (
+
+        {/* Error banner */}
+        {error && (
           <div
-            className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin shrink-0"
-            style={{ borderColor: `rgb(var(--accent-primary)) transparent transparent transparent` }}
-          />
+            className="rounded-xl px-4 py-3 text-sm shrink-0"
+            style={{
+              background: 'rgb(var(--status-error) / 0.08)',
+              border: '1px solid rgb(var(--status-error) / 0.25)',
+              color: 'rgb(var(--status-error))',
+            }}
+          >
+            <strong>Search error: </strong>
+            {error instanceof Error ? error.message : 'Unknown error'}
+          </div>
         )}
-        {inputValue && !isLoading && (
-          <button onClick={handleClear} aria-label="Clear search" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            <Icon name="x" size={16} />
-          </button>
-        )}
-        <kbd
-          className="text-[10px] rounded px-1.5 py-0.5 shrink-0"
-          style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-3))' }}
-        >
-          ⏎
-        </kbd>
-      </div>
 
-      {/* Domain filter TabBar */}
-      <div className="shrink-0">
-        <TabBar
-          tabs={[
-            { id: '', label: 'All Domains' },
-            ...SEARCH_DOMAINS.map((domain) => ({
-              id: domain,
-              label: capitalize(domain),
-            })),
-          ]}
-          activeTabId={selectedDomain}
-          onSelectTab={handleDomainSelect}
-        />
-      </div>
+        {/* Main area */}
+        <div className="flex gap-4 flex-1 min-h-0">
 
-      {/* Main area */}
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* Results list */}
-        <div
-          className="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1"
-        >
-          {/* Error */}
-          {error && (
+          {/* Results column */}
+          <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
+            {isLoading && !error && (
+              <div className="flex flex-col gap-2">
+                {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
+              </div>
+            )}
+
+            {!isLoading && hasQuery && !error && (
+              <>
+                {/* Sort controls */}
+                <div className="flex items-center justify-between shrink-0">
+                  <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                    {sortedResults.length} result{sortedResults.length !== 1 ? 's' : ''} for &ldquo;{search.q}&rdquo;
+                  </span>
+                  <SegmentedControl
+                    value={sortOrder}
+                    onChange={setSortOrder}
+                    options={SORT_OPTIONS}
+                  />
+                </div>
+
+                {/* Result cards */}
+                {sortedResults.length > 0 ? (
+                  sortedResults.map((result) => (
+                    <ResultCard
+                      key={result.chunk_hash}
+                      domain={capitalize(result.domain)}
+                      source={result.adapter_id}
+                      version={String(result.source_version_id)}
+                      snippet={highlightSnippet(result, search.q ?? '')}
+                      provenance={{
+                        document: result.source_id,
+                        section: `${result.chunk_type} · ${shortHash(result.chunk_hash)}`,
+                      }}
+                      score={result.similarity_score}
+                      selected={selectedResult?.chunk_hash === result.chunk_hash}
+                      onOpen={() =>
+                        setSelectedResult(
+                          selectedResult?.chunk_hash === result.chunk_hash ? null : result
+                        )
+                      }
+                      actions={[
+                        {
+                          label: 'View in Browser',
+                          icon: 'send',
+                          onClick: () => handleViewInBrowser(result),
+                        },
+                      ]}
+                    />
+                  ))
+                ) : (
+                  <div
+                    className="rounded-xl p-8 flex flex-col items-center gap-2"
+                    style={{ background: 'rgb(var(--canvas-surface))', border: '1px solid rgb(var(--canvas-border))' }}
+                  >
+                    <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                      No results found
+                    </p>
+                    <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                      Try adjusting your query or removing filters
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!hasQuery && !isLoading && (
+              <EmptyState onSelect={handleSuggestedQuery} />
+            )}
+          </div>
+
+          {/* Facets sidebar */}
+          {hasQuery && facetGroups.length > 0 && (
             <div
-              className="rounded-xl px-4 py-3 text-sm"
+              className="w-52 shrink-0 rounded-xl overflow-hidden"
               style={{
-                background: `rgb(var(--status-error) / 0.08)`,
-                border: `1px solid rgb(var(--status-error) / 0.25)`,
-                color: 'rgb(var(--status-error))',
+                background: 'rgb(var(--canvas-surface))',
+                border: '1px solid rgb(var(--canvas-border))',
+                alignSelf: 'flex-start',
               }}
             >
-              <strong>Search error: </strong>
-              {error instanceof Error ? error.message : 'Unknown error'}
+              <div
+                className="px-3 py-2 text-xs font-semibold"
+                style={{
+                  color: 'rgb(var(--canvas-fg-2))',
+                  borderBottom: '1px solid rgb(var(--canvas-border))',
+                }}
+              >
+                Refine
+              </div>
+              <FacetList
+                groups={facetGroups}
+                onItemClick={(group, item) => {
+                  if (group.title === 'Domain') {
+                    handleDomainFilterChange([item.value]);
+                  } else if (group.title === 'Adapter') {
+                    setAdapterFilter((prev) =>
+                      prev.includes(item.value)
+                        ? prev.filter((v) => v !== item.value)
+                        : [...prev, item.value]
+                    );
+                  } else if (group.title === 'Similarity') {
+                    setMinScore(item.value);
+                  }
+                }}
+              />
             </div>
-          )}
-
-          {/* Loading skeletons */}
-          {isLoading && !error && (
-            <div className="flex flex-col gap-2">
-              {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
-            </div>
-          )}
-
-          {/* Results */}
-          {!isLoading && hasQuery && !error && (
-            <>
-              {results.length > 0 && (
-                <p className="text-xs shrink-0 mb-1" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                  {data!.total} result{data!.total !== 1 ? 's' : ''} for &ldquo;{search.q}&rdquo;
-                </p>
-              )}
-              {results.length > 0 ? (
-                results.map((result, i) => (
-                  <ResultCard
-                    key={result.chunk_hash}
-                    result={result}
-                    selected={selectedResult?.chunk_hash === result.chunk_hash}
-                    focused={focusedIndex === i}
-                    query={search.q ?? ''}
-                    onClick={() => {
-                      setSelectedResult(
-                        selectedResult?.chunk_hash === result.chunk_hash ? null : result
-                      );
-                      setFocusedIndex(i);
-                    }}
-                    registerRef={(el) => {
-                      if (el) cardRefs.current.set(i, el);
-                      else cardRefs.current.delete(i);
-                    }}
-                  />
-                ))
-              ) : (
-                <div
-                  className="rounded-xl p-8 flex flex-col items-center gap-2"
-                  style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
-                >
-                  <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-                    No results found
-                  </p>
-                  <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                    Try adjusting your query or removing domain filters
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Empty state */}
-          {!hasQuery && !isLoading && (
-            <EmptyState onSelect={handleSuggestedQuery} />
           )}
         </div>
 
@@ -698,8 +649,6 @@ export default function SearchPage() {
           onViewInBrowser={() => selectedResult && handleViewInBrowser(selectedResult)}
         />
       </div>
-      </div>
     </div>
   );
 }
-
