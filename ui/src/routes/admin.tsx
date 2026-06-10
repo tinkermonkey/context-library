@@ -1,7 +1,19 @@
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { StatTile, StatGrid, Table, Button, StatusBadge, Badge, Select, PageHeader } from '@tinkermonkey/heimdall-ui';
+import {
+  StatTile,
+  StatGrid,
+  StatusBadge,
+  Chip,
+  Select,
+  PageHeader,
+  Panel,
+  LogStream,
+  TextInput,
+  NumberInput,
+} from '@tinkermonkey/heimdall-ui';
+import type { IconName, LogEntry } from '@tinkermonkey/heimdall-ui';
 
 import { useHealth } from '../hooks/useHealth';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
@@ -10,7 +22,39 @@ import { useAdminLogs } from '../hooks/useAdminLogs';
 import { useToast } from '../hooks/useToast';
 import { triggerAdapterSync } from '../api/client';
 import { ResetAdapterDialog } from '../components/ResetAdapterDialog';
+import { ConfigTile } from '../components/ConfigTile';
 import type { AdminAdapterStatus } from '../types/api';
+
+// ── Constants ──────────────────────────────────────────────────────
+
+const DOMAIN_ORDER = [
+  'notes', 'messages', 'events', 'tasks', 'health',
+  'documents', 'people', 'location', 'music',
+];
+
+const DOMAIN_LABELS: Record<string, string> = {
+  notes: 'Notes',
+  messages: 'Messages',
+  events: 'Events',
+  tasks: 'Tasks',
+  health: 'Health',
+  documents: 'Documents',
+  people: 'People',
+  location: 'Location',
+  music: 'Music',
+};
+
+const DOMAIN_ICONS: Record<string, IconName> = {
+  notes: 'edit',
+  messages: 'send',
+  events: 'calendar',
+  tasks: 'check',
+  health: 'heart',
+  documents: 'file',
+  people: 'user',
+  location: 'star',
+  music: 'zap',
+};
 
 // ── Utilities ──────────────────────────────────────────────────────
 
@@ -62,48 +106,8 @@ function healthToBadgeColor(health: AdapterHealth): BadgeColor {
   }
 }
 
-function getSyncButtonLabel(health: AdapterHealth, isSyncing: boolean): string {
-  if (isSyncing) return 'Syncing…';
-  switch (health) {
-    case 'error': return 'Retry';
-    case 'stale': return 'Force Sync';
-    default: return 'Re-sync';
-  }
-}
-
-function ConfigRow({ label, value, masked }: { label: string; value: string; masked?: boolean }): ReactNode {
-  return (
-    <div
-      className="flex items-center"
-      style={{
-        borderBottom: `1px solid rgb(var(--shell-border))`,
-        padding: '10px 14px',
-        gap: 12,
-      }}
-    >
-      <span
-        style={{
-          width: 200,
-          fontSize: 12,
-          color: 'rgb(var(--shell-fg-3))',
-          fontFamily: 'Inter, sans-serif',
-          flexShrink: 0,
-        }}
-      >
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: 12,
-          color: masked ? 'rgb(var(--shell-fg-4))' : 'rgb(var(--shell-fg-1))',
-          fontFamily: masked ? 'Inter, sans-serif' : 'monospace',
-          letterSpacing: masked ? 1 : 0,
-        }}
-      >
-        {masked ? '••••••' : value}
-      </span>
-    </div>
-  );
+function domainColor(domain: string): string {
+  return `rgb(var(--domain-${domain}, var(--canvas-fg-3)))`;
 }
 
 // ── AdminPage ──────────────────────────────────────────────────────
@@ -114,9 +118,7 @@ export default function AdminPage(): ReactNode {
   const healthQuery = useHealth();
   const adminAdaptersQuery = useAdminAdapters();
   const adminConfigQuery = useAdminConfig();
-  const [logsPage, setLogsPage] = useState(0);
-  const [logsLimit, setLogsLimit] = useState(30);
-  const logsQuery = useAdminLogs(logsLimit, logsPage * logsLimit);
+  const logsQuery = useAdminLogs(100, 0);
 
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<AdminAdapterStatus | null>(null);
@@ -147,7 +149,6 @@ export default function AdminPage(): ReactNode {
     },
   });
 
-  // Build set of adapter IDs that have errors from helper health
   const errorAdapterIds = useMemo((): Set<string> => {
     const s = new Set<string>();
     const collectors = healthQuery.data?.helper?.collectors ?? [];
@@ -177,19 +178,46 @@ export default function AdminPage(): ReactNode {
   const adapterHealthCounts = useMemo(() => {
     let errorCount = 0;
     let staleCount = 0;
-    for (const health of adapterHealthMap.values()) {
-      if (health === 'error') errorCount++;
-      if (health === 'stale') staleCount++;
+    for (const h of adapterHealthMap.values()) {
+      if (h === 'error') errorCount++;
+      if (h === 'stale') staleCount++;
     }
     return { errorCount, staleCount };
   }, [adapterHealthMap]);
 
-  const totalChunkCount = useMemo(() => {
-    return adapters.reduce((sum, adapter) => sum + (adapter.active_chunk_count ?? 0), 0);
+  const totalChunkCount = useMemo(
+    () => adapters.reduce((sum, a) => sum + (a.active_chunk_count ?? 0), 0),
+    [adapters],
+  );
+
+  // Group adapters by domain in sidebar order
+  const adaptersByDomain = useMemo(() => {
+    const grouped = new Map<string, AdminAdapterStatus[]>();
+    for (const a of adapters) {
+      const list = grouped.get(a.domain) ?? [];
+      list.push(a);
+      grouped.set(a.domain, list);
+    }
+    // Collect unknown domains
+    const knownDomains = new Set(DOMAIN_ORDER);
+    const unknownDomains = [...grouped.keys()].filter((d) => !knownDomains.has(d));
+    return [...DOMAIN_ORDER, ...unknownDomains]
+      .filter((d) => grouped.has(d))
+      .map((d) => ({ domain: d, adapters: grouped.get(d)! }));
   }, [adapters]);
 
-  const totalLogs = logsQuery.data?.total ?? 0;
-  const totalLogPages = Math.ceil(totalLogs / logsLimit);
+  // Map sync log entries to LogEntry format for LogStream
+  const logEntries: LogEntry[] = useMemo(() => {
+    const entries = logsQuery.data?.entries ?? [];
+    return entries.map((e) => ({
+      id: String(e.id),
+      timestamp: e.synced_at ?? new Date().toISOString(),
+      level: e.operation === 'insert' ? ('INFO' as const) : ('WARN' as const),
+      message: `${e.operation}: ${e.chunk_hash.substring(0, 16)}…`,
+      op: e.operation,
+      target: e.chunk_hash.substring(0, 12),
+    }));
+  }, [logsQuery.data]);
 
   return (
     <div
@@ -208,7 +236,10 @@ export default function AdminPage(): ReactNode {
             </div>
           ) : health ? (
             <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }} />
+              <div
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}
+              />
               <span className="text-xs" style={{ color: isSystemHealthy ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))' }}>
                 {isSystemHealthy ? 'System Healthy' : 'System Degraded'}
               </span>
@@ -217,8 +248,7 @@ export default function AdminPage(): ReactNode {
         }
       />
 
-      {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="flex-1 overflow-y-auto" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* ── Stat Grid ── */}
         <StatGrid columns={4} className="shrink-0">
@@ -250,40 +280,32 @@ export default function AdminPage(): ReactNode {
           />
         </StatGrid>
 
-        {/* ── Adapter Status Table ── */}
-        <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
+        {/* ── Adapter Cards grouped by domain ── */}
+        <div className="flex flex-col gap-4">
           <span style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}>
-            Adapter Status
+            Adapters
           </span>
+
           {adminAdaptersQuery.isLoading ? (
-            <div
-              style={{
-                background: 'rgb(var(--shell-surface))',
-                borderRadius: 8,
-                border: `1px solid rgb(var(--shell-border))`,
-                padding: '16px',
-              }}
-            >
-              <div className="flex flex-col gap-2">
-                {[1, 2, 3].map(i => (
-                  <div
-                    key={i}
-                    className="h-10 rounded animate-pulse"
-                    style={{ background: 'rgb(var(--shell-border))' }}
-                  />
-                ))}
-              </div>
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-36 rounded-md animate-pulse"
+                  style={{ background: 'rgb(var(--canvas-card))', border: `1px solid rgb(var(--canvas-border))` }}
+                />
+              ))}
             </div>
           ) : adminAdaptersQuery.isError ? (
             <div
               style={{
-                background: 'rgb(var(--shell-surface))',
-                borderRadius: 8,
-                border: `1px solid rgb(var(--shell-border))`,
                 padding: '24px',
                 textAlign: 'center',
                 color: 'rgb(var(--status-error))',
                 fontSize: 13,
+                background: 'rgb(var(--canvas-card))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--canvas-border))`,
               }}
             >
               Failed to load adapter status
@@ -291,334 +313,199 @@ export default function AdminPage(): ReactNode {
           ) : adapters.length === 0 ? (
             <div
               style={{
-                background: 'rgb(var(--shell-surface))',
-                borderRadius: 8,
-                border: `1px solid rgb(var(--shell-border))`,
                 padding: '32px',
                 textAlign: 'center',
-                color: 'rgb(var(--shell-fg-4))',
+                color: 'rgb(var(--canvas-fg-4))',
                 fontSize: 13,
+                background: 'rgb(var(--canvas-card))',
+                borderRadius: 8,
+                border: `1px solid rgb(var(--canvas-border))`,
               }}
             >
               No adapters registered
             </div>
           ) : (
-            <div
-              style={{
-                background: 'rgb(var(--shell-surface))',
-                borderRadius: 8,
-                border: `1px solid rgb(var(--shell-border))`,
-                overflow: 'hidden',
-              }}
-            >
-              <Table<AdminAdapterStatus & { health: AdapterHealth; _actions: string }>
-                data={adapters.map(adapter => ({
-                  ...adapter,
-                  health: adapterHealthMap.get(adapter.adapter_id) ?? 'unknown',
-                  _actions: '',
-                }))}
-                rowKey="adapter_id"
-                columns={[
-                  {
-                    key: 'adapter_id',
-                    label: 'ADAPTER',
-                    width: '200px',
-                    render: (value, row) => (
-                      <div className="flex items-center gap-2">
-                        <Badge color={healthToBadgeColor(row.health)} pulse />
-                        <span className="truncate">{String(value)}</span>
-                      </div>
-                    ),
-                  },
-                  {
-                    key: 'domain',
-                    label: 'DOMAIN',
-                    width: '110px',
-                    render: (value) => <span>{String(value)}</span>,
-                  },
-                  {
-                    key: 'last_run',
-                    label: 'LAST RUN',
-                    width: '160px',
-                    render: (value, row) => (
+            <div className="flex flex-col gap-5">
+              {adaptersByDomain.map(({ domain, adapters: domainAdapters }) => {
+                const color = domainColor(domain);
+                const label = DOMAIN_LABELS[domain] ?? domain;
+                return (
+                  <div key={domain} className="flex flex-col gap-2">
+                    {/* Domain section header */}
+                    <div className="flex items-center gap-2">
                       <span
                         style={{
-                          color:
-                            row.health === 'error'
-                              ? 'rgb(var(--status-error))'
-                              : row.health === 'stale'
-                                ? 'rgb(var(--status-amber))'
-                                : 'rgb(var(--shell-fg-2))',
+                          width: 7,
+                          height: 7,
+                          borderRadius: 2,
+                          background: color,
+                          display: 'inline-block',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          color: 'rgb(var(--canvas-fg-3))',
                         }}
                       >
-                        {formatRelativeTime(value as string | null)}
+                        {label}
                       </span>
-                    ),
-                  },
-                  {
-                    key: 'active_chunk_count',
-                    label: 'ITEMS',
-                    width: '90px',
-                    render: (value) => {
-                      const count = value as number;
-                      return (
-                        <span style={{ color: count > 0 ? 'rgb(var(--shell-fg-2))' : 'rgb(var(--shell-fg-4))' }}>
-                          {count > 0 ? count.toLocaleString() : '—'}
-                        </span>
-                      );
-                    },
-                  },
-                  {
-                    key: 'health',
-                    label: 'STATUS',
-                    width: '110px',
-                    render: (value) => <StatusBadge color={healthToBadgeColor(value as AdapterHealth)}>{String(value)}</StatusBadge>,
-                  },
-                  {
-                    key: '_actions',
-                    label: 'ACTIONS',
-                    render: (_, row) => (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant={row.health === 'error' ? 'danger' : 'secondary'}
-                          onClick={() => syncMutation.mutate(row.adapter_id)}
-                          disabled={syncingId === row.adapter_id}
-                        >
-                          {getSyncButtonLabel(row.health, syncingId === row.adapter_id)}
-                        </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setResetTarget(row)}>
-                          Reset
-                        </Button>
-                      </div>
-                    ),
-                  },
-                ]}
-              />
+                    </div>
+
+                    {/* Adapter cards grid */}
+                    <div
+                      className="grid gap-3"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+                    >
+                      {domainAdapters.map((adapter) => {
+                        const adapterHealth = adapterHealthMap.get(adapter.adapter_id) ?? 'unknown';
+                        const isSyncing = syncingId === adapter.adapter_id;
+                        return (
+                          <ConfigTile
+                            key={adapter.adapter_id}
+                            icon={DOMAIN_ICONS[domain] ?? 'component'}
+                            title={adapter.adapter_id}
+                            domainColor={color}
+                            stats={[
+                              { label: 'Sources', value: adapter.source_count.toLocaleString() },
+                              { label: 'Last Poll', value: formatRelativeTime(adapter.last_run) },
+                            ]}
+                            actions={[
+                              {
+                                label: isSyncing ? 'Syncing…' : 'Re-poll',
+                                variant: adapterHealth === 'error' ? 'danger' : 'ghost',
+                                onClick: () => syncMutation.mutate(adapter.adapter_id),
+                                disabled: isSyncing,
+                              },
+                              {
+                                label: 'Reset',
+                                variant: 'ghost',
+                                onClick: () => setResetTarget(adapter),
+                              },
+                            ]}
+                          >
+                            <div
+                              style={{
+                                padding: '8px 12px',
+                                display: 'flex',
+                                gap: 6,
+                                flexWrap: 'wrap',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Chip form="id-tag">{adapter.adapter_type}</Chip>
+                              <StatusBadge color={healthToBadgeColor(adapterHealth)}>
+                                {adapterHealth}
+                              </StatusBadge>
+                            </div>
+                          </ConfigTile>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* ── System Configuration ── */}
-        <div className="flex flex-col gap-2" style={{ flex: '0 0 auto' }}>
-          <span
-            style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
-          >
-            System Configuration
-          </span>
-          <div
-            style={{
-              background: 'rgb(var(--shell-surface))',
-              borderRadius: 8,
-              border: `1px solid rgb(var(--shell-border))`,
-              overflow: 'hidden',
-            }}
-          >
-            {adminConfigQuery.isLoading ? (
-              <div className="flex flex-col gap-1 p-4">
-                {[1, 2, 3].map(i => (
-                  <div
-                    key={i}
-                    className="h-8 rounded animate-pulse"
-                    style={{ background: 'rgb(var(--shell-border))' }}
-                  />
-                ))}
-              </div>
-            ) : adminConfigQuery.isError ? (
-              <div
-                style={{
-                  padding: '24px',
-                  textAlign: 'center',
-                  color: 'rgb(var(--status-error))',
-                  fontSize: 13,
-                }}
-              >
-                Failed to load system configuration
-              </div>
-            ) : config ? (
-              <>
-                <ConfigRow label="Embedding Model" value={config.embedding_model} />
-                <ConfigRow label="Reranker" value={config.enable_reranker ? config.reranker_model : 'Disabled'} />
-                <ConfigRow label="SQLite Path" value={config.sqlite_db_path} />
-                <ConfigRow label="ChromaDB Path" value={config.chromadb_path} />
-                <ConfigRow label="Webhook Secret" value="••••••" masked />
-                <ConfigRow label="Helper Service" value={config.helper_url_set ? 'Configured' : 'Not configured'} />
-                <ConfigRow label="Oura Adapter" value={config.helper_oura_enabled ? 'Enabled' : 'Disabled'} />
-                <ConfigRow label="Filesystem Adapter" value={config.helper_filesystem_enabled ? 'Enabled' : 'Disabled'} />
-                <ConfigRow
-                  label="YouTube Adapters"
-                  value={config.youtube_enabled ? 'Enabled' : 'Disabled'}
+        {/* ── Pipeline Configuration ── */}
+        <Panel title="Pipeline Configuration">
+          {adminConfigQuery.isLoading ? (
+            <div className="flex flex-col gap-2">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-9 rounded animate-pulse"
+                  style={{ background: 'rgb(var(--canvas-border))' }}
                 />
-              </>
-            ) : null}
-          </div>
-        </div>
-
-        {/* ── Sync Log ── */}
-        <div className="flex flex-col gap-2" style={{ flex: '0 0 auto', paddingBottom: 16 }}>
-          <div className="flex items-center gap-3">
-            <span
-              style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--shell-fg-1))', fontFamily: 'Inter, sans-serif' }}
-            >
-              Sync Log
-            </span>
-            {totalLogs > 0 && (
-              <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
-                {totalLogs.toLocaleString()} entries
-              </span>
-            )}
-          </div>
-          <div
-            style={{
-              background: 'rgb(var(--shell-surface))',
-              borderRadius: 8,
-              border: `1px solid rgb(var(--shell-border))`,
-              overflow: 'hidden',
-            }}
-          >
-            {logsQuery.isLoading ? (
-              <div className="flex flex-col gap-1 p-4">
-                {[1, 2, 3].map(i => (
-                  <div
-                    key={i}
-                    className="h-8 rounded animate-pulse"
-                    style={{ background: 'rgb(var(--shell-border))' }}
+              ))}
+            </div>
+          ) : adminConfigQuery.isError ? (
+            <div style={{ color: 'rgb(var(--status-error))', fontSize: 13 }}>
+              Failed to load configuration
+            </div>
+          ) : config ? (
+            <div className="flex flex-col gap-4">
+              <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgb(var(--canvas-fg-3))' }}>
+                    Embedding Model
+                  </label>
+                  <TextInput
+                    value={config.embedding_model}
+                    readOnly
+                    mono
                   />
-                ))}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgb(var(--canvas-fg-3))' }}>
+                    Embedding Dimension
+                  </label>
+                  <NumberInput
+                    value={health?.embedding_dimension ?? ''}
+                    readOnly
+                    mono
+                  />
+                </div>
               </div>
-            ) : logsQuery.isError ? (
-              <div
-                style={{
-                  padding: '20px',
-                  textAlign: 'center',
-                  color: 'rgb(var(--status-error))',
-                  fontSize: 13,
-                }}
-              >
-                Failed to load sync log
-              </div>
-            ) : !logsQuery.data?.entries.length ? (
-              <div
-                style={{
-                  padding: '24px',
-                  textAlign: 'center',
-                  color: 'rgb(var(--shell-fg-4))',
-                  fontSize: 13,
-                }}
-              >
-                No sync log entries
-              </div>
-            ) : (
-              <>
-                <Table
-                  data={logsQuery.data.entries}
-                  rowKey="id"
-                  columns={[
-                    {
-                      key: 'operation',
-                      label: 'OPERATION',
-                      width: '100px',
-                      render: (value) => (
-                        <span
-                          style={{
-                            color: value === 'insert' ? 'rgb(var(--status-ok))' : 'rgb(var(--status-error))',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {String(value).charAt(0).toUpperCase() + String(value).slice(1)}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: 'chunk_hash',
-                      label: 'CHUNK HASH',
-                      render: (value) => (
-                        <span
-                          className="block truncate"
-                          style={{
-                            color: 'rgb(var(--shell-fg-3))',
-                            fontFamily: 'monospace',
-                            fontSize: '11px',
-                          }}
-                        >
-                          {value}
-                        </span>
-                      ),
-                    },
-                    {
-                      key: 'synced_at',
-                      label: 'TIMESTAMP',
-                      width: '180px',
-                      render: (value) => (
-                        <span style={{ color: 'rgb(var(--shell-fg-4))', fontSize: '11px' }}>
-                          {value
-                            ? new Date(value as string).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : '—'}
-                        </span>
-                      ),
-                    },
-                  ]}
-                />
-                {totalLogPages > 1 && (
-                  <div
-                    className="flex items-center justify-between"
-                    style={{
-                      padding: '8px 14px',
-                      borderTop: `1px solid rgb(var(--shell-border))`,
-                      background: 'rgb(var(--shell-bg-2))',
-                    }}
+              <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgb(var(--canvas-fg-3))' }}>
+                    Reranker Model
+                  </label>
+                  <Select
+                    value={config.enable_reranker ? config.reranker_model : '__disabled__'}
+                    onChange={() => {}}
+                    disabled
                   >
-                    <div className="flex items-center gap-3">
-                      <span style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
-                        Page {logsPage + 1} of {totalLogPages}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <label style={{ fontSize: 11, color: 'rgb(var(--shell-fg-4))', fontFamily: 'Inter, sans-serif' }}>
-                          Per page:
-                        </label>
-                        <Select
-                          value={String(logsLimit)}
-                          onChange={(value) => {
-                            setLogsLimit(parseInt(value, 10));
-                            setLogsPage(0);
-                          }}
-                        >
-                          <Select.Item value="10">10</Select.Item>
-                          <Select.Item value="20">20</Select.Item>
-                          <Select.Item value="30">30</Select.Item>
-                          <Select.Item value="50">50</Select.Item>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setLogsPage(p => Math.max(0, p - 1))}
-                        disabled={logsPage === 0}
-                      >
-                        Prev
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setLogsPage(p => Math.min(totalLogPages - 1, p + 1))}
-                        disabled={logsPage >= totalLogPages - 1}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+                    <Select.Item value="__disabled__">Disabled</Select.Item>
+                    <Select.Item value={config.reranker_model}>{config.reranker_model}</Select.Item>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgb(var(--canvas-fg-3))' }}>
+                    SQLite Path
+                  </label>
+                  <TextInput
+                    value={config.sqlite_db_path}
+                    readOnly
+                    mono
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgb(var(--canvas-fg-3))' }}>
+                  ChromaDB Path
+                </label>
+                <TextInput
+                  value={config.chromadb_path}
+                  readOnly
+                  mono
+                />
+              </div>
+            </div>
+          ) : null}
+        </Panel>
+
+        {/* ── LogStream ── */}
+        <Panel
+          title="Pipeline Log"
+          subtitle={logsQuery.data ? `${logsQuery.data.total.toLocaleString()} entries` : undefined}
+          noPadding
+        >
+          <LogStream
+            entries={logEntries}
+            follow={false}
+            showOps
+            style={{ minHeight: 200, maxHeight: 320 }}
+          />
+        </Panel>
+
       </div>
 
       {/* ── Reset Adapter Dialog ── */}
@@ -636,4 +523,3 @@ export default function AdminPage(): ReactNode {
     </div>
   );
 }
-
