@@ -57,6 +57,41 @@ class TestListSources:
         resp = client.get("/sources?domain=invalid")
         assert resp.status_code == 422
 
+    def test_state_filter_active_returns_sources_with_chunks(self, client: TestClient) -> None:
+        data = client.get("/sources?state=active").json()
+        assert data["total"] == 1
+        assert data["sources"][0]["source_id"] == "src-1"
+
+    def test_state_filter_inactive_returns_empty(self, client: TestClient) -> None:
+        data = client.get("/sources?state=inactive").json()
+        assert data["total"] == 0
+
+    def test_state_filter_invalid_returns_422(self, client: TestClient) -> None:
+        resp = client.get("/sources?state=unknown")
+        assert resp.status_code == 422
+
+    def test_last_fetched_after_includes_matching_sources(self, client: TestClient, ds) -> None:
+        # Set last_fetched_at explicitly so the filter has a non-null value to compare against
+        ds.conn.execute(
+            "UPDATE sources SET last_fetched_at = '2024-06-01T10:00:00' WHERE source_id = 'src-1'"
+        )
+        ds.conn.commit()
+        data = client.get("/sources?last_fetched_after=2024-01-01T00:00:00").json()
+        assert data["total"] == 1
+
+    def test_last_fetched_before_excludes_future(self, client: TestClient, ds) -> None:
+        ds.conn.execute(
+            "UPDATE sources SET last_fetched_at = '2024-06-01T10:00:00' WHERE source_id = 'src-1'"
+        )
+        ds.conn.commit()
+        data = client.get("/sources?last_fetched_before=2030-01-01T00:00:00").json()
+        assert data["total"] == 1
+
+    def test_last_fetched_after_future_excludes_all(self, client: TestClient) -> None:
+        # last_fetched_at is NULL in fixture — NULL comparisons return false in SQL
+        data = client.get("/sources?last_fetched_after=2099-01-01T00:00:00").json()
+        assert data["total"] == 0
+
 
 class TestGetSource:
     def test_returns_source(self, client: TestClient) -> None:

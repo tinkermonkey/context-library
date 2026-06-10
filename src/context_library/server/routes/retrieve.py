@@ -74,7 +74,7 @@ async def query(payload: QueryRequest, request: Request) -> QueryResponse:
 
                 results = await asyncio.to_thread(rerank_with_context)
 
-            items = [QueryResultItem.model_validate(r.to_dict()) for r in results]
+            items = [QueryResultItem.model_validate(r.to_dict(include_provenance=payload.include_provenance)) for r in results]
             query_span.set_attribute("result_count", len(items))
             return QueryResponse(results=items, total=len(items))
         except Exception as e:

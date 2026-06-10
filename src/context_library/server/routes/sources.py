@@ -61,6 +61,9 @@ async def list_sources(
     domain: Domain | None = Query(default=None),
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
+    state: str | None = Query(default=None, pattern="^(active|inactive)$"),
+    last_fetched_after: str | None = Query(default=None),
+    last_fetched_before: str | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),
@@ -69,7 +72,17 @@ async def list_sources(
     ds = request.app.state.document_store
     domain_value = domain.value if domain is not None else None
     rows, total = await asyncio.to_thread(
-        ds.list_sources, domain_value, adapter_id, source_id_prefix, limit, offset, sort_by, order
+        ds.list_sources,
+        domain_value,
+        adapter_id,
+        source_id_prefix,
+        state,
+        last_fetched_after,
+        last_fetched_before,
+        limit,
+        offset,
+        sort_by,
+        order,
     )
     sources = [
         SourceSummary(

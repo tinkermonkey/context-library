@@ -2291,6 +2291,9 @@ class DocumentStore:
         domain: Optional[str] = None,
         adapter_id: Optional[str] = None,
         source_id_prefix: Optional[str] = None,
+        state: Optional[str] = None,
+        last_fetched_after: Optional[str] = None,
+        last_fetched_before: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = "created_at",
@@ -2302,6 +2305,9 @@ class DocumentStore:
             domain: Optional domain filter.
             adapter_id: Optional adapter_id filter.
             source_id_prefix: Optional prefix filter on source_id.
+            state: Optional state filter — "active" (has active chunks) or "inactive" (no chunks).
+            last_fetched_after: Optional ISO 8601 timestamp; only return sources fetched after this time.
+            last_fetched_before: Optional ISO 8601 timestamp; only return sources fetched before this time.
             limit: Maximum number of results to return.
             offset: Number of results to skip.
             sort_by: Column to sort by — "created_at", "updated_at", or "chunk_count".
@@ -2330,6 +2336,22 @@ class DocumentStore:
             escaped_prefix = ''.join(f'\\{c}' if c in _LIKE_SPECIAL else c for c in source_id_prefix)
             where_clauses.append("s.source_id LIKE ? || '%' ESCAPE '\\'")
             filter_params.append(escaped_prefix)
+        if state == "active":
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM chunks c WHERE c.source_id = s.source_id"
+                " AND c.source_version = s.current_version AND c.retired_at IS NULL)"
+            )
+        elif state == "inactive":
+            where_clauses.append(
+                "NOT EXISTS (SELECT 1 FROM chunks c WHERE c.source_id = s.source_id"
+                " AND c.source_version = s.current_version AND c.retired_at IS NULL)"
+            )
+        if last_fetched_after is not None:
+            where_clauses.append("s.last_fetched_at >= ?")
+            filter_params.append(last_fetched_after)
+        if last_fetched_before is not None:
+            where_clauses.append("s.last_fetched_at <= ?")
+            filter_params.append(last_fetched_before)
         where_sql = " AND ".join(where_clauses)
 
         # Total count of matching sources (without LIMIT/OFFSET)
@@ -2671,6 +2693,56 @@ class DocumentStore:
             }
             for row in cursor.fetchall()
         ]
+
+    def get_activity_feed(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Return recent ingestion activity events derived from source_versions.
+
+        Each row in source_versions represents a completed ingestion pass for a source.
+        Events are ordered newest-first by created_at (when the version was recorded).
+
+        Returns:
+            Tuple of (events list, total count). Each event dict contains:
+            - event_type: "ingested"
+            - entity_name: display_name or source_id
+            - identifier: source_id
+            - timestamp: fetch_timestamp from the source_version
+            - tags: [domain, adapter_type]
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS cnt FROM source_versions")
+        total: int = cursor.fetchone()["cnt"]
+
+        cursor.execute(
+            """
+            SELECT
+                sv.source_id,
+                COALESCE(s.display_name, sv.source_id) AS entity_name,
+                a.adapter_type,
+                s.domain,
+                sv.fetch_timestamp AS timestamp
+            FROM source_versions sv
+            JOIN sources s ON sv.source_id = s.source_id
+            JOIN adapters a ON sv.adapter_id = a.adapter_id
+            ORDER BY sv.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            [limit, offset],
+        )
+        events = [
+            {
+                "event_type": "ingested",
+                "entity_name": row["entity_name"],
+                "identifier": row["source_id"],
+                "timestamp": row["timestamp"],
+                "tags": [row["domain"], row["adapter_type"]],
+            }
+            for row in cursor.fetchall()
+        ]
+        return events, total
 
     def get_sync_log(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
         """Get paginated sync log entries from lancedb_sync_log.

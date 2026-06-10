@@ -2,6 +2,8 @@
 
 import logging
 import threading
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from context_library.telemetry.tracer import get_tracer, get_status_code
@@ -25,6 +27,20 @@ from context_library.storage.vector_store import ChunkVectorData, VectorStore
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
+
+
+@dataclass
+class _PipelineRun:
+    """Lightweight state record for a single active pipeline run."""
+
+    run_id: str
+    adapter_id: str
+    started_at: datetime
+    current_step: str = "starting"
+    sources_ingested: int = 0
+    chunks_created: int = 0
+    chunks_updated: int = 0
+    errors: int = 0
 
 
 class IngestionPipeline:
@@ -83,6 +99,12 @@ class IngestionPipeline:
         self._source_locks_mutex = threading.Lock()
         self._source_locks_max_size = 10_000
 
+        # Active run tracking for GET /admin/pipelines.
+        # Protected by _runs_lock; individual _PipelineRun field writes are safe without
+        # a lock because Python's GIL makes attribute assignment atomic.
+        self._active_runs: dict[str, _PipelineRun] = {}
+        self._runs_lock = threading.Lock()
+
     def _get_source_lock(self, source_id: str) -> threading.Lock:
         """Return the per-source lock for source_id, creating it if needed.
 
@@ -116,6 +138,11 @@ class IngestionPipeline:
 
             self._source_locks_cache[source_id] = lock
             return lock
+
+    def get_active_runs(self) -> list[_PipelineRun]:
+        """Return a snapshot of all currently active ingestion runs."""
+        with self._runs_lock:
+            return list(self._active_runs.values())
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""
@@ -181,13 +208,24 @@ class IngestionPipeline:
         errors: list[dict] = []
         store_consistency: dict[str, str] = {}
 
+        # Register active run for observability via GET /admin/pipelines
+        _run = _PipelineRun(
+            run_id=str(uuid.uuid4()),
+            adapter_id=adapter.adapter_id,
+            started_at=datetime.now(timezone.utc),
+        )
+        with self._runs_lock:
+            self._active_runs[_run.run_id] = _run
+
         # Iterate over normalized content from adapter, passing source_ref for incremental ingestion
         with tracer.start_as_current_span("pipeline.ingest") as ingest_span:
             ingest_span.set_attribute("adapter_id", adapter.adapter_id)
             ingest_span.set_attribute("domain", adapter.domain.value)
 
+            _run.current_step = "fetching"
             try:
                 for content in adapter.fetch(source_ref):
+                    _run.current_step = "processing"
                     with tracer.start_as_current_span("pipeline.source") as source_span:
                         source_span.set_attribute("source_id", content.source_id)
                         source_span.set_attribute("adapter_id", adapter.adapter_id)
@@ -474,6 +512,11 @@ class IngestionPipeline:
                                 chunks_removed_total += len(diff_result.removed_hashes)
                                 chunks_unchanged_total += len(diff_result.unchanged_hashes)
 
+                                # Update active run tracking stats
+                                _run.sources_ingested += 1
+                                _run.chunks_created += len(added_chunks)
+                                _run.chunks_updated += len(unchanged_chunks)
+
                                 # Mark store consistency as successful for this source
                                 store_consistency[content.source_id] = "success"
 
@@ -484,6 +527,7 @@ class IngestionPipeline:
                             source_span.record_exception(e)
                             sources_processed -= 1
                             sources_failed += 1
+                            _run.errors += 1
                             errors.append({
                                 "source_id": content.source_id,
                                 "error_type": "ChunkingError",
@@ -499,6 +543,7 @@ class IngestionPipeline:
                             source_span.record_exception(e)
                             sources_processed -= 1
                             sources_failed += 1
+                            _run.errors += 1
                             errors.append({
                                 "source_id": content.source_id,
                                 "error_type": "EmbeddingError",
@@ -515,6 +560,7 @@ class IngestionPipeline:
                             source_span.record_exception(e)
                             sources_processed -= 1
                             sources_failed += 1
+                            _run.errors += 1
                             consistency_status = "inconsistent" if e.inconsistent else "error"
                             store_consistency[content.source_id] = consistency_status
                             errors.append({
@@ -532,6 +578,7 @@ class IngestionPipeline:
                             source_span.record_exception(e)
                             sources_processed -= 1
                             sources_failed += 1
+                            _run.errors += 1
                             errors.append({
                                 "source_id": content.source_id,
                                 "error_type": type(e).__name__,
@@ -601,8 +648,12 @@ class IngestionPipeline:
                 )
                 ingest_span.set_status(StatusCode.ERROR)
                 ingest_span.record_exception(error)
+                with self._runs_lock:
+                    self._active_runs.pop(_run.run_id, None)
                 raise error
 
+        with self._runs_lock:
+            self._active_runs.pop(_run.run_id, None)
         return {
             "sources_processed": sources_processed,
             "sources_failed": sources_failed,

@@ -10,6 +10,8 @@ from context_library.server.schemas import (
     AdminAdapterListResponse,
     AdminAdapterStatus,
     AdminConfigResponse,
+    PipelineListResponse,
+    PipelineRun,
     SyncLogEntry,
     SyncLogResponse,
     TriggerSyncResponse,
@@ -60,6 +62,37 @@ async def list_admin_adapters(request: Request) -> AdminAdapterListResponse:
             for row in rows
         ]
     )
+
+
+@router.get("/pipelines", response_model=PipelineListResponse)
+async def list_active_pipelines(request: Request) -> PipelineListResponse:
+    """Return currently active pipeline ingestion runs.
+
+    Each entry represents an in-flight call to IngestionPipeline.ingest(). Returns
+    an empty list when no ingestion is in progress. Duration is computed from the
+    run's start time to now.
+    """
+    _require_auth(request)
+    from datetime import datetime, timezone
+
+    pipeline = request.app.state.pipeline
+    active_runs = pipeline.get_active_runs()
+    now = datetime.now(timezone.utc)
+    runs = [
+        PipelineRun(
+            run_id=r.run_id,
+            adapter_id=r.adapter_id,
+            current_step=r.current_step,
+            started_at=r.started_at.isoformat(),
+            duration_sec=(now - r.started_at).total_seconds(),
+            ingested=r.sources_ingested,
+            created=r.chunks_created,
+            updated=r.chunks_updated,
+            errors=r.errors,
+        )
+        for r in active_runs
+    ]
+    return PipelineListResponse(runs=runs, total=len(runs))
 
 
 @router.post("/adapters/{adapter_id}/sync", response_model=TriggerSyncResponse)
