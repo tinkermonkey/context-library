@@ -3,24 +3,17 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useState, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { MapPinIcon } from '@heroicons/react/24/outline';
+import {
+  PageHeader,
+  MapCanvas, ActivityTimeline,
+} from '@tinkermonkey/heimdall-ui';
+import type { MapPin, HeatmapDataPoint, ActivityEvent } from '@tinkermonkey/heimdall-ui';
+import { FilterDropdown } from '../components/FilterDropdown';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
-import { PageHeader } from '@tinkermonkey/heimdall-ui';
 
-const locationColor = getDomainColor('location'); // #14B8A6
-
-// ── Color palette for place markers ───────────────────────────────
-
-const PLACE_COLORS = [
-  '#6366F1', '#06B6D4', '#10B981', '#F59E0B',
-  '#F43F5E', '#A855F7', '#EC4899', '#14B8A6',
-  '#3B82F6', '#F97316',
-];
-
-function placeColor(idx: number): string {
-  return PLACE_COLORS[idx % PLACE_COLORS.length];
-}
+const locationColor = getDomainColor('location');
 
 // ── Location metadata ──────────────────────────────────────────────
 
@@ -39,7 +32,6 @@ interface LocationMeta {
 }
 
 function extractLocationMeta(dm: Record<string, unknown>): LocationMeta | null {
-  // Support both latitude/longitude (model fields) and lat/lng (shorthand)
   const lat =
     typeof dm.latitude === 'number' ? dm.latitude :
     typeof dm.lat === 'number' ? dm.lat : null;
@@ -85,7 +77,6 @@ function makeVisit(chunk: ChunkResponse): Visit | null {
       : null) ??
     `${meta.lat.toFixed(4)}, ${meta.lng.toFixed(4)}`;
 
-  // Group key: place_name if available, else rounded to ~100 m
   const place_key =
     meta.place_name ??
     `${Math.round(meta.lat * 1000) / 1000},${Math.round(meta.lng * 1000) / 1000}`;
@@ -100,6 +91,16 @@ function makeVisit(chunk: ChunkResponse): Visit | null {
 }
 
 // ── Place group ────────────────────────────────────────────────────
+
+const PLACE_COLORS = [
+  '#6366F1', '#06B6D4', '#10B981', '#F59E0B',
+  '#F43F5E', '#A855F7', '#EC4899', '#14B8A6',
+  '#3B82F6', '#F97316',
+];
+
+function placeColor(idx: number): string {
+  return PLACE_COLORS[idx % PLACE_COLORS.length];
+}
 
 interface PlaceGroup {
   key: string;
@@ -147,21 +148,6 @@ function getCutoff(range: DateRange): string | null {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
-function formatVisitDate(isoDate: string | null): string {
-  if (!isoDate) return 'Unknown date';
-  try {
-    const d = new Date(isoDate);
-    return d.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  } catch {
-    return isoDate;
-  }
-}
-
 function formatDuration(minutes: number | null): string | null {
   if (minutes === null) return null;
   if (minutes < 60) return `${minutes} min`;
@@ -170,266 +156,14 @@ function formatDuration(minutes: number | null): string | null {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-// ── Mercator projection ────────────────────────────────────────────
-
-function mercatorY(lat: number): number {
-  // Clamp to Web Mercator limits to avoid ±Infinity at the poles
-  const clamped = Math.max(-85.051129, Math.min(85.051129, lat));
-  const rad = (clamped * Math.PI) / 180;
-  return Math.log(Math.tan(Math.PI / 4 + rad / 2));
-}
-
-// ── Map Canvas ─────────────────────────────────────────────────────
-
-const MAP_W = 1000;
-const MAP_H = 600;
-const MAP_PAD = 100;
-
-function MapCanvas({
-  places,
-  selectedKey,
-  hoveredKey,
-  onSelectPlace,
-  onHoverPlace,
-}: {
-  places: PlaceGroup[];
-  selectedKey: string | null;
-  hoveredKey: string | null;
-  onSelectPlace: (key: string) => void;
-  onHoverPlace: (key: string | null) => void;
-}): ReactNode {
-  const bounds = useMemo(() => {
-    if (places.length === 0) return null;
-
-    const lats = places.map(p => p.lat);
-    const lngs = places.map(p => p.lng);
-    let minLat = Math.min(...lats);
-    let maxLat = Math.max(...lats);
-    let minLng = Math.min(...lngs);
-    let maxLng = Math.max(...lngs);
-
-    // Ensure minimum span (~10 km)
-    const MIN_SPAN = 0.1;
-    if (maxLat - minLat < MIN_SPAN) {
-      const c = (maxLat + minLat) / 2;
-      minLat = c - MIN_SPAN / 2;
-      maxLat = c + MIN_SPAN / 2;
-    }
-    if (maxLng - minLng < MIN_SPAN) {
-      const c = (maxLng + minLng) / 2;
-      minLng = c - MIN_SPAN / 2;
-      maxLng = c + MIN_SPAN / 2;
-    }
-
-    // 25% padding
-    const latPad = (maxLat - minLat) * 0.25;
-    const lngPad = (maxLng - minLng) * 0.25;
-    const bMinLat = minLat - latPad;
-    const bMaxLat = maxLat + latPad;
-    const bMinLng = minLng - lngPad;
-    const bMaxLng = maxLng + lngPad;
-
-    return {
-      bMinLat, bMaxLat, bMinLng, bMaxLng,
-      yTop: mercatorY(bMaxLat),
-      yBot: mercatorY(bMinLat),
-    };
-  }, [places]);
-
-  function toSVG(lat: number, lng: number): [number, number] {
-    if (!bounds) return [MAP_W / 2, MAP_H / 2];
-    const { bMinLng, bMaxLng, yTop, yBot } = bounds;
-    const x = MAP_PAD + ((lng - bMinLng) / (bMaxLng - bMinLng)) * (MAP_W - 2 * MAP_PAD);
-    const yM = mercatorY(lat);
-    const y = MAP_PAD + ((yTop - yM) / (yTop - yBot)) * (MAP_H - 2 * MAP_PAD);
-    return [x, y];
+function formatVisitDate(isoDate: string | null): string {
+  if (!isoDate) return 'Unknown date';
+  try {
+    const d = new Date(isoDate);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return isoDate;
   }
-
-  if (places.length === 0) {
-    return (
-      <div
-        className="flex-1 flex flex-col items-center justify-center gap-3"
-        style={{ background: '#0D1117', minWidth: 0 }}
-      >
-        <MapPinIcon className="w-10 h-10" style={{ color: '#1A2A3A' }} />
-        <span className="text-xs" style={{ color: '#1A2A3A' }}>No location data for this period</span>
-      </div>
-    );
-  }
-
-  // Grid lines (5 vertical × 4 horizontal)
-  const gridLines: ReactNode[] = [];
-  for (let i = 0; i <= 5; i++) {
-    const x = (i / 5) * MAP_W;
-    gridLines.push(<line key={`gv${i}`} x1={x} y1={0} x2={x} y2={MAP_H} stroke="#0F1E35" strokeWidth={1} />);
-  }
-  for (let i = 0; i <= 4; i++) {
-    const y = (i / 4) * MAP_H;
-    gridLines.push(<line key={`gh${i}`} x1={0} y1={y} x2={MAP_W} y2={y} stroke="#0F1E35" strokeWidth={1} />);
-  }
-
-  return (
-    <div className="flex-1 overflow-hidden" style={{ minWidth: 0, background: '#0D1117' }}>
-      <svg
-        viewBox={`0 0 ${MAP_W} ${MAP_H}`}
-        className="w-full h-full"
-        preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
-      >
-        <defs>
-          <radialGradient id="locMapBg" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#0A1628" />
-            <stop offset="100%" stopColor="#050A12" />
-          </radialGradient>
-        </defs>
-        <rect width={MAP_W} height={MAP_H} fill="url(#locMapBg)" />
-        {gridLines}
-
-        {places.map(place => {
-          const [x, y] = toSVG(place.lat, place.lng);
-          const isSelected = selectedKey === place.key;
-          const isHovered = hoveredKey === place.key;
-          const active = isSelected || isHovered;
-          const dotR = active ? 9 : 6;
-          const pulseR = active ? 22 : 14;
-
-          // Clamp tooltip rect within SVG bounds (horizontal and vertical)
-          const tooltipW = 150;
-          const tooltipH = 30;
-          const rectX = Math.max(4, Math.min(x - tooltipW / 2, MAP_W - tooltipW - 4));
-          const rectY = Math.max(4, y - 44);
-
-          return (
-            <g
-              key={place.key}
-              onClick={() => onSelectPlace(place.key)}
-              onMouseEnter={() => onHoverPlace(place.key)}
-              onMouseLeave={() => onHoverPlace(null)}
-              style={{ cursor: 'pointer' }}
-            >
-              {/* Pulse ring */}
-              <circle
-                cx={x} cy={y} r={pulseR}
-                fill={place.color}
-                opacity={active ? 0.22 : 0.1}
-              />
-              {/* Dot */}
-              <circle cx={x} cy={y} r={dotR} fill={place.color} />
-              {/* Selection ring */}
-              {isSelected && (
-                <circle
-                  cx={x} cy={y} r={dotR + 4}
-                  fill="none"
-                  stroke={place.color}
-                  strokeWidth={1.5}
-                  opacity={0.5}
-                />
-              )}
-              {/* Tooltip on active */}
-              {active && (
-                <>
-                  <rect
-                    x={rectX}
-                    y={rectY}
-                    width={tooltipW}
-                    height={tooltipH}
-                    rx={4}
-                    fill="#111827"
-                    opacity={0.92}
-                  />
-                  <text
-                    x={rectX + tooltipW / 2}
-                    y={rectY + 11}
-                    textAnchor="middle"
-                    fill="#F9FAFB"
-                    fontSize={10}
-                    fontFamily="Inter, sans-serif"
-                    fontWeight="600"
-                  >
-                    {place.display_name.length > 24
-                      ? place.display_name.slice(0, 22) + '…'
-                      : place.display_name}
-                  </text>
-                  <text
-                    x={rectX + tooltipW / 2}
-                    y={rectY + 22}
-                    textAnchor="middle"
-                    fill="#6B7280"
-                    fontSize={9}
-                    fontFamily="Inter, sans-serif"
-                  >
-                    {place.visits.length} {place.visits.length === 1 ? 'visit' : 'visits'}
-                  </text>
-                </>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-// ── Visit Entry ────────────────────────────────────────────────────
-
-function VisitEntry({
-  visit,
-  color,
-  visitCount,
-  isSelected,
-  onClick,
-}: {
-  visit: Visit;
-  color: string;
-  visitCount: number;
-  isSelected: boolean;
-  onClick: () => void;
-}): ReactNode {
-  const dur = formatDuration(visit.meta.duration_minutes);
-  const date = visit.meta.arrival_date ?? visit.meta.date_first_observed;
-
-  return (
-    <button
-      onClick={onClick}
-      className="w-full text-left flex gap-3 transition-colors"
-      style={{
-        padding: '10px 14px',
-        background: isSelected ? `${color}12` : 'transparent',
-        borderBottom: '1px solid #1A1A1A',
-      }}
-    >
-      {/* Color dot */}
-      <div className="flex flex-col items-center pt-1.5 shrink-0" style={{ width: 20 }}>
-        <div
-          className="rounded-full shrink-0"
-          style={{ width: 10, height: 10, background: color }}
-        />
-      </div>
-
-      {/* Content */}
-      <div className="flex flex-col gap-1 flex-1 min-w-0">
-        <span
-          className="text-sm font-semibold truncate"
-          style={{ color: 'rgb(var(--canvas-fg-1))' }}
-        >
-          {visit.display_name}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px]" style={{ color: '#6B7280' }}>
-            {formatVisitDate(date)}
-          </span>
-          {dur && (
-            <span className="text-[11px]" style={{ color: '#4B5563' }}>
-              {dur}
-            </span>
-          )}
-        </div>
-        <span className="text-[11px]" style={{ color }}>
-          {visitCount} {visitCount === 1 ? 'visit' : 'visits'} total
-        </span>
-      </div>
-    </button>
-  );
 }
 
 // ── LocationPage ───────────────────────────────────────────────────
@@ -439,8 +173,7 @@ export default function LocationPage(): ReactNode {
   const { place_key: selectedKey, range } = useSearch({ from: '/location' });
   const dateRange: DateRange = (range as DateRange | undefined) ?? '30d';
 
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  const [showRangeMenu, setShowRangeMenu] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const chunksQuery = useQuery({
     queryKey: ['chunks', 'location'],
@@ -456,8 +189,6 @@ export default function LocationPage(): ReactNode {
     });
   }, [chunksQuery.data]);
 
-  // Build stable color map directly from allVisits so colors don't shift when
-  // the filtered subset changes (avoids double-derivation through allPlaces).
   const colorMap = useMemo((): Map<string, string> => {
     const m = new Map<string, string>();
     groupByPlace(allVisits).forEach(p => m.set(p.key, p.color));
@@ -479,13 +210,6 @@ export default function LocationPage(): ReactNode {
     [filteredVisits, colorMap],
   );
 
-  // Visit count by place_key within the filtered period
-  const visitCountByKey = useMemo((): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (const p of filteredPlaces) m.set(p.key, p.visits.length);
-    return m;
-  }, [filteredPlaces]);
-
   // Timeline: filtered visits sorted most-recent first
   const timelineVisits = useMemo((): Visit[] => {
     return [...filteredVisits].sort((a, b) => {
@@ -495,6 +219,59 @@ export default function LocationPage(): ReactNode {
     });
   }, [filteredVisits]);
 
+  // Available source types for place type filter
+  const sourceTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const v of allVisits) types.add(v.meta.source_type);
+    return Array.from(types).sort();
+  }, [allVisits]);
+
+  const [placeTypeFilter, setPlaceTypeFilter] = useState<string[]>([]);
+
+  const visiblePlaces = useMemo(() => {
+    if (placeTypeFilter.length === 0) return filteredPlaces;
+    return filteredPlaces.filter(p =>
+      p.visits.some(v => placeTypeFilter.includes(v.meta.source_type)),
+    );
+  }, [filteredPlaces, placeTypeFilter]);
+
+  // Map pins from visible places
+  const mapPins = useMemo((): MapPin[] => {
+    return visiblePlaces.map(place => ({
+      id: place.key,
+      lat: place.lat,
+      lng: place.lng,
+      label: place.display_name,
+    }));
+  }, [visiblePlaces]);
+
+  // Heatmap data from all visits
+  const heatmapData = useMemo((): HeatmapDataPoint[] => {
+    return filteredVisits.map(v => ({
+      lat: v.meta.lat,
+      lng: v.meta.lng,
+      value: v.meta.duration_minutes ?? 1,
+    }));
+  }, [filteredVisits]);
+
+  // ActivityTimeline events from timeline visits
+  const timelineEvents = useMemo((): ActivityEvent[] => {
+    return timelineVisits.map(v => {
+      const dur = formatDuration(v.meta.duration_minutes);
+      const date = v.meta.arrival_date ?? v.meta.date_first_observed;
+      const color = colorMap.get(v.place_key);
+      return {
+        id: v.chunk_hash,
+        type: 'create' as const,
+        subject: v.display_name,
+        timestamp: date ?? new Date().toISOString(),
+        meta: [formatVisitDate(date), dur].filter(Boolean).join(' · '),
+        dotColor: color ? undefined : undefined,
+        onClick: () => handleSelectVisit(v),
+      };
+    });
+  }, [timelineVisits, colorMap]);
+
   function setSelectedKey(key: string | undefined): void {
     void navigate({ to: '/location', search: { place_key: key, range: dateRange } });
   }
@@ -503,8 +280,8 @@ export default function LocationPage(): ReactNode {
     void navigate({ to: '/location', search: { place_key: selectedKey, range: r } });
   }
 
-  function handleSelectPlace(key: string): void {
-    setSelectedKey(selectedKey === key ? undefined : key);
+  function handleSelectPlace(pinId: string | null): void {
+    setSelectedKey(pinId === selectedKey ? undefined : (pinId ?? undefined));
   }
 
   function handleSelectVisit(visit: Visit): void {
@@ -520,66 +297,18 @@ export default function LocationPage(): ReactNode {
         title="Location"
         subtitle="Place visits and location history"
       />
-      {/* ── Topbar ── */}
-      <div
-        className="flex items-center gap-3 shrink-0 px-5"
-        style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
-      >
-        <span className="font-semibold flex-1" style={{ fontSize: 16, color: 'rgb(var(--canvas-fg-1))' }}>
-          Location
-        </span>
-        {!chunksQuery.isLoading && totalVisits > 0 && (
-          <div
-            className="flex items-center"
-            style={{ background: '#1F2937', borderRadius: 10, padding: '3px 10px' }}
-          >
-            <span className="text-[11px]" style={{ color: '#6B7280' }}>
-              {totalVisits.toLocaleString()} {totalVisits === 1 ? 'visit' : 'visits'}
-            </span>
-          </div>
-        )}
-      </div>
 
-      {/* ── Body: map + right panel ── */}
+      {/* ── Body: left panel + map ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* ── Map ── */}
-        {chunksQuery.isLoading ? (
-          <div
-            className="flex-1 flex items-center justify-center"
-            style={{ background: '#0D1117', minWidth: 0 }}
-          >
-            <div className="animate-pulse text-xs" style={{ color: '#1A2A3A' }}>
-              Loading…
-            </div>
-          </div>
-        ) : chunksQuery.isError ? (
-          <div
-            className="flex-1 flex items-center justify-center"
-            style={{ background: '#0D1117', minWidth: 0 }}
-          >
-            <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
-              Failed to load location data
-            </span>
-          </div>
-        ) : (
-          <MapCanvas
-            places={filteredPlaces}
-            selectedKey={selectedKey ?? null}
-            hoveredKey={hoveredKey}
-            onSelectPlace={handleSelectPlace}
-            onHoverPlace={setHoveredKey}
-          />
-        )}
-
-        {/* ── Right panel ── */}
+        {/* ── Left panel: ActivityTimeline + filters ── */}
         <div
-          className="flex flex-col h-full shrink-0"
-          style={{ width: 300, background: '#111111', borderLeft: '1px solid #1A1A1A' }}
+          className="flex flex-col h-full shrink-0 overflow-hidden"
+          style={{ width: 300, borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
         >
           {/* Panel header */}
           <div
             className="flex items-center gap-2 shrink-0 px-4"
-            style={{ height: 48, borderBottom: '1px solid #1A1A1A' }}
+            style={{ height: 52, borderBottom: `1px solid rgb(var(--canvas-border))` }}
           >
             <span
               className="font-semibold flex-1"
@@ -587,65 +316,71 @@ export default function LocationPage(): ReactNode {
             >
               Recent Visits
             </span>
-            {/* Date range dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowRangeMenu(prev => !prev)}
-                className="flex items-center gap-1 transition-opacity hover:opacity-75"
-                style={{ fontSize: 11, color: '#6B7280' }}
-              >
-                {DATE_RANGE_LABELS[dateRange]}
-                <svg width={10} height={6} viewBox="0 0 10 6" fill="none" aria-hidden>
-                  <path d="M1 1l4 4 4-4" stroke="#6B7280" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {showRangeMenu && (
-                <>
-                  {/* Click-away overlay */}
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowRangeMenu(false)}
-                  />
-                  <div
-                    className="absolute right-0 top-full mt-1 z-20 flex flex-col overflow-hidden"
-                    style={{
-                      background: '#1F2937',
-                      border: '1px solid #374151',
-                      borderRadius: 6,
-                      minWidth: 130,
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-                    }}
-                  >
-                    {(Object.entries(DATE_RANGE_LABELS) as [DateRange, string][]).map(([key, label]) => (
-                      <button
-                        key={key}
-                        onClick={() => { setDateRange(key); setShowRangeMenu(false); }}
-                        className="text-left text-xs px-3 py-2 transition-colors hover:bg-[#374151]"
-                        style={{ color: dateRange === key ? locationColor : '#D1D5DB' }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            {!chunksQuery.isLoading && totalVisits > 0 && (
+              <span className="text-[11px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                {totalVisits.toLocaleString()} total
+              </span>
+            )}
           </div>
 
-          {/* Timeline list */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Filters */}
+          <div
+            className="flex items-center gap-2 px-4 py-2 shrink-0"
+            style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
+          >
+            <FilterDropdown
+              mode="radio"
+              value={[dateRange]}
+              onChange={vals => setDateRange((vals[0] as DateRange) ?? '30d')}
+            >
+              <FilterDropdown.Trigger
+                label="Range"
+                summary={DATE_RANGE_LABELS[dateRange]}
+              />
+              <FilterDropdown.Panel>
+                <FilterDropdown.Section title="Date range">
+                  {(Object.entries(DATE_RANGE_LABELS) as [DateRange, string][]).map(([key, label]) => (
+                    <FilterDropdown.Radio key={key} value={key} label={label} />
+                  ))}
+                </FilterDropdown.Section>
+              </FilterDropdown.Panel>
+            </FilterDropdown>
+
+            {sourceTypes.length > 1 && (
+              <FilterDropdown
+                mode="checkbox"
+                value={placeTypeFilter}
+                onChange={setPlaceTypeFilter}
+              >
+                <FilterDropdown.Trigger
+                  label="Type"
+                  summary={placeTypeFilter.length === 0 ? 'All' : `${placeTypeFilter.length} types`}
+                />
+                <FilterDropdown.Panel>
+                  <FilterDropdown.Section title="Source type">
+                    {sourceTypes.map(t => (
+                      <FilterDropdown.Checkbox key={t} value={t} label={t.replace(/_/g, ' ')} />
+                    ))}
+                  </FilterDropdown.Section>
+                </FilterDropdown.Panel>
+              </FilterDropdown>
+            )}
+          </div>
+
+          {/* Timeline */}
+          <div className="flex-1 overflow-y-auto p-3">
             {chunksQuery.isLoading ? (
-              <div className="flex flex-col">
+              <div className="space-y-2">
                 {[1, 2, 3, 4, 5].map(i => (
                   <div
                     key={i}
-                    className="animate-pulse"
-                    style={{ height: 68, borderBottom: '1px solid #1A1A1A', margin: '0 14px' }}
+                    className="animate-pulse rounded"
+                    style={{ height: 56, background: 'rgb(var(--canvas-bg-2))' }}
                   />
                 ))}
               </div>
             ) : timelineVisits.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3 px-4">
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
                 <div
                   className="flex items-center justify-center rounded-2xl"
                   style={{ width: 40, height: 40, background: getDomainColorWithAlpha('location', '18') }}
@@ -659,24 +394,13 @@ export default function LocationPage(): ReactNode {
                 </span>
               </div>
             ) : (
-              timelineVisits.map(visit => {
-                const color = colorMap.get(visit.place_key) ?? locationColor;
-                const count = visitCountByKey.get(visit.place_key) ?? 1;
-                return (
-                  <VisitEntry
-                    key={visit.chunk_hash}
-                    visit={visit}
-                    color={color}
-                    visitCount={count}
-                    isSelected={selectedKey === visit.place_key}
-                    onClick={() => handleSelectVisit(visit)}
-                  />
-                );
-              })
+              <ActivityTimeline
+                events={timelineEvents}
+                emptyState="No visits found"
+              />
             )}
           </div>
 
-          {/* Footer count */}
           {!chunksQuery.isLoading && timelineVisits.length > 0 && (
             <div
               className="shrink-0 px-4 py-2"
@@ -690,8 +414,69 @@ export default function LocationPage(): ReactNode {
             </div>
           )}
         </div>
+
+        {/* ── Map area ── */}
+        <div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
+          {/* Map toolbar */}
+          <div
+            className="flex items-center gap-3 shrink-0 px-4"
+            style={{ height: 48, background: 'rgb(var(--canvas-surface))', borderBottom: `1px solid rgb(var(--canvas-border))` }}
+          >
+            <span className="flex-1 text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
+              {visiblePlaces.length} {visiblePlaces.length === 1 ? 'place' : 'places'}
+            </span>
+            {/* Heatmap overlay toggle */}
+            <button
+              onClick={() => setShowHeatmap(h => !h)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              style={{
+                background: showHeatmap ? getDomainColorWithAlpha('location', '20') : 'rgb(var(--canvas-bg-2))',
+                color: showHeatmap ? locationColor : 'rgb(var(--canvas-fg-2))',
+                border: `1px solid ${showHeatmap ? getDomainColorWithAlpha('location', '40') : 'rgb(var(--canvas-border))'}`,
+              }}
+            >
+              <span style={{ fontSize: 10 }}>⬛</span>
+              Heatmap
+            </button>
+          </div>
+
+          {/* MapCanvas */}
+          {chunksQuery.isLoading ? (
+            <div
+              className="flex-1 flex items-center justify-center"
+              style={{ background: 'rgb(var(--canvas-bg))' }}
+            >
+              <div
+                className="w-6 h-6 rounded-full border-2 animate-spin"
+                style={{ borderColor: `${locationColor} transparent transparent transparent` }}
+              />
+            </div>
+          ) : chunksQuery.isError ? (
+            <div
+              className="flex-1 flex items-center justify-center"
+            >
+              <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
+                Failed to load location data
+              </span>
+            </div>
+          ) : showHeatmap && heatmapData.length > 0 ? (
+            <MapCanvas
+              mode="heatmap"
+              heatmapData={heatmapData}
+              heatmapColor={locationColor}
+              style={{ flex: 1 }}
+            />
+          ) : (
+            <MapCanvas
+              mode="pins"
+              pins={mapPins}
+              selectedPinId={selectedKey ?? undefined}
+              onSelectPin={handleSelectPlace}
+              style={{ flex: 1 }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
 }
-

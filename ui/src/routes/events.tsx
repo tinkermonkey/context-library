@@ -2,10 +2,11 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  MapPinIcon,
-} from '@heroicons/react/24/outline';
-import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
+import { MapPinIcon } from '@heroicons/react/24/outline';
+import { Calendar, MiniCalendar, Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
+import type { CalendarEvent, CalendarView } from '@tinkermonkey/heimdall-ui';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { FilterDropdown } from '../components/FilterDropdown';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -66,19 +67,12 @@ function sourceColor(sourceType: string, calendarName: string | null): string {
   const key = (calendarName ?? sourceType).toLowerCase();
   if (SOURCE_PALETTE[key]) return SOURCE_PALETTE[key];
   if (SOURCE_PALETTE[sourceType]) return SOURCE_PALETTE[sourceType];
-  // Deterministic fallback
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) & 0x7fffffff;
   return FALLBACK_PALETTE[h % FALLBACK_PALETTE.length];
 }
 
 // ── Date helpers ───────────────────────────────────────────────────
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
 
 function isoDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -124,313 +118,6 @@ function isAllDay(start: string | null, end: string | null): boolean {
   return false;
 }
 
-// ── Build month grid ───────────────────────────────────────────────
-
-interface CalendarWeek {
-  days: Date[];
-}
-
-function buildMonthGrid(year: number, month: number): CalendarWeek[] {
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const gridStart = new Date(firstDay);
-  gridStart.setDate(gridStart.getDate() - gridStart.getDay());
-
-  const weeks: CalendarWeek[] = [];
-  const cursor = new Date(gridStart);
-  while (cursor <= lastDay || weeks.length < 1) {
-    const days: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      days.push(new Date(cursor));
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    weeks.push({ days });
-    if (cursor > lastDay && weeks.length >= 4) break;
-  }
-  return weeks;
-}
-
-// ── Event map (by date key) ────────────────────────────────────────
-
-type EventMap = Map<string, Array<{ chunk: ChunkResponse; meta: EventMeta }>>;
-
-function buildEventMap(chunks: ChunkResponse[]): EventMap {
-  const map: EventMap = new Map();
-  for (const chunk of chunks) {
-    const meta = extractEventMeta(chunk);
-    if (!meta || !meta.start_date) continue;
-    const d = parseIsoDate(meta.start_date);
-    if (!d) continue;
-    const key = isoDateKey(d);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push({ chunk, meta });
-  }
-  for (const [, events] of map) {
-    events.sort((a, b) => {
-      const ta = a.meta.start_date ?? '';
-      const tb = b.meta.start_date ?? '';
-      return ta.localeCompare(tb);
-    });
-  }
-  return map;
-}
-
-// ── Event chip ─────────────────────────────────────────────────────
-
-function EventChip({ meta }: { meta: EventMeta }): ReactNode {
-  const color = sourceColor(meta.source_type, meta.calendar_name);
-  return (
-    <div
-      className="truncate"
-      style={{
-        background: `${color}28`,
-        color,
-        borderLeft: `2px solid ${color}`,
-        borderRadius: 3,
-        padding: '1px 4px',
-        lineHeight: '1.4',
-        fontSize: '10px',
-        maxWidth: '100%',
-      }}
-      title={meta.title}
-    >
-      {meta.title}
-    </div>
-  );
-}
-
-// ── Day cell ───────────────────────────────────────────────────────
-
-function DayCell({
-  date,
-  events,
-  isCurrentMonth,
-  isToday,
-  isSelected,
-  onClick,
-}: {
-  date: Date;
-  events: Array<{ chunk: ChunkResponse; meta: EventMeta }>;
-  isCurrentMonth: boolean;
-  isToday: boolean;
-  isSelected: boolean;
-  onClick: () => void;
-}): ReactNode {
-  const MAX_CHIPS = 3;
-  const overflow = events.length - MAX_CHIPS;
-
-  return (
-    <button
-      onClick={onClick}
-      className="text-left flex flex-col gap-0.5 p-1 transition-colors w-full"
-      style={{
-        minHeight: 72,
-        borderTop: `1px solid rgb(var(--canvas-border))`,
-        background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
-        opacity: isCurrentMonth ? 1 : 0.35,
-      }}
-    >
-      <div className="flex items-center justify-start mb-0.5 px-0.5">
-        {isToday ? (
-          <span
-            className="flex items-center justify-center rounded-full font-semibold"
-            style={{
-              width: 22,
-              height: 22,
-              background: 'rgb(var(--accent-primary))',
-              color: '#fff',
-              fontSize: 12,
-              lineHeight: 1,
-            }}
-          >
-            {date.getDate()}
-          </span>
-        ) : (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: isSelected ? evtColor : isCurrentMonth ? 'rgb(var(--canvas-fg-2))' : 'rgb(var(--canvas-fg-3))',
-            }}
-          >
-            {date.getDate()}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col gap-0.5 w-full overflow-hidden">
-        {events.slice(0, MAX_CHIPS).map(({ meta, chunk }) => (
-          <EventChip key={chunk.chunk_hash} meta={meta} />
-        ))}
-        {overflow > 0 && (
-          <span style={{ color: 'rgb(var(--canvas-fg-3))', fontSize: 10, paddingLeft: 4 }}>
-            +{overflow} more
-          </span>
-        )}
-      </div>
-    </button>
-  );
-}
-
-// ── Month view ─────────────────────────────────────────────────────
-
-function MonthView({
-  year,
-  month,
-  eventMap,
-  selectedDateKey,
-  onSelectDate,
-}: {
-  year: number;
-  month: number;
-  eventMap: EventMap;
-  selectedDateKey: string | null;
-  onSelectDate: (key: string) => void;
-}): ReactNode {
-  const today = new Date();
-  const todayKey = isoDateKey(today);
-  const weeks = buildMonthGrid(year, month);
-
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="grid grid-cols-7 shrink-0">
-        {WEEKDAYS.map(d => (
-          <div
-            key={d}
-            className="text-center py-2"
-            style={{
-              fontSize: 11,
-              fontWeight: 500,
-              color: 'rgb(var(--canvas-fg-3))',
-              borderBottom: `1px solid rgb(var(--canvas-border))`,
-            }}
-          >
-            {d.toUpperCase()}
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-col flex-1 overflow-hidden">
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 flex-1">
-            {week.days.map(date => {
-              const key = isoDateKey(date);
-              return (
-                <DayCell
-                  key={key}
-                  date={date}
-                  events={eventMap.get(key) ?? []}
-                  isCurrentMonth={date.getMonth() === month}
-                  isToday={key === todayKey}
-                  isSelected={key === selectedDateKey}
-                  onClick={() => onSelectDate(key)}
-                />
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Week helpers ───────────────────────────────────────────────────
-
-function startOfWeek(date: Date): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() - d.getDay());
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function weekRangeLabel(weekStart: Date): string {
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 6);
-  const sm = weekStart.toLocaleDateString('en-US', { month: 'short' });
-  const em = weekEnd.toLocaleDateString('en-US', { month: 'short' });
-  if (sm === em) return `${sm} ${weekStart.getDate()} – ${weekEnd.getDate()}`;
-  return `${sm} ${weekStart.getDate()} – ${em} ${weekEnd.getDate()}`;
-}
-
-// ── Week view ──────────────────────────────────────────────────────
-
-function WeekView({
-  weekStart,
-  eventMap,
-  selectedDateKey,
-  onSelectDate,
-}: {
-  weekStart: Date;
-  eventMap: EventMap;
-  selectedDateKey: string | null;
-  onSelectDate: (key: string) => void;
-}): ReactNode {
-  const today = new Date();
-  const todayKey = isoDateKey(today);
-
-  const days: Date[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    days.push(d);
-  }
-
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="grid grid-cols-7 shrink-0">
-        {days.map(date => {
-          const key = isoDateKey(date);
-          const isToday = key === todayKey;
-          return (
-            <div
-              key={key}
-              className="text-center py-2"
-              style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
-            >
-              <span style={{ fontSize: 11, fontWeight: 500, color: 'rgb(var(--canvas-fg-3))', display: 'block' }}>
-                {WEEKDAYS[date.getDay()].toUpperCase()}
-              </span>
-              {isToday ? (
-                <span
-                  className="inline-flex items-center justify-center rounded-full font-semibold mx-auto"
-                  style={{ width: 28, height: 28, background: 'rgb(var(--accent-primary))', color: '#fff', fontSize: 13 }}
-                >
-                  {date.getDate()}
-                </span>
-              ) : (
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(var(--canvas-fg-2))' }}>
-                  {date.getDate()}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div className="grid grid-cols-7 flex-1 overflow-y-auto">
-        {days.map(date => {
-          const key = isoDateKey(date);
-          const dayEvents = eventMap.get(key) ?? [];
-          const isSelected = key === selectedDateKey;
-          return (
-            <button
-              key={key}
-              onClick={() => onSelectDate(key)}
-              className="flex flex-col gap-0.5 p-1.5 text-left transition-colors overflow-hidden"
-              style={{
-                borderRight: `1px solid rgb(var(--canvas-border))`,
-                borderTop: `1px solid rgb(var(--canvas-border))`,
-                background: isSelected ? getDomainColorWithAlpha('events', '12') : 'transparent',
-              }}
-            >
-              {dayEvents.map(({ chunk, meta }) => (
-                <EventChip key={chunk.chunk_hash} meta={meta} />
-              ))}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── Agenda event row ───────────────────────────────────────────────
 
 function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
@@ -454,12 +141,7 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
           </span>
           <span
             className="shrink-0 rounded"
-            style={{
-              background: `${color}22`,
-              color,
-              fontSize: 10,
-              padding: '2px 6px',
-            }}
+            style={{ background: `${color}22`, color, fontSize: 10, padding: '2px 6px' }}
           >
             {meta.calendar_name ?? meta.source_type}
           </span>
@@ -489,67 +171,42 @@ function AgendaEventRow({ meta }: { meta: EventMeta }): ReactNode {
   );
 }
 
-// ── Agenda full view ───────────────────────────────────────────────
+// ── Day agenda panel ───────────────────────────────────────────────
 
-function AgendaFullView({ eventMap }: { eventMap: EventMap }): ReactNode {
-  const today = new Date();
-  const days = Array.from(eventMap.entries())
-    .filter(([, events]) => events.length > 0)
-    .sort(([a], [b]) => a.localeCompare(b));
-
-  if (days.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center flex-1 gap-3">
-        <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-          <Icon name="calendar" size={32} />
-        </span>
-        <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>No events found</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      {days.map(([key, events]) => {
-        const date = new Date(key + 'T12:00:00');
-        const isToday = isoDateKey(today) === key;
-        return (
-          <div key={key}>
-            <div
-              className="px-4 py-2 sticky top-0"
-              style={{ background: 'rgb(var(--canvas-surface))', borderBottom: `1px solid rgb(var(--canvas-border))` }}
-            >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isToday ? evtColor : 'rgb(var(--canvas-fg-2))',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                {date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                {isToday && ' — Today'}
-              </span>
-            </div>
-            {events.map(({ chunk, meta }) => (
-              <AgendaEventRow key={chunk.chunk_hash} meta={meta} />
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
+interface EventEntry {
+  chunk: ChunkResponse;
+  meta: EventMeta;
 }
 
-// ── Day agenda panel ───────────────────────────────────────────────
+type EventMap = Map<string, EventEntry[]>;
+
+function buildEventMap(chunks: ChunkResponse[]): EventMap {
+  const map: EventMap = new Map();
+  for (const chunk of chunks) {
+    const meta = extractEventMeta(chunk);
+    if (!meta || !meta.start_date) continue;
+    const d = parseIsoDate(meta.start_date);
+    if (!d) continue;
+    const key = isoDateKey(d);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push({ chunk, meta });
+  }
+  for (const [, events] of map) {
+    events.sort((a, b) => {
+      const ta = a.meta.start_date ?? '';
+      const tb = b.meta.start_date ?? '';
+      return ta.localeCompare(tb);
+    });
+  }
+  return map;
+}
 
 function DayAgendaPanel({
   dateKey,
   events,
 }: {
   dateKey: string;
-  events: Array<{ chunk: ChunkResponse; meta: EventMeta }>;
+  events: EventEntry[];
 }): ReactNode {
   const date = new Date(dateKey + 'T12:00:00');
 
@@ -578,9 +235,51 @@ function DayAgendaPanel({
   );
 }
 
-// ── View type ──────────────────────────────────────────────────────
+// ── Custom event renderer ──────────────────────────────────────────
 
-type ViewMode = 'month' | 'week' | 'agenda';
+function renderCalendarEvent(event: CalendarEvent, calendarColor?: string): ReactNode {
+  const color = calendarColor ?? evtColor;
+  // Extract source adapter label from calendarId
+  const adapterLabel = event.calendarId.replace(/_/g, ' ');
+  // Format time from startDate
+  let timeStr = '';
+  if (event.startDate) {
+    const d = typeof event.startDate === 'string' ? parseIsoDate(event.startDate) : event.startDate;
+    if (d) {
+      timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+  }
+  return (
+    <div
+      className="flex items-center gap-1 overflow-hidden w-full"
+      style={{ fontSize: 11, color, padding: '1px 4px' }}
+    >
+      <span
+        className="shrink-0 rounded-full"
+        style={{ width: 6, height: 6, background: color, flexShrink: 0 }}
+      />
+      <span className="truncate font-medium flex-1">{event.title}</span>
+      {timeStr && (
+        <span className="shrink-0 opacity-70" style={{ fontSize: 9 }}>{timeStr}</span>
+      )}
+      <span
+        className="shrink-0 rounded"
+        style={{
+          background: `${color}22`,
+          color,
+          fontSize: 9,
+          padding: '1px 4px',
+          maxWidth: 60,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {adapterLabel}
+      </span>
+    </div>
+  );
+}
 
 // ── EmptyState ─────────────────────────────────────────────────────
 
@@ -607,8 +306,6 @@ function EmptyState(): ReactNode {
   );
 }
 
-// ── ErrorState ─────────────────────────────────────────────────────
-
 function ErrorState(): ReactNode {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -634,30 +331,39 @@ function ErrorState(): ReactNode {
 
 // ── EventsPage ─────────────────────────────────────────────────────
 
+const VIEW_OPTIONS = [
+  { value: 'month', label: 'Month' },
+  { value: 'week', label: 'Week' },
+  { value: 'day', label: 'Day' },
+];
+
 export default function EventsPage(): ReactNode {
   const navigate = useNavigate();
   const search = useSearch({ from: '/events' });
 
-  const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [viewMode, setViewMode] = useState<CalendarView>('month');
+  const [focusedDate, setFocusedDate] = useState<Date>(() => new Date());
+  const [sourceFilter, setSourceFilter] = useState<string[]>([]);
 
   const today = new Date();
-  const [displayYear, setDisplayYear] = useState(today.getFullYear());
-  const [displayMonth, setDisplayMonth] = useState(today.getMonth());
-  const [displayWeekStart, setDisplayWeekStart] = useState(() => startOfWeek(today));
-
   const todayKey = isoDateKey(today);
   const selectedDateKey = search.dateFrom ?? todayKey;
+  const selectedDate = useMemo(
+    () => new Date(selectedDateKey + 'T12:00:00'),
+    [selectedDateKey],
+  );
 
-  function selectDate(key: string): void {
-    void navigate({ to: '/events', search: (prev: Record<string, unknown>) => ({ ...prev, dateFrom: key }) });
+  function selectDate(date: Date): void {
+    const key = isoDateKey(date);
+    setFocusedDate(date);
+    void navigate({
+      to: '/events',
+      search: (prev: Record<string, unknown>) => ({ ...prev, dateFrom: key }),
+    });
   }
 
-  function handleSetViewMode(mode: ViewMode): void {
-    if (mode === 'week') {
-      const selected = new Date(selectedDateKey + 'T12:00:00');
-      setDisplayWeekStart(startOfWeek(selected));
-    }
-    setViewMode(mode);
+  function handleMiniCalendarSelect(date: Date): void {
+    selectDate(date);
   }
 
   const { data, isLoading, isError } = useQuery({
@@ -667,48 +373,57 @@ export default function EventsPage(): ReactNode {
   });
 
   const allChunks = data?.chunks ?? [];
+
   const eventMap = useMemo(() => buildEventMap(allChunks), [allChunks]);
+
   const selectedDayEvents = useMemo(
     () => eventMap.get(selectedDateKey) ?? [],
     [eventMap, selectedDateKey],
   );
 
-  function handlePrev(): void {
-    if (viewMode === 'week') {
-      setDisplayWeekStart(ws => {
-        const d = new Date(ws);
-        d.setDate(d.getDate() - 7);
-        return d;
-      });
-    } else if (displayMonth === 0) {
-      setDisplayYear(y => y - 1);
-      setDisplayMonth(11);
-    } else {
-      setDisplayMonth(m => m - 1);
-    }
-  }
+  // Convert chunks to CalendarEvent format for the Calendar component
+  const allCalendarEvents = useMemo<CalendarEvent[]>(() => {
+    return allChunks.flatMap(chunk => {
+      const meta = extractEventMeta(chunk);
+      if (!meta || !meta.start_date) return [];
+      return [{
+        id: chunk.chunk_hash,
+        title: meta.title,
+        calendarId: meta.source_type,
+        startDate: meta.start_date,
+        endDate: meta.end_date ?? undefined,
+      }];
+    });
+  }, [allChunks]);
 
-  function handleNext(): void {
-    if (viewMode === 'week') {
-      setDisplayWeekStart(ws => {
-        const d = new Date(ws);
-        d.setDate(d.getDate() + 7);
-        return d;
-      });
-    } else if (displayMonth === 11) {
-      setDisplayYear(y => y + 1);
-      setDisplayMonth(0);
-    } else {
-      setDisplayMonth(m => m + 1);
+  // Available source types for filtering
+  const sourceTypes = useMemo(() => {
+    const types = new Set<string>();
+    for (const chunk of allChunks) {
+      const meta = extractEventMeta(chunk);
+      if (meta) types.add(meta.source_type);
     }
-  }
+    return Array.from(types).sort();
+  }, [allChunks]);
 
-  function goToToday(): void {
-    setDisplayYear(today.getFullYear());
-    setDisplayMonth(today.getMonth());
-    setDisplayWeekStart(startOfWeek(today));
-    selectDate(todayKey);
-  }
+  // Filtered calendar events
+  const calendarEvents = useMemo(() => {
+    if (sourceFilter.length === 0) return allCalendarEvents;
+    return allCalendarEvents.filter(e => sourceFilter.includes(e.calendarId));
+  }, [allCalendarEvents, sourceFilter]);
+
+  // Markers for MiniCalendar — all dates that have events
+  const eventMarkers = useMemo(() => {
+    const seen = new Set<string>();
+    for (const chunk of allChunks) {
+      const meta = extractEventMeta(chunk);
+      if (meta?.start_date) {
+        const d = parseIsoDate(meta.start_date);
+        if (d) seen.add(isoDateKey(d));
+      }
+    }
+    return Array.from(seen).map(k => new Date(k + 'T12:00:00'));
+  }, [allChunks]);
 
   const hasEvents = allChunks.length > 0;
 
@@ -719,76 +434,41 @@ export default function EventsPage(): ReactNode {
         title="Events"
         subtitle="Calendar events from all sources"
       />
+
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-4 py-2 shrink-0"
         style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        {/* View toggle */}
-        <div
-          className="flex items-center rounded-lg gap-0.5"
-          style={{ background: 'rgb(var(--canvas-surface))', padding: 2 }}
-        >
-          {(['month', 'week', 'agenda'] as ViewMode[]).map(mode => (
-            <button
-              key={mode}
-              onClick={() => handleSetViewMode(mode)}
-              className="px-3 py-1 rounded-md transition-colors"
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                background: viewMode === mode ? 'rgb(var(--canvas-surface))' : 'transparent',
-                color: viewMode === mode ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
-                boxShadow: viewMode === mode ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
-              }}
-            >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          value={viewMode}
+          onChange={v => setViewMode(v as CalendarView)}
+          options={VIEW_OPTIONS}
+        />
 
         <div className="flex-1" />
 
-        {/* Today button */}
-        <button
-          onClick={goToToday}
-          className="px-3 py-1 rounded-md transition-opacity hover:opacity-75"
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            background: 'rgb(var(--canvas-surface))',
-            color: 'rgb(var(--canvas-fg-2))',
-            border: `1px solid rgb(var(--canvas-border))`,
-          }}
+        <FilterDropdown
+          mode="checkbox"
+          value={sourceFilter}
+          onChange={setSourceFilter}
         >
-          Today
-        </button>
-
-        {/* Navigation */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handlePrev}
-            className="p-1 rounded transition-opacity hover:opacity-75"
-            style={{ color: 'rgb(var(--canvas-fg-2))' }}
-          >
-            <Icon name="chevronLeft" size={16} />
-          </button>
-          <span
-            className="text-center"
-            style={{ fontSize: 13, fontWeight: 600, color: 'rgb(var(--canvas-fg-1))', minWidth: 110 }}
-          >
-            {viewMode === 'week'
-              ? weekRangeLabel(displayWeekStart)
-              : `${MONTHS[displayMonth]} ${displayYear}`}
-          </span>
-          <button
-            onClick={handleNext}
-            className="p-1 rounded transition-opacity hover:opacity-75"
-            style={{ color: 'rgb(var(--canvas-fg-2))' }}
-          >
-            <Icon name="chevronRight" size={16} />
-          </button>
-        </div>
+          <FilterDropdown.Trigger
+            label="Source"
+            summary={sourceFilter.length === 0 ? 'All' : `${sourceFilter.length} selected`}
+          />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Calendar source">
+              {sourceTypes.map(type => (
+                <FilterDropdown.Checkbox
+                  key={type}
+                  value={type}
+                  label={type.replace(/_/g, ' ')}
+                />
+              ))}
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
       </div>
 
       {/* ── Body ── */}
@@ -803,31 +483,67 @@ export default function EventsPage(): ReactNode {
         <ErrorState />
       ) : !hasEvents ? (
         <EmptyState />
-      ) : viewMode === 'agenda' ? (
-        <AgendaFullView eventMap={eventMap} />
       ) : (
         <div className="flex flex-1 overflow-hidden">
-          {/* Main calendar area */}
-          <div className="flex flex-col flex-1 overflow-hidden">
-            {viewMode === 'month' ? (
-              <MonthView
-                year={displayYear}
-                month={displayMonth}
-                eventMap={eventMap}
-                selectedDateKey={selectedDateKey}
-                onSelectDate={selectDate}
-              />
-            ) : (
-              <WeekView
-                weekStart={displayWeekStart}
-                eventMap={eventMap}
-                selectedDateKey={selectedDateKey}
-                onSelectDate={selectDate}
-              />
+          {/* Left: MiniCalendar + source legend */}
+          <div
+            className="shrink-0 flex flex-col overflow-y-auto"
+            style={{ width: 220, borderRight: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
+          >
+            <MiniCalendar
+              focusedDate={focusedDate}
+              selectedDate={selectedDate}
+              markers={eventMarkers}
+              onSelect={handleMiniCalendarSelect}
+            />
+
+            {/* Source color legend */}
+            {sourceTypes.length > 0 && (
+              <div className="px-3 py-3 flex flex-col gap-2">
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider"
+                  style={{ color: 'rgb(var(--canvas-fg-3))' }}
+                >
+                  Calendars
+                </span>
+                {sourceTypes.map(type => {
+                  const color = sourceColor(type, null);
+                  return (
+                    <div key={type} className="flex items-center gap-2">
+                      <span
+                        className="shrink-0 rounded-full"
+                        style={{ width: 8, height: 8, background: color }}
+                      />
+                      <span
+                        className="text-xs truncate"
+                        style={{ color: 'rgb(var(--canvas-fg-2))' }}
+                      >
+                        {type.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
 
-          {/* Right day agenda panel */}
+          {/* Main: Calendar */}
+          <div className="flex-1 overflow-hidden">
+            <Calendar
+              view={viewMode}
+              focusedDate={focusedDate}
+              selectedDate={selectedDate}
+              events={calendarEvents}
+              calendarColors={SOURCE_PALETTE}
+              onChangeView={v => setViewMode(v)}
+              onNavigate={setFocusedDate}
+              onSelectDate={selectDate}
+              renderEvent={renderCalendarEvent}
+              style={{ height: '100%' }}
+            />
+          </div>
+
+          {/* Right: Day agenda panel */}
           <div
             className="w-72 shrink-0 flex flex-col overflow-hidden"
             style={{ borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
@@ -839,4 +555,3 @@ export default function EventsPage(): ReactNode {
     </div>
   );
 }
-

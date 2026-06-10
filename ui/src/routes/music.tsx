@@ -1,14 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { MusicalNoteIcon } from '@heroicons/react/24/outline';
-import { Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
+import {
+  Icon, PageHeader,
+  AssetCard, AssetGrid,
+  ActivityTimeline,
+  StatTile, StatGrid,
+} from '@tinkermonkey/heimdall-ui';
+import type { ActivityEvent } from '@tinkermonkey/heimdall-ui';
+import { SegmentedControl } from '../components/SegmentedControl';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
 
-const musicColor = getDomainColor('music'); // #F43F5E
+const musicColor = getDomainColor('music');
 
 // ── Artwork gradient palette ───────────────────────────────────────
 
@@ -61,8 +67,6 @@ function extractMusicMeta(dm: Record<string, unknown>): MusicMeta | null {
   };
 }
 
-// ── Track ──────────────────────────────────────────────────────────
-
 interface Track {
   chunk_hash: string;
   source_id: string;
@@ -84,13 +88,6 @@ function makeTrack(chunk: ChunkResponse): Track | null {
 
 // ── Format helpers ─────────────────────────────────────────────────
 
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return '--:--';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 function formatLastPlayed(isoDate: string | null): string {
   if (!isoDate) return '—';
   try {
@@ -110,13 +107,6 @@ function formatLastPlayed(isoDate: string | null): string {
 
 type SortKey = 'last_played' | 'play_count' | 'title' | 'artist';
 
-const SORT_LABELS: Record<SortKey, string> = {
-  last_played: 'Last Played',
-  play_count: 'Play Count',
-  title: 'Title',
-  artist: 'Artist',
-};
-
 function sortTracks(tracks: Track[], key: SortKey): Track[] {
   return [...tracks].sort((a, b) => {
     switch (key) {
@@ -135,307 +125,87 @@ function sortTracks(tracks: Track[], key: SortKey): Track[] {
   });
 }
 
-// ── Artwork Thumbnail ──────────────────────────────────────────────
+// ── View mode ──────────────────────────────────────────────────────
 
-function ArtworkThumb({ gradient, size = 36 }: { gradient: [string, string]; size?: number }): ReactNode {
-  return (
-    <div
-      className="shrink-0"
-      style={{
-        width: size,
-        height: size,
-        background: `linear-gradient(135deg, ${gradient[0]}, ${gradient[1]})`,
-        borderRadius: 4,
-      }}
-    />
-  );
+type ViewMode = 'albums' | 'artists' | 'history';
+
+const VIEW_OPTIONS = [
+  { value: 'albums', label: 'Albums' },
+  { value: 'artists', label: 'Artists' },
+  { value: 'history', label: 'Play History' },
+];
+
+// ── Album group ────────────────────────────────────────────────────
+
+interface Album {
+  title: string;
+  artist: string;
+  gradient: [string, string];
+  trackCount: number;
+  lastPlayed: string | null;
 }
 
-// ── Equalizer Bars ─────────────────────────────────────────────────
-
-function EqualizerBars(): ReactNode {
-  return (
-    <div className="flex items-end gap-[2px]" style={{ height: 16, width: 16 }}>
-      {([0, 1, 2] as const).map(i => (
-        <div
-          key={i}
-          style={{
-            width: 3,
-            borderRadius: 1,
-            background: musicColor,
-            // Staggered animation per bar
-            animation: `eqBar ${0.6 + i * 0.15}s ease-in-out ${i * 0.1}s infinite alternate`,
-            height: 4,
-          }}
-        />
-      ))}
-    </div>
-  );
+function buildAlbums(tracks: Track[]): Album[] {
+  const map = new Map<string, Album>();
+  for (const t of tracks) {
+    const key = `${t.meta.album}|||${t.meta.artist}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        title: t.meta.album || t.meta.artist,
+        artist: t.meta.artist,
+        gradient: artworkGradient(t.meta.album || t.meta.artist, t.meta.artist),
+        trackCount: 0,
+        lastPlayed: null,
+      });
+    }
+    const album = map.get(key)!;
+    album.trackCount++;
+    if (t.meta.last_played && (!album.lastPlayed || t.meta.last_played > album.lastPlayed)) {
+      album.lastPlayed = t.meta.last_played;
+    }
+  }
+  return Array.from(map.values())
+    .sort((a, b) => (b.lastPlayed ?? '').localeCompare(a.lastPlayed ?? ''));
 }
 
-// ── Recently Played Row (left panel) ───────────────────────────────
+// ── Artist group ───────────────────────────────────────────────────
 
-function RecentRow({ track, isActive }: { track: Track; isActive: boolean }): ReactNode {
-  return (
-    <div
-      className="flex items-center gap-2.5"
-      style={{
-        padding: '7px 0',
-        borderBottom: '1px solid #1A1A1A',
-        background: isActive ? getDomainColorWithAlpha('music', '0D') : 'transparent',
-      }}
-    >
-      <ArtworkThumb gradient={track.gradient} size={28} />
-      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-        <span
-          className="text-xs font-medium truncate"
-          style={{ color: isActive ? '#FFFFFF' : 'rgb(var(--canvas-fg-1))' }}
-        >
-          {track.meta.track_title}
-        </span>
-        <span className="text-[10px] truncate" style={{ color: '#6B7280' }}>
-          {track.meta.artist}
-          {track.meta.last_played ? ` · ${formatLastPlayed(track.meta.last_played)}` : ''}
-        </span>
-      </div>
-    </div>
-  );
+interface Artist {
+  name: string;
+  trackCount: number;
+  albumCount: number;
+  gradient: [string, string];
 }
 
-// ── Track Row (main list) ──────────────────────────────────────────
-
-function TrackRow({
-  track,
-  index,
-  isActive,
-}: {
-  track: Track;
-  index: number;
-  isActive: boolean;
-}): ReactNode {
-  return (
-    <div
-      className="flex items-center gap-3.5 transition-colors hover:bg-white/[0.03]"
-      style={{
-        height: 56,
-        padding: '0 20px',
-        background: isActive ? '#1A1F3C' : 'transparent',
-        borderBottom: '1px solid #1A1A1A',
-      }}
-    >
-      {/* Track number or equalizer */}
-      <div className="shrink-0 flex items-center justify-center" style={{ width: 20 }}>
-        {isActive ? (
-          <EqualizerBars />
-        ) : (
-          <span className="text-xs" style={{ color: '#4B5563' }}>{index + 1}</span>
-        )}
-      </div>
-
-      {/* Artwork */}
-      <ArtworkThumb gradient={track.gradient} size={36} />
-
-      {/* Track info */}
-      <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-        <span
-          className="text-sm font-medium truncate"
-          style={{ color: isActive ? '#FFFFFF' : 'rgb(var(--canvas-fg-1))' }}
-        >
-          {track.meta.track_title}
-        </span>
-        <span className="text-xs truncate" style={{ color: '#6B7280' }}>
-          {track.meta.artist}
-          {track.meta.album ? ` · ${track.meta.album}` : ''}
-        </span>
-      </div>
-
-      {/* Play count */}
-      {track.meta.play_count !== null && (
-        <span
-          className="shrink-0 text-xs tabular-nums"
-          style={{ color: '#4B5563', minWidth: 28, textAlign: 'right' }}
-        >
-          {track.meta.play_count}
-        </span>
-      )}
-
-      {/* Last played */}
-      {track.meta.last_played && (
-        <span
-          className="shrink-0 text-xs"
-          style={{ color: '#4B5563', minWidth: 60, textAlign: 'right' }}
-        >
-          {formatLastPlayed(track.meta.last_played)}
-        </span>
-      )}
-
-      {/* Duration */}
-      <span
-        className="shrink-0 text-xs tabular-nums"
-        style={{ color: '#6B7280', minWidth: 36, textAlign: 'right' }}
-      >
-        {formatDuration(track.meta.duration)}
-      </span>
-    </div>
-  );
-}
-
-// ── Now Playing Panel ──────────────────────────────────────────────
-
-function NowPlayingPanel({
-  nowPlaying,
-  recentTracks,
-}: {
-  nowPlaying: Track | null;
-  recentTracks: Track[]; // top 10 sorted by last_played, including nowPlaying at [0]
-}): ReactNode {
-  const [g0, g1] = nowPlaying?.gradient ?? ['#1E1B4B', '#312E81'];
-
-  return (
-    <div
-      className="flex flex-col shrink-0 overflow-hidden"
-      style={{
-        width: 280,
-        height: '100%',
-        background: '#0D0D0D',
-        borderRight: '1px solid #1A1A1A',
-      }}
-    >
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto flex flex-col" style={{ padding: 20, gap: 16 }}>
-        {/* NOW PLAYING label */}
-        <span className="text-[10px] font-bold tracking-widest shrink-0" style={{ color: '#6366F1' }}>
-          NOW PLAYING
-        </span>
-
-        {/* Album artwork */}
-        <div
-          className="shrink-0"
-          style={{
-            height: 240,
-            background: `linear-gradient(135deg, ${g0}, ${g1})`,
-            borderRadius: 12,
-          }}
-        />
-
-        {/* Track info */}
-        <div className="flex flex-col gap-1 shrink-0">
-          {nowPlaying ? (
-            <>
-              <span className="text-[15px] font-bold truncate" style={{ color: '#FFFFFF' }}>
-                {nowPlaying.meta.track_title}
-              </span>
-              <span className="text-[13px] truncate" style={{ color: '#9CA3AF' }}>
-                {nowPlaying.meta.artist}
-              </span>
-              <span className="text-[11px] truncate" style={{ color: '#6B7280' }}>
-                {nowPlaying.meta.album}
-                {nowPlaying.meta.year ? ` · ${nowPlaying.meta.year}` : ''}
-              </span>
-            </>
-          ) : (
-            <span className="text-[13px]" style={{ color: '#4B5563' }}>
-              No recent tracks
-            </span>
-          )}
-        </div>
-
-        {/* Progress bar — static, showing last known position */}
-        <div className="flex flex-col gap-1.5 shrink-0">
-          <div
-            className="relative"
-            style={{ height: 4, background: '#1F2937', borderRadius: 2 }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                height: 4,
-                width: nowPlaying ? '40%' : '0%',
-                background: '#6366F1',
-                borderRadius: 2,
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[10px]" style={{ color: '#6B7280' }}>
-              {nowPlaying && nowPlaying.meta.duration
-                ? formatDuration(Math.floor(nowPlaying.meta.duration * 0.4))
-                : '0:00'}
-            </span>
-            <span className="text-[10px]" style={{ color: '#6B7280' }}>
-              {formatDuration(nowPlaying?.meta.duration ?? null)}
-            </span>
-          </div>
-        </div>
-
-        {/* Play count / last played */}
-        {nowPlaying && (
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
-            {nowPlaying.meta.play_count !== null && (
-              <span className="text-[10px]" style={{ color: '#4B5563' }}>
-                {nowPlaying.meta.play_count} plays
-              </span>
-            )}
-            {nowPlaying.meta.play_count !== null && nowPlaying.meta.last_played && (
-              <span className="text-[10px]" style={{ color: '#2D2D2D' }}>·</span>
-            )}
-            {nowPlaying.meta.last_played && (
-              <span className="text-[10px]" style={{ color: '#4B5563' }}>
-                {formatLastPlayed(nowPlaying.meta.last_played)}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Recently Played list (tracks 2–10) */}
-        {recentTracks.length > 1 && (
-          <div className="flex flex-col shrink-0">
-            <span
-              className="text-[10px] font-bold tracking-widest mb-2"
-              style={{ color: '#4B5563' }}
-            >
-              RECENTLY PLAYED
-            </span>
-            {recentTracks.slice(1, 10).map((track, i) => (
-              <RecentRow
-                key={track.chunk_hash}
-                track={track}
-                isActive={i === -1} // none active in the recent list
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+function buildArtists(tracks: Track[]): Artist[] {
+  const artistAlbums = new Map<string, Set<string>>();
+  const artistTracks = new Map<string, number>();
+  for (const t of tracks) {
+    const a = t.meta.artist;
+    if (!artistAlbums.has(a)) artistAlbums.set(a, new Set());
+    if (t.meta.album) artistAlbums.get(a)!.add(t.meta.album);
+    artistTracks.set(a, (artistTracks.get(a) ?? 0) + 1);
+  }
+  return Array.from(artistTracks.entries())
+    .map(([name, trackCount]) => ({
+      name,
+      trackCount,
+      albumCount: artistAlbums.get(name)?.size ?? 0,
+      gradient: artworkGradient(name, name),
+    }))
+    .sort((a, b) => b.trackCount - a.trackCount);
 }
 
 // ── MusicPage ──────────────────────────────────────────────────────
 
 export default function MusicPage(): ReactNode {
   const navigate = useNavigate();
-  const { sort: sortParam, q: searchParam } = useSearch({ from: '/music' });
+  const { view: viewParam = 'albums' } = useSearch({ from: '/music' });
 
-  const sortKey: SortKey = (sortParam as SortKey | undefined) ?? 'last_played';
-  const searchText = searchParam ?? '';
+  const viewMode = viewParam as ViewMode;
 
-  const [showSortMenu, setShowSortMenu] = useState(false);
-
-  function setSearchText(value: string): void {
-    void navigate({
-      to: '/music',
-      search: { sort: sortParam, q: value || undefined },
-      replace: true,
-    });
-  }
-
-  function setSortKey(key: SortKey): void {
-    void navigate({
-      to: '/music',
-      search: { sort: key === 'last_played' ? undefined : key, q: searchParam },
-    });
+  function setViewMode(mode: ViewMode): void {
+    void navigate({ to: '/music', search: { view: mode === 'albums' ? undefined : mode } });
   }
 
   const chunksQuery = useQuery({
@@ -457,27 +227,32 @@ export default function MusicPage(): ReactNode {
     });
   }, [chunksQuery.data]);
 
-  // Top 10 by last_played for the Now Playing + recently played panel
   const recentTracks = useMemo(
-    (): Track[] => sortTracks(allTracks, 'last_played').slice(0, 10),
+    (): Track[] => sortTracks(allTracks, 'last_played').slice(0, 50),
     [allTracks],
   );
 
-  const nowPlaying = recentTracks[0] ?? null;
+  const albums = useMemo(() => buildAlbums(allTracks), [allTracks]);
+  const artists = useMemo(() => buildArtists(allTracks), [allTracks]);
 
-  const filteredSortedTracks = useMemo((): Track[] => {
-    let list = allTracks;
-    if (searchText.trim()) {
-      const q = searchText.toLowerCase();
-      list = list.filter(
-        t =>
-          t.meta.track_title.toLowerCase().includes(q) ||
-          t.meta.artist.toLowerCase().includes(q) ||
-          t.meta.album.toLowerCase().includes(q),
-      );
-    }
-    return sortTracks(list, sortKey);
-  }, [allTracks, searchText, sortKey]);
+  // Stats
+  const uniqueArtists = artists.length;
+  const uniqueAlbums = albums.length;
+  const totalPlays = useMemo(
+    () => allTracks.reduce((sum, t) => sum + (t.meta.play_count ?? 0), 0),
+    [allTracks],
+  );
+
+  // ActivityTimeline events from recent play history
+  const timelineEvents = useMemo((): ActivityEvent[] => {
+    return recentTracks.map(t => ({
+      id: t.chunk_hash,
+      type: 'update' as const,
+      subject: t.meta.track_title,
+      timestamp: t.meta.last_played ?? new Date().toISOString(),
+      meta: [t.meta.artist, t.meta.album].filter(Boolean).join(' · '),
+    }));
+  }, [recentTracks]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
@@ -489,214 +264,147 @@ export default function MusicPage(): ReactNode {
       {/* Equalizer bar animation */}
       <style>{`@keyframes eqBar { from { height: 4px; } to { height: 14px; } }`}</style>
 
-      {/* ── Topbar ── */}
+      {/* ── Toolbar ── */}
       <div
-        className="flex items-center gap-3 shrink-0 px-5"
-        style={{ height: 52, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
+        className="flex items-center gap-4 shrink-0 px-5 py-2.5"
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="font-semibold flex-1" style={{ fontSize: 16, color: 'rgb(var(--canvas-fg-1))' }}>
-          Music
-        </span>
-        <div
-          className="flex items-center gap-1.5"
-          style={{ background: '#1A1A1A', borderRadius: 4, padding: '4px 10px' }}
-        >
-          <MusicalNoteIcon className="w-3 h-3 shrink-0" style={{ color: '#6B7280' }} />
-          <span className="text-[11px]" style={{ color: '#9CA3AF' }}>Apple Music Library</span>
-        </div>
+        <SegmentedControl
+          value={viewMode}
+          onChange={v => setViewMode(v as ViewMode)}
+          options={VIEW_OPTIONS}
+        />
+        <div className="flex-1" />
+        {!chunksQuery.isLoading && allTracks.length > 0 && (
+          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            {allTracks.length.toLocaleString()} tracks
+          </span>
+        )}
       </div>
 
       {/* ── Body ── */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Now Playing + Recently Played panel */}
-        <NowPlayingPanel nowPlaying={nowPlaying} recentTracks={recentTracks} />
-
-        {/* Track library */}
-        <div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
-          {/* Library header */}
+      {chunksQuery.isLoading ? (
+        <div className="flex-1 flex items-center justify-center">
           <div
-            className="flex items-center gap-3 shrink-0 px-5"
-            style={{ height: 48, background: '#111111', borderBottom: '1px solid #1A1A1A' }}
+            className="w-6 h-6 rounded-full border-2 animate-spin"
+            style={{ borderColor: `${musicColor} transparent transparent transparent` }}
+          />
+        </div>
+      ) : chunksQuery.isError ? (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
+            Failed to load music library
+          </span>
+        </div>
+      ) : allTracks.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <div
+            className="flex items-center justify-center rounded-2xl"
+            style={{ width: 64, height: 64, background: getDomainColorWithAlpha('music', '20') }}
           >
-            <span className="font-semibold flex-1 text-sm" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-              Recently Played
+            <span style={{ color: musicColor }}>
+              <Icon name="music" size={32} />
             </span>
-            {!chunksQuery.isLoading && allTracks.length > 0 && (
-              <span className="text-xs" style={{ color: '#6B7280' }}>
-                {allTracks.length.toLocaleString()} tracks
-              </span>
-            )}
+          </div>
+          <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            No music tracks ingested yet
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* StatGrid row */}
+          <div className="px-5 pt-4 pb-3 shrink-0">
+            <StatGrid columns={4}>
+              <StatTile label="Tracks" value={String(allTracks.length)} color="rose" />
+              <StatTile label="Artists" value={String(uniqueArtists)} color="violet" />
+              <StatTile label="Albums" value={String(uniqueAlbums)} color="amber" />
+              <StatTile label="Total Plays" value={totalPlays > 0 ? totalPlays.toLocaleString() : '—'} color="cyan" />
+            </StatGrid>
           </div>
 
-          {/* Search + Sort bar */}
-          <div
-            className="flex items-center gap-3 shrink-0 px-5"
-            style={{ height: 44, borderBottom: '1px solid #1A1A1A', background: '#0F0F0F' }}
-          >
-            <div
-              className="flex items-center gap-2 flex-1"
-              style={{
-                height: 30,
-                background: '#1A1A1A',
-                border: '1px solid #2D2D2D',
-                borderRadius: 6,
-                padding: '0 10px',
-              }}
-            >
-              <span style={{ color: '#4B5563', flexShrink: 0 }}>
-                <Icon name="search" size={14} />
-              </span>
-              <input
-                type="text"
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                placeholder="Search by title, artist, or album…"
-                className="flex-1 bg-transparent text-xs outline-none"
-                style={{ color: 'rgb(var(--canvas-fg-1))' }}
-              />
-            </div>
+          {/* Main content area */}
+          <div className="flex-1 overflow-hidden flex">
+            {/* Primary content by view */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {viewMode === 'albums' && (
+                <AssetGrid columns={5} gap={14}>
+                  {albums.map(album => (
+                    <AssetCard
+                      key={`${album.title}|||${album.artist}`}
+                      thumb={{
+                        kind: 'cover',
+                        gradient: `linear-gradient(135deg, ${album.gradient[0]}, ${album.gradient[1]})`,
+                        glyph: 'music',
+                      }}
+                      title={album.title}
+                      subtitle={album.artist}
+                      meta={
+                        <span style={{ fontSize: 10, color: 'rgb(var(--canvas-fg-3))' }}>
+                          {album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
+                          {album.lastPlayed ? ` · ${formatLastPlayed(album.lastPlayed)}` : ''}
+                        </span>
+                      }
+                    />
+                  ))}
+                </AssetGrid>
+              )}
 
-            {/* Sort dropdown */}
-            <div className="relative shrink-0">
-              <button
-                onClick={() => setShowSortMenu(prev => !prev)}
-                className="flex items-center gap-1.5 transition-opacity hover:opacity-75"
-                style={{
-                  height: 30,
-                  background: '#1A1A1A',
-                  border: '1px solid #2D2D2D',
-                  borderRadius: 6,
-                  padding: '0 10px',
-                  fontSize: 12,
-                  color: '#9CA3AF',
-                  gap: 6,
-                }}
-              >
-                <span style={{ color: '#4B5563' }}>Sort:</span>
-                {SORT_LABELS[sortKey]}
-                <svg width={10} height={6} viewBox="0 0 10 6" fill="none" aria-hidden>
-                  <path
-                    d="M1 1l4 4 4-4"
-                    stroke="#6B7280"
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-              {showSortMenu && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowSortMenu(false)} />
-                  <div
-                    className="absolute right-0 top-full mt-1 z-20 flex flex-col overflow-hidden"
-                    style={{
-                      background: '#1F2937',
-                      border: '1px solid #374151',
-                      borderRadius: 6,
-                      minWidth: 140,
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
-                    }}
-                  >
-                    {(Object.entries(SORT_LABELS) as [SortKey, string][]).map(([key, label]) => (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          setSortKey(key);
-                          setShowSortMenu(false);
-                        }}
-                        className="text-left text-xs px-3 py-2 transition-colors hover:bg-[#374151]"
-                        style={{ color: sortKey === key ? musicColor : '#D1D5DB' }}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </>
+              {viewMode === 'artists' && (
+                <AssetGrid columns={5} gap={14}>
+                  {artists.map(artist => (
+                    <AssetCard
+                      key={artist.name}
+                      thumb={{
+                        kind: 'cover',
+                        gradient: `linear-gradient(135deg, ${artist.gradient[0]}, ${artist.gradient[1]})`,
+                        glyph: 'user',
+                      }}
+                      title={artist.name}
+                      meta={
+                        <span style={{ fontSize: 10, color: 'rgb(var(--canvas-fg-3))' }}>
+                          {artist.trackCount} tracks · {artist.albumCount} {artist.albumCount === 1 ? 'album' : 'albums'}
+                        </span>
+                      }
+                    />
+                  ))}
+                </AssetGrid>
+              )}
+
+              {viewMode === 'history' && (
+                <div style={{ maxWidth: 640 }}>
+                  <ActivityTimeline events={timelineEvents} emptyState="No play history available" />
+                </div>
               )}
             </div>
-          </div>
 
-          {/* Track list */}
-          <div className="flex-1 overflow-y-auto">
-            {chunksQuery.isLoading ? (
-              <div className="flex flex-col">
-                {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                  <div
-                    key={i}
-                    className="animate-pulse flex items-center gap-3.5 px-5"
-                    style={{ height: 56, borderBottom: '1px solid #1A1A1A' }}
-                  >
-                    <div
-                      className="rounded shrink-0"
-                      style={{ width: 20, height: 12, background: '#1A1A1A' }}
-                    />
-                    <div
-                      className="rounded shrink-0"
-                      style={{ width: 36, height: 36, background: '#1A1A1A' }}
-                    />
-                    <div className="flex flex-col gap-1.5 flex-1">
-                      <div className="rounded" style={{ height: 12, width: 160, background: '#1A1A1A' }} />
-                      <div className="rounded" style={{ height: 10, width: 100, background: '#161616' }} />
-                    </div>
-                    <div
-                      className="rounded shrink-0"
-                      style={{ width: 32, height: 12, background: '#1A1A1A' }}
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : chunksQuery.isError ? (
-              <div className="flex items-center justify-center py-16">
-                <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
-                  Failed to load music library
-                </span>
-              </div>
-            ) : filteredSortedTracks.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-3">
+            {/* Right: ActivityTimeline play history (always visible in Albums/Artists views) */}
+            {viewMode !== 'history' && (
+              <div
+                className="shrink-0 flex flex-col overflow-hidden"
+                style={{ width: 280, borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
+              >
                 <div
-                  className="flex items-center justify-center rounded-2xl"
-                  style={{ width: 48, height: 48, background: getDomainColorWithAlpha('music', '20') }}
+                  className="px-4 py-3 shrink-0"
+                  style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
                 >
-                  <MusicalNoteIcon className="w-6 h-6" style={{ color: musicColor }} />
+                  <span
+                    className="text-[10px] font-bold tracking-widest"
+                    style={{ color: 'rgb(var(--canvas-fg-3))' }}
+                  >
+                    RECENTLY PLAYED
+                  </span>
                 </div>
-                <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                  {searchText
-                    ? 'No tracks match your search'
-                    : 'No music tracks ingested yet'}
-                </p>
+                <div className="flex-1 overflow-y-auto p-2">
+                  <ActivityTimeline
+                    events={timelineEvents}
+                    emptyState="No recent tracks"
+                  />
+                </div>
               </div>
-            ) : (
-              filteredSortedTracks.map((track, index) => (
-                <TrackRow
-                  key={track.chunk_hash}
-                  track={track}
-                  index={index}
-                  isActive={nowPlaying !== null && track.chunk_hash === nowPlaying.chunk_hash}
-                />
-              ))
             )}
           </div>
-
-          {/* Footer */}
-          {!chunksQuery.isLoading && allTracks.length > 0 && (
-            <div
-              className="shrink-0 flex items-center gap-3 px-5"
-              style={{ height: 36, background: '#0D0D0D', borderTop: '1px solid #1A1A1A' }}
-            >
-              <span
-                className="text-[10px] font-bold tracking-widest"
-                style={{ color: '#4B5563' }}
-              >
-                LISTENING HISTORY
-              </span>
-              <span className="text-[11px]" style={{ color: '#4B5563' }}>
-                {allTracks.length.toLocaleString()} tracks indexed · apple_music_library
-              </span>
-            </div>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
-
