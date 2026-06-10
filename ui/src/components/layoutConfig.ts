@@ -14,14 +14,13 @@ const DOMAIN_NAV = [
   { id: '/health', label: 'Health', icon: 'heart' satisfies IconName },
   { id: '/documents', label: 'Documents', icon: 'file' satisfies IconName },
   { id: '/people', label: 'People', icon: 'user' satisfies IconName },
-  { id: '/location', label: 'Location', icon: 'star' satisfies IconName },
-  { id: '/music', label: 'Music', icon: 'zap' satisfies IconName },
+  { id: '/location', label: 'Location', icon: 'tag' satisfies IconName },
+  { id: '/music', label: 'Music', icon: 'bell' satisfies IconName },
 ] as const;
 
-// Adapters nav item is deferred — no /adapters route exists yet.
-// Domain dot styling is deferred — requires dot/dotColor on SidebarItem in heimdall-ui.
 const SYSTEM_NAV = [
   { id: '/pipeline', label: 'Pipeline', icon: 'pipeline' satisfies IconName },
+  { id: '/adapters', label: 'Adapters', icon: 'data' satisfies IconName },
   { id: '/admin', label: 'Admin', icon: 'settings' satisfies IconName },
 ] as const;
 

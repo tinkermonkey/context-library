@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState, useRef, useEffect } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ShellLayout, Chip, Icon, type IconName, type StatusbarItem } from '@tinkermonkey/heimdall-ui';
+import { ShellLayout, Avatar, Chip, Icon, type IconName, type StatusbarItem } from '@tinkermonkey/heimdall-ui';
 import { CommandPaletteWrapper } from './CommandPaletteWrapper';
 import { useStats } from '../hooks/useStats';
 import { useHealth } from '../hooks/useHealth';
@@ -96,6 +96,96 @@ function EnvStatusChips({
       <span className="text-xs font-mono" style={{ color: tone(chromaOk) }}>
         chroma · {chromaOk === null ? '…' : chromaOk ? 'ok' : 'err'}
       </span>
+    </div>
+  );
+}
+
+// ── Notification button ────────────────────────────────────────────
+
+function NotificationButton() {
+  return (
+    <button
+      title="Notifications"
+      aria-label="Notifications"
+      className="flex items-center justify-center rounded px-2 py-1 transition-colors"
+      style={{ color: 'rgb(var(--shell-fg-3))' }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgb(var(--shell-fg-1))'; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'rgb(var(--shell-fg-3))'; }}
+    >
+      <Icon name="bell" size={16} />
+    </button>
+  );
+}
+
+// ── Workspace footer ───────────────────────────────────────────────
+
+function WorkspaceFooter() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: 0,
+            right: 0,
+            marginBottom: 4,
+            background: 'rgb(var(--canvas-card))',
+            border: '1px solid rgb(var(--canvas-border))',
+            borderRadius: 6,
+            padding: '4px 0',
+            zIndex: 100,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          }}
+        >
+          <div style={{ padding: '8px 12px 6px', borderBottom: '1px solid rgb(var(--canvas-border))' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'rgb(var(--canvas-fg-3))', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Workspace
+            </span>
+          </div>
+          <button
+            type="button"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors"
+            style={{ color: 'rgb(var(--shell-fg-2))' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgb(var(--canvas-hover))'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+            onClick={() => setOpen(false)}
+          >
+            <Icon name="settings" size={13} />
+            Settings
+          </button>
+        </div>
+      )}
+      <button
+        type="button"
+        className="flex items-center gap-2 w-full px-2 py-2 transition-colors"
+        style={{ color: 'rgb(var(--shell-fg-2))' }}
+        onClick={() => setOpen(!open)}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'rgb(var(--canvas-hover))'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        aria-expanded={open}
+        aria-haspopup="true"
+      >
+        <Avatar name="Context Library" size="xs" decorative />
+        <span className="flex-1 text-xs text-left truncate" style={{ color: 'rgb(var(--shell-fg-1))' }}>
+          Context Library
+        </span>
+        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={12} />
+      </button>
     </div>
   );
 }
@@ -207,10 +297,13 @@ export function Layout({ children }: { children: ReactNode }) {
   const topbarLeadingContent = <WorkspaceChip url={API_BASE} />;
 
   const topbarChildren = (
-    <EnvStatusChips
-      chromaOk={healthData?.chromadb_ok ?? null}
-      sqliteOk={healthData?.sqlite_ok ?? null}
-    />
+    <div className="flex items-center gap-1">
+      <EnvStatusChips
+        chromaOk={healthData?.chromadb_ok ?? null}
+        sqliteOk={healthData?.sqlite_ok ?? null}
+      />
+      <NotificationButton />
+    </div>
   );
 
   // ── Statusbar items ───────────────────────────────────────────────
@@ -244,6 +337,7 @@ export function Layout({ children }: { children: ReactNode }) {
           sections,
           activeItemId,
           onSelectItem: handleSelectItem,
+          footer: <WorkspaceFooter />,
         }}
         topbar={{
           leadingContent: topbarLeadingContent,

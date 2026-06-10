@@ -53,6 +53,7 @@ const PeoplePage = lazy(() => import('./routes/people'))
 const LocationPage = lazy(() => import('./routes/location'))
 const MusicPage = lazy(() => import('./routes/music'))
 const AdminPage = lazy(() => import('./routes/admin'))
+const AdaptersPage = lazy(() => import('./routes/adapters'))
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -179,6 +180,12 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const adaptersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/adapters',
+  component: AdaptersPage,
+})
+
 const sourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sources',
@@ -217,6 +224,7 @@ const routeTree = rootRoute.addChildren([
   locationRoute,
   musicRoute,
   adminRoute,
+  adaptersRoute,
   sourcesRoute,
   sourceDetailRoute,
   chunkInspectorRoute,
