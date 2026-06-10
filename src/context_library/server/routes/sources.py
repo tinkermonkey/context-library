@@ -6,8 +6,6 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-logger = logging.getLogger(__name__)
-
 from context_library.retrieval.provenance import get_version_diff
 from context_library.storage.models import Domain
 from context_library.server.schemas import (
@@ -23,6 +21,8 @@ from context_library.server.schemas import (
     VersionHistoryResponse,
     VersionSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 

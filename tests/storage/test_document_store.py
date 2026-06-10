@@ -4387,6 +4387,189 @@ class TestGetLineageWithSourceId:
         assert result_with_source_id.source_version_id == result_without_source_id.source_version_id
 
 
+class TestGetLineageBatch:
+    """Tests for DocumentStore.get_lineage_batch."""
+
+    def _setup_source(self, store: DocumentStore, source_id: str = "source-1", adapter_id: str = "adapter-1") -> None:
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"test://{source_id}",
+        )
+
+    def _write_chunk(self, store: DocumentStore, chunk_hash: str, source_id: str = "source-1",
+                     adapter_id: str = "adapter-1", version: int = 1,
+                     fetch_timestamp: str = "2024-01-01T00:00:00Z", embedding_model: str = "model-1") -> str:
+        version_id = store.create_source_version(
+            source_id=source_id,
+            version=version,
+            markdown="content",
+            chunk_hashes=[chunk_hash],
+            adapter_id=adapter_id,
+            normalizer_version="1.0",
+            fetch_timestamp=fetch_timestamp,
+        )
+        chunk = Chunk(chunk_hash=chunk_hash, content="content", chunk_index=0)
+        lineage = LineageRecord(
+            chunk_hash=chunk_hash,
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+            embedding_model_id=embedding_model,
+        )
+        store.write_chunks([chunk], [lineage])
+        return version_id
+
+    def test_empty_input_returns_empty_dict(self, store: DocumentStore) -> None:
+        result = store.get_lineage_batch([], "source-1")
+        assert result == {}
+
+    def test_batch_multiple_hashes(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+        store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        # Write both chunks with the version_id from above
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+        chunks = [
+            Chunk(chunk_hash=hash_a, content="chunk a", chunk_index=0),
+            Chunk(chunk_hash=hash_b, content="chunk b", chunk_index=1),
+        ]
+        lineage = [
+            LineageRecord(chunk_hash=hash_a, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1"),
+            LineageRecord(chunk_hash=hash_b, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1"),
+        ]
+        store.write_chunks(chunks, lineage)
+
+        result = store.get_lineage_batch([hash_a, hash_b], "source-1")
+
+        assert len(result) == 2
+        assert hash_a in result
+        assert hash_b in result
+        assert result[hash_a].chunk_hash == hash_a
+        assert result[hash_b].chunk_hash == hash_b
+
+    def test_unknown_hash_omitted(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        self._write_chunk(store, hash_a)
+
+        result = store.get_lineage_batch([hash_a, _make_hash("missing")], "source-1")
+
+        assert len(result) == 1
+        assert hash_a in result
+        assert _make_hash("missing") not in result
+
+    def test_duplicate_chunk_across_versions_returns_earliest(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content v1",
+            chunk_hashes=[hash_a],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        version_id_2 = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[hash_a],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        chunk = Chunk(chunk_hash=hash_a, content="shared content", chunk_index=0)
+        lineage_v1 = LineageRecord(
+            chunk_hash=hash_a, source_id="source-1", source_version_id=version_id_1,
+            adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+            embedding_model_id="model-v1",
+        )
+        lineage_v2 = LineageRecord(
+            chunk_hash=hash_a, source_id="source-1", source_version_id=version_id_2,
+            adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+            embedding_model_id="model-v2",
+        )
+        store.write_chunks([chunk], [lineage_v1])
+        store.write_chunks([chunk], [lineage_v2])
+
+        result = store.get_lineage_batch([hash_a], "source-1")
+
+        assert len(result) == 1
+        # Earliest version should win — matches get_lineage behavior
+        assert result[hash_a].source_version_id == version_id_1
+
+    def test_results_match_get_lineage_per_item(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        chunks = [
+            Chunk(chunk_hash=hash_a, content="chunk a", chunk_index=0),
+            Chunk(chunk_hash=hash_b, content="chunk b", chunk_index=1),
+        ]
+        lineage = [
+            LineageRecord(chunk_hash=h, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1")
+            for h in [hash_a, hash_b]
+        ]
+        store.write_chunks(chunks, lineage)
+
+        batch_result = store.get_lineage_batch([hash_a, hash_b], "source-1")
+        single_a = store.get_lineage(hash_a, source_id="source-1")
+        single_b = store.get_lineage(hash_b, source_id="source-1")
+
+        assert single_a is not None
+        assert single_b is not None
+        assert batch_result[hash_a].source_version_id == single_a.source_version_id
+        assert batch_result[hash_a].adapter_id == single_a.adapter_id
+        assert batch_result[hash_b].source_version_id == single_b.source_version_id
+        assert batch_result[hash_b].adapter_id == single_b.adapter_id
+
+
 class TestCrossReferencesRoundTrip:
     """Tests for cross-references serialization and deserialization round-trips.
 
