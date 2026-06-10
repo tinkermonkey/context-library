@@ -1,12 +1,12 @@
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
+import { useMemo, useState, useRef, useCallback, useEffect, Fragment } from 'react';
 import type { ReactNode } from 'react';
-import { Chip, SplitPane, Icon, PageHeader } from '@tinkermonkey/heimdall-ui';
-import { HierarchyTree } from '../components/HierarchyTree';
+import { Chip, SplitPane, Icon, PageHeader, HierarchyTree, HierarchyRow } from '@tinkermonkey/heimdall-ui';
 import { OutlinePanel } from '../components/OutlinePanel';
 import { FilterDropdown } from '../components/FilterDropdown';
-import type { TreeNode } from '../components/HierarchyTree';
+import { LinkList } from '../components/LinkList';
+import type { LinkItem } from '../components/LinkList';
 import type { OutlineItem } from '../components/OutlinePanel';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
@@ -49,34 +49,6 @@ function adapterPrefix(adapterId: string): string {
 /** Convert a heading text to a stable HTML id (slug). */
 function slugify(text: string, index: number): string {
   return `heading-${index}-${text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
-}
-
-// ── Build HierarchyTree nodes from sources ─────────────────────────
-
-function buildTreeNodes(sources: SourceSummary[], adapterFilter: string[]): TreeNode[] {
-  const byAdapter = new Map<string, SourceSummary[]>();
-  for (const source of sources) {
-    const prefix = adapterPrefix(source.adapter_id);
-    if (adapterFilter.length > 0 && !adapterFilter.includes(prefix)) continue;
-    if (!byAdapter.has(prefix)) byAdapter.set(prefix, []);
-    byAdapter.get(prefix)!.push(source);
-  }
-
-  return Array.from(byAdapter.entries()).map(([prefix, groupSources]) => {
-    const sorted = [...groupSources].sort((a, b) => noteTitle(a).localeCompare(noteTitle(b)));
-    return {
-      id:    `adapter:${prefix}`,
-      label: adapterLabel(groupSources[0].adapter_id),
-      type:  'folder' as const,
-      badge: String(sorted.length),
-      children: sorted.map(source => ({
-        id:    source.source_id,
-        label: noteTitle(source),
-        type:  'file' as const,
-        data:  source,
-      })),
-    };
-  });
 }
 
 // ── Extract outline items from chunks ─────────────────────────────
@@ -300,6 +272,35 @@ interface NoteMetadata {
   tags?: string[];
   aliases?: string[];
   backlinks?: string[];
+  links?: LinkItem[];
+}
+
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+const BARE_URL_RE = /(?<![([])https?:\/\/[^\s)>",]+/g;
+
+function extractLinks(chunks: ChunkResponse[]): LinkItem[] {
+  const seen = new Set<string>();
+  const links: LinkItem[] = [];
+  for (const chunk of chunks) {
+    let m: RegExpExecArray | null;
+    MARKDOWN_LINK_RE.lastIndex = 0;
+    while ((m = MARKDOWN_LINK_RE.exec(chunk.content)) !== null) {
+      const url = m[2];
+      if (!seen.has(url)) {
+        seen.add(url);
+        links.push({ label: m[1], url });
+      }
+    }
+    BARE_URL_RE.lastIndex = 0;
+    while ((m = BARE_URL_RE.exec(chunk.content)) !== null) {
+      const url = m[0];
+      if (!seen.has(url)) {
+        seen.add(url);
+        links.push({ label: url, url });
+      }
+    }
+  }
+  return links;
 }
 
 function extractNoteMetadata(chunks: ChunkResponse[]): NoteMetadata {
@@ -311,6 +312,7 @@ function extractNoteMetadata(chunks: ChunkResponse[]): NoteMetadata {
     if (!meta.aliases && Array.isArray(dm.aliases)) meta.aliases = dm.aliases as string[];
     if (!meta.backlinks && Array.isArray(dm.backlinks)) meta.backlinks = dm.backlinks as string[];
   }
+  meta.links = extractLinks(chunks);
   return meta;
 }
 
@@ -365,6 +367,7 @@ function NoteContentPanel({
     (noteMeta.tags?.length ?? 0) +
       (noteMeta.aliases?.length ?? 0) +
       (noteMeta.backlinks?.length ?? 0) > 0;
+  const hasLinks = (noteMeta.links?.length ?? 0) > 0;
 
   // Update outline items whenever chunks change
   const outlineItems = useMemo(() => extractOutlineItems(sortedChunks), [sortedChunks]);
@@ -449,6 +452,19 @@ function NoteContentPanel({
               ↩ {link}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* External links */}
+      {!isLoading && hasLinks && (
+        <div
+          className="px-6 py-3 shrink-0"
+          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
+        >
+          <div className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            Links
+          </div>
+          <LinkList links={noteMeta.links!} />
         </div>
       )}
 
@@ -579,10 +595,20 @@ export default function NotesPage(): ReactNode {
     });
   }
 
-  const treeNodes = useMemo(
-    () => buildTreeNodes(sources, activeAdapterList),
-    [sources, activeAdapterList],
-  );
+  const adapterGroups = useMemo(() => {
+    const byAdapter = new Map<string, SourceSummary[]>();
+    for (const source of sources) {
+      const prefix = adapterPrefix(source.adapter_id);
+      if (activeAdapterList.length > 0 && !activeAdapterList.includes(prefix)) continue;
+      if (!byAdapter.has(prefix)) byAdapter.set(prefix, []);
+      byAdapter.get(prefix)!.push(source);
+    }
+    return Array.from(byAdapter.entries()).map(([prefix, groupSources]) => ({
+      id: `adapter:${prefix}`,
+      label: adapterLabel(groupSources[0].adapter_id),
+      sources: [...groupSources].sort((a, b) => noteTitle(a).localeCompare(noteTitle(b))),
+    }));
+  }, [sources, activeAdapterList]);
 
   // Adapter folders default to expanded. Track only folders the user has explicitly collapsed.
   const [collapsedByUser, setCollapsedByUser] = useState<Set<string>>(new Set());
@@ -697,20 +723,41 @@ export default function NotesPage(): ReactNode {
             </div>
             <p className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Failed to load notes</p>
           </div>
-        ) : treeNodes.length === 0 ? (
+        ) : adapterGroups.length === 0 ? (
           <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
             No notes found
           </div>
         ) : (
-          <HierarchyTree
-            nodes={treeNodes}
-            selectedId={selectedSourceId ?? null}
-            expandedIds={expandedIds}
-            onExpandToggle={handleExpandToggle}
-            onSelect={node => {
-              if (node.type === 'file') selectSource(node.id);
-            }}
-          />
+          <HierarchyTree>
+            {adapterGroups.map(group => {
+              const isOpen = expandedIds.has(group.id);
+              return (
+                <Fragment key={group.id}>
+                  <HierarchyRow
+                    depth={0}
+                    domain="software"
+                    kind="scheme"
+                    label={group.label}
+                    meta={String(group.sources.length)}
+                    onSelect={() => handleExpandToggle(group.id)}
+                    showKind={false}
+                  />
+                  {isOpen && group.sources.map(source => (
+                    <HierarchyRow
+                      key={source.source_id}
+                      depth={1}
+                      domain="software"
+                      kind="class"
+                      label={noteTitle(source)}
+                      selected={selectedSourceId === source.source_id}
+                      onSelect={() => selectSource(source.source_id)}
+                      showKind={false}
+                    />
+                  ))}
+                </Fragment>
+              );
+            })}
+          </HierarchyTree>
         )}
       </div>
     </div>

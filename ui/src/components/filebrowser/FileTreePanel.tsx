@@ -1,44 +1,25 @@
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useMemo, Fragment, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import { Icon, HierarchyTree, HierarchyRow } from '@tinkermonkey/heimdall-ui';
 import { useSources } from '../../hooks/useSources';
 import { buildFileTree, type FileTreeNode, type FileNode } from '../../utils/fileTree';
-import { HierarchyTree, type TreeNode } from '../HierarchyTree';
 import type { FileBrowserPageSearch } from '../../router';
 
 interface FileTreePanelProps {
-  /** The selected source ID from URL, or null if no selection */
   selectedSourceId: string | null;
-  /** Optional source ID prefix for subtree loading */
   sourceIdPrefix?: string;
 }
 
 const FILE_TREE_LIMIT = 5000;
 
-function toTreeNodes(nodes: FileTreeNode[]): TreeNode[] {
-  return nodes.map((node) => {
-    if (node.type === 'folder') {
-      return {
-        id: node.path,
-        label: node.name,
-        type: 'folder',
-        children: toTreeNodes(node.children),
-      };
-    }
-    return {
-      id: node.path,
-      label: node.name,
-      type: 'file',
-      data: node.source,
-    };
-  });
+function countFiles(node: FileTreeNode): number {
+  if (node.type === 'file') return 1;
+  return node.children.reduce((sum, child) => sum + countFiles(child), 0);
 }
 
 export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePanelProps): ReactNode {
   const navigate = useNavigate({ from: '/browser/files' });
-  const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(
-    new Set()
-  );
+  const [manuallyExpandedFolders, setManuallyExpandedFolders] = useState<Set<string>>(new Set());
   const [manuallyClosedFolders, setManuallyClosedFolders] = useState<Set<string>>(new Set());
 
   const { data: sourcesData, isLoading, isError, error } = useSources({
@@ -48,21 +29,17 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
   });
 
   const allSources = useMemo(() => sourcesData?.sources ?? [], [sourcesData?.sources]);
-  // Filter to filesystem-based adapters only
   const sources = useMemo(
     () => allSources.filter((source) => source.adapter_id.startsWith('filesystem')),
     [allSources]
   );
 
   const fileTree = useMemo(() => buildFileTree(sources), [sources]);
-  const treeNodes = useMemo(() => toTreeNodes(fileTree), [fileTree]);
 
-  // Compute ancestor folder paths for the selected file so they auto-expand
   const ancestorIds = useMemo((): string[] => {
     if (!selectedSourceId) return [];
     const match = sources.find((s) => s.source_id === selectedSourceId);
     if (!match) return [];
-
     const adapterId = match.adapter_id;
     const parts = selectedSourceId.split('/').filter(Boolean);
     let currentPath = adapterId;
@@ -74,7 +51,6 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
     return paths;
   }, [selectedSourceId, sources]);
 
-  // expandedIds = manually opened + ancestors (minus anything explicitly closed by user)
   const expandedIds = useMemo((): Set<string> => {
     const ids = new Set([...manuallyExpandedFolders]);
     for (const id of ancestorIds) {
@@ -90,7 +66,6 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
         next.delete(id);
         return next;
       });
-      // Track explicit close so ancestor auto-expand doesn't reopen it
       if (ancestorIds.includes(id)) {
         setManuallyClosedFolders((prev) => new Set([...prev, id]));
       }
@@ -104,7 +79,6 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
     }
   };
 
-  // Map the selected source_id to the corresponding tree node path
   const selectedNodeId = useMemo((): string | null => {
     if (!selectedSourceId) return null;
     const match = sources.find((s) => s.source_id === selectedSourceId);
@@ -115,16 +89,47 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
     return path;
   }, [selectedSourceId, sources]);
 
-  const handleSelect = (node: TreeNode) => {
-    const source = node.data as FileNode['source'] | undefined;
-    if (source?.source_id) {
-      navigate({
-        search: (prev: FileBrowserPageSearch) => ({
-          ...prev,
-          file: source.source_id,
-        }),
-      });
-    }
+  const handleFileSelect = (fileNode: FileNode) => {
+    navigate({
+      search: (prev: FileBrowserPageSearch) => ({
+        ...prev,
+        file: fileNode.source.source_id,
+      }),
+    });
+  };
+
+  const renderNodes = (nodes: FileTreeNode[], depth: number): ReactNode => {
+    return nodes.map((node) => {
+      if (node.type === 'folder') {
+        const isOpen = expandedIds.has(node.path);
+        return (
+          <Fragment key={node.path}>
+            <HierarchyRow
+              depth={depth}
+              domain="software"
+              kind="taxonomy"
+              label={node.name}
+              meta={String(countFiles(node))}
+              onSelect={() => handleExpandToggle(node.path)}
+              showKind={false}
+            />
+            {isOpen && renderNodes(node.children, depth + 1)}
+          </Fragment>
+        );
+      }
+      return (
+        <HierarchyRow
+          key={node.path}
+          depth={depth}
+          domain="software"
+          kind="class"
+          label={node.name}
+          selected={selectedNodeId === node.path}
+          onSelect={() => handleFileSelect(node)}
+          showKind={false}
+        />
+      );
+    });
   };
 
   const isTruncated =
@@ -186,13 +191,9 @@ export function FileTreePanel({ selectedSourceId, sourceIdPrefix }: FileTreePane
         </div>
       )}
       <div className="flex-1 overflow-y-auto py-1">
-        <HierarchyTree
-          nodes={treeNodes}
-          selectedId={selectedNodeId}
-          expandedIds={expandedIds}
-          onExpandToggle={handleExpandToggle}
-          onSelect={handleSelect}
-        />
+        <HierarchyTree>
+          {renderNodes(fileTree, 0)}
+        </HierarchyTree>
       </div>
     </div>
   );

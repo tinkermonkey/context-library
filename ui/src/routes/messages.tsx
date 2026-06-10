@@ -7,6 +7,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { SplitPane, Icon, PageHeader, ChatMessage } from "@tinkermonkey/heimdall-ui";
 import { KVGrid } from "../components/KVGrid";
+import { MentionsList } from "../components/MentionsList";
 import { FilterDropdown } from "../components/FilterDropdown";
 import { useSources } from "../hooks/useSources";
 import { fetchSourceChunks } from "../api/client";
@@ -504,13 +505,7 @@ function MetadataSidebar({ source }: { source: SourceSummary }): ReactNode {
   const kvRows = [
     {
       key: 'Participants',
-      value: (
-        <div className="flex flex-col gap-0.5">
-          {participants.map((p, i) => (
-            <span key={i} style={{ fontSize: 12, color: 'rgb(var(--canvas-fg-2))' }}>{p}</span>
-          ))}
-        </div>
-      ),
+      value: <MentionsList mentions={participants} maxVisible={6} />,
     },
     {
       key: 'Messages',

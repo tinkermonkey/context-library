@@ -10,6 +10,7 @@ import {
 } from '@tinkermonkey/heimdall-ui';
 import type { ActivityEvent } from '@tinkermonkey/heimdall-ui';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { NowPlaying } from '../components/NowPlaying';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -394,6 +395,16 @@ export default function MusicPage(): ReactNode {
                     RECENTLY PLAYED
                   </span>
                 </div>
+                {recentTracks.length > 0 && (
+                  <div className="px-3 pt-3 pb-1 shrink-0">
+                    <NowPlaying
+                      title={recentTracks[0].meta.track_title}
+                      artist={recentTracks[0].meta.artist}
+                      album={recentTracks[0].meta.album || undefined}
+                      lastPlayedAt={recentTracks[0].meta.last_played ? formatLastPlayed(recentTracks[0].meta.last_played) : undefined}
+                    />
+                  </div>
+                )}
                 <div className="flex-1 overflow-y-auto p-2">
                   <ActivityTimeline
                     events={timelineEvents}
