@@ -1432,6 +1432,7 @@ class TestSourceLocksLRUCache:
         assert len(errors) == 0
         # Cache should be bounded
         assert pipeline._source_locks_max_size == 10_000
+        assert len(pipeline._source_locks_cache) <= pipeline._source_locks_max_size
 
 
 class TestPipelineRunLifecycle:
@@ -1447,7 +1448,6 @@ class TestPipelineRunLifecycle:
 
     def test_active_runs_empty_after_ingest_raises(self, pipeline, domain_chunker):
         """_active_runs should be empty even when ingest() raises an exception."""
-        import threading
         from unittest.mock import MagicMock
         from context_library.adapters.base import AllEndpointsFailedError
         from context_library.core.exceptions import AllSourcesFailedError
@@ -1563,4 +1563,3 @@ class TestPipelineRunLifecycle:
 
         # Run must be cleaned up even when all sources fail
         assert len(pipeline.get_active_runs()) == 0
-        assert len(pipeline._source_locks_cache) <= pipeline._source_locks_max_size
