@@ -27,7 +27,7 @@ const SUGGESTED_QUERIES = [
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevance' },
-  { value: 'date', label: 'Date' },
+  { value: 'date', label: 'Version' },
   { value: 'source', label: 'Source' },
 ];
 
@@ -250,7 +250,6 @@ export default function SearchPage() {
   // Client-side filter state
   const [domainFilter, setDomainFilter] = useState<string[]>(search.domain ? [search.domain] : []);
   const [adapterFilter, setAdapterFilter] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<string>('any');
   const [minScore, setMinScore] = useState<string>('any');
   const [sortOrder, setSortOrder] = useState<string | number>('relevance');
   // Selected result for detail panel
@@ -441,26 +440,6 @@ export default function SearchPage() {
             {availableAdapters.map((id) => (
               <FilterDropdown.Checkbox key={id} value={id} label={id} />
             ))}
-          </FilterDropdown.Section>
-        </FilterDropdown.Panel>
-      </FilterDropdown>
-
-      <FilterDropdown
-        mode="radio"
-        value={[dateRange]}
-        onChange={(vals) => setDateRange(vals[0] ?? 'any')}
-      >
-        <FilterDropdown.Trigger
-          label="Date"
-          summary={dateRange === 'any' ? 'Any time' : dateRange === 'today' ? 'Today' : dateRange === 'week' ? 'This week' : dateRange === 'month' ? 'This month' : 'This year'}
-        />
-        <FilterDropdown.Panel>
-          <FilterDropdown.Section title="Date range">
-            <FilterDropdown.Radio value="any" label="Any time" />
-            <FilterDropdown.Radio value="today" label="Today" />
-            <FilterDropdown.Radio value="week" label="This week" />
-            <FilterDropdown.Radio value="month" label="This month" />
-            <FilterDropdown.Radio value="year" label="This year" />
           </FilterDropdown.Section>
         </FilterDropdown.Panel>
       </FilterDropdown>

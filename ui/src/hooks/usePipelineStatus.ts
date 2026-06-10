@@ -16,22 +16,20 @@ export const usePipelineStatus = () =>
     queryKey: ['pipeline-status'],
     queryFn: async (): Promise<Pipeline[]> => {
       const resp = await fetchAdminAdapters();
-      return resp.adapters
-        .filter((a) => a.last_run !== null)
-        .map((a) => ({
-          id: a.adapter_id,
-          name: a.adapter_id,
-          status: 'success' as const,
-          flow: PIPELINE_FLOW,
-          recent: {
-            ingested: a.source_count,
-            created: a.active_chunk_count,
-            updated: 0,
-            errors: 0,
-          },
-          tags: [a.domain],
-          lastRun: a.last_run ?? undefined,
-        }));
+      return resp.adapters.map((a) => ({
+        id: a.adapter_id,
+        name: a.adapter_id,
+        status: (a.last_run === null ? 'pending' : 'success') as 'pending' | 'success',
+        flow: PIPELINE_FLOW,
+        recent: {
+          ingested: a.source_count,
+          created: a.active_chunk_count,
+          updated: 0,
+          errors: 0,
+        },
+        tags: [a.domain],
+        lastRun: a.last_run ?? undefined,
+      }));
     },
     staleTime: 30_000,
     refetchInterval: 30_000,

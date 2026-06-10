@@ -10,7 +10,7 @@ export const useActivity = (limit = 20) =>
       const resp = await fetchSources({ limit, sort_by: 'updated_at', order: 'desc' });
       return resp.sources.map((s) => ({
         id: s.source_id,
-        type: 'update' as const,
+        type: (s.created_at === s.updated_at ? 'create' : 'update') as 'create' | 'update',
         subject: s.display_name ?? s.adapter_id,
         timestamp: s.updated_at,
         kind: s.domain,

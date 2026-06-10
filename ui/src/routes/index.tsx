@@ -21,6 +21,14 @@ import { DomainTile } from '../components/DomainTile';
 import { DOMAIN_NAMES } from '../lib/designTokens';
 import { capitalize } from '../utils/formatters';
 
+// ── Constants ─────────────────────────────────────────────────────
+
+const domainTileRoutes: Record<string, string> = {
+  notes: '/notes', messages: '/messages', events: '/events', tasks: '/tasks',
+  health: '/health', documents: '/documents', people: '/people', location: '/location',
+  music: '/music',
+};
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 function formatNumber(n: number): string {
@@ -72,12 +80,6 @@ export default function DashboardPage() {
   const pendingInserts = stats.data?.sync_queue_pending_insert ?? 0;
   const pendingDeletes = stats.data?.sync_queue_pending_delete ?? 0;
   const pendingTotal = pendingInserts + pendingDeletes;
-
-  const domainTileRoutes: Record<string, string> = {
-    notes: '/notes', messages: '/messages', events: '/events', tasks: '/tasks',
-    health: '/health', documents: '/documents', people: '/people', location: '/location',
-    music: '/music',
-  };
 
   return (
     <div className="flex flex-col h-full min-h-0">
