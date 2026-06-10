@@ -11,10 +11,11 @@ import {
 import type { LineageNode, VersionEntry, LogEntry } from '@tinkermonkey/heimdall-ui';
 import { KVGrid } from '../components/KVGrid';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { useChunk } from '../hooks/useChunks';
-import { useVersionHistory } from '../hooks/useSources';
+import { useChunk, useChunkVersionChain } from '../hooks/useChunks';
 import { useAdminLogs } from '../hooks/useAdminLogs';
 import { capitalize } from '../utils/formatters';
+
+const ADMIN_LOGS_LIMIT = 200;
 
 type CenterView = 'context' | 'content' | 'embedding';
 
@@ -38,8 +39,8 @@ export default function ChunkInspectorPage(): ReactNode {
   const chunk = chunkQuery.data;
   const sourceId = chunk?.lineage.source_id ?? '';
 
-  const historyQuery = useVersionHistory(sourceId);
-  const logsQuery = useAdminLogs(200);
+  const versionChainQuery = useChunkVersionChain(chunkHash, sourceId, !!sourceId);
+  const logsQuery = useAdminLogs(ADMIN_LOGS_LIMIT);
 
   const lineageNodes: LineageNode[] = useMemo(() => {
     if (!chunk) return [];
@@ -70,21 +71,21 @@ export default function ChunkInspectorPage(): ReactNode {
     ];
   }, [chunk]);
 
+  // Build timeline from the chunk's own version chain.
+  // Note: the /version-chain endpoint does not yet return timestamps or similarity scores;
+  // timestamps are omitted and similarity scores will be added when the API is extended.
   const timelineEntries: VersionEntry[] = useMemo(() => {
-    const vs = historyQuery.data?.versions ?? [];
-    const headVersion = chunk?.lineage.source_version_id;
-    return vs.map((v) => ({
-      id: String(v.version),
-      label: `v${v.version}`,
-      timestamp: v.fetch_timestamp,
-      head: v.version === headVersion,
-      stats: {
-        added: v.added_chunks,
-        removed: v.removed_chunks,
-        kept: v.unchanged_chunks,
-      },
+    const chain = versionChainQuery.data?.chain ?? [];
+    return chain.map((item, index) => ({
+      id: item.chunk_hash,
+      label: item.chunk_hash.substring(0, 12),
+      headline: item.context_header
+        ? item.context_header.split('\n')[0].slice(0, 60)
+        : item.chunk_type,
+      timestamp: '',
+      head: item.chunk_hash === chunkHash || index === chain.length - 1,
     }));
-  }, [historyQuery.data, chunk]);
+  }, [versionChainQuery.data, chunkHash]);
 
   const logEntries: LogEntry[] = useMemo(() => {
     const entries = logsQuery.data?.entries ?? [];
@@ -99,6 +100,10 @@ export default function ChunkInspectorPage(): ReactNode {
         target: e.chunk_hash.substring(0, 12),
       }));
   }, [logsQuery.data, chunkHash]);
+
+  const logsMayBeTruncated =
+    !logsQuery.isLoading &&
+    (logsQuery.data?.total ?? 0) > ADMIN_LOGS_LIMIT;
 
   const isLoading = chunkQuery.isLoading;
 
@@ -214,20 +219,27 @@ export default function ChunkInspectorPage(): ReactNode {
           </div>
         </section>
 
-        {/* Version Timeline */}
+        {/* Chunk Version Chain */}
         <section>
-          <SectionHeading>Source Version History</SectionHeading>
-          {historyQuery.isLoading ? (
+          <SectionHeading>Version Chain</SectionHeading>
+          <p className="text-xs mb-2 italic" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            Similarity scores to HEAD are not yet available from the API.
+          </p>
+          {!sourceId ? (
+            <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              Waiting for source ID…
+            </span>
+          ) : versionChainQuery.isLoading ? (
             <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Loading…</span>
-          ) : historyQuery.isError ? (
+          ) : versionChainQuery.isError ? (
             <span className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>
-              Failed to load version history
+              Failed to load version chain
             </span>
           ) : (
             <VersionTimeline
               entries={timelineEntries}
               order="newest-first"
-              emptyState="No version history"
+              emptyState="No version chain data"
             />
           )}
         </section>
@@ -235,6 +247,15 @@ export default function ChunkInspectorPage(): ReactNode {
         {/* Sync Log */}
         <section>
           <SectionHeading>Sync Log</SectionHeading>
+          {logsMayBeTruncated && (
+            <p
+              className="text-xs mb-2 italic"
+              style={{ color: 'rgb(var(--status-warning, var(--canvas-fg-3)))' }}
+            >
+              The log has {logsQuery.data!.total} entries; only the most recent {ADMIN_LOGS_LIMIT} were
+              fetched. Entries for this chunk may be missing.
+            </p>
+          )}
           {logsQuery.isLoading ? (
             <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Loading…</span>
           ) : logEntries.length === 0 ? (

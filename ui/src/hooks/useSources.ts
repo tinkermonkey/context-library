@@ -25,8 +25,6 @@ export const useVersionHistory = (sourceId: string, enabled = true) =>
     enabled: enabled && !!sourceId,
   });
 
-export const useSourceVersions = useVersionHistory;
-
 export const useVersionDetail = (sourceId: string, version: number, enabled = true) =>
   useQuery({
     queryKey: ['version-detail', sourceId, version],

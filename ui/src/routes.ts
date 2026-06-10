@@ -33,8 +33,8 @@ import {
 
 // Lazy load route components to enable code splitting
 const SourcesPage = lazy(() => import('./routes/sources'))
-const SourceDetailPage = lazy(() => import('./routes/source-detail'))
-const ChunkInspectorPage = lazy(() => import('./routes/chunk-inspector'))
+const SourceDetailPage = lazy(() => import('./routes/sources.$sourceId'))
+const ChunkInspectorPage = lazy(() => import('./routes/chunks.$chunkHash'))
 
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
