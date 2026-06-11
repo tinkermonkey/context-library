@@ -91,7 +91,7 @@ class DocumentStore:
         self._local.conn = self._make_connection()
 
         # Check if this is an existing database that needs migration
-        # This must be done BEFORE executing schema.sql which sets version to 4
+        # This must be done BEFORE executing schema.sql which sets version to 6
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
