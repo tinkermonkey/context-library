@@ -4566,8 +4566,10 @@ class TestGetLineageBatch:
         assert single_b is not None
         assert batch_result[hash_a].source_version_id == single_a.source_version_id
         assert batch_result[hash_a].adapter_id == single_a.adapter_id
+        assert batch_result[hash_a].fetch_timestamp == single_a.fetch_timestamp
         assert batch_result[hash_b].source_version_id == single_b.source_version_id
         assert batch_result[hash_b].adapter_id == single_b.adapter_id
+        assert batch_result[hash_b].fetch_timestamp == single_b.fetch_timestamp
 
 
 class TestCrossReferencesRoundTrip:
