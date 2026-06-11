@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useRouterState } from '@tanstack/react-router';
-import { Drawer, Panel, PageHeader, ResultCard, SegmentedControl } from '@tinkermonkey/heimdall-ui';
+import { Drawer, PageHeader, ResultCard, SegmentedControl } from '@tinkermonkey/heimdall-ui';
 import { FilterDropdown } from '../components/FilterDropdown';
 import { FacetList } from '../components/FacetList';
 import { SearchHero } from '../components/SearchHero';
@@ -251,6 +251,7 @@ export default function SearchPage() {
   const [domainFilter, setDomainFilter] = useState<string[]>(search.domain ? [search.domain] : []);
   const [adapterFilter, setAdapterFilter] = useState<string[]>([]);
   const [minScore, setMinScore] = useState<string>('any');
+  const [dateRange, setDateRange] = useState<string>('any');
   const [sortOrder, setSortOrder] = useState<string | number>('relevance');
   // Selected result for detail panel
   const [selectedResult, setSelectedResult] = useState<QueryResultItem | null>(null);
@@ -326,8 +327,24 @@ export default function SearchPage() {
       const threshold = thresholds[minScore] ?? 0;
       results = results.filter((r) => r.similarity_score >= threshold);
     }
+    if (dateRange !== 'any') {
+      const cutoffMs: Record<string, number> = {
+        '1d': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000,
+        '90d': 90 * 24 * 60 * 60 * 1000,
+      };
+      const ms = cutoffMs[dateRange];
+      if (ms) {
+        const cutoff = Date.now() - ms;
+        results = results.filter((r) => {
+          if (!r.version_date) return true;
+          return new Date(r.version_date).getTime() >= cutoff;
+        });
+      }
+    }
     return results;
-  }, [allResults, adapterFilter, minScore]);
+  }, [allResults, adapterFilter, minScore, dateRange]);
 
   // Apply sort
   const sortedResults = useMemo(() => {
@@ -459,6 +476,32 @@ export default function SearchPage() {
             <FilterDropdown.Radio value="high" label="High (≥0.80)" />
             <FilterDropdown.Radio value="medium" label="Medium (≥0.60)" />
             <FilterDropdown.Radio value="low" label="Low (≥0.40)" />
+          </FilterDropdown.Section>
+        </FilterDropdown.Panel>
+      </FilterDropdown>
+
+      <FilterDropdown
+        mode="radio"
+        value={[dateRange]}
+        onChange={(vals) => { setDateRange(vals[0] ?? 'any'); setSelectedResult(null); }}
+      >
+        <FilterDropdown.Trigger
+          label="Date"
+          summary={
+            dateRange === 'any' ? 'All time' :
+            dateRange === '1d' ? 'Last 24h' :
+            dateRange === '7d' ? 'Last 7 days' :
+            dateRange === '30d' ? 'Last 30 days' :
+            'Last 90 days'
+          }
+        />
+        <FilterDropdown.Panel>
+          <FilterDropdown.Section title="Ingested within">
+            <FilterDropdown.Radio value="any" label="All time" />
+            <FilterDropdown.Radio value="1d" label="Last 24 hours" />
+            <FilterDropdown.Radio value="7d" label="Last 7 days" />
+            <FilterDropdown.Radio value="30d" label="Last 30 days" />
+            <FilterDropdown.Radio value="90d" label="Last 90 days" />
           </FilterDropdown.Section>
         </FilterDropdown.Panel>
       </FilterDropdown>

@@ -1,6 +1,7 @@
 """Chunk inspection endpoints."""
 
 import asyncio
+import math
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
@@ -14,7 +15,7 @@ from context_library.server.schemas import (
     LineageResponse,
     TopLevelChunkListResponse,
 )
-from context_library.storage.models import Domain, LineageRecord
+from context_library.storage.models import Chunk, Domain, LineageRecord
 
 router = APIRouter(prefix="/chunks", tags=["chunks"])
 
@@ -56,13 +57,28 @@ def _chunk_response(chunk, lineage, source_id: str) -> ChunkResponse:
     )
 
 
-def _to_chain_item(chunk) -> ChunkVersionChainItem:
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return max(0.0, min(1.0, dot / (norm_a * norm_b)))
+
+
+def _to_chain_item(
+    chunk: Chunk,
+    fetch_timestamp: str | None = None,
+    similarity_to_head: float | None = None,
+) -> ChunkVersionChainItem:
     return ChunkVersionChainItem(
         chunk_hash=chunk.chunk_hash,
         content=chunk.content,
         context_header=chunk.context_header,
         chunk_index=chunk.chunk_index,
         chunk_type=chunk.chunk_type.value,
+        fetch_timestamp=fetch_timestamp,
+        similarity_to_head=similarity_to_head,
     )
 
 
@@ -188,14 +204,35 @@ async def get_chunk_version_chain(
     source_id: str = Query(...),
 ) -> ChunkVersionChainResponse:
     ds = request.app.state.document_store
-    chain_chunks = await asyncio.to_thread(ds.get_chunk_version_chain, chunk_hash, source_id)
-    if not chain_chunks:
+    embedder = request.app.state.embedder
+
+    chain_with_ts = await asyncio.to_thread(
+        ds.get_chunk_version_chain_with_timestamps, chunk_hash, source_id
+    )
+    if not chain_with_ts:
         raise HTTPException(
             status_code=404,
             detail=f"Chunk '{chunk_hash}' not found in source '{source_id}'",
         )
+
+    # Compute similarity scores for each chain item relative to HEAD
+    contents = [chunk.content for chunk, _ in chain_with_ts]
+    embeddings: list[list[float]] = await asyncio.to_thread(embedder.embed, contents)
+
+    # HEAD is the item matching chunk_hash; fall back to last item if not found
+    head_idx = next(
+        (i for i, (c, _) in enumerate(chain_with_ts) if c.chunk_hash == chunk_hash),
+        len(chain_with_ts) - 1,
+    )
+    head_embedding = embeddings[head_idx]
+
+    chain_items = []
+    for i, (chunk, ts) in enumerate(chain_with_ts):
+        similarity = _cosine_similarity(head_embedding, embeddings[i])
+        chain_items.append(_to_chain_item(chunk, fetch_timestamp=ts, similarity_to_head=similarity))
+
     return ChunkVersionChainResponse(
         chunk_hash=chunk_hash,
         source_id=source_id,
-        chain=[_to_chain_item(c) for c in chain_chunks],
+        chain=chain_items,
     )

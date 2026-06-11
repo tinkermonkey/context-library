@@ -1745,6 +1745,38 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [self._build_chunk_from_row(row) for row in rows]
 
+    def get_chunk_version_chain_with_timestamps(
+        self, chunk_hash: str, source_id: str
+    ) -> list[tuple[Chunk, str]]:
+        """Like get_chunk_version_chain but includes created_at for each chain entry.
+
+        Returns list of (Chunk, created_at_iso) tuples ordered by created_at ascending.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT chunk_hash, source_id, content, context_header, chunk_index, chunk_type,
+                       domain_metadata, created_at, parent_chunk_hash, 1 AS depth
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                UNION
+                SELECT c.chunk_hash, c.source_id, c.content, c.context_header, c.chunk_index, c.chunk_type,
+                       c.domain_metadata, c.created_at, c.parent_chunk_hash, ch.depth + 1
+                FROM chunks c
+                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash AND c.source_id = ch.source_id
+                WHERE ch.depth < 1000 AND c.retired_at IS NULL
+            )
+            SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                   domain_metadata, created_at
+            FROM chain
+            ORDER BY created_at ASC
+            """,
+            (chunk_hash, source_id),
+        )
+        rows = cursor.fetchall()
+        return [(self._build_chunk_from_row(row), row["created_at"]) for row in rows]
+
     def get_chunks_by_source(
         self,
         source_id: str,
@@ -1941,7 +1973,7 @@ class DocumentStore:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                       normalizer_version, embedding_model_id
+                       normalizer_version, embedding_model_id, fetch_timestamp
                 FROM chunks
                 WHERE chunk_hash = ? AND source_id = ?
                 ORDER BY created_at ASC
@@ -1953,7 +1985,7 @@ class DocumentStore:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                       normalizer_version, embedding_model_id
+                       normalizer_version, embedding_model_id, fetch_timestamp
                 FROM chunks
                 WHERE chunk_hash = ?
                 ORDER BY created_at ASC
@@ -1974,6 +2006,7 @@ class DocumentStore:
             domain=Domain(row["domain"]),
             normalizer_version=row["normalizer_version"],
             embedding_model_id=row["embedding_model_id"],
+            fetch_timestamp=row["fetch_timestamp"],
         )
 
     def get_lineage_batch(self, chunk_hashes: list[str], source_id: str) -> dict[str, LineageRecord]:

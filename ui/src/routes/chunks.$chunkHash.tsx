@@ -71,20 +71,25 @@ export default function ChunkInspectorPage(): ReactNode {
     ];
   }, [chunk]);
 
-  // Build timeline from the chunk's own version chain.
-  // Note: the /version-chain endpoint does not yet return timestamps or similarity scores;
-  // timestamps are omitted and similarity scores will be added when the API is extended.
   const timelineEntries: VersionEntry[] = useMemo(() => {
     const chain = versionChainQuery.data?.chain ?? [];
-    return chain.map((item, index) => ({
-      id: item.chunk_hash,
-      label: item.chunk_hash.substring(0, 12),
-      headline: item.context_header
+    return chain.map((item, index) => {
+      const isHead = item.chunk_hash === chunkHash || index === chain.length - 1;
+      const baseHeadline = item.context_header
         ? item.context_header.split('\n')[0].slice(0, 60)
-        : item.chunk_type,
-      timestamp: '',
-      head: item.chunk_hash === chunkHash || index === chain.length - 1,
-    }));
+        : item.chunk_type;
+      const scoreLabel =
+        item.similarity_to_head != null && !isHead
+          ? ` · ${(item.similarity_to_head * 100).toFixed(1)}% similar`
+          : '';
+      return {
+        id: item.chunk_hash,
+        label: item.chunk_hash.substring(0, 12),
+        headline: `${baseHeadline}${scoreLabel}`,
+        timestamp: item.fetch_timestamp ?? '',
+        head: isHead,
+      };
+    });
   }, [versionChainQuery.data, chunkHash]);
 
   const logEntries: LogEntry[] = useMemo(() => {
@@ -222,9 +227,6 @@ export default function ChunkInspectorPage(): ReactNode {
         {/* Chunk Version Chain */}
         <section>
           <SectionHeading>Version Chain</SectionHeading>
-          <p className="text-xs mb-2 italic" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            Similarity scores to HEAD are not yet available from the API.
-          </p>
           {!sourceId ? (
             <span className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
               Waiting for source ID…

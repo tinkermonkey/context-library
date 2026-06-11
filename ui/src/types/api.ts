@@ -196,6 +196,8 @@ export interface ChunkVersionChainItem {
   context_header: string | null;
   chunk_index: number;
   chunk_type: string;
+  fetch_timestamp: string | null;
+  similarity_to_head: number | null;
 }
 
 export interface VersionDiffResponse {
@@ -249,6 +251,7 @@ export interface QueryResultItem {
   adapter_id: string;
   embedding_model: string;
   similarity_score: number;
+  version_date: string | null;
 }
 
 export interface QueryResponse {

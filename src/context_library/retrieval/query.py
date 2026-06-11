@@ -90,6 +90,7 @@ class RetrievalResult(BaseModel):
             "adapter_id": self.lineage.adapter_id,
             "embedding_model": self.lineage.embedding_model_id,
             "similarity_score": self.similarity_score,
+            "version_date": self.lineage.fetch_timestamp,
         }
 
         # Include domain_metadata for all domains except PEOPLE (FR-6.3 requirement)

@@ -99,6 +99,7 @@ class QueryResultItem(BaseModel):
     adapter_id: str
     embedding_model: str
     similarity_score: float
+    version_date: str | None = None
     domain_metadata: dict[str, Any] | None = None
     provenance: ProvenanceInfo | None = None
 
@@ -331,6 +332,8 @@ class ChunkVersionChainItem(BaseModel):
     context_header: str | None
     chunk_index: int
     chunk_type: str
+    fetch_timestamp: str | None = None
+    similarity_to_head: float | None = None
 
 
 class ChunkVersionChainResponse(BaseModel):
