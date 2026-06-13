@@ -3,9 +3,13 @@ import type { ReactNode } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
-  MinusIcon,
-} from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+  Icon, PageHeader,
+  StatTile, StatGrid,
+  Heatmap,
+  StackedBar,
+} from '@tinkermonkey/heimdall-ui';
+import { SegmentedControl } from '../components/SegmentedControl';
+import { FilterDropdown } from '../components/FilterDropdown';
 import { fetchChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
 import type { ChunkResponse } from '../types/api';
@@ -23,15 +27,13 @@ interface HealthMetric {
   metric_type: MetricKey;
   value: number;
   unit: string;
-  date: string; // YYYY-MM-DD UTC
+  date: string;
   adapter_id: string;
 }
 
-/** A resolved metric reading for a single day, with source attribution. */
 interface MetricReading {
   value: number;
   adapter_id: string;
-  /** true when multiple adapters reported this metric for the same day */
   hasConflict: boolean;
 }
 
@@ -45,7 +47,6 @@ interface DayBucket {
 
 interface ValueTrend {
   current: MetricReading | null;
-  /** Most recent prior day with a non-null value — used for delta/trend. */
   prev: MetricReading | null;
 }
 
@@ -63,7 +64,6 @@ function extractHealthMetric(chunk: ChunkResponse): HealthMetric | null {
     typeof dm.value === 'number' ? dm.value : parseFloat(String(dm.value ?? ''));
   if (isNaN(value)) return null;
 
-  // Prefer domain_metadata.date; fall back to first YYYY-MM-DD in context_header
   let date = typeof dm.date === 'string' ? dm.date.slice(0, 10) : '';
   if (!date && chunk.context_header) {
     const m = chunk.context_header.match(/(\d{4}-\d{2}-\d{2})/);
@@ -80,10 +80,7 @@ function extractHealthMetric(chunk: ChunkResponse): HealthMetric | null {
   };
 }
 
-// ── Date helpers — UTC throughout ─────────────────────────────────
-//
-// All date keys are YYYY-MM-DD strings derived from UTC midnight so they
-// match ISO dates returned by the API regardless of the user's timezone.
+// ── Date helpers ───────────────────────────────────────────────────
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10);
@@ -99,7 +96,6 @@ function dateRange(days: number): { from: string; to: string } {
   return { from: daysAgoKey(days - 1), to: todayKey() };
 }
 
-/** Generates YYYY-MM-DD keys for every calendar day from [from, to] inclusive. */
 function datesBetween(from: string, to: string): string[] {
   const dates: string[] = [];
   const cur = new Date(from + 'T00:00:00Z');
@@ -118,11 +114,6 @@ function shortDateLabel(key: string): string {
 
 // ── Source priority & labels ───────────────────────────────────────
 
-/**
- * When two adapters report the same metric on the same day, Oura Ring data
- * takes precedence. Apple Health can aggregate from many sources (including
- * Oura), so summing both would double-count.
- */
 function adapterPriority(adapterId: string): number {
   const base = (adapterId ?? '').split(':')[0].toLowerCase();
   if (base.includes('oura')) return 2;
@@ -134,10 +125,7 @@ function adapterDisplayName(adapterId: string): string {
   const base = (adapterId ?? '').split(':')[0].toLowerCase();
   if (base.includes('oura')) return 'Oura Ring';
   if (base.includes('apple_health') || base.includes('applehealth')) return 'Apple Health';
-  return (adapterId ?? '')
-    .split(':')[0]
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
+  return (adapterId ?? '').split(':')[0].replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function sourcesUsed(metrics: HealthMetric[]): string[] {
@@ -148,11 +136,6 @@ function sourcesUsed(metrics: HealthMetric[]): string[] {
 
 // ── Aggregation ────────────────────────────────────────────────────
 
-/**
- * Selects the canonical reading when multiple adapters report the same
- * metric on the same day. Higher-priority adapter wins; conflict is flagged
- * so the UI can label the source.
- */
 function resolveReading(readings: HealthMetric[]): MetricReading | null {
   if (readings.length === 0) return null;
   const sorted = [...readings].sort(
@@ -166,7 +149,6 @@ function resolveReading(readings: HealthMetric[]): MetricReading | null {
 }
 
 function aggregateByDay(metrics: HealthMetric[]): Map<string, DayBucket> {
-  // Pass 1: collect all raw readings per date × metric
   const raw = new Map<string, Record<MetricKey, HealthMetric[]>>();
   for (const m of metrics) {
     if (!raw.has(m.date)) {
@@ -175,7 +157,6 @@ function aggregateByDay(metrics: HealthMetric[]): Map<string, DayBucket> {
     raw.get(m.date)![m.metric_type].push(m);
   }
 
-  // Pass 2: resolve conflicts per day
   const map = new Map<string, DayBucket>();
   for (const [date, day] of raw) {
     map.set(date, {
@@ -189,8 +170,6 @@ function aggregateByDay(metrics: HealthMetric[]): Map<string, DayBucket> {
   return map;
 }
 
-// ── Latest value with trend ────────────────────────────────────────
-
 function latestValue(days: DayBucket[], key: MetricKey): ValueTrend {
   const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));
   let current: MetricReading | null = null;
@@ -199,268 +178,10 @@ function latestValue(days: DayBucket[], key: MetricKey): ValueTrend {
     const r = d[key];
     if (r !== null) {
       if (current === null) current = r;
-      else if (prev === null) {
-        prev = r;
-        break;
-      }
+      else if (prev === null) { prev = r; break; }
     }
   }
   return { current, prev };
-}
-
-// ── Trend badge ────────────────────────────────────────────────────
-
-function TrendBadge({
-  current,
-  prev,
-  unit,
-  lowerIsBetter = false,
-}: {
-  current: MetricReading | null;
-  prev: MetricReading | null;
-  unit: string;
-  lowerIsBetter?: boolean;
-}): ReactNode {
-  if (!current || !prev) return null;
-  const delta = current.value - prev.value;
-  if (Math.abs(delta) < 0.5) {
-    return (
-      <span className="flex items-center gap-0.5 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-        <MinusIcon className="w-3 h-3" />
-        No change
-      </span>
-    );
-  }
-  const isGood = lowerIsBetter ? delta < 0 : delta > 0;
-  const color = isGood ? 'rgb(var(--status-ok))' : 'rgb(var(--status-amber))';
-  const sign = delta > 0 ? '+' : '';
-  const label =
-    Math.abs(delta) >= 1
-      ? `${sign}${Math.round(delta)} ${unit}`
-      : `${sign}${delta.toFixed(1)} ${unit}`;
-
-  return (
-    <span className="flex items-center gap-0.5 text-xs" style={{ color }}>
-      {delta > 0 ? (
-        <Icon name="trending-up" size={12} />
-      ) : (
-        <Icon name="trending-down" size={12} />
-      )}
-      {label} vs prev
-    </span>
-  );
-}
-
-// ── Metric card ────────────────────────────────────────────────────
-
-const STEP_GOAL = 10_000;
-
-function MetricCard({
-  label,
-  trend,
-  unit,
-  goal,
-  lowerIsBetter,
-  formatValue,
-}: {
-  label: string;
-  trend: ValueTrend;
-  unit: string;
-  goal?: number;
-  lowerIsBetter?: boolean;
-  formatValue?: (v: number) => string;
-}): ReactNode {
-  const { current, prev } = trend;
-  const displayVal =
-    current !== null
-      ? formatValue
-        ? formatValue(current.value)
-        : String(Math.round(current.value))
-      : '—';
-
-  return (
-    <div
-      className="flex-1 rounded-lg p-4 flex flex-col gap-1.5 min-w-0"
-      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
-    >
-      <span
-        className="text-xs font-medium uppercase tracking-wide"
-        style={{ color: 'rgb(var(--canvas-fg-3))' }}
-      >
-        {label}
-      </span>
-
-      <div className="flex items-baseline gap-1.5">
-        <span
-          className="text-2xl font-bold tabular-nums"
-          style={{ color: 'rgb(var(--canvas-fg-1))' }}
-        >
-          {displayVal}
-        </span>
-        {current !== null && unit && (
-          <span className="text-sm font-medium" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-            {unit}
-          </span>
-        )}
-      </div>
-
-      {/* Source attribution — amber when two adapters reported the same day */}
-      {current !== null && (
-        <span
-          className="self-start text-xs px-1.5 py-0.5 rounded"
-          style={{
-            background: current.hasConflict
-              ? `rgb(var(--status-amber) / 0.08)`
-              : getDomainColorWithAlpha('health', '15'),
-            color: current.hasConflict ? 'rgb(var(--status-amber))' : healthColor,
-            border: `1px solid ${current.hasConflict ? `rgb(var(--status-amber) / 0.25)` : getDomainColorWithAlpha('health', '30')}`,
-          }}
-          title={
-            current.hasConflict
-              ? `Multiple sources — showing ${adapterDisplayName(current.adapter_id)}`
-              : adapterDisplayName(current.adapter_id)
-          }
-        >
-          {adapterDisplayName(current.adapter_id)}
-          {current.hasConflict && ' ⚑'}
-        </span>
-      )}
-
-      {goal !== undefined && current !== null && (
-        <div className="mt-0.5">
-          <div
-            className="h-1 rounded-full overflow-hidden"
-            style={{ background: 'rgb(var(--canvas-surface))' }}
-          >
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${Math.min(100, (current.value / goal) * 100).toFixed(1)}%`,
-                background: current.value >= goal ? 'rgb(var(--status-ok))' : healthColor,
-              }}
-            />
-          </div>
-          <span className="text-xs mt-1 block" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            Goal: {goal.toLocaleString()}
-          </span>
-        </div>
-      )}
-
-      <TrendBadge
-        current={current}
-        prev={prev}
-        unit={unit}
-        lowerIsBetter={lowerIsBetter}
-      />
-    </div>
-  );
-}
-
-// ── Bar chart ──────────────────────────────────────────────────────
-
-function BarChart({
-  title,
-  dates,
-  readings,
-  barColor,
-  todayKey: today,
-  unit,
-  emptyLabel,
-}: {
-  title: string;
-  dates: string[];
-  readings: (MetricReading | null)[];
-  barColor: (value: number, date: string) => string;
-  todayKey: string;
-  unit?: string;
-  emptyLabel?: string;
-}): ReactNode {
-  const values = readings.map(r => r?.value ?? null);
-  const maxValue = Math.max(1, ...values.filter((v): v is number => v !== null));
-  const hasData = values.some(v => v !== null);
-
-  return (
-    <div
-      className="flex-1 flex flex-col gap-3 rounded-lg p-4 min-w-0"
-      style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
-    >
-      <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
-        {title}
-      </span>
-
-      {!hasData ? (
-        <div className="flex-1 flex items-center justify-center">
-          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-            {emptyLabel ?? 'No data'}
-          </span>
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col gap-1 min-h-0" style={{ minHeight: 120 }}>
-          {/* Bars */}
-          <div className="flex items-end gap-1 flex-1">
-            {dates.map((date, i) => {
-              const r = readings[i];
-              const v = r?.value ?? null;
-              const isToday = date === today;
-              const heightPct = v !== null ? (v / maxValue) * 100 : 0;
-              const color = v !== null ? barColor(v, date) : 'rgb(var(--canvas-surface))';
-              // Tooltip includes source when there was a conflict that day
-              const tooltipParts = [
-                shortDateLabel(date),
-                v !== null
-                  ? `${Math.round(v)}${unit ? ' ' + unit : ''}`
-                  : 'No data',
-                r?.hasConflict
-                  ? `source: ${adapterDisplayName(r.adapter_id)}`
-                  : null,
-              ].filter(Boolean);
-
-              return (
-                <div
-                  key={date}
-                  className="flex-1 flex flex-col items-center justify-end"
-                  title={tooltipParts.join(' — ')}
-                >
-                  <div
-                    className="w-full rounded-t-sm"
-                    style={{
-                      height: `${heightPct}%`,
-                      minHeight: v !== null ? 4 : 0,
-                      background: color,
-                      opacity: isToday ? 1 : 0.72,
-                      outline: isToday ? `1.5px solid ${color}` : 'none',
-                      outlineOffset: 1,
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
-          {/* X-axis labels — suppress alternating labels when > 10 bars */}
-          <div className="flex gap-1">
-            {dates.map((date, i) => {
-              const suppress = dates.length > 10 && i % 2 !== 0 && i !== dates.length - 1;
-              return (
-                <div
-                  key={date}
-                  className="flex-1 text-center"
-                  style={{
-                    fontSize: 9,
-                    color: date === today ? healthColor : 'rgb(var(--canvas-fg-3))',
-                    fontWeight: date === today ? 600 : 400,
-                    opacity: suppress ? 0 : 1,
-                  }}
-                >
-                  {shortDateLabel(date)}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Sleep score color ──────────────────────────────────────────────
@@ -471,26 +192,34 @@ function sleepScoreColor(score: number): string {
   return 'rgb(var(--status-error))';
 }
 
+// ── Metric config ──────────────────────────────────────────────────
+
+const METRIC_CONFIG: Record<MetricKey, {
+  label: string;
+  unit: string;
+  color: 'cyan' | 'violet' | 'rose' | 'emerald';
+  lowerIsBetter?: boolean;
+  formatValue?: (v: number) => string;
+  goal?: number;
+}> = {
+  steps: { label: 'Steps', unit: 'steps', color: 'cyan', goal: 10_000, formatValue: v => v.toLocaleString() },
+  sleep_score: { label: 'Sleep Score', unit: '/ 100', color: 'violet', formatValue: v => String(Math.round(v)) },
+  resting_heart_rate: { label: 'Resting HR', unit: 'bpm', color: 'rose', lowerIsBetter: true },
+  hrv: { label: 'HRV', unit: 'ms', color: 'emerald' },
+};
+
 // ── Date range presets ─────────────────────────────────────────────
 
-type RangePreset = '7' | '14' | '30' | 'custom';
-
-const RANGE_PRESETS: { key: Exclude<RangePreset, 'custom'>; label: string; days: number }[] = [
-  { key: '7', label: 'Last 7 days', days: 7 },
-  { key: '14', label: '14 days', days: 14 },
-  { key: '30', label: '30 days', days: 30 },
+const RANGE_OPTIONS = [
+  { value: '7', label: '7d' },
+  { value: '30', label: '30d' },
+  { value: '90', label: '90d' },
+  { value: '365', label: '1y' },
 ];
 
-// ── Metrics toggle config ──────────────────────────────────────────
+const RANGE_DAYS: Record<string, number> = { '7': 7, '30': 30, '90': 90, '365': 365 };
 
-const METRIC_TOGGLES: { key: MetricKey; label: string }[] = [
-  { key: 'steps', label: 'Steps' },
-  { key: 'sleep_score', label: 'Sleep' },
-  { key: 'resting_heart_rate', label: 'Heart Rate' },
-  { key: 'hrv', label: 'HRV' },
-];
-
-// ── Empty state ────────────────────────────────────────────────────
+// ── Empty & Error states ───────────────────────────────────────────
 
 function EmptyState(): ReactNode {
   return (
@@ -514,8 +243,6 @@ function EmptyState(): ReactNode {
     </div>
   );
 }
-
-// ── Error state ────────────────────────────────────────────────────
 
 function ErrorState(): ReactNode {
   return (
@@ -548,73 +275,31 @@ export default function HealthPage(): ReactNode {
 
   const today = todayKey();
 
-  // ── Date range state ──────────────────────────────────────────────
-
-  // Initialise from URL so a direct link with dateFrom/dateTo shows custom mode.
-  const [rangePreset, setRangePreset] = useState<RangePreset>(
-    search.dateFrom ? 'custom' : '7',
+  // Date range controlled by SegmentedControl
+  const [rangeKey, setRangeKey] = useState<string>(
+    search.dateFrom ? 'custom' : '30',
   );
 
-  // Bug fix: keep rangePreset in sync when the URL changes via browser back/forward.
   useEffect(() => {
-    setRangePreset(search.dateFrom ? 'custom' : '7');
+    if (!search.dateFrom && rangeKey === 'custom') setRangeKey('30');
   }, [search.dateFrom]);
 
   const effectiveRange = useMemo((): { from: string; to: string } => {
     if (search.dateFrom && search.dateTo) return { from: search.dateFrom, to: search.dateTo };
-    const preset = RANGE_PRESETS.find(p => p.key === rangePreset);
-    return dateRange(preset?.days ?? 7);
-  }, [rangePreset, search.dateFrom, search.dateTo]);
+    return dateRange(RANGE_DAYS[rangeKey] ?? 30);
+  }, [rangeKey, search.dateFrom, search.dateTo]);
 
-  // Custom date inputs track effectiveRange so they stay current when the
-  // user switches between presets and then re-opens the custom panel.
-  const [customFrom, setCustomFrom] = useState(effectiveRange.from);
-  const [customTo, setCustomTo] = useState(effectiveRange.to);
-
-  useEffect(() => {
-    setCustomFrom(effectiveRange.from);
-    setCustomTo(effectiveRange.to);
-  }, [effectiveRange]);
-
-  function setPreset(preset: RangePreset): void {
-    setRangePreset(preset);
-    if (preset !== 'custom') {
-      void navigate({ to: '/health', search: {} });
-    }
+  function setRange(key: string): void {
+    setRangeKey(key);
+    void navigate({ to: '/health', search: {} });
   }
 
-  function applyCustomRange(): void {
-    void navigate({
-      to: '/health',
-      search: { dateFrom: customFrom, dateTo: customTo },
-    });
-  }
-
-  const isCustom = rangePreset === 'custom';
-
-  // ── Metrics visibility toggle ─────────────────────────────────────
-
-  const [enabledMetrics, setEnabledMetrics] = useState<Set<MetricKey>>(
-    () => new Set<MetricKey>(['steps', 'sleep_score', 'resting_heart_rate', 'hrv']),
+  // Metric visibility filter
+  const [enabledMetrics, setEnabledMetrics] = useState<string[]>(
+    ['steps', 'sleep_score', 'resting_heart_rate', 'hrv'],
   );
 
-  function toggleMetric(key: MetricKey): void {
-    setEnabledMetrics(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        if (next.size > 1) next.delete(key); // always keep at least one visible
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }
-
   // ── Data ─────────────────────────────────────────────────────────
-  //
-  // Fetch up to 5000 chunks once (enough for ~14 months × 4 metric types per day)
-  // and filter client-side. This keeps date range changes instant without
-  // additional API round-trips.
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['chunks', { domain: 'health', limit: 5000 }],
@@ -643,73 +328,105 @@ export default function HealthPage(): ReactNode {
   );
 
   const orderedBuckets = useMemo(
-    () =>
-      allDates.map(
-        d =>
-          dayMap.get(d) ?? {
-            date: d,
-            steps: null,
-            sleep_score: null,
-            resting_heart_rate: null,
-            hrv: null,
-          },
-      ),
+    () => allDates.map(d =>
+      dayMap.get(d) ?? { date: d, steps: null, sleep_score: null, resting_heart_rate: null, hrv: null },
+    ),
     [allDates, dayMap],
   );
 
-  // Steps and sleep trends are derived from the selected date window.
-  const stepsTrend = useMemo(() => latestValue(orderedBuckets, 'steps'), [orderedBuckets]);
-  const sleepTrend = useMemo(() => latestValue(orderedBuckets, 'sleep_score'), [orderedBuckets]);
-
-  // HR and HRV trends use all available data, not just the range window.
-  // These metrics update slowly (days/weeks), so a narrow 7-day window
-  // often contains too few data points for a meaningful trend baseline.
+  // Trends — slow metrics use all-time data for a better baseline
   const allBuckets = useMemo(
     () => Array.from(aggregateByDay(allMetrics).values()),
     [allMetrics],
   );
+  const stepsTrend = useMemo(() => latestValue(orderedBuckets, 'steps'), [orderedBuckets]);
+  const sleepTrend = useMemo(() => latestValue(orderedBuckets, 'sleep_score'), [orderedBuckets]);
   const hrTrend = useMemo(() => latestValue(allBuckets, 'resting_heart_rate'), [allBuckets]);
   const hrvTrend = useMemo(() => latestValue(allBuckets, 'hrv'), [allBuckets]);
+
+  const TRENDS: Record<MetricKey, ValueTrend> = {
+    steps: stepsTrend,
+    sleep_score: sleepTrend,
+    resting_heart_rate: hrTrend,
+    hrv: hrvTrend,
+  };
 
   const sources = useMemo(() => sourcesUsed(allMetrics), [allMetrics]);
   const hasAnyData = allMetrics.length > 0;
 
+  // ── Build heatmap data (steps intensity) ────────────────────────
+
+  const heatmapData = useMemo(() => {
+    const stepsMax = Math.max(1, ...orderedBuckets.map(b => b.steps?.value ?? 0));
+    // Single row × N days, normalized 0–1
+    const row = orderedBuckets.map(b => {
+      const v = b.steps?.value;
+      return v != null ? v / stepsMax : null;
+    });
+    return [row];
+  }, [orderedBuckets]);
+
+  // ── Build StackedBar data for each enabled metric ────────────────
+
+  function metricStacks(key: MetricKey) {
+    return allDates.map((date, i) => {
+      const bucket = orderedBuckets[i];
+      const v = bucket[key]?.value ?? 0;
+      return { label: shortDateLabel(date), parts: [v] };
+    });
+  }
+
+  // Delta helpers for StatTile
+  function trendDelta(trend: ValueTrend, lowerIsBetter = false) {
+    if (!trend.current || !trend.prev) return undefined;
+    const delta = trend.current.value - trend.prev.value;
+    if (Math.abs(delta) < 0.5) return undefined;
+    return {
+      value: Math.round(Math.abs(delta)),
+      direction: (lowerIsBetter ? delta < 0 : delta > 0) ? 'up' as const : 'down' as const,
+    };
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Health"
+        subtitle="Health metrics from Oura Ring and Apple Health"
+      />
+
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-3 px-5 py-2.5 shrink-0 flex-wrap"
         style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
       >
-        <span className="text-sm font-semibold" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
-          Health
-        </span>
+        <SegmentedControl
+          value={rangeKey}
+          onChange={setRange}
+          options={RANGE_OPTIONS}
+        />
 
-        {/* Metrics selector — toggle which metric cards/charts are visible */}
-        <div className="flex items-center gap-1">
-          {METRIC_TOGGLES.map(({ key, label }) => {
-            const on = enabledMetrics.has(key);
-            return (
-              <button
-                key={key}
-                onClick={() => toggleMetric(key)}
-                className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
-                style={{
-                  background: on ? getDomainColorWithAlpha('health', '20') : 'rgb(var(--canvas-surface))',
-                  color: on ? healthColor : 'rgb(var(--canvas-fg-3))',
-                  border: `1px solid ${on ? getDomainColorWithAlpha('health', '50') : 'rgb(var(--canvas-border))'}`,
-                }}
-                title={on ? `Hide ${label}` : `Show ${label}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
+        <FilterDropdown
+          mode="checkbox"
+          value={enabledMetrics}
+          onChange={setEnabledMetrics}
+        >
+          <FilterDropdown.Trigger
+            label="Metrics"
+            summary={enabledMetrics.length === 4 ? 'All metrics' : `${enabledMetrics.length} selected`}
+          />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Visible metrics">
+              <FilterDropdown.Checkbox value="steps" label="Steps" />
+              <FilterDropdown.Checkbox value="sleep_score" label="Sleep Score" />
+              <FilterDropdown.Checkbox value="resting_heart_rate" label="Resting HR" />
+              <FilterDropdown.Checkbox value="hrv" label="HRV" />
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
 
         <div className="flex-1" />
 
-        {/* Source badges — one per connected adapter */}
         {sources.length > 0 && (
           <div className="flex items-center gap-1.5">
             {sources.map(s => (
@@ -727,92 +444,14 @@ export default function HealthPage(): ReactNode {
             ))}
           </div>
         )}
-
-        {/* Date range picker */}
-        <div
-          className="flex items-center rounded-lg gap-0.5"
-          style={{ background: 'rgb(var(--canvas-surface))', padding: 2 }}
-        >
-          {RANGE_PRESETS.map(preset => (
-            <button
-              key={preset.key}
-              onClick={() => setPreset(preset.key)}
-              className="px-3 py-1 rounded-md transition-colors"
-              style={{
-                fontSize: 11,
-                fontWeight: 500,
-                background: rangePreset === preset.key ? 'rgb(var(--canvas-surface))' : 'transparent',
-                color: rangePreset === preset.key ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
-                boxShadow: rangePreset === preset.key ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
-              }}
-            >
-              {preset.label}
-            </button>
-          ))}
-          <button
-            onClick={() => setPreset('custom')}
-            className="px-3 py-1 rounded-md transition-colors"
-            style={{
-              fontSize: 11,
-              fontWeight: 500,
-              background: isCustom ? 'rgb(var(--canvas-surface))' : 'transparent',
-              color: isCustom ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))',
-              boxShadow: isCustom ? '0 1px 2px rgba(0,0,0,0.3)' : 'none',
-            }}
-          >
-            Custom
-          </button>
-        </div>
       </div>
-
-      {/* Custom date range inputs */}
-      {isCustom && (
-        <div
-          className="flex items-center gap-2 px-5 py-2 shrink-0"
-          style={{ borderBottom: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
-        >
-          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>From</span>
-          <input
-            type="date"
-            value={customFrom}
-            onChange={e => setCustomFrom(e.target.value)}
-            className="rounded px-2 py-1 text-xs outline-none"
-            style={{
-              background: 'rgb(var(--canvas-surface))',
-              color: 'rgb(var(--canvas-fg-1))',
-              border: `1px solid rgb(var(--canvas-border))`,
-            }}
-          />
-          <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>to</span>
-          <input
-            type="date"
-            value={customTo}
-            onChange={e => setCustomTo(e.target.value)}
-            className="rounded px-2 py-1 text-xs outline-none"
-            style={{
-              background: 'rgb(var(--canvas-surface))',
-              color: 'rgb(var(--canvas-fg-1))',
-              border: `1px solid rgb(var(--canvas-border))`,
-            }}
-          />
-          <button
-            onClick={applyCustomRange}
-            className="px-3 py-1 rounded text-xs font-medium transition-opacity hover:opacity-75"
-            style={{ background: healthColor, color: '#000' }}
-          >
-            Apply
-          </button>
-        </div>
-      )}
 
       {/* ── Body ── */}
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center">
           <div
             className="w-6 h-6 rounded-full border-2 animate-spin"
-            style={{
-              borderColor: `${healthColor} transparent transparent transparent`,
-            }}
+            style={{ borderColor: `${healthColor} transparent transparent transparent` }}
           />
         </div>
       ) : isError ? (
@@ -821,95 +460,145 @@ export default function HealthPage(): ReactNode {
         <EmptyState />
       ) : (
         <div className="flex-1 flex flex-col gap-4 p-5 overflow-y-auto">
-          {/* ── Metric cards ── */}
-          <div className="flex gap-4">
-            {enabledMetrics.has('steps') && (
-              <MetricCard
-                label="Steps"
-                trend={stepsTrend}
-                unit="steps"
-                goal={STEP_GOAL}
-                formatValue={v => v.toLocaleString()}
-              />
-            )}
-            {enabledMetrics.has('sleep_score') && (
-              <MetricCard
-                label="Sleep Score"
-                trend={sleepTrend}
-                unit="/ 100"
-                formatValue={v => String(Math.round(v))}
-              />
-            )}
-            {enabledMetrics.has('resting_heart_rate') && (
-              <MetricCard
-                label="Resting HR"
-                trend={hrTrend}
-                unit="bpm"
-                lowerIsBetter
-              />
-            )}
-            {enabledMetrics.has('hrv') && (
-              <MetricCard
-                label="HRV"
-                trend={hrvTrend}
-                unit="ms"
-              />
-            )}
-          </div>
 
-          {/* ── Primary charts: Steps + Sleep ── */}
-          {(enabledMetrics.has('steps') || enabledMetrics.has('sleep_score')) && (
-            <div className="flex gap-4" style={{ minHeight: 200 }}>
-              {enabledMetrics.has('steps') && (
-                <BarChart
-                  title={`Daily Steps — Last ${allDates.length} Days`}
-                  dates={allDates}
-                  readings={orderedBuckets.map(b => b.steps)}
-                  barColor={() => stepsColor}
-                  todayKey={today}
-                  unit="steps"
-                  emptyLabel="No step data in this range"
-                />
+          {/* ── StatGrid — metric summary tiles ── */}
+          <StatGrid columns={4}>
+            {(Object.entries(METRIC_CONFIG) as [MetricKey, typeof METRIC_CONFIG[MetricKey]][])
+              .filter(([key]) => enabledMetrics.includes(key))
+              .map(([key, cfg]) => {
+                const trend = TRENDS[key];
+                const displayVal = trend.current !== null
+                  ? (cfg.formatValue ? cfg.formatValue(trend.current.value) : String(Math.round(trend.current.value)))
+                  : '—';
+                const delta = trendDelta(trend, cfg.lowerIsBetter);
+                return (
+                  <StatTile
+                    key={key}
+                    label={cfg.label}
+                    value={trend.current !== null ? `${displayVal} ${cfg.unit}` : '—'}
+                    color={cfg.color}
+                    delta={delta}
+                  />
+                );
+              })
+            }
+          </StatGrid>
+
+          {/* ── Heatmap: daily step intensity ── */}
+          {enabledMetrics.includes('steps') && (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                  Daily Step Intensity — Last {allDates.length} Days
+                </span>
+                <span className="text-[10px]" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  low → high
+                </span>
+              </div>
+              <Heatmap
+                data={heatmapData}
+                baseColor={stepsColor}
+                xLabels={allDates.map(shortDateLabel)}
+                tone="dark"
+                height={48}
+                style={{ width: '100%' }}
+                ariaLabel="Daily step intensity heatmap"
+              />
+            </div>
+          )}
+
+          {/* ── StackedBar charts ── */}
+          {enabledMetrics.includes('steps') && (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+            >
+              <span className="text-xs font-semibold block mb-3" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                Steps — Last {allDates.length} Days
+              </span>
+              <StackedBar
+                stacks={metricStacks('steps')}
+                colors={[stepsColor]}
+                axes
+                grid
+                tone="dark"
+                height={140}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
+
+          {enabledMetrics.includes('sleep_score') && (
+            <div
+              className="rounded-lg p-4"
+              style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+            >
+              <span className="text-xs font-semibold block mb-3" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                Sleep Score — Last {allDates.length} Days
+              </span>
+              <StackedBar
+                stacks={metricStacks('sleep_score')}
+                colors={[sleepScoreColor(sleepTrend.current?.value ?? 0)]}
+                axes
+                grid
+                tone="dark"
+                height={140}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
+
+          {(enabledMetrics.includes('hrv') || enabledMetrics.includes('resting_heart_rate')) && (
+            <div className="flex gap-4" style={{ minHeight: 180 }}>
+              {enabledMetrics.includes('hrv') && (
+                <div
+                  className="flex-1 rounded-lg p-4"
+                  style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+                >
+                  <span className="text-xs font-semibold block mb-3" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                    HRV — Last {allDates.length} Days
+                  </span>
+                  <StackedBar
+                    stacks={metricStacks('hrv')}
+                    colors={[healthColor]}
+                    axes
+                    grid
+                    tone="dark"
+                    height={120}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               )}
-              {enabledMetrics.has('sleep_score') && (
-                <BarChart
-                  title={`Sleep Score — Last ${allDates.length} Days`}
-                  dates={allDates}
-                  readings={orderedBuckets.map(b => b.sleep_score)}
-                  barColor={v => sleepScoreColor(v)}
-                  todayKey={today}
-                  unit="score"
-                  emptyLabel="No sleep data in this range"
-                />
+              {enabledMetrics.includes('resting_heart_rate') && (
+                <div
+                  className="flex-1 rounded-lg p-4"
+                  style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))` }}
+                >
+                  <span className="text-xs font-semibold block mb-3" style={{ color: 'rgb(var(--canvas-fg-2))' }}>
+                    Resting HR — Last {allDates.length} Days
+                  </span>
+                  <StackedBar
+                    stacks={metricStacks('resting_heart_rate')}
+                    colors={['#EC4899']}
+                    axes
+                    grid
+                    tone="dark"
+                    height={120}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               )}
             </div>
           )}
 
-          {/* ── Secondary charts: HRV + Resting HR ── */}
-          {(enabledMetrics.has('hrv') || enabledMetrics.has('resting_heart_rate')) && (
-            <div className="flex gap-4" style={{ minHeight: 180 }}>
-              {enabledMetrics.has('hrv') && (
-                <BarChart
-                  title={`HRV — Last ${allDates.length} Days`}
-                  dates={allDates}
-                  readings={orderedBuckets.map(b => b.hrv)}
-                  barColor={() => healthColor}
-                  todayKey={today}
-                  unit="ms"
-                  emptyLabel="No HRV data in this range"
-                />
-              )}
-              {enabledMetrics.has('resting_heart_rate') && (
-                <BarChart
-                  title={`Resting Heart Rate — Last ${allDates.length} Days`}
-                  dates={allDates}
-                  readings={orderedBuckets.map(b => b.resting_heart_rate)}
-                  barColor={() => '#EC4899'}
-                  todayKey={today}
-                  unit="bpm"
-                  emptyLabel="No HR data in this range"
-                />
-              )}
+          {today && enabledMetrics.length === 0 && (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                Select metrics above to view charts.
+              </p>
             </div>
           )}
         </div>
@@ -917,4 +606,3 @@ export default function HealthPage(): ReactNode {
     </div>
   );
 }
-

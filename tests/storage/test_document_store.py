@@ -78,13 +78,13 @@ class TestDocumentStoreInit:
             store.close()
 
     def test_schema_version_verification(self) -> None:
-        """Test that user_version is verified to be 5 (location domain support)."""
+        """Test that user_version is verified to be 6 (activity feed index)."""
         store = DocumentStore(":memory:")
         try:
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
         finally:
             store.close()
 
@@ -4387,6 +4387,191 @@ class TestGetLineageWithSourceId:
         assert result_with_source_id.source_version_id == result_without_source_id.source_version_id
 
 
+class TestGetLineageBatch:
+    """Tests for DocumentStore.get_lineage_batch."""
+
+    def _setup_source(self, store: DocumentStore, source_id: str = "source-1", adapter_id: str = "adapter-1") -> None:
+        config = AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="test",
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+        )
+        store.register_adapter(config)
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"test://{source_id}",
+        )
+
+    def _write_chunk(self, store: DocumentStore, chunk_hash: str, source_id: str = "source-1",
+                     adapter_id: str = "adapter-1", version: int = 1,
+                     fetch_timestamp: str = "2024-01-01T00:00:00Z", embedding_model: str = "model-1") -> str:
+        version_id = store.create_source_version(
+            source_id=source_id,
+            version=version,
+            markdown="content",
+            chunk_hashes=[chunk_hash],
+            adapter_id=adapter_id,
+            normalizer_version="1.0",
+            fetch_timestamp=fetch_timestamp,
+        )
+        chunk = Chunk(chunk_hash=chunk_hash, content="content", chunk_index=0)
+        lineage = LineageRecord(
+            chunk_hash=chunk_hash,
+            source_id=source_id,
+            source_version_id=version_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            normalizer_version="1.0",
+            embedding_model_id=embedding_model,
+        )
+        store.write_chunks([chunk], [lineage])
+        return version_id
+
+    def test_empty_input_returns_empty_dict(self, store: DocumentStore) -> None:
+        result = store.get_lineage_batch([], "source-1")
+        assert result == {}
+
+    def test_batch_multiple_hashes(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+        store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        # Write both chunks with the version_id from above
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+        chunks = [
+            Chunk(chunk_hash=hash_a, content="chunk a", chunk_index=0),
+            Chunk(chunk_hash=hash_b, content="chunk b", chunk_index=1),
+        ]
+        lineage = [
+            LineageRecord(chunk_hash=hash_a, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1"),
+            LineageRecord(chunk_hash=hash_b, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1"),
+        ]
+        store.write_chunks(chunks, lineage)
+
+        result = store.get_lineage_batch([hash_a, hash_b], "source-1")
+
+        assert len(result) == 2
+        assert hash_a in result
+        assert hash_b in result
+        assert result[hash_a].chunk_hash == hash_a
+        assert result[hash_b].chunk_hash == hash_b
+
+    def test_unknown_hash_omitted(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        self._write_chunk(store, hash_a)
+
+        result = store.get_lineage_batch([hash_a, _make_hash("missing")], "source-1")
+
+        assert len(result) == 1
+        assert hash_a in result
+        assert _make_hash("missing") not in result
+
+    def test_duplicate_chunk_across_versions_returns_earliest(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+
+        version_id_1 = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content v1",
+            chunk_hashes=[hash_a],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        version_id_2 = store.create_source_version(
+            source_id="source-1",
+            version=2,
+            markdown="content v2",
+            chunk_hashes=[hash_a],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-02T00:00:00Z",
+        )
+
+        chunk = Chunk(chunk_hash=hash_a, content="shared content", chunk_index=0)
+        lineage_v1 = LineageRecord(
+            chunk_hash=hash_a, source_id="source-1", source_version_id=version_id_1,
+            adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+            embedding_model_id="model-v1",
+        )
+        lineage_v2 = LineageRecord(
+            chunk_hash=hash_a, source_id="source-1", source_version_id=version_id_2,
+            adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+            embedding_model_id="model-v2",
+        )
+        store.write_chunks([chunk], [lineage_v1])
+        store.write_chunks([chunk], [lineage_v2])
+
+        result = store.get_lineage_batch([hash_a], "source-1")
+
+        assert len(result) == 1
+        # Earliest version should win — matches get_lineage behavior
+        assert result[hash_a].source_version_id == version_id_1
+
+    def test_results_match_get_lineage_per_item(self, store: DocumentStore) -> None:
+        self._setup_source(store)
+        hash_a = _make_hash("a")
+        hash_b = _make_hash("b")
+        version_id = store.create_source_version(
+            source_id="source-1",
+            version=1,
+            markdown="content",
+            chunk_hashes=[hash_a, hash_b],
+            adapter_id="adapter-1",
+            normalizer_version="1.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        chunks = [
+            Chunk(chunk_hash=hash_a, content="chunk a", chunk_index=0),
+            Chunk(chunk_hash=hash_b, content="chunk b", chunk_index=1),
+        ]
+        lineage = [
+            LineageRecord(chunk_hash=h, source_id="source-1", source_version_id=version_id,
+                          adapter_id="adapter-1", domain=Domain.NOTES, normalizer_version="1.0",
+                          embedding_model_id="model-1")
+            for h in [hash_a, hash_b]
+        ]
+        store.write_chunks(chunks, lineage)
+
+        batch_result = store.get_lineage_batch([hash_a, hash_b], "source-1")
+        single_a = store.get_lineage(hash_a, source_id="source-1")
+        single_b = store.get_lineage(hash_b, source_id="source-1")
+
+        assert single_a is not None
+        assert single_b is not None
+        assert batch_result[hash_a].source_version_id == single_a.source_version_id
+        assert batch_result[hash_a].adapter_id == single_a.adapter_id
+        assert batch_result[hash_a].fetch_timestamp == single_a.fetch_timestamp
+        assert batch_result[hash_b].source_version_id == single_b.source_version_id
+        assert batch_result[hash_b].adapter_id == single_b.adapter_id
+        assert batch_result[hash_b].fetch_timestamp == single_b.fetch_timestamp
+
+
 class TestCrossReferencesRoundTrip:
     """Tests for cross-references serialization and deserialization round-trips.
 
@@ -6157,6 +6342,398 @@ class TestQueryChunksByIdentifiers:
         assert ch1 not in result
 
 
+class TestGetActivityFeed:
+    """Tests for DocumentStore.get_activity_feed()."""
+
+    def _register_adapter(self, store: DocumentStore, adapter_id: str = "act-adapter") -> None:
+        store.register_adapter(AdapterConfig(
+            adapter_id=adapter_id,
+            adapter_type="filesystem",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+        ))
+
+    def _add_version(
+        self,
+        store: DocumentStore,
+        source_id: str,
+        version: int = 1,
+        adapter_id: str = "act-adapter",
+        fetch_timestamp: str = "2024-06-01T12:00:00Z",
+    ) -> None:
+        store.create_source_version(
+            source_id=source_id,
+            version=version,
+            markdown="# Content",
+            chunk_hashes=[compute_chunk_hash(f"{source_id}-v{version}")],
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp=fetch_timestamp,
+        )
+
+    def test_empty_when_no_versions(self, store: DocumentStore) -> None:
+        events, total = store.get_activity_feed()
+        assert events == []
+        assert total == 0
+
+    def test_returns_event_with_correct_fields(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        store.register_source(
+            source_id="act-src",
+            adapter_id="act-adapter",
+            domain=Domain.NOTES,
+            origin_ref="/docs/act.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        self._add_version(store, "act-src", fetch_timestamp="2024-06-01T12:00:00Z")
+
+        events, total = store.get_activity_feed()
+
+        assert total == 1
+        assert len(events) == 1
+        event = events[0]
+        assert event["event_type"] == "ingested"
+        assert event["identifier"] == "act-src"
+        assert event["timestamp"] == "2024-06-01T12:00:00Z"
+        assert event["domain"] == "notes"
+        assert event["adapter_type"] == "filesystem"
+
+    def test_entity_name_falls_back_to_source_id_when_no_display_name(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        store.register_source(
+            source_id="act-src",
+            adapter_id="act-adapter",
+            domain=Domain.NOTES,
+            origin_ref="/docs/act.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+            display_name=None,
+        )
+        self._add_version(store, "act-src")
+
+        events, _ = store.get_activity_feed()
+
+        assert events[0]["entity_name"] == "act-src"
+
+    def test_entity_name_uses_display_name_when_set(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        store.register_source(
+            source_id="act-src",
+            adapter_id="act-adapter",
+            domain=Domain.NOTES,
+            origin_ref="/docs/act.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+            display_name="My Notes",
+        )
+        self._add_version(store, "act-src")
+
+        events, _ = store.get_activity_feed()
+
+        assert events[0]["entity_name"] == "My Notes"
+
+    def test_multiple_versions_per_source_each_produce_an_event(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        store.register_source(
+            source_id="multi-src",
+            adapter_id="act-adapter",
+            domain=Domain.NOTES,
+            origin_ref="/docs/multi.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        for v in [1, 2, 3]:
+            self._add_version(store, "multi-src", version=v, fetch_timestamp=f"2024-06-0{v}T00:00:00Z")
+
+        events, total = store.get_activity_feed()
+
+        assert total == 3
+        assert len(events) == 3
+        assert all(e["identifier"] == "multi-src" for e in events)
+
+    def test_ordered_newest_created_at_first(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        for i, sid in enumerate(["src-a", "src-b", "src-c"]):
+            store.register_source(
+                source_id=sid,
+                adapter_id="act-adapter",
+                domain=Domain.NOTES,
+                origin_ref=f"/docs/{sid}.md",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+            self._add_version(store, sid)
+            # Force distinct created_at values so ordering is deterministic
+            store.conn.execute(
+                "UPDATE source_versions SET created_at = datetime('now', ?) WHERE source_id = ?",
+                (f"-{(2 - i) * 10} seconds", sid),
+            )
+            store.conn.commit()
+
+        events, _ = store.get_activity_feed()
+
+        assert len(events) == 3
+        # src-c was inserted last (most recent created_at), so it should appear first
+        assert events[0]["identifier"] == "src-c"
+        assert events[1]["identifier"] == "src-b"
+        assert events[2]["identifier"] == "src-a"
+
+    def test_pagination_limit_and_offset(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        for i, sid in enumerate(["pg-src-a", "pg-src-b", "pg-src-c"]):
+            store.register_source(
+                source_id=sid,
+                adapter_id="act-adapter",
+                domain=Domain.NOTES,
+                origin_ref=f"/docs/{sid}.md",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+            self._add_version(store, sid)
+
+        page1, total = store.get_activity_feed(limit=2, offset=0)
+        page2, total2 = store.get_activity_feed(limit=2, offset=2)
+
+        assert total == 3
+        assert total2 == 3
+        assert len(page1) == 2
+        assert len(page2) == 1
+
+    def test_total_count_independent_of_page_size(self, store: DocumentStore) -> None:
+        self._register_adapter(store)
+        for sid in ["tc-src-a", "tc-src-b", "tc-src-c"]:
+            store.register_source(
+                source_id=sid,
+                adapter_id="act-adapter",
+                domain=Domain.NOTES,
+                origin_ref=f"/docs/{sid}.md",
+                poll_strategy=PollStrategy.PULL,
+                poll_interval_sec=3600,
+            )
+            self._add_version(store, sid)
+
+        _, total = store.get_activity_feed(limit=1, offset=0)
+
+        assert total == 3
+
+
+class TestListSourcesStateFilter:
+    """Storage-layer tests for the state filter parameter of list_sources()."""
+
+    def _setup_source_with_chunks(
+        self,
+        store: DocumentStore,
+        source_id: str,
+        adapter_id: str = "sf-adapter",
+        n_chunks: int = 1,
+    ) -> set[str]:
+        """Register adapter+source, create version, write n_chunks active chunks. Returns chunk hashes."""
+        if not any(a.adapter_id == adapter_id for a in store.list_adapters()):
+            store.register_adapter(AdapterConfig(
+                adapter_id=adapter_id,
+                adapter_type="filesystem",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+            ))
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"/docs/{source_id}.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        hashes = [compute_chunk_hash(f"{source_id}-chunk-{i}") for i in range(n_chunks)]
+        store.create_source_version(
+            source_id=source_id,
+            version=1,
+            markdown="# Content",
+            chunk_hashes=hashes,
+            adapter_id=adapter_id,
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00Z",
+        )
+        chunks = [Chunk(chunk_hash=h, content=f"content {i}", chunk_index=i) for i, h in enumerate(hashes)]
+        lineage = [
+            LineageRecord(
+                chunk_hash=h,
+                source_id=source_id,
+                source_version_id=1,
+                adapter_id=adapter_id,
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="test-model",
+            )
+            for h in hashes
+        ]
+        store.write_chunks(chunks, lineage)
+        return set(hashes)
+
+    def _setup_source_without_chunks(self, store: DocumentStore, source_id: str, adapter_id: str = "sf-adapter") -> None:
+        """Register adapter+source with no chunks."""
+        if not any(a.adapter_id == adapter_id for a in store.list_adapters()):
+            store.register_adapter(AdapterConfig(
+                adapter_id=adapter_id,
+                adapter_type="filesystem",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+            ))
+        store.register_source(
+            source_id=source_id,
+            adapter_id=adapter_id,
+            domain=Domain.NOTES,
+            origin_ref=f"/docs/{source_id}.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+
+    def test_active_filter_returns_source_with_active_chunks(self, store: DocumentStore) -> None:
+        self._setup_source_with_chunks(store, "active-src")
+
+        rows, total = store.list_sources(state="active")
+
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "active-src"
+
+    def test_active_filter_excludes_source_without_chunks(self, store: DocumentStore) -> None:
+        self._setup_source_without_chunks(store, "no-chunk-src")
+
+        rows, total = store.list_sources(state="active")
+
+        assert total == 0
+        assert rows == []
+
+    def test_active_filter_excludes_source_with_only_retired_chunks(self, store: DocumentStore) -> None:
+        hashes = self._setup_source_with_chunks(store, "retired-src")
+        store.retire_chunks(hashes, source_id="retired-src", source_version=1)
+
+        rows, total = store.list_sources(state="active")
+
+        assert total == 0
+        assert rows == []
+
+    def test_inactive_filter_returns_source_without_chunks(self, store: DocumentStore) -> None:
+        self._setup_source_without_chunks(store, "inactive-src")
+
+        rows, total = store.list_sources(state="inactive")
+
+        assert total == 1
+        assert len(rows) == 1
+        assert rows[0]["source_id"] == "inactive-src"
+
+    def test_inactive_filter_returns_source_with_only_retired_chunks(self, store: DocumentStore) -> None:
+        hashes = self._setup_source_with_chunks(store, "all-retired-src")
+        store.retire_chunks(hashes, source_id="all-retired-src", source_version=1)
+
+        rows, total = store.list_sources(state="inactive")
+
+        assert total == 1
+        assert rows[0]["source_id"] == "all-retired-src"
+
+    def test_inactive_filter_excludes_source_with_active_chunks(self, store: DocumentStore) -> None:
+        self._setup_source_with_chunks(store, "has-chunks-src")
+
+        rows, total = store.list_sources(state="inactive")
+
+        assert total == 0
+        assert rows == []
+
+    def test_active_and_inactive_are_complementary(self, store: DocumentStore) -> None:
+        self._setup_source_with_chunks(store, "has-active")
+        self._setup_source_without_chunks(store, "has-none", adapter_id="sf-adapter")
+
+        active_rows, active_total = store.list_sources(state="active")
+        inactive_rows, inactive_total = store.list_sources(state="inactive")
+        all_rows, all_total = store.list_sources()
+
+        assert active_total + inactive_total == all_total
+        assert {r["source_id"] for r in active_rows} | {r["source_id"] for r in inactive_rows} == {
+            r["source_id"] for r in all_rows
+        }
+
+
+class TestListSourcesTimestampFilter:
+    """Storage-layer tests for last_fetched_after/last_fetched_before parameters of list_sources()."""
+
+    def _setup_source(self, store: DocumentStore, source_id: str, last_fetched_at: str | None = None) -> None:
+        if not any(a.adapter_id == "ts-adapter" for a in store.list_adapters()):
+            store.register_adapter(AdapterConfig(
+                adapter_id="ts-adapter",
+                adapter_type="filesystem",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+            ))
+        store.register_source(
+            source_id=source_id,
+            adapter_id="ts-adapter",
+            domain=Domain.NOTES,
+            origin_ref=f"/docs/{source_id}.md",
+            poll_strategy=PollStrategy.PULL,
+            poll_interval_sec=3600,
+        )
+        if last_fetched_at is not None:
+            store.conn.execute(
+                "UPDATE sources SET last_fetched_at = ? WHERE source_id = ?",
+                (last_fetched_at, source_id),
+            )
+            store.conn.commit()
+
+    def test_last_fetched_after_includes_source_fetched_after_cutoff(self, store: DocumentStore) -> None:
+        self._setup_source(store, "recent-src", last_fetched_at="2024-06-01T12:00:00Z")
+
+        rows, total = store.list_sources(last_fetched_after="2024-01-01T00:00:00Z")
+
+        assert total == 1
+        assert rows[0]["source_id"] == "recent-src"
+
+    def test_last_fetched_after_excludes_source_fetched_before_cutoff(self, store: DocumentStore) -> None:
+        self._setup_source(store, "old-src", last_fetched_at="2023-01-01T00:00:00Z")
+
+        rows, total = store.list_sources(last_fetched_after="2024-01-01T00:00:00Z")
+
+        assert total == 0
+        assert rows == []
+
+    def test_last_fetched_after_excludes_source_never_fetched(self, store: DocumentStore) -> None:
+        self._setup_source(store, "never-fetched-src", last_fetched_at=None)
+
+        rows, total = store.list_sources(last_fetched_after="2020-01-01T00:00:00Z")
+
+        assert total == 0
+        assert rows == []
+
+    def test_last_fetched_before_includes_source_fetched_before_cutoff(self, store: DocumentStore) -> None:
+        self._setup_source(store, "old-src", last_fetched_at="2023-01-01T00:00:00Z")
+
+        rows, total = store.list_sources(last_fetched_before="2024-01-01T00:00:00Z")
+
+        assert total == 1
+        assert rows[0]["source_id"] == "old-src"
+
+    def test_last_fetched_before_excludes_source_fetched_after_cutoff(self, store: DocumentStore) -> None:
+        self._setup_source(store, "recent-src", last_fetched_at="2025-06-01T00:00:00Z")
+
+        rows, total = store.list_sources(last_fetched_before="2024-01-01T00:00:00Z")
+
+        assert total == 0
+        assert rows == []
+
+    def test_combined_after_and_before_filters_range(self, store: DocumentStore) -> None:
+        self._setup_source(store, "early-src", last_fetched_at="2023-01-01T00:00:00Z")
+        self._setup_source(store, "mid-src", last_fetched_at="2024-06-01T00:00:00Z")
+        self._setup_source(store, "late-src", last_fetched_at="2025-12-01T00:00:00Z")
+
+        rows, total = store.list_sources(
+            last_fetched_after="2024-01-01T00:00:00Z",
+            last_fetched_before="2025-01-01T00:00:00Z",
+        )
+
+        assert total == 1
+        assert rows[0]["source_id"] == "mid-src"
+
+
 class TestSchemaMigrationV3toV4:
     """Tests for schema migration from v3 to v4 (people domain and entity_links support)."""
 
@@ -6279,11 +6856,11 @@ class TestSchemaMigrationV3toV4:
             # Trigger migration by opening DocumentStore
             store = DocumentStore(str(db_path))
 
-            # Verify schema version is now 5
+            # Verify schema version is now 6
             cursor = store.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
 
             # Verify entity_links table exists
             cursor.execute("""
@@ -6376,7 +6953,7 @@ class TestSchemaMigrationV3toV4:
             cursor = store2.conn.cursor()
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
-            assert version == 5
+            assert version == 6
 
             # Verify entity_links table still exists
             cursor.execute("""

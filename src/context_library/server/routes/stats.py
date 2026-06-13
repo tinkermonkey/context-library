@@ -1,15 +1,20 @@
 """Dataset statistics endpoint."""
 
 import asyncio
+import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from context_library.server.schemas import (
+    ActivityEvent,
+    ActivityFeedResponse,
     AdapterStats,
     AdapterStatsResponse,
     DatasetStatsResponse,
     DomainStats,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stats"])
 
@@ -32,6 +37,42 @@ async def get_stats(request: Request) -> DatasetStatsResponse:
             )
             for d in raw["by_domain"]
         ],
+    )
+
+
+@router.get("/stats/activity", response_model=ActivityFeedResponse)
+async def get_activity_feed(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> ActivityFeedResponse:
+    """Return recent ingestion activity events derived from source_versions.
+
+    Each event represents a completed ingestion pass for a source. Events are
+    ordered newest-first and include the event type, entity name, source identifier,
+    timestamp, and domain/adapter tags.
+    """
+    ds = request.app.state.document_store
+    try:
+        raw_events, total = await asyncio.to_thread(ds.get_activity_feed, limit, offset)
+    except Exception as exc:
+        logger.error("Activity feed query failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to retrieve activity feed") from exc
+    return ActivityFeedResponse(
+        events=[
+            ActivityEvent(
+                event_type=e["event_type"],
+                entity_name=e["entity_name"],
+                identifier=e["identifier"],
+                timestamp=e["timestamp"],
+                domain=e["domain"],
+                adapter_type=e["adapter_type"],
+            )
+            for e in raw_events
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

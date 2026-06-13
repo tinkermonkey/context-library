@@ -61,7 +61,7 @@ class RetrievalResult(BaseModel):
                 "Chunk and lineage must refer to the same content."
             )
 
-    def to_dict(self) -> dict[str, str | int | float | dict[str, object] | None]:
+    def to_dict(self, include_provenance: bool = False) -> dict[str, str | int | float | dict[str, object] | None]:
         """Convert result to dictionary format.
 
         Domain-specific metadata handling:
@@ -69,6 +69,10 @@ class RetrievalResult(BaseModel):
           that sensitive contact fields (emails, phones) must not be exposed in results
         - All other domains: domain_metadata is included to preserve structured metadata
           (event dates, task statuses, health metrics, message threading info, etc.)
+
+        Args:
+            include_provenance: When True, adds a provenance sub-object with adapter,
+                domain, source_version, chunk_type, normalizer_version, and embedding_model.
 
         Returns:
             Dictionary with chunk content, source metadata, domain metadata (if applicable),
@@ -86,11 +90,22 @@ class RetrievalResult(BaseModel):
             "adapter_id": self.lineage.adapter_id,
             "embedding_model": self.lineage.embedding_model_id,
             "similarity_score": self.similarity_score,
+            "version_date": self.lineage.fetch_timestamp,
         }
 
         # Include domain_metadata for all domains except PEOPLE (FR-6.3 requirement)
         if self.lineage.domain != Domain.PEOPLE and self.chunk.domain_metadata is not None:
             result["domain_metadata"] = self.chunk.domain_metadata
+
+        if include_provenance:
+            result["provenance"] = {
+                "adapter_id": self.lineage.adapter_id,
+                "domain": self.lineage.domain.value,
+                "source_version_id": self.lineage.source_version_id,
+                "chunk_type": self.chunk.chunk_type,
+                "normalizer_version": self.lineage.normalizer_version,
+                "embedding_model": self.lineage.embedding_model_id,
+            }
 
         return result
 

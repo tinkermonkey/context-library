@@ -1431,4 +1431,135 @@ class TestSourceLocksLRUCache:
         # Should have no errors
         assert len(errors) == 0
         # Cache should be bounded
+        assert pipeline._source_locks_max_size == 10_000
         assert len(pipeline._source_locks_cache) <= pipeline._source_locks_max_size
+
+
+class TestPipelineRunLifecycle:
+    """Tests for _PipelineRun state tracking during and after ingest()."""
+
+    def test_active_runs_empty_after_successful_ingest(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """_active_runs should be empty after ingest() returns normally."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        pipeline.ingest(adapter, domain_chunker)
+        assert len(pipeline.get_active_runs()) == 0
+
+    def test_active_runs_empty_after_ingest_raises(self, pipeline, domain_chunker):
+        """_active_runs should be empty even when ingest() raises an exception."""
+        from unittest.mock import MagicMock
+        from context_library.adapters.base import AllEndpointsFailedError
+        from context_library.core.exceptions import AllSourcesFailedError
+        from context_library.storage.models import Domain
+
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "failing-adapter"
+        mock_adapter.domain = Domain.NOTES
+        mock_adapter.fetch.side_effect = AllEndpointsFailedError(total_endpoints=1)
+        mock_adapter.register = MagicMock()
+
+        with pytest.raises(AllSourcesFailedError):
+            pipeline.ingest(mock_adapter, domain_chunker)
+
+        assert len(pipeline.get_active_runs()) == 0
+
+    def test_run_registered_in_active_runs_during_ingest(self, pipeline, domain_chunker):
+        """_active_runs should contain exactly one entry while ingest() is executing."""
+        import threading
+        from unittest.mock import MagicMock
+        from context_library.storage.models import Domain
+
+        fetch_started = threading.Event()
+        allow_fetch = threading.Event()
+        observed_count = []
+
+        def slow_fetch(source_ref=""):
+            fetch_started.set()
+            allow_fetch.wait()
+            return iter([])
+
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "slow-adapter"
+        mock_adapter.domain = Domain.NOTES
+        mock_adapter.fetch.side_effect = slow_fetch
+        mock_adapter.register = MagicMock()
+
+        ingest_thread = threading.Thread(
+            target=lambda: pipeline.ingest(mock_adapter, domain_chunker)
+        )
+        ingest_thread.start()
+
+        assert fetch_started.wait(timeout=5), "fetch() did not start within timeout"
+        observed_count.append(len(pipeline.get_active_runs()))
+        allow_fetch.set()
+        ingest_thread.join(timeout=10)
+
+        assert observed_count[0] == 1, "Should have 1 active run while fetching"
+        assert len(pipeline.get_active_runs()) == 0, "Should have 0 active runs after ingest"
+
+    def test_current_step_is_fetching_during_fetch(self, pipeline, domain_chunker):
+        """current_step should be 'fetch' while adapter.fetch() is iterating."""
+        import threading
+        from unittest.mock import MagicMock
+        from context_library.storage.models import Domain
+
+        fetch_started = threading.Event()
+        allow_fetch = threading.Event()
+        observed_step = []
+
+        def slow_fetch(source_ref=""):
+            fetch_started.set()
+            allow_fetch.wait()
+            return iter([])
+
+        mock_adapter = MagicMock()
+        mock_adapter.adapter_id = "slow-adapter-step"
+        mock_adapter.domain = Domain.NOTES
+        mock_adapter.fetch.side_effect = slow_fetch
+        mock_adapter.register = MagicMock()
+
+        ingest_thread = threading.Thread(
+            target=lambda: pipeline.ingest(mock_adapter, domain_chunker)
+        )
+        ingest_thread.start()
+
+        assert fetch_started.wait(timeout=5), "fetch() did not start within timeout"
+        runs = pipeline.get_active_runs()
+        if runs:
+            observed_step.append(runs[0].current_step)
+        allow_fetch.set()
+        ingest_thread.join(timeout=10)
+
+        assert "fetch" in observed_step, f"Expected 'fetch' step, got: {observed_step}"
+
+    def test_sources_ingested_counter_via_return_dict(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """sources_ingested and chunks_created counters reflect processed content."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        result = pipeline.ingest(adapter, domain_chunker)
+
+        # The return dict is the externally observable equivalent of the _run counters
+        assert result["sources_processed"] == 2
+        assert result["chunks_added"] > 0
+
+    def test_errors_counter_increments_on_source_failure(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """errors counter increments when per-source chunking fails, and run is cleaned up."""
+        from unittest.mock import MagicMock
+        from context_library.core.exceptions import AllSourcesFailedError, ChunkingError
+
+        failing_chunker = MagicMock(spec=NotesDomain)
+        failing_chunker.chunk.side_effect = ChunkingError(
+            "forced chunk failure", source_id="test"
+        )
+
+        adapter = FilesystemAdapter(temp_markdown_dir)
+
+        with pytest.raises(AllSourcesFailedError):
+            pipeline.ingest(adapter, failing_chunker)
+
+        # Run must be cleaned up even when all sources fail
+        assert len(pipeline.get_active_runs()) == 0

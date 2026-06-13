@@ -50,15 +50,13 @@ code {
 
 /* ── Heimdall design system overrides ────────────────────────── */
 :root {
-  --accent-primary: 99 102 241;
-
-  --domain-notes: 99 102 241;
-  --domain-messages: 168 85 247;
-  --domain-documents: 34 197 94;
-  --domain-health: 6 182 212;
+  --domain-notes: 129 140 248;
+  --domain-messages: 34 211 238;
+  --domain-documents: 148 163 184;
+  --domain-health: 248 113 113;
   --domain-events: 245 158 11;
-  --domain-tasks: 249 115 22;
-  --domain-people: 236 72 153;
+  --domain-tasks: 16 185 129;
+  --domain-people: 192 132 252;
   --domain-location: 20 184 166;
-  --domain-music: 244 63 94;
+  --domain-music: 244 114 182;
 }

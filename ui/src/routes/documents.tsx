@@ -3,22 +3,18 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
-  FolderIcon,
-  FolderOpenIcon,
-  Squares2X2Icon,
-  ListBulletIcon,
-  DocumentTextIcon,
-  DocumentIcon,
-  PhotoIcon,
-  CodeBracketIcon,
-  ArchiveBoxIcon,
-  TableCellsIcon,
-  FilmIcon,
-  MusicalNoteIcon,
   HomeIcon,
   ArrowsUpDownIcon,
+  ListBulletIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
-import { Icon } from '@tinkermonkey/heimdall-ui';
+import {
+  Icon, PageHeader,
+  SplitPane,
+  HierarchyTree, HierarchyRow,
+  AssetCard, AssetGrid,
+} from '@tinkermonkey/heimdall-ui';
+import { FilterDropdown } from '../components/FilterDropdown';
 import { useSources } from '../hooks/useSources';
 import { fetchSourceChunks } from '../api/client';
 import { getDomainColor, getDomainColorWithAlpha } from '../lib/designTokens';
@@ -67,63 +63,25 @@ function categorizeFile(originRef: string): FileCategory {
   return 'other';
 }
 
-const CATEGORY_COLORS: Record<FileCategory, string> = {
-  pdf: '#6366F1',
-  text: '#22C55E',
-  code: '#06B6D4',
-  image: '#F59E0B',
-  archive: '#F97316',
-  spreadsheet: '#10B981',
-  video: '#EC4899',
-  audio: '#F43F5E',
-  other: '#6B7280',
-};
-
-function FileTypeIcon({ category, size = 20 }: { category: FileCategory; size?: number }): ReactNode {
-  const color = CATEGORY_COLORS[category];
-  const cls = `shrink-0`;
-  const style = { width: size, height: size, color };
-  switch (category) {
-    case 'pdf': return <DocumentTextIcon className={cls} style={style} />;
-    case 'text': return <DocumentTextIcon className={cls} style={style} />;
-    case 'code': return <CodeBracketIcon className={cls} style={style} />;
-    case 'image': return <PhotoIcon className={cls} style={style} />;
-    case 'archive': return <ArchiveBoxIcon className={cls} style={style} />;
-    case 'spreadsheet': return <TableCellsIcon className={cls} style={style} />;
-    case 'video': return <FilmIcon className={cls} style={style} />;
-    case 'audio': return <MusicalNoteIcon className={cls} style={style} />;
-    default: return <DocumentIcon className={cls} style={style} />;
-  }
-}
-
 // ── Path utilities ────────────────────────────────────────────────
 
 /**
  * Parse all source origin_refs to extract a normalized directory tree.
  * Returns a Map of folder path → list of sources in that folder.
- *
- * NOTE: origin_ref is assumed to always be Unix-style forward-slash paths,
- * as normalized by the FilesystemAdapter before storage. Windows-style paths
- * (backslash or drive letters) are not supported.
  */
 function buildFolderTree(sources: SourceSummary[]): Map<string, SourceSummary[]> {
   const tree = new Map<string, SourceSummary[]>();
-  // Root always exists
   tree.set('', []);
 
   for (const source of sources) {
-    // Normalize leading slashes so absolute paths like /Users/foo/bar.pdf
-    // produce segments ['Users', 'foo', 'bar.pdf'] rather than ['', 'Users', ...]
     const parts = source.origin_ref.replace(/^\/+/, '').split('/').filter(Boolean);
     if (parts.length === 0) continue;
 
-    // Add source to its immediate parent folder
     const parentParts = parts.slice(0, -1);
     const parentPath = parentParts.join('/');
     if (!tree.has(parentPath)) tree.set(parentPath, []);
     tree.get(parentPath)!.push(source);
 
-    // Ensure all ancestor folders exist in tree
     for (let i = 1; i < parentParts.length; i++) {
       const ancestorPath = parentParts.slice(0, i).join('/');
       if (!tree.has(ancestorPath)) tree.set(ancestorPath, []);
@@ -133,9 +91,6 @@ function buildFolderTree(sources: SourceSummary[]): Map<string, SourceSummary[]>
   return tree;
 }
 
-/**
- * Get immediate subdirectory names for a given folder path.
- */
 function getSubfolders(tree: Map<string, SourceSummary[]>, folderPath: string): string[] {
   const prefix = folderPath ? folderPath + '/' : '';
   const subs = new Set<string>();
@@ -150,10 +105,6 @@ function getSubfolders(tree: Map<string, SourceSummary[]>, folderPath: string): 
   return Array.from(subs).sort();
 }
 
-/**
- * Count files recursively under a folder (including subdirectories).
- * The root folder ('') only counts files directly at the root level.
- */
 function countFilesUnder(tree: Map<string, SourceSummary[]>, folderPath: string): number {
   let count = 0;
   const prefix = folderPath ? folderPath + '/' : '';
@@ -176,10 +127,8 @@ function sortSources(sources: SourceSummary[], sortKey: SortKey): SourceSummary[
         return getFilename(a.origin_ref).localeCompare(getFilename(b.origin_ref));
       case 'date':
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-      case 'size': {
-        // file_size_bytes is in domain_metadata, use chunk_count as proxy if unavailable
+      case 'size':
         return b.chunk_count - a.chunk_count;
-      }
       case 'type': {
         const extA = getExtension(getFilename(a.origin_ref));
         const extB = getExtension(getFilename(b.origin_ref));
@@ -190,9 +139,9 @@ function sortSources(sources: SourceSummary[], sortKey: SortKey): SourceSummary[
   });
 }
 
-// ── FolderTree ────────────────────────────────────────────────────
+// ── Folder tree item (recursive) ──────────────────────────────────
 
-function FolderTreeNode({
+function FolderTreeItem({
   name,
   fullPath,
   tree,
@@ -211,44 +160,22 @@ function FolderTreeNode({
   const fileCount = countFilesUnder(tree, fullPath);
   const isSelected = selectedFolder === fullPath;
   const isAncestor = selectedFolder.startsWith(fullPath + '/') && fullPath !== '';
-  const isOpen = isSelected || isAncestor || subfolders.length === 0;
+  const isOpen = isSelected || isAncestor;
 
   return (
-    <div>
-      <button
-        onClick={() => onSelect(fullPath)}
-        className="w-full flex items-center gap-2 py-1 rounded transition-colors text-left"
-        style={{
-          paddingLeft: depth === 0 ? 12 : depth * 12 + 8,
-          paddingRight: 12,
-          height: 32,
-          background: isSelected ? '#1A1F3C' : 'transparent',
-        }}
-      >
-        {isSelected || isAncestor ? (
-          <FolderOpenIcon
-            style={{ width: 14, height: 14, color: isSelected ? '#A5B4FC' : '#6B7280', flexShrink: 0 }}
-          />
-        ) : (
-          <FolderIcon
-            style={{ width: 14, height: 14, color: '#6B7280', flexShrink: 0 }}
-          />
-        )}
-        <span
-          className="text-xs truncate flex-1 leading-none"
-          style={{ color: isSelected ? '#FFFFFF' : '#9CA3AF' }}
-        >
-          {name}
-        </span>
-        {fileCount > 0 && (
-          <span className="text-xs ml-auto shrink-0 tabular-nums" style={{ color: '#4B5563' }}>
-            {fileCount}
-          </span>
-        )}
-      </button>
-
+    <>
+      <HierarchyRow
+        depth={depth}
+        domain="software"
+        kind="taxonomy"
+        label={name}
+        meta={String(fileCount)}
+        selected={isSelected}
+        onSelect={() => onSelect(fullPath)}
+        showKind={false}
+      />
       {isOpen && subfolders.map(sub => (
-        <FolderTreeNode
+        <FolderTreeItem
           key={sub}
           name={sub}
           fullPath={fullPath ? `${fullPath}/${sub}` : sub}
@@ -258,69 +185,7 @@ function FolderTreeNode({
           onSelect={onSelect}
         />
       ))}
-    </div>
-  );
-}
-
-// ── FileCard (grid view) ──────────────────────────────────────────
-
-function FileCard({
-  source,
-  isSelected,
-  onClick,
-}: {
-  source: SourceSummary;
-  isSelected: boolean;
-  onClick: () => void;
-}): ReactNode {
-  const filename = getFilename(source.origin_ref);
-  const category = categorizeFile(source.origin_ref);
-  const ext = getExtension(filename).toUpperCase() || 'FILE';
-
-  return (
-    <button
-      onClick={onClick}
-      className="flex flex-col gap-2.5 rounded-lg p-3.5 text-left transition-all"
-      style={{
-        width: 180,
-        background: isSelected ? '#1A1F3C' : '#161616',
-        border: `1px solid ${isSelected ? '#312E81' : '#1E1E1E'}`,
-        flexShrink: 0,
-      }}
-    >
-      {/* Icon */}
-      <div
-        className="flex items-center justify-center rounded-lg shrink-0"
-        style={{ width: 40, height: 40, background: '#1C1A2E' }}
-      >
-        <FileTypeIcon category={category} size={20} />
-      </div>
-
-      {/* Filename */}
-      <span
-        className="text-xs font-medium leading-snug"
-        style={{
-          color: isSelected ? '#FFFFFF' : '#E5E7EB',
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-          width: '100%',
-        }}
-      >
-        {filename}
-      </span>
-
-      {/* Meta */}
-      <div className="flex flex-col gap-0.5">
-        <span className="text-[10px]" style={{ color: isSelected ? '#818CF8' : '#6B7280' }}>
-          {ext}
-        </span>
-        <span className="text-[10px]" style={{ color: isSelected ? '#A5B4FC' : '#4B5563' }}>
-          {formatDate(source.updated_at)}
-        </span>
-      </div>
-    </button>
+    </>
   );
 }
 
@@ -336,21 +201,26 @@ function FileRow({
   onClick: () => void;
 }): ReactNode {
   const filename = getFilename(source.origin_ref);
-  const category = categorizeFile(source.origin_ref);
+  const ext = getExtension(filename).toUpperCase() || 'FILE';
 
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-2 transition-colors text-left"
       style={{
-        background: isSelected ? '#1A1F3C' : 'transparent',
-        borderLeft: `2px solid ${isSelected ? '#6366F1' : 'transparent'}`,
+        background: isSelected ? getDomainColorWithAlpha('documents', '18') : 'transparent',
+        borderLeft: `2px solid ${isSelected ? docColor : 'transparent'}`,
       }}
     >
-      <FileTypeIcon category={category} size={14} />
+      <span
+        className="shrink-0 text-[10px] font-mono px-1 rounded"
+        style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-3))' }}
+      >
+        {ext}
+      </span>
       <span
         className="flex-1 text-xs truncate"
-        style={{ color: isSelected ? '#FFFFFF' : '#E5E7EB' }}
+        style={{ color: isSelected ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-2))' }}
       >
         {filename}
       </span>
@@ -364,11 +234,19 @@ function FileRow({
   );
 }
 
-// ── FileDetail (right panel) ──────────────────────────────────────
+// ── FileDetail (preview panel) ────────────────────────────────────
+
+function MetaRow({ label, value }: { label: string; value: string }): ReactNode {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-[10px] w-16 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{label}</span>
+      <span className="text-[11px] truncate" style={{ color: 'rgb(var(--canvas-fg-2))' }}>{value}</span>
+    </div>
+  );
+}
 
 function FileDetail({ source }: { source: SourceSummary }): ReactNode {
   const filename = getFilename(source.origin_ref);
-  const category = categorizeFile(source.origin_ref);
   const ext = getExtension(filename).toUpperCase() || 'FILE';
 
   const chunksQuery = useQuery({
@@ -382,17 +260,14 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
     return [...chunksQuery.data.chunks].sort((a, b) => a.chunk_index - b.chunk_index);
   }, [chunksQuery.data]);
 
-  // Extract file_size_bytes from first chunk's domain_metadata
   const docMeta = useMemo(() => {
     const first = chunks[0];
     if (!first?.domain_metadata) return null;
-    try { return extractDocumentMetadata(first.domain_metadata); } catch (error) {
-      console.error('Failed to extract document metadata:', error);
+    try { return extractDocumentMetadata(first.domain_metadata); } catch {
       return null;
     }
   }, [chunks]);
 
-  // Content preview: first 500 chars from first text chunk
   const contentPreview = useMemo(() => {
     const textChunk = chunks.find(c => c.chunk_type === 'text' || c.chunk_type === 'document');
     if (!textChunk) return chunks[0]?.content ?? null;
@@ -405,9 +280,11 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
       <div className="px-5 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}>
         <div
           className="flex items-center justify-center rounded-xl mb-3"
-          style={{ width: 48, height: 48, background: '#1C1A2E' }}
+          style={{ width: 48, height: 48, background: getDomainColorWithAlpha('documents', '20') }}
         >
-          <FileTypeIcon category={category} size={24} />
+          <span style={{ color: docColor, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700 }}>
+            {ext.slice(0, 4)}
+          </span>
         </div>
         <h2 className="text-sm font-semibold leading-snug mb-1" style={{ color: 'rgb(var(--canvas-fg-1))' }}>
           {filename}
@@ -504,15 +381,6 @@ function FileDetail({ source }: { source: SourceSummary }): ReactNode {
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }): ReactNode {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-[10px] w-16 shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>{label}</span>
-      <span className="text-[11px] truncate" style={{ color: 'rgb(var(--canvas-fg-2))' }}>{value}</span>
-    </div>
-  );
-}
-
 // ── DocumentsPage ─────────────────────────────────────────────────
 
 export default function DocumentsPage(): ReactNode {
@@ -526,33 +394,42 @@ export default function DocumentsPage(): ReactNode {
 
   const [filterText, setFilterText] = useState('');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [adapterFilter, setAdapterFilter] = useState<string>('');
 
-  // 1000 is an intentional high cap — document libraries are expected to stay well
-  // under this. If sourcesQuery.data?.total > 1000, the grid will silently truncate;
-  // add pagination here if real-world usage exceeds this.
   const sourcesQuery = useSources({ domain: 'documents', limit: 1000 });
   const sources = sourcesQuery.data?.sources ?? [];
 
   const folderTree = useMemo(() => buildFolderTree(sources), [sources]);
-
-  // Top-level folders (for the left sidebar)
   const rootFolders = useMemo(() => getSubfolders(folderTree, ''), [folderTree]);
 
-  // Files in selected folder
+  // Available adapters for the filter dropdown
+  const availableAdapters = useMemo(() =>
+    Array.from(new Set(sources.map(s => s.adapter_id))).sort(),
+    [sources],
+  );
+
+  // Files in selected folder, with adapter and type filter applied
   const folderFiles = useMemo(() => {
     const direct = folderTree.get(selectedFolder) ?? [];
     return sortSources(direct, sort as SortKey);
   }, [folderTree, selectedFolder, sort]);
 
-  // Apply search filter
   const filteredFiles = useMemo(() => {
-    if (!filterText.trim()) return folderFiles;
-    const q = filterText.toLowerCase();
-    return folderFiles.filter(s => getFilename(s.origin_ref).toLowerCase().includes(q));
-  }, [folderFiles, filterText]);
+    let list = folderFiles;
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      list = list.filter(s => getFilename(s.origin_ref).toLowerCase().includes(q));
+    }
+    if (typeFilter.length > 0) {
+      list = list.filter(s => typeFilter.includes(categorizeFile(s.origin_ref)));
+    }
+    if (adapterFilter) {
+      list = list.filter(s => s.adapter_id === adapterFilter);
+    }
+    return list;
+  }, [folderFiles, filterText, typeFilter, adapterFilter]);
 
-  // If the selected file is no longer visible after filtering, treat it as deselected
-  // so the right panel doesn't show stale content the user can't see in the grid.
   const selectedSource = useMemo(() => {
     if (!selectedSourceId) return null;
     const inFiltered = filteredFiles.some(s => s.source_id === selectedSourceId);
@@ -579,290 +456,344 @@ export default function DocumentsPage(): ReactNode {
     void navigate({ to: '/documents', search: { folder: selectedFolder, source_id: selectedSourceId, view, sort: s } });
   }
 
-  // Build breadcrumb segments from selectedFolder
   const breadcrumbSegments = selectedFolder ? selectedFolder.split('/') : [];
-
   const SORT_LABELS: Record<string, string> = { name: 'Name', date: 'Modified', size: 'Size', type: 'Type' };
 
-  return (
-    <div className="flex h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+  // ── Folder tree panel ──────────────────────────────────────────
 
-      {/* ── Left panel: folder tree ── */}
+  const folderTreePanel = (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-surface))' }}>
+      <div className="px-3 pt-3 pb-1 shrink-0">
+        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          Folders
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto py-1">
+        {sourcesQuery.isLoading ? (
+          <div className="px-3 py-2 space-y-2">
+            {[60, 80, 50, 70, 90].map((w, i) => (
+              <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }} />
+            ))}
+          </div>
+        ) : sourcesQuery.isError ? (
+          <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--status-error))' }}>
+            Failed to load folders
+          </div>
+        ) : rootFolders.length === 0 && folderTree.get('')?.length === 0 ? (
+          <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+            No documents found
+          </div>
+        ) : (
+          <HierarchyTree>
+            {(folderTree.get('') ?? []).length > 0 && (
+              <HierarchyRow
+                depth={0}
+                domain="software"
+                kind="taxonomy"
+                label="~/"
+                meta={String((folderTree.get('') ?? []).length)}
+                selected={selectedFolder === ''}
+                onSelect={() => selectFolder('')}
+                showKind={false}
+              />
+            )}
+            {rootFolders.map(folder => (
+              <FolderTreeItem
+                key={folder}
+                name={folder}
+                fullPath={folder}
+                tree={folderTree}
+                selectedFolder={selectedFolder}
+                depth={0}
+                onSelect={selectFolder}
+              />
+            ))}
+          </HierarchyTree>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Main grid panel ────────────────────────────────────────────
+
+  const mainGridPanel = (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      {/* Topbar with breadcrumbs and controls */}
       <div
-        className="shrink-0 flex flex-col overflow-hidden"
-        style={{ width: 220, borderRight: `1px solid rgb(var(--canvas-border))`, background: '#0D0D0D' }}
+        className="flex items-center gap-3 shrink-0 px-4"
+        style={{ height: 52, background: 'rgb(var(--canvas-surface))', borderBottom: `1px solid rgb(var(--canvas-border))` }}
       >
-        {/* Label */}
-        <div className="px-3 pt-3 pb-1 shrink-0">
-          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#4B5563' }}>
-            Folders
-          </span>
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <button
+            onClick={() => selectFolder('')}
+            className="flex items-center gap-1 shrink-0 transition-colors hover:opacity-80"
+          >
+            <HomeIcon style={{ width: 12, height: 12, color: 'rgb(var(--canvas-fg-3))' }} />
+            <span className="text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>~/</span>
+          </button>
+          {breadcrumbSegments.map((seg, i) => {
+            const path = breadcrumbSegments.slice(0, i + 1).join('/');
+            const isLast = i === breadcrumbSegments.length - 1;
+            return (
+              <span key={path} className="flex items-center gap-1.5 shrink-0">
+                <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+                  <Icon name="chevronRight" size={12} />
+                </span>
+                <button
+                  onClick={() => selectFolder(path)}
+                  className="text-xs transition-colors hover:opacity-80"
+                  style={{ color: isLast ? 'rgb(var(--canvas-fg-1))' : 'rgb(var(--canvas-fg-3))' }}
+                >
+                  {seg}
+                </button>
+              </span>
+            );
+          })}
         </div>
 
-        {/* Tree */}
-        <div className="flex-1 overflow-y-auto py-1">
-          {sourcesQuery.isLoading ? (
-            <div className="px-3 py-2 space-y-2">
-              {[60, 80, 50, 70, 90].map((w, i) => (
-                <div key={i} className="h-3 rounded animate-pulse" style={{ width: `${w}%`, background: 'rgb(var(--canvas-bg-2))' }} />
+        {/* Controls */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* View toggle */}
+          <div
+            className="flex items-center rounded"
+            style={{ background: 'rgb(var(--canvas-bg-2))', border: `1px solid rgb(var(--canvas-border))`, height: 32 }}
+          >
+            <button
+              onClick={() => setView('grid')}
+              className="flex items-center justify-center rounded transition-colors"
+              style={{
+                width: 32, height: 28,
+                background: view === 'grid' ? 'rgb(var(--canvas-surface))' : 'transparent',
+                margin: 2,
+              }}
+              title="Grid view"
+            >
+              <Squares2X2Icon style={{ width: 14, height: 14, color: view === 'grid' ? docColor : 'rgb(var(--canvas-fg-3))' }} />
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className="flex items-center justify-center rounded transition-colors"
+              style={{
+                width: 32, height: 28,
+                background: view === 'list' ? 'rgb(var(--canvas-surface))' : 'transparent',
+                margin: 2,
+              }}
+              title="List view"
+            >
+              <ListBulletIcon style={{ width: 14, height: 14, color: view === 'list' ? docColor : 'rgb(var(--canvas-fg-3))' }} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter + sort bar */}
+      <div
+        className="flex items-center gap-3 px-4 py-2 shrink-0"
+        style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
+      >
+        <div
+          className="flex items-center gap-2 px-2.5 py-1.5 rounded flex-1"
+          style={{ background: 'rgb(var(--canvas-surface))', maxWidth: 260 }}
+        >
+          <span style={{ color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }}>
+            <Icon name="search" size={12} />
+          </span>
+          <input
+            type="text"
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+            placeholder="Filter files…"
+            className="bg-transparent text-xs outline-none flex-1"
+            style={{ color: 'rgb(var(--canvas-fg-1))' }}
+          />
+        </div>
+
+        <FilterDropdown
+          mode="checkbox"
+          value={typeFilter}
+          onChange={setTypeFilter}
+        >
+          <FilterDropdown.Trigger
+            label="Type"
+            summary={typeFilter.length === 0 ? 'All' : `${typeFilter.length} types`}
+          />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="File type">
+              {(['pdf', 'text', 'code', 'image', 'spreadsheet', 'audio', 'video', 'archive', 'other'] satisfies FileCategory[]).map(cat => (
+                <FilterDropdown.Checkbox key={cat} value={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)} />
               ))}
-            </div>
-          ) : sourcesQuery.isError ? (
-            <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--status-error))' }}>
-              Failed to load folders
-            </div>
-          ) : rootFolders.length === 0 && folderTree.get('')?.length === 0 ? (
-            <div className="px-3 py-2 text-xs" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-              No documents found
-            </div>
-          ) : (
-            <>
-              {/* Root files (if any) */}
-              {(folderTree.get('') ?? []).length > 0 && (
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
+
+        <FilterDropdown
+          mode="radio"
+          value={adapterFilter ? [adapterFilter] : []}
+          onChange={vals => setAdapterFilter(vals[0] ?? '')}
+        >
+          <FilterDropdown.Trigger
+            label="Adapter"
+            summary={adapterFilter ? adapterFilter.split(':')[0].replace(/_/g, ' ') : 'All'}
+          />
+          <FilterDropdown.Panel>
+            <FilterDropdown.Section title="Source adapter">
+              <FilterDropdown.Radio value="" label="All Adapters" />
+              {availableAdapters.map(id => (
+                <FilterDropdown.Radio key={id} value={id} label={id.split(':')[0].replace(/_/g, ' ')} />
+              ))}
+            </FilterDropdown.Section>
+          </FilterDropdown.Panel>
+        </FilterDropdown>
+
+        <span className="text-xs flex-1 text-right" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+          {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'} · {totalChunks.toLocaleString()} indexed
+        </span>
+
+        {/* Sort dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowSortMenu(v => !v)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors"
+            style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))', border: `1px solid rgb(var(--canvas-border))` }}
+          >
+            <ArrowsUpDownIcon style={{ width: 12, height: 12, color: 'rgb(var(--canvas-fg-3))' }} />
+            {SORT_LABELS[sort]}
+            <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="chevronDown" size={10} />
+            </span>
+          </button>
+          {showSortMenu && (
+            <div
+              className="absolute right-0 top-8 z-10 rounded-lg py-1 min-w-[100px]"
+              style={{ background: 'rgb(var(--canvas-surface))', border: `1px solid rgb(var(--canvas-border))`, boxShadow: '0 4px 16px rgba(0,0,0,0.5)' }}
+            >
+              {(['name', 'date', 'size', 'type'] satisfies SortKey[]).map(key => (
                 <button
-                  onClick={() => selectFolder('')}
-                  className="w-full flex items-center gap-2 py-1 rounded transition-colors"
-                  style={{
-                    paddingLeft: 12, paddingRight: 12, height: 32,
-                    background: selectedFolder === '' ? '#1A1F3C' : 'transparent',
-                  }}
+                  key={key}
+                  onClick={() => setSort(key)}
+                  className="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
+                  style={{ color: sort === key ? docColor : 'rgb(var(--canvas-fg-2))' }}
                 >
-                  <HomeIcon style={{ width: 14, height: 14, color: selectedFolder === '' ? '#A5B4FC' : '#6B7280', flexShrink: 0 }} />
-                  <span className="text-xs" style={{ color: selectedFolder === '' ? '#FFFFFF' : '#9CA3AF' }}>~/</span>
-                  <span className="text-xs ml-auto tabular-nums" style={{ color: '#4B5563' }}>
-                    {(folderTree.get('') ?? []).length}
-                  </span>
+                  {SORT_LABELS[key]}
                 </button>
-              )}
-              {rootFolders.map(folder => (
-                <FolderTreeNode
-                  key={folder}
-                  name={folder}
-                  fullPath={folder}
-                  tree={folderTree}
-                  selectedFolder={selectedFolder}
-                  depth={0}
-                  onSelect={selectFolder}
-                />
               ))}
-            </>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ── Main area: topbar + file grid ── */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-
-        {/* Topbar */}
-        <div
-          className="flex items-center gap-3 shrink-0 px-5"
-          style={{ height: 52, background: '#111111', borderBottom: `1px solid #1A1A1A` }}
-        >
-          {/* Title */}
-          <span className="text-base font-semibold shrink-0" style={{ color: '#FFFFFF' }}>
-            Documents
-          </span>
-
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            <button
-              onClick={() => selectFolder('')}
-              className="flex items-center gap-1 shrink-0 transition-colors hover:opacity-80"
-            >
-              <HomeIcon style={{ width: 12, height: 12, color: '#6B7280' }} />
-              <span className="text-xs" style={{ color: '#6B7280' }}>~/</span>
-            </button>
-            {breadcrumbSegments.map((seg, i) => {
-              const path = breadcrumbSegments.slice(0, i + 1).join('/');
-              const isLast = i === breadcrumbSegments.length - 1;
+      {/* File content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        {sourcesQuery.isLoading ? (
+          <AssetGrid columns={4}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+              <div
+                key={i}
+                className="animate-pulse rounded-lg"
+                style={{ height: 130, background: 'rgb(var(--canvas-surface))' }}
+              />
+            ))}
+          </AssetGrid>
+        ) : sourcesQuery.isError ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
+            <p className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>Failed to load documents</p>
+          </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
+            <span style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              <Icon name="folder" size={32} />
+            </span>
+            <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
+              {filterText || typeFilter.length > 0 ? 'No files match your filters' : 'No files in this folder'}
+            </p>
+          </div>
+        ) : view === 'grid' ? (
+          <AssetGrid columns={4} gap={12}>
+            {filteredFiles.map(source => {
+              const filename = getFilename(source.origin_ref);
+              const ext = getExtension(filename);
+              const isSelected = source.source_id === selectedSourceId;
               return (
-                <span key={path} className="flex items-center gap-1.5 shrink-0">
-                  <span style={{ color: '#4B5563' }}>
-                    <Icon name="chevronRight" size={12} />
-                  </span>
-                  <button
-                    onClick={() => selectFolder(path)}
-                    className="text-xs transition-colors hover:opacity-80"
-                    style={{ color: isLast ? '#FFFFFF' : '#9CA3AF' }}
-                  >
-                    {seg}
-                  </button>
-                </span>
+                <div
+                  key={source.source_id}
+                  onClick={() => selectFile(source.source_id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <AssetCard
+                    thumb={{ kind: 'doc', ext: ext || 'file' }}
+                    title={filename}
+                    subtitle={formatDate(source.updated_at)}
+                    meta={<span style={{ fontSize: 10, color: 'rgb(var(--canvas-fg-3))' }}>{source.chunk_count} chunks</span>}
+                    badge={ext.toUpperCase() || 'FILE'}
+                    selected={isSelected}
+                  />
+                </div>
               );
             })}
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-center gap-2 shrink-0">
-            {/* View toggle */}
+          </AssetGrid>
+        ) : (
+          <div className="flex flex-col">
             <div
-              className="flex items-center rounded"
-              style={{ background: '#1A1A1A', border: '1px solid #2D2D2D', height: 32 }}
+              className="flex items-center gap-3 px-4 py-1.5 mb-1"
+              style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
             >
-              <button
-                onClick={() => setView('grid')}
-                className="flex items-center justify-center rounded transition-colors"
-                style={{
-                  width: 32, height: 28,
-                  background: view === 'grid' ? '#312E81' : 'transparent',
-                  margin: 2,
-                }}
-                title="Grid view"
-              >
-                <Squares2X2Icon style={{ width: 14, height: 14, color: view === 'grid' ? '#A5B4FC' : '#6B7280' }} />
-              </button>
-              <button
-                onClick={() => setView('list')}
-                className="flex items-center justify-center rounded transition-colors"
-                style={{
-                  width: 32, height: 28,
-                  background: view === 'list' ? '#312E81' : 'transparent',
-                  margin: 2,
-                }}
-                title="List view"
-              >
-                <ListBulletIcon style={{ width: 14, height: 14, color: view === 'list' ? '#A5B4FC' : '#6B7280' }} />
-              </button>
+              <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Name</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide w-20 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Modified</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide w-16 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunks</span>
             </div>
+            {filteredFiles.map(source => (
+              <FileRow
+                key={source.source_id}
+                source={source}
+                isSelected={source.source_id === selectedSourceId}
+                onClick={() => selectFile(source.source_id)}
+              />
+            ))}
           </div>
-        </div>
-
-        {/* Stats + sort bar */}
-        <div
-          className="flex items-center gap-3 px-5 py-2 shrink-0"
-          style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
-        >
-          {/* Search */}
-          <div
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded flex-1"
-            style={{ background: 'rgb(var(--canvas-surface))', maxWidth: 260 }}
-          >
-            <span style={{ color: 'rgb(var(--canvas-fg-3))', flexShrink: 0 }}>
-              <Icon name="search" size={12} />
-            </span>
-            <input
-              type="text"
-              value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-              placeholder="Filter files…"
-              className="bg-transparent text-xs outline-none flex-1"
-              style={{ color: 'rgb(var(--canvas-fg-1))' }}
-            />
-          </div>
-
-          {/* Count */}
-          <span className="text-xs flex-1" style={{ color: '#6B7280' }}>
-            {filteredFiles.length} {filteredFiles.length === 1 ? 'file' : 'files'} · {totalChunks.toLocaleString()} indexed
-          </span>
-
-          {/* Sort dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowSortMenu(v => !v)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors"
-              style={{ background: '#1A1A1A', color: '#9CA3AF', border: '1px solid transparent' }}
-            >
-              <ArrowsUpDownIcon style={{ width: 12, height: 12, color: '#6B7280' }} />
-              {SORT_LABELS[sort]}
-              <span style={{ color: '#6B7280' }}>
-                <Icon name="chevronDown" size={10} />
-              </span>
-            </button>
-            {showSortMenu && (
-              <div
-                className="absolute right-0 top-8 z-10 rounded-lg py-1 min-w-[100px]"
-                style={{ background: '#1A1A1A', border: `1px solid rgb(var(--canvas-border))`, boxShadow: '0 4px 16px #00000080' }}
-              >
-                {(['name', 'date', 'size', 'type'] satisfies SortKey[]).map(key => (
-                  <button
-                    key={key}
-                    onClick={() => setSort(key)}
-                    className="w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-[#252525]"
-                    style={{ color: sort === key ? '#A5B4FC' : '#9CA3AF' }}
-                  >
-                    {SORT_LABELS[key]}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* File grid / list */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {sourcesQuery.isLoading ? (
-            <div className="flex flex-wrap gap-3">
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <div
-                  key={i}
-                  className="animate-pulse rounded-lg"
-                  style={{ width: 180, height: 110, background: 'rgb(var(--canvas-surface))' }}
-                />
-              ))}
-            </div>
-          ) : sourcesQuery.isError ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
-              <p className="text-sm" style={{ color: 'rgb(var(--status-error))' }}>Failed to load documents</p>
-              <button
-                onClick={() => sourcesQuery.refetch()}
-                className="text-xs px-3 py-1.5 rounded transition-colors"
-                style={{ background: 'rgb(var(--canvas-surface))', color: 'rgb(var(--canvas-fg-2))' }}
-              >
-                Retry
-              </button>
-            </div>
-          ) : filteredFiles.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 py-16">
-              <FolderOpenIcon style={{ width: 32, height: 32, color: 'rgb(var(--canvas-fg-3))' }} />
-              <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
-                {filterText ? 'No files match your filter' : 'No files in this folder'}
-              </p>
-            </div>
-          ) : view === 'grid' ? (
-            <div className="flex flex-wrap gap-3 content-start">
-              {filteredFiles.map(source => (
-                <FileCard
-                  key={source.source_id}
-                  source={source}
-                  isSelected={source.source_id === selectedSourceId}
-                  onClick={() => selectFile(source.source_id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col">
-              {/* List header */}
-              <div
-                className="flex items-center gap-3 px-4 py-1.5 mb-1"
-                style={{ borderBottom: `1px solid rgb(var(--canvas-border))` }}
-              >
-                <span className="flex-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Name</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide w-20 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Modified</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide w-16 text-right shrink-0" style={{ color: 'rgb(var(--canvas-fg-3))' }}>Chunks</span>
-              </div>
-              {filteredFiles.map(source => (
-                <FileRow
-                  key={source.source_id}
-                  source={source}
-                  isSelected={source.source_id === selectedSourceId}
-                  onClick={() => selectFile(source.source_id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
+    </div>
+  );
 
-      {/* ── Right panel: file detail ── */}
-      {selectedSource && (
-        <div
-          className="shrink-0 flex flex-col overflow-hidden"
-          style={{ width: 360, borderLeft: `1px solid rgb(var(--canvas-border))`, background: 'rgb(var(--canvas-surface))' }}
-        >
-          <FileDetail source={selectedSource} />
-        </div>
-      )}
+  return (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(var(--canvas-bg))' }}>
+      <PageHeader
+        eyebrow="Domains"
+        title="Documents"
+        subtitle="Ingested filesystem documents"
+      />
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <SplitPane
+          direction="horizontal"
+          initialSplitPercent={20}
+          minSize={160}
+          maxSize={380}
+          first={folderTreePanel}
+          second={
+            selectedSource ? (
+              <SplitPane
+                direction="horizontal"
+                initialSplitPercent={65}
+                minSize={280}
+                maxSize={600}
+                first={mainGridPanel}
+                second={
+                  <div
+                    className="h-full overflow-hidden"
+                    style={{ background: 'rgb(var(--canvas-surface))' }}
+                  >
+                    <FileDetail source={selectedSource} />
+                  </div>
+                }
+              />
+            ) : (
+              mainGridPanel
+            )
+          }
+          style={{ height: '100%' }}
+        />
+      </div>
     </div>
   );
 }
-

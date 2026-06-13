@@ -91,7 +91,7 @@ class DocumentStore:
         self._local.conn = self._make_connection()
 
         # Check if this is an existing database that needs migration
-        # This must be done BEFORE executing schema.sql which sets version to 4
+        # This must be done BEFORE executing schema.sql which sets version to 6
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA user_version")
         version = cursor.fetchone()[0]
@@ -124,7 +124,14 @@ class DocumentStore:
             cursor.execute("PRAGMA user_version")
             version = cursor.fetchone()[0]
 
-        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=5)
+        if version == 5:
+            # Migrate from v5 to v6 BEFORE executing new schema
+            self._migrate_v5_to_v6()
+            # Re-read version after migration
+            cursor.execute("PRAGMA user_version")
+            version = cursor.fetchone()[0]
+
+        # Load and execute schema (contains all required PRAGMAs including PRAGMA user_version=6)
         schema_path = Path(__file__).parent / "schema.sql"
         schema_sql = schema_path.read_text()
         self.conn.executescript(schema_sql)
@@ -153,9 +160,9 @@ class DocumentStore:
         # Verify final schema version
         cursor.execute("PRAGMA user_version")
         final_version = cursor.fetchone()[0]
-        if final_version != 5:
+        if final_version != 6:
             raise RuntimeError(
-                f"Schema version mismatch: expected 5, got {final_version}"
+                f"Schema version mismatch: expected 6, got {final_version}"
             )
 
     def _make_connection(self) -> sqlite3.Connection:
@@ -876,6 +883,34 @@ class DocumentStore:
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v4 to v5: {e}"
+            ) from e
+
+    def _migrate_v5_to_v6(self) -> None:
+        """Migrate schema from v5 to v6: add index on source_versions(created_at).
+
+        Raises:
+            RuntimeError: If migration fails at any step.
+        """
+        logger.info("Migrating schema from v5 to v6 (adding index on source_versions.created_at)")
+
+        cursor = self.conn.cursor()
+
+        try:
+            cursor.execute("BEGIN")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_source_versions_created_at ON source_versions(created_at)"
+            )
+            cursor.execute("PRAGMA user_version=6")
+            self.conn.commit()
+            logger.info("Successfully migrated schema from v5 to v6")
+
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback migration: {rollback_error}")
+            raise RuntimeError(
+                f"Failed to migrate schema from v5 to v6: {e}"
             ) from e
 
     def register_adapter(self, config: AdapterConfig) -> str:
@@ -1710,6 +1745,38 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [self._build_chunk_from_row(row) for row in rows]
 
+    def get_chunk_version_chain_with_timestamps(
+        self, chunk_hash: str, source_id: str
+    ) -> list[tuple[Chunk, str]]:
+        """Like get_chunk_version_chain but includes fetch_timestamp for each chain entry.
+
+        Returns list of (Chunk, fetch_timestamp_iso) tuples ordered by created_at ascending.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT chunk_hash, source_id, content, context_header, chunk_index, chunk_type,
+                       domain_metadata, created_at, fetch_timestamp, parent_chunk_hash, 1 AS depth
+                FROM chunks
+                WHERE chunk_hash = ? AND source_id = ? AND retired_at IS NULL
+                UNION
+                SELECT c.chunk_hash, c.source_id, c.content, c.context_header, c.chunk_index, c.chunk_type,
+                       c.domain_metadata, c.created_at, c.fetch_timestamp, c.parent_chunk_hash, ch.depth + 1
+                FROM chunks c
+                JOIN chain ch ON c.chunk_hash = ch.parent_chunk_hash AND c.source_id = ch.source_id
+                WHERE ch.depth < 1000 AND c.retired_at IS NULL
+            )
+            SELECT chunk_hash, content, context_header, chunk_index, chunk_type,
+                   domain_metadata, created_at, fetch_timestamp
+            FROM chain
+            ORDER BY created_at ASC
+            """,
+            (chunk_hash, source_id),
+        )
+        rows = cursor.fetchall()
+        return [(self._build_chunk_from_row(row), row["fetch_timestamp"]) for row in rows]
+
     def get_chunks_by_source(
         self,
         source_id: str,
@@ -1906,7 +1973,7 @@ class DocumentStore:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                       normalizer_version, embedding_model_id
+                       normalizer_version, embedding_model_id, fetch_timestamp
                 FROM chunks
                 WHERE chunk_hash = ? AND source_id = ?
                 ORDER BY created_at ASC
@@ -1918,7 +1985,7 @@ class DocumentStore:
             cursor.execute(
                 """
                 SELECT chunk_hash, source_id, source_version, adapter_id, domain,
-                       normalizer_version, embedding_model_id
+                       normalizer_version, embedding_model_id, fetch_timestamp
                 FROM chunks
                 WHERE chunk_hash = ?
                 ORDER BY created_at ASC
@@ -1939,7 +2006,54 @@ class DocumentStore:
             domain=Domain(row["domain"]),
             normalizer_version=row["normalizer_version"],
             embedding_model_id=row["embedding_model_id"],
+            fetch_timestamp=row["fetch_timestamp"],
         )
+
+    def get_lineage_batch(self, chunk_hashes: list[str], source_id: str) -> dict[str, LineageRecord]:
+        """Get lineage records for multiple chunks in a single query.
+
+        Fetches lineage for all given chunk hashes scoped to source_id.
+        For chunks appearing in multiple versions, returns the earliest-created record
+        (matching the behavior of get_lineage with source_id).
+
+        Args:
+            chunk_hashes: List of chunk hashes to look up.
+            source_id: Source ID to scope the lookup.
+
+        Returns:
+            Dict mapping chunk_hash to LineageRecord. Hashes with no matching record
+            are absent from the returned dict.
+        """
+        if not chunk_hashes:
+            return {}
+        placeholders = ",".join("?" * len(chunk_hashes))
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT chunk_hash, source_id, source_version, adapter_id, domain,
+                   normalizer_version, embedding_model_id, fetch_timestamp
+            FROM chunks
+            WHERE source_id = ? AND chunk_hash IN ({placeholders})
+            ORDER BY created_at ASC
+            """,
+            [source_id, *chunk_hashes],
+        )
+        rows = cursor.fetchall()
+        result: dict[str, LineageRecord] = {}
+        for row in rows:
+            h = row["chunk_hash"]
+            if h not in result:
+                result[h] = LineageRecord(
+                    chunk_hash=row["chunk_hash"],
+                    source_id=row["source_id"],
+                    source_version_id=row["source_version"],
+                    adapter_id=row["adapter_id"],
+                    domain=Domain(row["domain"]),
+                    normalizer_version=row["normalizer_version"],
+                    embedding_model_id=row["embedding_model_id"],
+                    fetch_timestamp=row["fetch_timestamp"],
+                )
+        return result
 
     def get_adapter(self, adapter_id: str) -> Optional[AdapterConfig]:
         """Get an adapter configuration by ID.
@@ -2291,6 +2405,9 @@ class DocumentStore:
         domain: Optional[str] = None,
         adapter_id: Optional[str] = None,
         source_id_prefix: Optional[str] = None,
+        state: Optional[str] = None,
+        last_fetched_after: Optional[str] = None,
+        last_fetched_before: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = "created_at",
@@ -2302,6 +2419,9 @@ class DocumentStore:
             domain: Optional domain filter.
             adapter_id: Optional adapter_id filter.
             source_id_prefix: Optional prefix filter on source_id.
+            state: Optional state filter — "active" (has active chunks) or "inactive" (no chunks).
+            last_fetched_after: Optional ISO 8601 timestamp; only return sources fetched after this time.
+            last_fetched_before: Optional ISO 8601 timestamp; only return sources fetched before this time.
             limit: Maximum number of results to return.
             offset: Number of results to skip.
             sort_by: Column to sort by — "created_at", "updated_at", or "chunk_count".
@@ -2330,6 +2450,22 @@ class DocumentStore:
             escaped_prefix = ''.join(f'\\{c}' if c in _LIKE_SPECIAL else c for c in source_id_prefix)
             where_clauses.append("s.source_id LIKE ? || '%' ESCAPE '\\'")
             filter_params.append(escaped_prefix)
+        if state == "active":
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM chunks c WHERE c.source_id = s.source_id"
+                " AND c.source_version = s.current_version AND c.retired_at IS NULL)"
+            )
+        elif state == "inactive":
+            where_clauses.append(
+                "NOT EXISTS (SELECT 1 FROM chunks c WHERE c.source_id = s.source_id"
+                " AND c.source_version = s.current_version AND c.retired_at IS NULL)"
+            )
+        if last_fetched_after is not None:
+            where_clauses.append("s.last_fetched_at >= ?")
+            filter_params.append(last_fetched_after)
+        if last_fetched_before is not None:
+            where_clauses.append("s.last_fetched_at <= ?")
+            filter_params.append(last_fetched_before)
         where_sql = " AND ".join(where_clauses)
 
         # Total count of matching sources (without LIMIT/OFFSET)
@@ -2671,6 +2807,69 @@ class DocumentStore:
             }
             for row in cursor.fetchall()
         ]
+
+    def get_activity_feed(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Return recent ingestion activity events derived from source_versions.
+
+        Each row in source_versions represents a completed ingestion pass for a source.
+        Events are ordered newest-first by created_at (when the version was recorded).
+
+        Returns:
+            Tuple of (events list, total count). Each event dict contains:
+            - event_type: "ingested"
+            - entity_name: display_name or source_id
+            - identifier: source_id
+            - timestamp: fetch_timestamp from the source_version
+            - domain: domain name for the source
+            - adapter_type: adapter type string
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM source_versions sv
+                JOIN sources s ON sv.source_id = s.source_id
+                JOIN adapters a ON sv.adapter_id = a.adapter_id
+                """
+            )
+            total: int = cursor.fetchone()["cnt"]
+
+            cursor.execute(
+                """
+                SELECT
+                    sv.source_id,
+                    COALESCE(s.display_name, sv.source_id) AS entity_name,
+                    a.adapter_type,
+                    s.domain,
+                    sv.fetch_timestamp AS timestamp
+                FROM source_versions sv
+                JOIN sources s ON sv.source_id = s.source_id
+                JOIN adapters a ON sv.adapter_id = a.adapter_id
+                ORDER BY sv.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                [limit, offset],
+            )
+            events = [
+                {
+                    "event_type": "ingested",
+                    "entity_name": row["entity_name"],
+                    "identifier": row["source_id"],
+                    "timestamp": row["timestamp"],
+                    "domain": row["domain"],
+                    "adapter_type": row["adapter_type"],
+                }
+                for row in cursor.fetchall()
+            ]
+            return events, total
+        except sqlite3.Error as e:
+            logger.error("Failed to query activity feed: %s", e)
+            raise
 
     def get_sync_log(self, limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
         """Get paginated sync log entries from lancedb_sync_log.

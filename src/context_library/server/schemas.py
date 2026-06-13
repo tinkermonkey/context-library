@@ -73,6 +73,18 @@ class QueryRequest(BaseModel):
     source_filter: str | None = None
     rerank: bool = False
     rerank_top_k: int | None = Field(default=None, gt=0)
+    include_provenance: bool = False
+
+
+class ProvenanceInfo(BaseModel):
+    """Lineage metadata for a query result chunk."""
+
+    adapter_id: str
+    domain: str
+    source_version_id: int
+    chunk_type: str
+    normalizer_version: str
+    embedding_model: str
 
 
 class QueryResultItem(BaseModel):
@@ -87,7 +99,9 @@ class QueryResultItem(BaseModel):
     adapter_id: str
     embedding_model: str
     similarity_score: float
+    version_date: str | None = None
     domain_metadata: dict[str, Any] | None = None
+    provenance: ProvenanceInfo | None = None
 
 
 class QueryResponse(BaseModel):
@@ -318,6 +332,8 @@ class ChunkVersionChainItem(BaseModel):
     context_header: str | None
     chunk_index: int
     chunk_type: str
+    fetch_timestamp: str | None = None
+    similarity_to_head: float | None = None
 
 
 class ChunkVersionChainResponse(BaseModel):
@@ -492,3 +508,46 @@ class AdapterResetResponse(BaseModel):
     library_reset: LibraryResetInfo
     reingestion_triggered: bool
     errors: list[str] = Field(default_factory=list)
+
+
+# ── Activity feed ────────────────────────────────────────────────────
+
+
+class ActivityEvent(BaseModel):
+    """A single ingestion event derived from source_versions."""
+
+    event_type: str
+    entity_name: str
+    identifier: str
+    timestamp: str
+    domain: str
+    adapter_type: str
+
+
+class ActivityFeedResponse(BaseModel):
+    events: list[ActivityEvent]
+    total: int
+    limit: int
+    offset: int
+
+
+# ── Pipeline status ──────────────────────────────────────────────────
+
+
+class PipelineRun(BaseModel):
+    """Status of a currently active pipeline ingestion run."""
+
+    run_id: str
+    adapter_id: str
+    current_step: Literal["fetch", "chunk", "diff", "embed", "store"]
+    started_at: str
+    duration_sec: float
+    ingested: int
+    created: int
+    unchanged: int
+    errors: int
+
+
+class PipelineListResponse(BaseModel):
+    runs: list[PipelineRun]
+    total: int

@@ -15,7 +15,7 @@
     "@tanstack/react-query": "5.90.21",
     "@tanstack/react-router": "1.167.3",
     "@tanstack/react-table": "8.21.3",
-    "@tinkermonkey/heimdall-ui": "github:tinkermonkey/heimdall#6b169551d5cc74000abdc61dc557e89201473bba",
+    "@tinkermonkey/heimdall-ui": "github:tinkermonkey/heimdall#df99cf9e799c01f85187dd02bfb349a4c7ab4680",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwindcss": "4.2.1",

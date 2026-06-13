@@ -1,24 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
-import { CommandPalette, type Command, type IconName } from '@tinkermonkey/heimdall-ui';
+import { CommandPalette, type Command } from '@tinkermonkey/heimdall-ui';
 import { useAdminAdapters } from '../hooks/useAdminAdapters';
 import { triggerAdapterSync } from '../api/client';
 import { useToast } from '../hooks/useToast';
-import { type ValidRoute, ICON_MAP } from './layoutConfig';
+import { ALL_NAV_ITEMS } from './layoutConfig';
 
-interface NavItem {
-  id: ValidRoute;
-  label: string;
-  iconKey: string;
-}
-
-export function CommandPaletteWrapper({
-  primaryNav,
-  adminNav,
-}: {
-  primaryNav: readonly NavItem[];
-  adminNav: NavItem;
-}) {
+export function CommandPaletteWrapper() {
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
   const { data: adaptersData } = useAdminAdapters(120_000);
@@ -37,27 +25,16 @@ export function CommandPaletteWrapper({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Build navigation commands
-  const navigationCommands: Command[] = [
-    ...primaryNav.map((item) => ({
-      id: `nav-${item.id}`,
-      label: item.label,
-      icon: ICON_MAP[item.iconKey] as IconName,
-      onSelect: () => {
-        router.navigate({ to: item.id });
-      },
-    })),
-    {
-      id: `nav-${adminNav.id}`,
-      label: adminNav.label,
-      icon: ICON_MAP[adminNav.iconKey] as IconName,
-      onSelect: () => {
-        router.navigate({ to: adminNav.id });
-      },
+  const navigationCommands: Command[] = ALL_NAV_ITEMS.map((item) => ({
+    id: `nav-${item.id}`,
+    label: item.label,
+    icon: item.icon,
+    onSelect: () => {
+      // item.id is always a concrete registered route from ALL_NAV_ITEMS
+      router.navigate({ to: item.id as string });
     },
-  ];
+  }));
 
-  // Build adapter sync commands
   const adapterCommands: Command[] = (adaptersData?.adapters || []).map((adapter) => ({
     id: `sync-${adapter.adapter_id}`,
     label: `Sync ${adapter.adapter_type}`,
@@ -81,13 +58,11 @@ export function CommandPaletteWrapper({
     },
   }));
 
-  const allCommands = [...navigationCommands, ...adapterCommands];
-
   return (
     <CommandPalette
       isOpen={isOpen}
       onClose={() => setIsOpen(false)}
-      commands={allCommands}
+      commands={[...navigationCommands, ...adapterCommands]}
       placeholder="Search navigation or commands..."
     />
   );

@@ -1,7 +1,7 @@
 PRAGMA foreign_keys=ON;
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
-PRAGMA user_version=5;
+PRAGMA user_version=6;
 
 CREATE TABLE IF NOT EXISTS adapters (
     adapter_id          TEXT PRIMARY KEY,
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS source_versions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_source_versions_adapter_id ON source_versions(adapter_id);
+CREATE INDEX IF NOT EXISTS idx_source_versions_created_at ON source_versions(created_at);
 
 CREATE TABLE IF NOT EXISTS chunks (
     chunk_hash          TEXT NOT NULL,

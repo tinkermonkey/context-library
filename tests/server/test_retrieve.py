@@ -149,3 +149,41 @@ class TestSemanticSearch:
         payload = {"query": ""}
         resp = client.post("/query", json=payload)
         assert resp.status_code == 422
+
+    def test_include_provenance_false_by_default(self, client: TestClient) -> None:
+        """Verify provenance field is absent when include_provenance is not set."""
+        payload = {"query": "hello"}
+        resp = client.post("/query", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        for item in data.get("results", []):
+            assert "provenance" not in item or item["provenance"] is None
+
+    def test_include_provenance_true_returns_provenance(self, client_multi_source) -> None:
+        """Verify provenance field is returned when include_provenance=True."""
+        from unittest.mock import MagicMock
+        from context_library.storage.models import compute_chunk_hash
+
+        # Set up mock search result
+        content = "Content for source 1"
+        chunk_hash = compute_chunk_hash(content)
+
+        mock_hit = MagicMock()
+        mock_hit.chunk_hash = chunk_hash
+        mock_hit.similarity_score = 0.9
+        client_multi_source.app.state.vector_store.search.return_value = [mock_hit]
+
+        payload = {"query": "content", "include_provenance": True}
+        resp = client_multi_source.post("/query", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "results" in data
+        for result in data["results"]:
+            assert "provenance" in result
+            prov = result["provenance"]
+            assert "adapter_id" in prov
+            assert "domain" in prov
+            assert "source_version_id" in prov
+            assert "chunk_type" in prov
+            assert "normalizer_version" in prov
+            assert "embedding_model" in prov

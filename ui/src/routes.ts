@@ -3,7 +3,7 @@
  * Separated to a .ts file to comply with react-refresh/only-export-components.
  */
 
-import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router'
 import { lazy } from 'react'
 import RootLayout from './routes/__root'
 import DashboardPage from './routes/index'
@@ -11,6 +11,7 @@ import BrowserPage from './routes/browser'
 import BrowserVersionsPage from './routes/browser.versions.$sourceId'
 import BrowserFilesPage from './routes/browser.files'
 import SearchPage from './routes/search'
+import PipelinePage from './routes/pipeline'
 import {
   indexSearchSchema,
   browserSearchSchema,
@@ -27,7 +28,13 @@ import {
   peopleViewSearchSchema,
   locationViewSearchSchema,
   musicViewSearchSchema,
+  sourcesSearchSchema,
 } from './routes-config'
+
+// Lazy load route components to enable code splitting
+const SourcesPage = lazy(() => import('./routes/sources'))
+const SourceDetailPage = lazy(() => import('./routes/sources.$sourceId'))
+const ChunkInspectorPage = lazy(() => import('./routes/chunks.$chunkHash'))
 
 // Lazy load DomainViewPage to enable code splitting
 const DomainViewPage = lazy(() => import('./routes/browser.view'))
@@ -46,6 +53,7 @@ const PeoplePage = lazy(() => import('./routes/people'))
 const LocationPage = lazy(() => import('./routes/location'))
 const MusicPage = lazy(() => import('./routes/music'))
 const AdminPage = lazy(() => import('./routes/admin'))
+const AdaptersPage = lazy(() => import('./routes/adapters'))
 
 const rootRoute = createRootRoute({
   component: RootLayout,
@@ -63,6 +71,9 @@ const browserRoute = createRoute({
   path: '/browser',
   component: BrowserPage,
   validateSearch: (search: unknown) => browserSearchSchema.parse(search),
+  beforeLoad: () => {
+    throw redirect({ to: '/sources' });
+  },
 })
 
 const browserVersionsRoute = createRoute({
@@ -169,6 +180,37 @@ const adminRoute = createRoute({
   component: AdminPage,
 })
 
+const adaptersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/adapters',
+  component: AdaptersPage,
+})
+
+const sourcesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sources',
+  component: SourcesPage,
+  validateSearch: (search: unknown) => sourcesSearchSchema.parse(search),
+})
+
+const sourceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sources/$sourceId',
+  component: SourceDetailPage,
+})
+
+const chunkInspectorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/chunks/$chunkHash',
+  component: ChunkInspectorPage,
+})
+
+const pipelineRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/pipeline',
+  component: PipelinePage,
+})
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   searchRoute,
@@ -182,6 +224,11 @@ const routeTree = rootRoute.addChildren([
   locationRoute,
   musicRoute,
   adminRoute,
+  adaptersRoute,
+  sourcesRoute,
+  sourceDetailRoute,
+  chunkInspectorRoute,
+  pipelineRoute,
   browserRoute,
   browserVersionsRoute,
   browserFilesRoute,

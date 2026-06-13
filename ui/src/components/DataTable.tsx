@@ -325,16 +325,15 @@ export function DataTable<TData>({
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{facet.label}</label>
                 <Select
                   value={filters[facet.column]?.[0] ?? ''}
-                  onChange={(e) => {
-                    const value = e.target.value;
+                  onChange={(value) => {
                     handleFacetChange(facet.column, value ? [value] : []);
                   }}
                 >
-                  <option value="">All</option>
+                  <Select.Item value="">All</Select.Item>
                   {facet.values.map((value) => (
-                    <option key={value} value={value}>
+                    <Select.Item key={value} value={value}>
                       {value}
-                    </option>
+                    </Select.Item>
                   ))}
                 </Select>
               </div>
@@ -433,12 +432,12 @@ export function DataTable<TData>({
           <label className="text-sm text-gray-600 dark:text-gray-400">Page size:</label>
           <Select
             value={String(pageSize)}
-            onChange={(e) => handlePageSizeChange(e.target.value)}
+            onChange={(value) => handlePageSizeChange(value)}
           >
             {[10, 25, 50, 100].map((size) => (
-              <option key={size} value={size}>
+              <Select.Item key={size} value={String(size)}>
                 {size}
-              </option>
+              </Select.Item>
             ))}
           </Select>
         </div>

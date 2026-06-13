@@ -196,6 +196,8 @@ export interface ChunkVersionChainItem {
   context_header: string | null;
   chunk_index: number;
   chunk_type: string;
+  fetch_timestamp: string | null;
+  similarity_to_head: number | null;
 }
 
 export interface VersionDiffResponse {
@@ -249,6 +251,7 @@ export interface QueryResultItem {
   adapter_id: string;
   embedding_model: string;
   similarity_score: number;
+  version_date: string | null;
 }
 
 export interface QueryResponse {
@@ -262,6 +265,9 @@ export interface SourceQueryParams {
   adapter_id?: string;
   domain?: string;
   source_id_prefix?: string;
+  state?: 'active' | 'inactive';
+  last_fetched_after?: string;
+  last_fetched_before?: string;
   limit?: number;
   offset?: number;
   sort_by?: 'created_at' | 'updated_at' | 'chunk_count';
@@ -275,6 +281,45 @@ export interface ChunkQueryParams {
   limit?: number;
   offset?: number;
   metadata_filter?: Record<string, string>;
+}
+
+// ── Activity Feed ────────────────────────────────────────────────
+
+export interface ActivityFeedEvent {
+  event_type: string;
+  entity_name: string;
+  identifier: string;
+  timestamp: string;
+  domain: string;
+  adapter_type: string;
+}
+
+export interface ActivityFeedResponse {
+  events: ActivityFeedEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ── Pipelines ────────────────────────────────────────────────────
+
+export type PipelineStep = "fetch" | "chunk" | "diff" | "embed" | "store";
+
+export interface PipelineRun {
+  run_id: string;
+  adapter_id: string;
+  current_step: PipelineStep;
+  started_at: string;
+  duration_sec: number;
+  ingested: number;
+  created: number;
+  unchanged: number;
+  errors: number;
+}
+
+export interface PipelineListResponse {
+  runs: PipelineRun[];
+  total: number;
 }
 
 // ── Admin ────────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 """Source inspection endpoints."""
 
 import asyncio
+import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -19,6 +21,8 @@ from context_library.server.schemas import (
     VersionHistoryResponse,
     VersionSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -61,6 +65,9 @@ async def list_sources(
     domain: Domain | None = Query(default=None),
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
+    state: str | None = Query(default=None, pattern="^(active|inactive)$"),
+    last_fetched_after: datetime | None = Query(default=None),
+    last_fetched_before: datetime | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),
@@ -69,7 +76,17 @@ async def list_sources(
     ds = request.app.state.document_store
     domain_value = domain.value if domain is not None else None
     rows, total = await asyncio.to_thread(
-        ds.list_sources, domain_value, adapter_id, source_id_prefix, limit, offset, sort_by, order
+        ds.list_sources,
+        domain_value,
+        adapter_id,
+        source_id_prefix,
+        state,
+        last_fetched_after.isoformat() if last_fetched_after is not None else None,
+        last_fetched_before.isoformat() if last_fetched_before is not None else None,
+        limit,
+        offset,
+        sort_by,
+        order,
     )
     sources = [
         SourceSummary(
@@ -195,13 +212,22 @@ async def get_source_chunks(
     else:
         actual_version = version
     chunks, total = await asyncio.to_thread(ds.get_chunks_by_source, source_id, version, limit, offset)
+    chunk_hashes = [c.chunk_hash for c in chunks]
+    lineage_map = await asyncio.to_thread(ds.get_lineage_batch, chunk_hashes, source_id)
     chunk_responses = []
+    dropped = 0
     for chunk in chunks:
-        lineage = await asyncio.to_thread(ds.get_lineage, chunk.chunk_hash, source_id)
+        lineage = lineage_map.get(chunk.chunk_hash)
         if lineage is None:
+            logger.warning(
+                "Lineage missing for chunk %s in source %s — omitting from response",
+                chunk.chunk_hash,
+                source_id,
+            )
+            dropped += 1
             continue
         chunk_responses.append(_chunk_response(chunk, lineage, source_id))
-    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total, limit=limit, offset=offset)
+    return ChunkListResponse(source_id=source_id, version=actual_version, chunks=chunk_responses, total=total - dropped, limit=limit, offset=offset)
 
 
 @router.get("/{source_id:path}/diff", response_model=VersionDiffResponse)

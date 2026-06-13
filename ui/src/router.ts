@@ -8,5 +8,6 @@ export type {
   DomainViewPageSearch,
   SearchPageSearch,
   FileBrowserPageSearch,
+  SourcesPageSearch,
 } from './routes-config'
 export { router } from './routes'

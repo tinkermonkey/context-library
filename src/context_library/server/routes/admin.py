@@ -2,14 +2,17 @@
 
 import asyncio
 import logging
-import secrets
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from context_library.server.auth import require_auth
 from context_library.server.schemas import (
     AdminAdapterListResponse,
     AdminAdapterStatus,
     AdminConfigResponse,
+    PipelineListResponse,
+    PipelineRun,
     SyncLogEntry,
     SyncLogResponse,
     TriggerSyncResponse,
@@ -26,25 +29,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _require_auth(request: Request) -> None:
-    """Enforce Bearer token authentication when CTX_WEBHOOK_SECRET is set.
-
-    Uses the same auth scheme as /webhooks/ingest and /adapters/{id}/reset.
-    If no secret is configured the server is assumed to be operating in a trusted
-    network environment and the check is skipped.
-    """
-    config = request.app.state.config
-    if config.webhook_secret:
-        auth = request.headers.get("Authorization", "")
-        expected = f"Bearer {config.webhook_secret}"
-        if not secrets.compare_digest(auth, expected):
-            raise HTTPException(status_code=401, detail="Invalid or missing credentials")
-
-
 @router.get("/adapters", response_model=AdminAdapterListResponse)
 async def list_admin_adapters(request: Request) -> AdminAdapterListResponse:
     """Per-adapter status: last run, item counts, domain."""
-    _require_auth(request)
+    require_auth(request)
     ds = request.app.state.document_store
     rows = await asyncio.to_thread(ds.get_admin_adapter_status)
     return AdminAdapterListResponse(
@@ -62,6 +50,35 @@ async def list_admin_adapters(request: Request) -> AdminAdapterListResponse:
     )
 
 
+@router.get("/pipelines", response_model=PipelineListResponse)
+async def list_active_pipelines(request: Request) -> PipelineListResponse:
+    """Return currently active pipeline ingestion runs.
+
+    Each entry represents an in-flight call to IngestionPipeline.ingest(). Returns
+    an empty list when no ingestion is in progress. Duration is computed from the
+    run's start time to now.
+    """
+    require_auth(request)
+    pipeline = request.app.state.pipeline
+    active_runs = pipeline.get_active_runs()
+    now = datetime.now(timezone.utc)
+    runs = [
+        PipelineRun(
+            run_id=r.run_id,
+            adapter_id=r.adapter_id,
+            current_step=r.current_step,
+            started_at=r.started_at.isoformat(),
+            duration_sec=(now - r.started_at).total_seconds(),
+            ingested=r.sources_ingested,
+            created=r.chunks_created,
+            unchanged=r.chunks_unchanged,
+            errors=r.errors,
+        )
+        for r in active_runs
+    ]
+    return PipelineListResponse(runs=runs, total=len(runs))
+
+
 @router.post("/adapters/{adapter_id}/sync", response_model=TriggerSyncResponse)
 async def trigger_adapter_sync(adapter_id: str, request: Request) -> TriggerSyncResponse:
     """Trigger an immediate re-sync for the given adapter without resetting data.
@@ -70,7 +87,7 @@ async def trigger_adapter_sync(adapter_id: str, request: Request) -> TriggerSync
     is push-only or the poller is unavailable — so callers get a structured message
     rather than a 4xx/5xx. A 404 is returned only when the adapter does not exist.
     """
-    _require_auth(request)
+    require_auth(request)
     ds = request.app.state.document_store
     poller = request.app.state.poller
 
@@ -127,7 +144,7 @@ async def get_admin_config(request: Request) -> AdminConfigResponse:
     Sensitive values (webhook_secret, helper_api_key) are never returned in responses.
     The presence of a webhook secret is indicated by the webhook_secret_set boolean.
     """
-    _require_auth(request)
+    require_auth(request)
     config = request.app.state.config
     ds = request.app.state.document_store
     db_size = await asyncio.to_thread(ds.get_db_size_bytes)
@@ -153,7 +170,7 @@ async def get_sync_logs(
     offset: int = Query(default=0, ge=0),
 ) -> SyncLogResponse:
     """Return paginated entries from the lancedb_sync_log table, newest first."""
-    _require_auth(request)
+    require_auth(request)
     ds = request.app.state.document_store
     entries, total = await asyncio.to_thread(ds.get_sync_log, limit, offset)
     return SyncLogResponse(

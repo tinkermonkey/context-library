@@ -959,6 +959,7 @@ class LineageRecord(BaseModel):
     domain: Domain
     normalizer_version: str
     embedding_model_id: str
+    fetch_timestamp: str | None = None
 
 
 class ChunkWithLineageContext(NamedTuple):
