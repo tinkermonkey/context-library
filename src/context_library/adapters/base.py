@@ -179,3 +179,15 @@ class BaseAdapter(ABC):
             ResetResult with no errors (ok=True computed), empty cleared list.
         """
         return ResetResult(cleared=[], errors=[])
+
+    def ack(self) -> None:
+        """Confirm to the helper that the last fetched page was durably committed.
+
+        Default is a no-op. Adapters that fetch from a commit-ack-capable helper in
+        ``?ack=true`` mode override this to commit the helper's staged delivery
+        cursor (POST /collectors/{name}/ack), so the cursor advances only after the
+        pipeline has persisted the page. The caller invokes ack() only after a
+        successful pipeline.ingest(); implementations must be best-effort (never
+        raise) so an ack failure cannot fail an otherwise-successful ingest.
+        """
+        return None

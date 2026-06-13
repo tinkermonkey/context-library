@@ -266,6 +266,26 @@ class OuraAdapter(BaseAdapter):
         """Return a deterministic, unique identifier for this adapter instance."""
         return f"oura:{self._device_id}"
 
+    def ack(self) -> None:
+        """Confirm to the helper that the last fetched page was durably committed.
+
+        Commits the helper's staged Oura push cursors (POST /collectors/oura/ack).
+        Called by the ingest caller only after pipeline.ingest() has persisted the
+        data, so the cursor advances on commit, not on serve. Best-effort: a failure
+        here (e.g. an older helper without the endpoint) is logged, not raised — the
+        helper's staleness safety-net still prevents a permanent stall, and the
+        un-acked page is simply re-served and de-duplicated next cycle.
+        """
+        try:
+            resp = httpx.post(
+                f"{self._api_url}/collectors/oura/ack",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001 - ack is best-effort
+            logger.warning("OuraAdapter: commit-ack to helper failed: %s", e)
+
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize all health data types from Oura Ring API.
 
@@ -290,7 +310,13 @@ class OuraAdapter(BaseAdapter):
             If all endpoints fail, raises an aggregate RuntimeError after attempting all endpoints.
         """
         since = source_ref if source_ref else None
-        params = {"since": since} if since else {}
+        # ack=true puts the helper in commit-ack mode: it stages each endpoint's
+        # push cursor instead of persisting it on serve, so a page whose ingestion
+        # fails here is re-served next time rather than silently skipped. We confirm
+        # the commit via ack() once the pipeline has durably stored the page.
+        params: dict[str, Any] = {"ack": "true"}
+        if since:
+            params["since"] = since
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         # Fetch from all endpoints in order (seven via generic handler, one via specialized heart_rate handler)

@@ -194,6 +194,11 @@ async def helper_ingest(
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
+            # Commit-ack: now that the page is durably persisted, confirm to the
+            # helper so it advances its staged delivery cursor (no-op for adapters
+            # that don't use commit-ack). Best-effort — never fails the ingest.
+            await asyncio.to_thread(adapter.ack)
+
             # Run entity linking pass for People domain if any items were successfully ingested
             entity_linking_status: Literal["ok", "failed", "partial"] | None = None
             entity_linking_error = None

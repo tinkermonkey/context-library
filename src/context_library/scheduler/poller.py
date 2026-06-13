@@ -349,6 +349,10 @@ class Poller:
 
                     try:
                         self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
+                        # Commit-ack: confirm to the helper that the page was durably
+                        # persisted so it advances its staged delivery cursor (no-op
+                        # for adapters not using commit-ack; best-effort, never raises).
+                        adapter.ack()
                         # Clear error tracking on successful ingestion
                         self._error_tracker[source_id].clear()
                     except MemoryError:

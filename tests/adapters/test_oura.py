@@ -1374,3 +1374,71 @@ class TestOuraAdapterHelperPayloadCompat:
         ])
         results = list(adapter.fetch(""))
         assert [r for r in results if "sleep" in r.source_id] == []
+
+
+class TestOuraAdapterCommitAck:
+    """The adapter pulls in commit-ack mode (?ack=true) and confirms commits via
+    ack(), so the helper advances its push cursor only after a durable persist.
+    """
+
+    def _stub_get(self, captured):
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return []
+
+        def _get(url, params=None, headers=None, timeout=None):
+            captured.append({"url": url, "params": params or {}})
+            return _Resp()
+
+        return _get
+
+    def test_fetch_requests_ack_mode(self, monkeypatch):
+        captured: list[dict] = []
+        monkeypatch.setattr("context_library.adapters.oura.httpx.get", self._stub_get(captured))
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        list(adapter.fetch(""))
+        assert captured, "expected the adapter to call the helper"
+        assert all(c["params"].get("ack") == "true" for c in captured)
+
+    def test_fetch_includes_since_with_ack(self, monkeypatch):
+        captured: list[dict] = []
+        monkeypatch.setattr("context_library.adapters.oura.httpx.get", self._stub_get(captured))
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        list(adapter.fetch("2026-03-07T00:00:00+00:00"))
+        assert all(c["params"].get("ack") == "true" for c in captured)
+        assert all(c["params"].get("since") == "2026-03-07T00:00:00+00:00" for c in captured)
+
+    def test_ack_posts_to_collector_endpoint(self, monkeypatch):
+        posted: dict = {}
+
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+        def _post(url, headers=None, timeout=None):
+            posted["url"] = url
+            posted["headers"] = headers
+            return _Resp()
+
+        monkeypatch.setattr("context_library.adapters.oura.httpx.post", _post)
+        OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
+        assert posted["url"] == "http://helper:7123/collectors/oura/ack"
+        assert posted["headers"]["Authorization"] == "Bearer k"
+
+    def test_ack_is_best_effort_on_error(self, monkeypatch):
+        def _boom(*a, **k):
+            raise RuntimeError("helper down")
+
+        monkeypatch.setattr("context_library.adapters.oura.httpx.post", _boom)
+        # Must not raise — an ack failure cannot fail an otherwise-successful ingest.
+        OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
+
+    def test_base_adapter_ack_is_noop(self):
+        from context_library.adapters.apple_reminders import AppleRemindersAdapter
+
+        # An adapter that hasn't opted into commit-ack inherits the no-op default.
+        adapter = AppleRemindersAdapter(api_url="http://helper:7123", api_key="k")
+        assert adapter.ack() is None
