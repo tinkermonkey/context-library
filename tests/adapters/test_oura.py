@@ -1227,3 +1227,150 @@ class TestOuraAdapterHeartRateBpmValidation:
         results = list(adapter.fetch(""))
         heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
         assert len(heart_rate_records) == 0
+
+
+class TestOuraAdapterHelperPayloadCompat:
+    """The context-helpers bridge sends Oura's daily-summary payloads using the
+    API's native field names: 'day' (not 'date'), snake_case keys, and without
+    the detailed metrics (totalSleepMinutes, avgHrv, durationSeconds) that the
+    daily endpoints don't provide. These records must still ingest rather than
+    being dropped as malformed.
+    """
+
+    def test_sleep_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Sleep daily summary ('day', no totalSleepMinutes) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-1",
+                "day": "2026-03-07",
+                "score": 85,
+                "contributors": {},
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        sleep = [r for r in results if r.source_id == "oura/sleep/sleep-1"]
+        assert len(sleep) == 1
+        meta = sleep[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["duration_minutes"] is None
+        assert "Sleep Summary" in sleep[0].markdown
+
+    def test_readiness_daily_summary_without_avghrv_ingests(self, mock_all_oura_endpoints):
+        """Readiness daily summary ('day', no avgHrv) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/readiness", [
+            {
+                "id": "readiness-1",
+                "day": "2026-03-07",
+                "score": 75,
+                "temperature_deviation": 0.2,
+                "contributors": {},
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        readiness = [r for r in results if r.source_id == "oura/readiness/readiness-1"]
+        assert len(readiness) == 1
+        meta = readiness[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["avg_hrv"] is None
+        assert "Readiness Summary" in readiness[0].markdown
+
+    def test_activity_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Activity daily summary ('day', snake_case metrics) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/activity", [
+            {
+                "id": "activity-1",
+                "day": "2026-03-07",
+                "score": 88,
+                "steps": 8500,
+                "active_calories": 450,
+                "total_calories": 2100,
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        activity = [r for r in results if r.source_id == "oura/activity/activity-1"]
+        assert len(activity) == 1
+        assert activity[0].structural_hints.extra_metadata["steps"] == 8500
+        assert "Activity Summary" in activity[0].markdown
+
+    def test_workout_snake_case_fields_ingest(self, mock_all_oura_endpoints):
+        """Workout with 'activity'/'start_datetime'/'end_datetime' ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/workouts", [
+            {
+                "id": "workout-1",
+                "day": "2026-03-07",
+                "activity": "running",
+                "start_datetime": "2026-03-07T10:00:00Z",
+                "end_datetime": "2026-03-07T10:30:00Z",
+                "duration_seconds": 1800,
+                "calories": 250,
+            }
+        ])
+        results = list(adapter.fetch(""))
+        workout = [r for r in results if r.source_id == "oura/workout/workout-1"]
+        assert len(workout) == 1
+        meta = workout[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["duration_minutes"] == 30
+        assert "Running" in workout[0].markdown
+
+    def test_spo2_daily_summary_with_average_ingests(self, mock_all_oura_endpoints):
+        """SpO2 daily summary ('day', 'average' not 'avgSpo2') ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/spo2", [
+            {
+                "id": "spo2-1",
+                "day": "2026-03-07",
+                "timestamp": "2026-03-07T00:00:00Z",
+                "average": 96.5,
+            }
+        ])
+        results = list(adapter.fetch(""))
+        spo2 = [r for r in results if r.source_id == "oura/spo2/spo2-1"]
+        assert len(spo2) == 1
+        assert spo2[0].structural_hints.extra_metadata["avg_spo2"] == 96.5
+        assert "96.5%" in spo2[0].markdown
+
+    def test_tag_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Tag with 'day' ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/tags", [
+            {"id": "tag-1", "day": "2026-03-07", "text": "Good day", "tags": ["mood"]}
+        ])
+        results = list(adapter.fetch(""))
+        tag = [r for r in results if r.source_id == "oura/tag/tag-1"]
+        assert len(tag) == 1
+        assert tag[0].structural_hints.extra_metadata["date"] == "2026-03-07"
+
+    def test_session_snake_case_fields_ingest(self, mock_all_oura_endpoints):
+        """Session with 'type'/'start_datetime' and no durationSeconds ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sessions", [
+            {
+                "id": "session-1",
+                "day": "2026-03-07",
+                "type": "meditation",
+                "start_datetime": "2026-03-07T07:00:00Z",
+                "end_datetime": "2026-03-07T07:10:00Z",
+                "mood": "good",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        session = [r for r in results if r.source_id == "oura/session/session-1"]
+        assert len(session) == 1
+        assert session[0].structural_hints.extra_metadata["date"] == "2026-03-07"
+
+    def test_sleep_missing_date_and_day_still_skipped(self, mock_all_oura_endpoints):
+        """A record with neither 'date' nor 'day' is still dropped."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {"id": "sleep-x", "score": 80}
+        ])
+        results = list(adapter.fetch(""))
+        assert [r for r in results if "sleep" in r.source_id] == []
