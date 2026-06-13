@@ -56,7 +56,7 @@ This adapter:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
     Domain,
     PollStrategy,
@@ -78,7 +78,7 @@ except ImportError:
     pass
 
 
-class AppleRemindersAdapter(BaseAdapter):
+class AppleRemindersAdapter(HelperAckMixin, BaseAdapter):
     """Adapter that ingests reminders from a macOS Apple Reminders helper service.
 
     This adapter communicates with an HTTP service on the Mac that reads from
@@ -122,6 +122,7 @@ class AppleRemindersAdapter(BaseAdapter):
         self._list_name = list_name
         self._account_id = account_id
         self._client = httpx.Client(timeout=30.0)
+        self._helper_collector_name = "reminders"
 
     @property
     def adapter_id(self) -> str:
@@ -234,6 +235,7 @@ class AppleRemindersAdapter(BaseAdapter):
             params["list"] = self._list_name
         if since:
             params["since"] = since
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
 
         # Build headers
         headers = {"Authorization": f"Bearer {self._api_key}"}

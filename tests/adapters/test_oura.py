@@ -1436,9 +1436,41 @@ class TestOuraAdapterCommitAck:
         # Must not raise — an ack failure cannot fail an otherwise-successful ingest.
         OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
 
-    def test_base_adapter_ack_is_noop(self):
+    def test_apple_adapter_opts_into_ack(self):
         from context_library.adapters.apple_reminders import AppleRemindersAdapter
 
-        # An adapter that hasn't opted into commit-ack inherits the no-op default.
+        # Apple adapters opt into commit-ack via HelperAckMixin.
         adapter = AppleRemindersAdapter(api_url="http://helper:7123", api_key="k")
-        assert adapter.ack() is None
+        assert adapter._helper_collector_name == "reminders"
+        assert adapter._ack_params() == {"ack": "true"}
+
+    def test_apple_adapter_ack_posts_to_its_collector(self, monkeypatch):
+        import httpx
+
+        from context_library.adapters.apple_health import AppleHealthAdapter
+
+        posted: dict = {}
+
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+        def _post(url, headers=None, timeout=None):
+            posted["url"] = url
+            return _Resp()
+
+        monkeypatch.setattr(httpx, "post", _post)
+        AppleHealthAdapter(api_url="http://helper:7123", api_key="k").ack()
+        assert posted["url"] == "http://helper:7123/collectors/health/ack"
+
+    def test_helper_ack_mixin_is_best_effort(self, monkeypatch):
+        import httpx
+
+        from context_library.adapters.apple_imessage import AppleiMessageAdapter
+
+        def _boom(*a, **k):
+            raise RuntimeError("helper down")
+
+        monkeypatch.setattr(httpx, "post", _boom)
+        # Must not raise — ack failure cannot fail an otherwise-successful ingest.
+        AppleiMessageAdapter(api_url="http://helper:7123", api_key="k").ack()

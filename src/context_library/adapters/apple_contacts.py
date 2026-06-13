@@ -47,7 +47,7 @@ This adapter:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.domains.people import PeopleDomain
 from context_library.storage.models import (
     Domain,
@@ -70,7 +70,7 @@ except ImportError:
     pass
 
 
-class AppleContactsAdapter(BaseAdapter):
+class AppleContactsAdapter(HelperAckMixin, BaseAdapter):
     """Adapter that ingests contacts from a macOS Apple Contacts helper service.
 
     This adapter communicates with an HTTP service on the Mac that reads from
@@ -112,6 +112,7 @@ class AppleContactsAdapter(BaseAdapter):
         self._api_key = api_key
         self._account_id = account_id
         self._client = httpx.Client(timeout=timeout)
+        self._helper_collector_name = "contacts"
 
     @property
     def adapter_id(self) -> str:
@@ -226,6 +227,7 @@ class AppleContactsAdapter(BaseAdapter):
         params = {}
         if since:
             params["since"] = since
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
 
         # Build headers
         headers = {"Authorization": f"Bearer {self._api_key}"}
