@@ -153,6 +153,7 @@ export type LocationViewPageSearch = z.infer<typeof locationViewSearchSchema>;
 export const musicViewSearchSchema = z.object({
   sort: z.enum(['last_played', 'play_count', 'title', 'artist']).optional(),
   q: z.string().optional(),
+  view: z.enum(['albums', 'artists', 'history']).optional(),
 });
 
 export type MusicViewPageSearch = z.infer<typeof musicViewSearchSchema>;

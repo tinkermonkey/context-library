@@ -259,7 +259,6 @@ export default function LocationPage(): ReactNode {
     return timelineVisits.map(v => {
       const dur = formatDuration(v.meta.duration_minutes);
       const date = v.meta.arrival_date ?? v.meta.date_first_observed;
-      const color = colorMap.get(v.place_key);
       return {
         id: v.chunk_hash,
         type: 'create' as const,

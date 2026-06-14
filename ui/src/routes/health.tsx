@@ -289,8 +289,8 @@ export default function HealthPage(): ReactNode {
     return dateRange(RANGE_DAYS[rangeKey] ?? 30);
   }, [rangeKey, search.dateFrom, search.dateTo]);
 
-  function setRange(key: string): void {
-    setRangeKey(key);
+  function setRange(key: string | number): void {
+    setRangeKey(String(key));
     void navigate({ to: '/health', search: {} });
   }
 

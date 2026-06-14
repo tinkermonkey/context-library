@@ -17,10 +17,7 @@ import type { AdminAdapterStatus } from '../types/api';
 import {
   DOMAIN_ORDER,
   DOMAIN_LABELS,
-  DOMAIN_ICONS,
-  formatRelativeTime,
   getAdapterHealth,
-  healthToBadgeColor,
 } from '../utils/adapterHelpers';
 import type { AdapterHealth } from '../utils/adapterHelpers';
 

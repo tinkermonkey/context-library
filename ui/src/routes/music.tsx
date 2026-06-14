@@ -304,7 +304,7 @@ export default function MusicPage(): ReactNode {
             style={{ width: 64, height: 64, background: getDomainColorWithAlpha('music', '20') }}
           >
             <span style={{ color: musicColor }}>
-              <Icon name="music" size={32} />
+              <Icon name="bell" size={32} />
             </span>
           </div>
           <p className="text-sm" style={{ color: 'rgb(var(--canvas-fg-3))' }}>
@@ -335,7 +335,7 @@ export default function MusicPage(): ReactNode {
                       thumb={{
                         kind: 'cover',
                         gradient: `linear-gradient(135deg, ${album.gradient[0]}, ${album.gradient[1]})`,
-                        glyph: 'music',
+                        glyph: 'bell',
                       }}
                       title={album.title}
                       subtitle={album.artist}

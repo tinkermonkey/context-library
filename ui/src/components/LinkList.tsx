@@ -58,7 +58,7 @@ export function LinkList({
           <span
             style={{ flexShrink: 0, marginTop: 2, color: 'rgb(var(--canvas-fg-3))' }}
           >
-            <Icon name="externalLink" size={13} />
+            <Icon name="link" size={13} />
           </span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span

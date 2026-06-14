@@ -44,7 +44,7 @@ export function NowPlaying({
           color: 'rgb(var(--canvas-bg))',
         }}
       >
-        <Icon name={isPlaying ? 'play' : 'music'} size={18} />
+        <Icon name={isPlaying ? 'arrowRight' : 'bell'} size={18} />
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -92,7 +92,7 @@ export function NowPlaying({
             color: `rgb(var(--domain-music, var(--accent-primary)))`,
           }}
         >
-          <Icon name="play" size={14} />
+          <Icon name="arrowRight" size={14} />
         </div>
       )}
     </div>
