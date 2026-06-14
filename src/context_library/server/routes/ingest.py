@@ -190,13 +190,24 @@ async def helper_ingest(
 
     results = []
     for adapter in helper_adapters:
+        # On a broadcast push (no explicit adapter_id), skip background-polled
+        # adapters: the Poller owns them, and pulling the same adapter from both
+        # the push route and the poller concurrently can let one path's ack commit
+        # the other path's not-yet-persisted cursor (commit_push_cursors is
+        # collector-global on the helper). A targeted ?adapter_id= still runs them,
+        # so manual full re-ingests keep working.
+        if adapter_id is None and getattr(adapter, "background_poll", False):
+            continue
         domain_chunker = get_domain_chunker(adapter.domain)
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
-            # Commit-ack: now that the page is durably persisted, confirm to the
-            # helper so it advances its staged delivery cursor (no-op for adapters
-            # that don't use commit-ack). Best-effort — never fails the ingest.
+            # Commit-ack: the page committed (pipeline.ingest only returns without
+            # raising when at least one source was stored and no whole-fetch error
+            # occurred), so confirm to the helper to advance its staged cursor
+            # (no-op for adapters not using commit-ack; best-effort, never raises).
+            # Note: this protects against *whole-page* loss (rejection/timeout), not
+            # individual malformed items that pipeline.ingest skips and logs.
             await asyncio.to_thread(adapter.ack)
 
             # Run entity linking pass for People domain if any items were successfully ingested

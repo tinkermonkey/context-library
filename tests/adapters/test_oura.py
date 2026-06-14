@@ -1436,13 +1436,31 @@ class TestOuraAdapterCommitAck:
         # Must not raise — an ack failure cannot fail an otherwise-successful ingest.
         OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
 
-    def test_apple_adapter_opts_into_ack(self):
+    def test_push_paging_adapters_opt_into_ack(self):
+        # Adapters whose helper endpoint uses apply_push_paging mix in
+        # HelperAckMixin and request commit-ack mode.
+        from context_library.adapters.apple_health import AppleHealthAdapter
+        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+
+        for cls, name in [(AppleHealthAdapter, "health"), (AppleMusicLibraryAdapter, "music")]:
+            adapter = cls(api_url="http://helper:7123", api_key="k")
+            assert adapter._helper_collector_name == name
+            assert adapter._ack_params() == {"ack": "true"}
+
+    def test_oura_opts_into_ack_via_mixin(self):
+        # OuraAdapter now uses HelperAckMixin rather than a bespoke ack().
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        assert adapter._helper_collector_name == "oura"
+        assert adapter._ack_params() == {"ack": "true"}
+
+    def test_paged_reminders_does_not_opt_into_ack(self):
+        # Reminders is a *paged* helper collector (consume_stash) that ignores ack
+        # mode, so it must NOT advertise commit-ack — it inherits the no-op ack().
         from context_library.adapters.apple_reminders import AppleRemindersAdapter
 
-        # Apple adapters opt into commit-ack via HelperAckMixin.
         adapter = AppleRemindersAdapter(api_url="http://helper:7123", api_key="k")
-        assert adapter._helper_collector_name == "reminders"
-        assert adapter._ack_params() == {"ack": "true"}
+        assert not hasattr(adapter, "_ack_params")
+        assert adapter.ack() is None  # no-op default, no network call
 
     def test_apple_adapter_ack_posts_to_its_collector(self, monkeypatch):
         import httpx

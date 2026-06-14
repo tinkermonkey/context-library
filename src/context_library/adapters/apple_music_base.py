@@ -73,6 +73,9 @@ class AppleMusicBaseMixin:
         params = {}
         if since:
             params["since"] = since
+        # Commit-ack mode when the concrete adapter mixes in HelperAckMixin
+        # (AppleMusicLibraryAdapter); a no-op for adapters that don't.
+        params.update(getattr(self, "_ack_params", dict)())
 
         headers = {"Authorization": f"Bearer {api_key}"}
 

@@ -136,6 +136,38 @@ class TestLifespanInitialization:
                     assert app.state.helper_adapters == []
 
     @pytest.mark.asyncio
+    async def test_location_adapter_gated_by_helper_location_enabled(self):
+        """AppleLocationAdapter is registered only when CTX_HELPER_LOCATION_ENABLED=true.
+
+        The helper serves no /location endpoint by default, so registering it
+        unconditionally produced a 404 on every poll cycle.
+        """
+        from context_library.server.app import lifespan
+        from fastapi import FastAPI
+
+        async def _location_present(flag_value):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                env = {
+                    "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
+                    "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
+                    "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
+                    "CTX_HELPER_URL": "http://helper:7123",
+                    "CTX_HELPER_API_KEY": "k",
+                    "CTX_YOUTUBE_ENABLED": "false",
+                    "CTX_HELPER_LOCATION_ENABLED": flag_value,
+                }
+                with patch.dict(os.environ, env):
+                    app = FastAPI()
+                    async with lifespan(app):
+                        return any(
+                            a.adapter_id.startswith("apple_location")
+                            for a in app.state.helper_adapters
+                        )
+
+        assert await _location_present("false") is False  # default: not registered
+        assert await _location_present("true") is True  # explicitly enabled
+
+    @pytest.mark.asyncio
     async def test_lifespan_continues_when_telemetry_setup_fails(self):
         """Lifespan continues when setup_telemetry raises an exception."""
         from context_library.server.app import lifespan
