@@ -39,6 +39,7 @@ class ServerConfig(BaseSettings):
     helper_pull_poll_interval_sec: int = 300   # seconds between background polls of PULL adapters
     helper_obsidian_enabled: bool = False
     helper_oura_enabled: bool = False
+    helper_location_enabled: bool = False  # context-helpers serves no /location endpoint by default
 
     # YouTube adapters (require helper bridge — context-helpers must have youtube collector enabled)
     youtube_enabled: bool = False

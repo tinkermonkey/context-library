@@ -43,7 +43,7 @@ This adapter:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
     Domain,
     MessageMetadata,
@@ -63,7 +63,7 @@ except ImportError:
     pass
 
 
-class AppleiMessageAdapter(BaseAdapter):
+class AppleiMessageAdapter(HelperAckMixin, BaseAdapter):
     """Adapter that ingests iMessages from a macOS helper service.
 
     Communicates with an HTTP service on the Mac that reads from
@@ -100,6 +100,7 @@ class AppleiMessageAdapter(BaseAdapter):
         self._api_key = api_key
         self._account_id = account_id
         self._client = httpx.Client(timeout=30.0)
+        self._helper_collector_name = "imessage"
 
     @property
     def adapter_id(self) -> str:
@@ -169,6 +170,7 @@ class AppleiMessageAdapter(BaseAdapter):
         params = {}
         if since:
             params["since"] = since
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
 
         headers = {"Authorization": f"Bearer {self._api_key}"}
 

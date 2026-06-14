@@ -138,18 +138,21 @@ async def lifespan(app: FastAPI):
                 e
             )
 
-        # AppleLocationAdapter
-        try:
-            from context_library.adapters.apple_location import AppleLocationAdapter
-            helper_adapters.append(AppleLocationAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
-        except ImportError as e:
-            logger.warning("AppleLocationAdapter not available (missing dependency): %s", e)
-        except ValueError as e:
-            logger.warning(
-                "AppleLocationAdapter not available (invalid configuration): %s. "
-                "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
-                e
-            )
+        # AppleLocationAdapter (only if enabled — the context-helpers bridge does
+        # not serve a /location endpoint unless a location collector is configured,
+        # so registering it unconditionally produced a 404 on every poll cycle).
+        if config.helper_location_enabled:
+            try:
+                from context_library.adapters.apple_location import AppleLocationAdapter
+                helper_adapters.append(AppleLocationAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
+            except ImportError as e:
+                logger.warning("AppleLocationAdapter not available (missing dependency): %s", e)
+            except ValueError as e:
+                logger.warning(
+                    "AppleLocationAdapter not available (invalid configuration): %s. "
+                    "Ensure CTX_HELPER_API_KEY is set when helper adapters are enabled",
+                    e
+                )
 
         if config.helper_filesystem_enabled:
             try:

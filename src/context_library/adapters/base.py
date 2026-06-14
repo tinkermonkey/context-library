@@ -1,5 +1,6 @@
 """Abstract BaseAdapter defining the adapter contract."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Iterator
 
@@ -7,6 +8,8 @@ from pydantic import BaseModel, computed_field
 
 from context_library.storage.models import AdapterConfig, Domain, NormalizedContent
 from context_library.storage.document_store import DocumentStore
+
+logger = logging.getLogger(__name__)
 
 
 class ResetResult(BaseModel):
@@ -179,3 +182,47 @@ class BaseAdapter(ABC):
             ResetResult with no errors (ok=True computed), empty cleared list.
         """
         return ResetResult(cleared=[], errors=[])
+
+    def ack(self) -> None:
+        """Confirm to the helper that the last fetched page was durably committed.
+
+        Default is a no-op. Adapters that fetch from a commit-ack-capable helper in
+        ``?ack=true`` mode override this to commit the helper's staged delivery
+        cursor (POST /collectors/{name}/ack), so the cursor advances only after the
+        pipeline has persisted the page. The caller invokes ack() only after a
+        successful pipeline.ingest(); implementations must be best-effort (never
+        raise) so an ack failure cannot fail an otherwise-successful ingest.
+        """
+        return None
+
+
+class HelperAckMixin:
+    """Commit-ack support for adapters that fetch from a context-helpers collector.
+
+    Mix in *before* BaseAdapter and set ``_helper_collector_name`` to the mac
+    collector name (e.g. "reminders"). Add ``self._ack_params()`` to the GET params
+    so the helper stages its push cursor instead of persisting it on serve; the
+    ingest caller then invokes ack() after a durable commit, which advances the
+    cursor. Relies on the subclass's ``_api_url`` and ``_api_key`` attributes.
+    """
+
+    _helper_collector_name: str = ""
+
+    def _ack_params(self) -> "dict[str, str]":
+        """Query params that put the helper endpoint in commit-ack (stage) mode."""
+        return {"ack": "true"}
+
+    def ack(self) -> None:
+        import httpx
+
+        try:
+            resp = httpx.post(
+                f"{self._api_url}/collectors/{self._helper_collector_name}/ack",  # type: ignore[attr-defined]
+                headers={"Authorization": f"Bearer {self._api_key}"},  # type: ignore[attr-defined]
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001 - ack is best-effort
+            logger.warning(
+                "%s: commit-ack to helper failed: %s", type(self).__name__, e
+            )
