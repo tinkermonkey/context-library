@@ -152,3 +152,31 @@ class TestObsidianHelperAdapterReset:
 
         with pytest.raises(ValidationError):
             adapter.reset()
+
+
+class TestObsidianHelperAdapterCommitAck:
+    def test_background_poll_enabled(self):
+        # Poller-driven so an embedding-heavy vault re-delivery isn't bounded by
+        # the mac's push timeout.
+        assert _make_adapter().background_poll is True
+
+    def test_ack_posts_to_obsidian_ack_endpoint(self):
+        # RemoteAdapter.ack() (inherited) commits the helper's staged cursor.
+        adapter = _make_adapter(api_url="http://helper:7123", api_key="k")
+        adapter.ack()
+        args, kwargs = adapter._client.post.call_args
+        assert args[0] == "http://helper:7123/collectors/obsidian/ack"
+        assert kwargs["headers"]["Authorization"] == "Bearer k"
+
+    def test_ack_is_best_effort(self):
+        adapter = _make_adapter()
+        adapter._client.post.side_effect = RuntimeError("helper down")
+        # Must not raise — an ack failure cannot fail an otherwise-successful ingest.
+        adapter.ack()
+
+    def test_fetch_requests_ack_mode(self):
+        adapter = _make_adapter(api_url="http://helper:7123", api_key="k")
+        adapter._client.get.return_value = _make_mock_response([])
+        list(adapter.fetch(""))
+        _, kwargs = adapter._client.get.call_args
+        assert kwargs["params"].get("ack") == "true"

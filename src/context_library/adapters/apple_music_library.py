@@ -100,6 +100,10 @@ class AppleMusicLibraryAdapter(HelperAckMixin, AppleMusicBaseMixin, BaseAdapter)
     def domain(self) -> Domain:
         return Domain.DOCUMENTS
 
+    # Poller-driven: embedding a large music library can exceed the mac's push
+    # timeout; the poller is not time-bounded, so commit-ack advances cleanly.
+    background_poll: bool = True
+
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL

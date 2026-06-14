@@ -434,3 +434,25 @@ class RemoteAdapter(BaseAdapter):
             collector_name=self._collector_name,
             api_key=self._api_key,
         )
+
+    def ack(self) -> None:
+        """Confirm durable commit of the last fetched page (commit-ack).
+
+        POSTs /collectors/{_collector_name}/ack so the helper advances its staged
+        push cursor only after the pipeline persisted the page. Only adapters that
+        fetch with ``ack=true`` stage a cursor; for the rest this is a harmless
+        no-op on the helper. Best-effort: a failure (e.g. an older helper without
+        the endpoint) is logged, not raised, so it cannot fail an ingest.
+        """
+        headers = {}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        try:
+            resp = self._client.post(
+                f"{self._service_url}/collectors/{self._collector_name}/ack",
+                headers=headers,
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001 - ack is best-effort
+            logger.warning("%s: commit-ack to helper failed: %s", type(self).__name__, e)
