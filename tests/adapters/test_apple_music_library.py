@@ -105,6 +105,12 @@ class TestAppleMusicLibraryAdapterProperties:
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
         assert adapter.poll_strategy == PollStrategy.PULL
 
+    def test_background_poll_enabled(self):
+        """Poller-driven: a large library re-delivery (~2 items/track to embed) can
+        exceed the mac's push timeout; the poller is not time-bounded."""
+        adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
+        assert adapter.background_poll is True
+
     def test_normalizer_version_property(self):
         """normalizer_version property returns '1.0.0'."""
         adapter = AppleMusicLibraryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
