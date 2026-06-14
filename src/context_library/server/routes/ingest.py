@@ -194,6 +194,23 @@ async def helper_ingest(
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
+            # Commit-ack: now that the pipeline has committed the served page, tell the
+            # helper to advance its delivery cursor. Adapters that use stage-on-serve /
+            # commit-on-ack delivery expose ack(); others are skipped. An ack failure
+            # must not fail the ingest (the data is already committed) — the helper will
+            # re-serve the page on the next pull.
+            adapter_ack = getattr(adapter, "ack", None)
+            if callable(adapter_ack):
+                try:
+                    await asyncio.to_thread(adapter_ack)
+                except Exception as ack_err:  # noqa: BLE001
+                    logger.warning(
+                        "Commit-ack failed for adapter %s (page already committed; "
+                        "helper will re-serve): %s",
+                        adapter.adapter_id,
+                        ack_err,
+                    )
+
             # Run entity linking pass for People domain if any items were successfully ingested
             entity_linking_status: Literal["ok", "failed", "partial"] | None = None
             entity_linking_error = None

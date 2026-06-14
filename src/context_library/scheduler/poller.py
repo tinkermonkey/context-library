@@ -349,6 +349,12 @@ class Poller:
 
                     try:
                         self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
+                        # Commit-ack: now that the pipeline has committed the served
+                        # page, tell the helper to advance its delivery cursor. Adapters
+                        # without an ack() (most) are skipped. An ack failure must not
+                        # mark the ingest as failed — the page is already committed; the
+                        # helper will simply re-serve it next time.
+                        self._ack_adapter(adapter)
                         # Clear error tracking on successful ingestion
                         self._error_tracker[source_id].clear()
                     except MemoryError:
@@ -475,6 +481,8 @@ class Poller:
                             self._pipeline.ingest(
                                 adapter, chunker, source_ref=source["origin_ref"]
                             )
+                            # Commit-ack after the pipeline commits (see _tick).
+                            self._ack_adapter(adapter)
                             result.sources_succeeded += 1
                             # Update last_fetched_at on successful ingest
                             try:
@@ -531,6 +539,31 @@ class Poller:
         thread.start()
 
         return True
+
+    def _ack_adapter(self, adapter: BaseAdapter) -> None:
+        """Commit-ack an adapter's served page after a successful pipeline commit.
+
+        Helper-backed adapters that use stage-on-serve / commit-on-ack delivery
+        expose an ``ack()`` method; calling it advances the helper's delivery cursor
+        so an uncommitted page is re-served (not lost) after a crash. Adapters
+        without ``ack()`` are skipped.
+
+        An ack failure is logged but never propagated: the pipeline has already
+        committed the data, so failing the ingest would be incorrect. The helper
+        will simply re-serve the page on the next pull (idempotent).
+        """
+        ack = getattr(adapter, "ack", None)
+        if not callable(ack):
+            return
+        try:
+            ack()
+        except Exception as e:  # noqa: BLE001 — ack failures must not fail the commit
+            logger.warning(
+                "Poller: commit-ack failed for adapter %s (page already committed; "
+                "helper will re-serve): %s",
+                adapter.adapter_id,
+                e,
+            )
 
     def _find_adapter(
         self, adapter_id: str
