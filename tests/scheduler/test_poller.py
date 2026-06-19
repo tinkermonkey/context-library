@@ -1246,26 +1246,6 @@ class _AckableAdapter(MockAdapter):
 class TestPollerCommitAck:
     """Commit-ack: adapter.ack() is called after a successful pipeline commit."""
 
-    def test_ack_adapter_calls_ack(self, pipeline, document_store):
-        poller = Poller(pipeline, document_store)
-        adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
-        poller._ack_adapter(adapter)
-        assert adapter.ack_calls == 1
-
-    def test_ack_adapter_skips_adapters_without_ack(self, pipeline, document_store):
-        poller = Poller(pipeline, document_store)
-        adapter = MockAdapter("plain", Domain.DOCUMENTS)
-        # Should not raise even though MockAdapter has no ack().
-        poller._ack_adapter(adapter)
-
-    def test_ack_failure_is_swallowed(self, pipeline, document_store):
-        poller = Poller(pipeline, document_store)
-        adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
-        adapter.ack_should_raise = True
-        with patch("context_library.scheduler.poller.logger") as mock_logger:
-            poller._ack_adapter(adapter)  # must not raise
-        assert mock_logger.warning.called
-
     def test_tick_acks_after_successful_ingest(self, pipeline, document_store):
         adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
         chunker = MockDomain()

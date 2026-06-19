@@ -1227,3 +1227,268 @@ class TestOuraAdapterHeartRateBpmValidation:
         results = list(adapter.fetch(""))
         heart_rate_records = [r for r in results if "heart_rate" in r.source_id]
         assert len(heart_rate_records) == 0
+
+
+class TestOuraAdapterHelperPayloadCompat:
+    """The context-helpers bridge sends Oura's daily-summary payloads using the
+    API's native field names: 'day' (not 'date'), snake_case keys, and without
+    the detailed metrics (totalSleepMinutes, avgHrv, durationSeconds) that the
+    daily endpoints don't provide. These records must still ingest rather than
+    being dropped as malformed.
+    """
+
+    def test_sleep_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Sleep daily summary ('day', no totalSleepMinutes) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {
+                "id": "sleep-1",
+                "day": "2026-03-07",
+                "score": 85,
+                "contributors": {},
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        sleep = [r for r in results if r.source_id == "oura/sleep/sleep-1"]
+        assert len(sleep) == 1
+        meta = sleep[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["duration_minutes"] is None
+        assert "Sleep Summary" in sleep[0].markdown
+
+    def test_readiness_daily_summary_without_avghrv_ingests(self, mock_all_oura_endpoints):
+        """Readiness daily summary ('day', no avgHrv) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/readiness", [
+            {
+                "id": "readiness-1",
+                "day": "2026-03-07",
+                "score": 75,
+                "temperature_deviation": 0.2,
+                "contributors": {},
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        readiness = [r for r in results if r.source_id == "oura/readiness/readiness-1"]
+        assert len(readiness) == 1
+        meta = readiness[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["avg_hrv"] is None
+        assert "Readiness Summary" in readiness[0].markdown
+
+    def test_activity_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Activity daily summary ('day', snake_case metrics) ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/activity", [
+            {
+                "id": "activity-1",
+                "day": "2026-03-07",
+                "score": 88,
+                "steps": 8500,
+                "active_calories": 450,
+                "total_calories": 2100,
+                "timestamp": "2026-03-07T08:00:00Z",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        activity = [r for r in results if r.source_id == "oura/activity/activity-1"]
+        assert len(activity) == 1
+        assert activity[0].structural_hints.extra_metadata["steps"] == 8500
+        assert "Activity Summary" in activity[0].markdown
+
+    def test_workout_snake_case_fields_ingest(self, mock_all_oura_endpoints):
+        """Workout with 'activity'/'start_datetime'/'end_datetime' ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/workouts", [
+            {
+                "id": "workout-1",
+                "day": "2026-03-07",
+                "activity": "running",
+                "start_datetime": "2026-03-07T10:00:00Z",
+                "end_datetime": "2026-03-07T10:30:00Z",
+                "duration_seconds": 1800,
+                "calories": 250,
+            }
+        ])
+        results = list(adapter.fetch(""))
+        workout = [r for r in results if r.source_id == "oura/workout/workout-1"]
+        assert len(workout) == 1
+        meta = workout[0].structural_hints.extra_metadata
+        assert meta["date"] == "2026-03-07"
+        assert meta["duration_minutes"] == 30
+        assert "Running" in workout[0].markdown
+
+    def test_spo2_daily_summary_with_average_ingests(self, mock_all_oura_endpoints):
+        """SpO2 daily summary ('day', 'average' not 'avgSpo2') ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/spo2", [
+            {
+                "id": "spo2-1",
+                "day": "2026-03-07",
+                "timestamp": "2026-03-07T00:00:00Z",
+                "average": 96.5,
+            }
+        ])
+        results = list(adapter.fetch(""))
+        spo2 = [r for r in results if r.source_id == "oura/spo2/spo2-1"]
+        assert len(spo2) == 1
+        assert spo2[0].structural_hints.extra_metadata["avg_spo2"] == 96.5
+        assert "96.5%" in spo2[0].markdown
+
+    def test_tag_daily_summary_with_day_ingests(self, mock_all_oura_endpoints):
+        """Tag with 'day' ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/tags", [
+            {"id": "tag-1", "day": "2026-03-07", "text": "Good day", "tags": ["mood"]}
+        ])
+        results = list(adapter.fetch(""))
+        tag = [r for r in results if r.source_id == "oura/tag/tag-1"]
+        assert len(tag) == 1
+        assert tag[0].structural_hints.extra_metadata["date"] == "2026-03-07"
+
+    def test_session_snake_case_fields_ingest(self, mock_all_oura_endpoints):
+        """Session with 'type'/'start_datetime' and no durationSeconds ingests."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sessions", [
+            {
+                "id": "session-1",
+                "day": "2026-03-07",
+                "type": "meditation",
+                "start_datetime": "2026-03-07T07:00:00Z",
+                "end_datetime": "2026-03-07T07:10:00Z",
+                "mood": "good",
+            }
+        ])
+        results = list(adapter.fetch(""))
+        session = [r for r in results if r.source_id == "oura/session/session-1"]
+        assert len(session) == 1
+        assert session[0].structural_hints.extra_metadata["date"] == "2026-03-07"
+
+    def test_sleep_missing_date_and_day_still_skipped(self, mock_all_oura_endpoints):
+        """A record with neither 'date' nor 'day' is still dropped."""
+        adapter = OuraAdapter(api_url="http://localhost:8000", api_key="test-token")
+        mock_all_oura_endpoints.set_response("http://localhost:8000/oura/sleep", [
+            {"id": "sleep-x", "score": 80}
+        ])
+        results = list(adapter.fetch(""))
+        assert [r for r in results if "sleep" in r.source_id] == []
+
+
+class TestOuraAdapterCommitAck:
+    """The adapter pulls in commit-ack mode (?ack=true) and confirms commits via
+    ack(), so the helper advances its push cursor only after a durable persist.
+    """
+
+    def _stub_get(self, captured):
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return []
+
+        def _get(url, params=None, headers=None, timeout=None):
+            captured.append({"url": url, "params": params or {}})
+            return _Resp()
+
+        return _get
+
+    def test_fetch_requests_ack_mode(self, monkeypatch):
+        captured: list[dict] = []
+        monkeypatch.setattr("context_library.adapters.oura.httpx.get", self._stub_get(captured))
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        list(adapter.fetch(""))
+        assert captured, "expected the adapter to call the helper"
+        assert all(c["params"].get("ack") == "true" for c in captured)
+
+    def test_fetch_includes_since_with_ack(self, monkeypatch):
+        captured: list[dict] = []
+        monkeypatch.setattr("context_library.adapters.oura.httpx.get", self._stub_get(captured))
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        list(adapter.fetch("2026-03-07T00:00:00+00:00"))
+        assert all(c["params"].get("ack") == "true" for c in captured)
+        assert all(c["params"].get("since") == "2026-03-07T00:00:00+00:00" for c in captured)
+
+    def test_ack_posts_to_collector_endpoint(self, monkeypatch):
+        posted: dict = {}
+
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+        def _post(url, headers=None, timeout=None):
+            posted["url"] = url
+            posted["headers"] = headers
+            return _Resp()
+
+        monkeypatch.setattr("context_library.adapters.oura.httpx.post", _post)
+        OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
+        assert posted["url"] == "http://helper:7123/collectors/oura/ack"
+        assert posted["headers"]["Authorization"] == "Bearer k"
+
+    def test_ack_is_best_effort_on_error(self, monkeypatch):
+        def _boom(*a, **k):
+            raise RuntimeError("helper down")
+
+        monkeypatch.setattr("context_library.adapters.oura.httpx.post", _boom)
+        # Must not raise — an ack failure cannot fail an otherwise-successful ingest.
+        OuraAdapter(api_url="http://helper:7123", api_key="k").ack()
+
+    def test_push_paging_adapters_opt_into_ack(self):
+        # Adapters whose helper endpoint uses apply_push_paging mix in
+        # HelperAckMixin and request commit-ack mode.
+        from context_library.adapters.apple_health import AppleHealthAdapter
+        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+
+        for cls, name in [(AppleHealthAdapter, "health"), (AppleMusicLibraryAdapter, "music")]:
+            adapter = cls(api_url="http://helper:7123", api_key="k")
+            assert adapter._helper_collector_name == name
+            assert adapter._ack_params() == {"ack": "true"}
+
+    def test_oura_opts_into_ack_via_mixin(self):
+        # OuraAdapter now uses HelperAckMixin rather than a bespoke ack().
+        adapter = OuraAdapter(api_url="http://helper:7123", api_key="k")
+        assert adapter._helper_collector_name == "oura"
+        assert adapter._ack_params() == {"ack": "true"}
+
+    def test_paged_reminders_does_not_opt_into_ack(self):
+        # Reminders is a *paged* helper collector (consume_stash) that ignores ack
+        # mode, so it must NOT advertise commit-ack — it inherits the no-op ack().
+        from context_library.adapters.apple_reminders import AppleRemindersAdapter
+
+        adapter = AppleRemindersAdapter(api_url="http://helper:7123", api_key="k")
+        assert not hasattr(adapter, "_ack_params")
+        assert adapter.ack() is None  # no-op default, no network call
+
+    def test_apple_adapter_ack_posts_to_its_collector(self, monkeypatch):
+        import httpx
+
+        from context_library.adapters.apple_health import AppleHealthAdapter
+
+        posted: dict = {}
+
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+        def _post(url, headers=None, timeout=None):
+            posted["url"] = url
+            return _Resp()
+
+        monkeypatch.setattr(httpx, "post", _post)
+        AppleHealthAdapter(api_url="http://helper:7123", api_key="k").ack()
+        assert posted["url"] == "http://helper:7123/collectors/health/ack"
+
+    def test_helper_ack_mixin_is_best_effort(self, monkeypatch):
+        import httpx
+
+        from context_library.adapters.apple_imessage import AppleiMessageAdapter
+
+        def _boom(*a, **k):
+            raise RuntimeError("helper down")
+
+        monkeypatch.setattr(httpx, "post", _boom)
+        # Must not raise — ack failure cannot fail an otherwise-successful ingest.
+        AppleiMessageAdapter(api_url="http://helper:7123", api_key="k").ack()

@@ -42,7 +42,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.adapters.apple_music_base import AppleMusicBaseMixin
 from context_library.storage.models import (
     Domain,
@@ -56,7 +56,7 @@ from context_library.storage.models import (
 logger = logging.getLogger(__name__)
 
 
-class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
+class AppleMusicLibraryAdapter(HelperAckMixin, AppleMusicBaseMixin, BaseAdapter):
     """Adapter that ingests Apple Music library catalog from a macOS helper service.
 
     Treats each track as a persistent document in the catalog, preserving
@@ -89,6 +89,7 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
         self._api_key = api_key
         self._device_id = device_id
         self._include_events = include_events
+        self._helper_collector_name = "music"  # commit-ack via HelperAckMixin
         self._init_httpx_client()
 
     @property
@@ -98,6 +99,10 @@ class AppleMusicLibraryAdapter(AppleMusicBaseMixin, BaseAdapter):
     @property
     def domain(self) -> Domain:
         return Domain.DOCUMENTS
+
+    # Poller-driven: embedding a large music library can exceed the mac's push
+    # timeout; the poller is not time-bounded, so commit-ack advances cleanly.
+    background_poll: bool = True
 
     @property
     def poll_strategy(self) -> PollStrategy:

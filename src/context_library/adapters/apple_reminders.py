@@ -122,6 +122,9 @@ class AppleRemindersAdapter(BaseAdapter):
         self._list_name = list_name
         self._account_id = account_id
         self._client = httpx.Client(timeout=30.0)
+        # NOTE: reminders is served by a *paged* helper collector (consume_stash),
+        # which advances its page cursor on serve and does not honour commit-ack
+        # mode — so this adapter deliberately does NOT mix in HelperAckMixin.
 
     @property
     def adapter_id(self) -> str:

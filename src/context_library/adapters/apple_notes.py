@@ -42,7 +42,7 @@ import logging
 from datetime import datetime
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -61,7 +61,7 @@ except ImportError:
     pass
 
 
-class AppleNotesAdapter(BaseAdapter):
+class AppleNotesAdapter(HelperAckMixin, BaseAdapter):
     """Adapter that ingests Apple Notes from a macOS helper service.
 
     Communicates with an HTTP service on the Mac that reads from
@@ -101,6 +101,7 @@ class AppleNotesAdapter(BaseAdapter):
         self._folder_filter = folder_filter
         self._account_id = account_id
         self._client = httpx.Client(timeout=30.0)
+        self._helper_collector_name = "notes"
 
     @property
     def adapter_id(self) -> str:
@@ -190,6 +191,7 @@ class AppleNotesAdapter(BaseAdapter):
             params["since"] = since
         if self._folder_filter:
             params["folder"] = self._folder_filter
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
 
         headers = {"Authorization": f"Bearer {self._api_key}"}
 

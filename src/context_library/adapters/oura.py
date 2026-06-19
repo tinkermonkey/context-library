@@ -176,7 +176,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Iterator
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.base import BaseAdapter, HelperAckMixin, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
@@ -198,7 +198,7 @@ except ImportError:
     pass
 
 
-class OuraAdapter(BaseAdapter):
+class OuraAdapter(HelperAckMixin, BaseAdapter):
     """Adapter for consuming Oura Ring health data via HTTP REST API.
 
     The adapter fetches health and fitness data (sleep, readiness, activity, workouts,
@@ -260,6 +260,7 @@ class OuraAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._device_id = device_id
+        self._helper_collector_name = "oura"  # commit-ack via HelperAckMixin
 
     @property
     def adapter_id(self) -> str:
@@ -290,7 +291,13 @@ class OuraAdapter(BaseAdapter):
             If all endpoints fail, raises an aggregate RuntimeError after attempting all endpoints.
         """
         since = source_ref if source_ref else None
-        params = {"since": since} if since else {}
+        # _ack_params() puts the helper in commit-ack mode: it stages each endpoint's
+        # push cursor instead of persisting it on serve, so a page whose ingestion
+        # fails here is re-served next time rather than silently skipped. We confirm
+        # the commit via ack() (HelperAckMixin) once the pipeline has durably stored it.
+        params: dict[str, Any] = dict(self._ack_params())
+        if since:
+            params["since"] = since
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         # Fetch from all endpoints in order (seven via generic handler, one via specialized heart_rate handler)
@@ -514,12 +521,15 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("Sleep record 'id' must not be empty")
 
-            date = record["date"]
+            date = record.get("date") or record.get("day")
             if not date:
                 raise ValueError("Sleep record 'date' must not be empty")
 
-            total_sleep_minutes = record["totalSleepMinutes"]
-            if not isinstance(total_sleep_minutes, (int, float)):
+            # The helper sends Oura's daily_sleep summary, which has no detailed
+            # sleep duration. Treat totalSleepMinutes as optional rather than
+            # dropping the whole record (its score/contributors are still useful).
+            total_sleep_minutes = record.get("totalSleepMinutes")
+            if total_sleep_minutes is not None and not isinstance(total_sleep_minutes, (int, float)):
                 raise ValueError(
                     f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}"
                 )
@@ -535,7 +545,7 @@ class OuraAdapter(BaseAdapter):
             "date": date,
             "source_type": "oura",
             "date_first_observed": now,
-            "duration_minutes": int(total_sleep_minutes),
+            "duration_minutes": int(total_sleep_minutes) if total_sleep_minutes is not None else None,
             "score": record.get("score"),
             "deep_sleep_minutes": record.get("deepSleepMinutes"),
             "rem_sleep_minutes": record.get("remSleepMinutes"),
@@ -551,7 +561,9 @@ class OuraAdapter(BaseAdapter):
             raise
 
         source_id = f"oura/sleep/{record_id}"
-        markdown = self._build_sleep_summary(record, int(total_sleep_minutes))
+        markdown = self._build_sleep_summary(
+            record, int(total_sleep_minutes) if total_sleep_minutes is not None else None
+        )
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -588,16 +600,18 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("Readiness record 'id' must not be empty")
 
-            date = record["date"]
+            date = record.get("date") or record.get("day")
             if not date:
                 raise ValueError("Readiness record 'date' must not be empty")
 
-            score = record["score"]
-            if not isinstance(score, (int, float)):
+            # score is present on Oura's daily_readiness; avgHrv is not, so treat
+            # both as optional rather than dropping the record.
+            score = record.get("score")
+            if score is not None and not isinstance(score, (int, float)):
                 raise ValueError(f"Readiness record 'score' must be numeric, got {type(score)}")
 
-            avg_hrv = record["avgHrv"]
-            if not isinstance(avg_hrv, (int, float)):
+            avg_hrv = record.get("avgHrv")
+            if avg_hrv is not None and not isinstance(avg_hrv, (int, float)):
                 raise ValueError(f"Readiness record 'avgHrv' must be numeric, got {type(avg_hrv)}")
         except KeyError as e:
             raise ValueError(f"Readiness record missing required field: {e}")
@@ -662,12 +676,12 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("Activity record 'id' must not be empty")
 
-            date = record["date"]
+            date = record.get("date") or record.get("day")
             if not date:
                 raise ValueError("Activity record 'date' must not be empty")
 
-            steps = record["steps"]
-            if not isinstance(steps, (int, float)):
+            steps = record.get("steps")
+            if steps is not None and not isinstance(steps, (int, float)):
                 raise ValueError(f"Activity record 'steps' must be numeric, got {type(steps)}")
         except KeyError as e:
             raise ValueError(f"Activity record missing required field: {e}")
@@ -682,7 +696,7 @@ class OuraAdapter(BaseAdapter):
             "source_type": "oura",
             "date_first_observed": now,
             "duration_minutes": record.get("activeMinutes"),
-            "steps": int(steps),
+            "steps": int(steps) if steps is not None else None,
             "active_calories": record.get("activeCalories"),
             "total_calories": record.get("totalCalories"),
             "sedentary_minutes": record.get("sedentaryMinutes"),
@@ -697,7 +711,7 @@ class OuraAdapter(BaseAdapter):
             raise
 
         source_id = f"oura/activity/{record_id}"
-        markdown = self._build_activity_summary(record, int(steps))
+        markdown = self._build_activity_summary(record, int(steps) if steps is not None else None)
 
         structural_hints = StructuralHints(
             has_headings=False,
@@ -734,20 +748,24 @@ class OuraAdapter(BaseAdapter):
             if not workout_id:
                 raise ValueError("Workout 'id' must not be empty")
 
-            activity_type = record["activityType"]
+            # Accept both the documented camelCase contract and the helper's
+            # Oura-native snake_case field names.
+            activity_type = record.get("activityType") or record.get("activity")
             if not activity_type:
                 raise ValueError("Workout 'activityType' must not be empty")
 
-            start_date = record["startDate"]
+            start_date = record.get("startDate") or record.get("start_datetime")
             if not start_date:
                 raise ValueError("Workout 'startDate' must not be empty")
 
-            _ = record["endDate"]  # Validate presence of endDate field
-            if not _:
+            end_date = record.get("endDate") or record.get("end_datetime")
+            if not end_date:
                 raise ValueError("Workout 'endDate' must not be empty")
 
-            duration_seconds = record["durationSeconds"]
-            if not isinstance(duration_seconds, (int, float)):
+            duration_seconds = record.get("durationSeconds")
+            if duration_seconds is None:
+                duration_seconds = record.get("duration_seconds")
+            if duration_seconds is not None and not isinstance(duration_seconds, (int, float)):
                 raise ValueError(
                     f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}"
                 )
@@ -755,7 +773,7 @@ class OuraAdapter(BaseAdapter):
             raise ValueError(f"Workout record missing required field: {e}")
 
         # Compute duration in minutes and extract date from start_date
-        duration_minutes = int(duration_seconds // 60)
+        duration_minutes = int(duration_seconds // 60) if duration_seconds is not None else None
         date = start_date[:10]  # Extract YYYY-MM-DD
 
         now = datetime.now(timezone.utc).isoformat()
@@ -907,12 +925,15 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("SpO2 record 'id' must not be empty")
 
-            date = record["date"]
+            date = record.get("date") or record.get("day")
             if not date:
                 raise ValueError("SpO2 record 'date' must not be empty")
 
-            avg_spo2 = record["avgSpo2"]
-            if not isinstance(avg_spo2, (int, float)):
+            # Accept the documented avgSpo2 and the helper's native 'average'.
+            avg_spo2 = record.get("avgSpo2")
+            if avg_spo2 is None:
+                avg_spo2 = record.get("average")
+            if avg_spo2 is not None and not isinstance(avg_spo2, (int, float)):
                 raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
         except KeyError as e:
             raise ValueError(f"SpO2 record missing required field: {e}")
@@ -975,7 +996,7 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("Tag record 'id' must not be empty")
 
-            date = record["date"]
+            date = record.get("date") or record.get("day")
             if not date:
                 raise ValueError("Tag record 'date' must not be empty")
 
@@ -1044,28 +1065,30 @@ class OuraAdapter(BaseAdapter):
             if not record_id:
                 raise ValueError("Session record 'id' must not be empty")
 
-            start_date = record["startDate"]
+            start_date = record.get("startDate") or record.get("start_datetime")
             if not start_date:
                 raise ValueError("Session record 'startDate' must not be empty")
 
-            end_date = record["endDate"]  # Validate presence of endDate field
+            end_date = record.get("endDate") or record.get("end_datetime")
             if not end_date:
                 raise ValueError("Session record 'endDate' must not be empty")
 
-            duration_seconds = record["durationSeconds"]
-            if not isinstance(duration_seconds, (int, float)):
+            duration_seconds = record.get("durationSeconds")
+            if duration_seconds is None:
+                duration_seconds = record.get("duration_seconds")
+            if duration_seconds is not None and not isinstance(duration_seconds, (int, float)):
                 raise ValueError(
                     f"Session record 'durationSeconds' must be numeric, got {type(duration_seconds)}"
                 )
 
-            session_type = record["sessionType"]
+            session_type = record.get("sessionType") or record.get("type")
             if not session_type:
                 raise ValueError("Session record 'sessionType' must not be empty")
         except KeyError as e:
             raise ValueError(f"Session record missing required field: {e}")
 
         # Compute duration in minutes and extract date from start_date
-        duration_minutes = int(duration_seconds // 60)
+        duration_minutes = int(duration_seconds // 60) if duration_seconds is not None else None
         date = start_date[:10]  # Extract YYYY-MM-DD
 
         now = datetime.now(timezone.utc).isoformat()
@@ -1110,19 +1133,21 @@ class OuraAdapter(BaseAdapter):
 
         yield normalized_content
 
-    def _build_sleep_summary(self, record: dict[str, Any], total_sleep_minutes: int) -> str:
+    def _build_sleep_summary(self, record: dict[str, Any], total_sleep_minutes: int | None) -> str:
         """Build markdown summary of a sleep record.
 
         Args:
             record: Sleep record dict from API response
-            total_sleep_minutes: Total sleep duration in minutes
+            total_sleep_minutes: Total sleep duration in minutes, or None if the
+                source only provides a daily summary without detailed durations
 
         Returns:
             Markdown string with sleep metrics
         """
         lines = ["**Sleep Summary**"]
 
-        lines.append(f"- Total sleep: {total_sleep_minutes} minutes")
+        if total_sleep_minutes is not None:
+            lines.append(f"- Total sleep: {total_sleep_minutes} minutes")
 
         deep_sleep = record.get("deepSleepMinutes")
         if deep_sleep is not None:
@@ -1147,21 +1172,25 @@ class OuraAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_readiness_summary(self, record: dict[str, Any], score: float, avg_hrv: float) -> str:
+    def _build_readiness_summary(
+        self, record: dict[str, Any], score: float | None, avg_hrv: float | None
+    ) -> str:
         """Build markdown summary of a readiness record.
 
         Args:
             record: Readiness record dict from API response
-            score: Readiness score
-            avg_hrv: Average heart rate variability
+            score: Readiness score, or None if unavailable
+            avg_hrv: Average heart rate variability, or None if unavailable
 
         Returns:
             Markdown string with readiness metrics
         """
         lines = ["**Readiness Summary**"]
 
-        lines.append(f"- Score: {score}")
-        lines.append(f"- Avg HRV: {avg_hrv:.1f} ms")
+        if score is not None:
+            lines.append(f"- Score: {score}")
+        if avg_hrv is not None:
+            lines.append(f"- Avg HRV: {avg_hrv:.1f} ms")
 
         resting_hr = record.get("restingHeartRate")
         if resting_hr is not None:
@@ -1173,19 +1202,20 @@ class OuraAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_activity_summary(self, record: dict[str, Any], steps: int) -> str:
+    def _build_activity_summary(self, record: dict[str, Any], steps: int | None) -> str:
         """Build markdown summary of an activity record.
 
         Args:
             record: Activity record dict from API response
-            steps: Step count
+            steps: Step count, or None if unavailable
 
         Returns:
             Markdown string with activity metrics
         """
         lines = ["**Activity Summary**"]
 
-        lines.append(f"- Steps: {steps:,}")
+        if steps is not None:
+            lines.append(f"- Steps: {steps:,}")
 
         active_calories = record.get("activeCalories")
         if active_calories is not None:
@@ -1210,7 +1240,7 @@ class OuraAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_workout_summary(self, record: dict[str, Any], activity_type: str, duration_minutes: int) -> str:
+    def _build_workout_summary(self, record: dict[str, Any], activity_type: str, duration_minutes: int | None) -> str:
         """Build markdown summary of a workout.
 
         Args:
@@ -1242,7 +1272,8 @@ class OuraAdapter(BaseAdapter):
             lines.append(f"- Max heart rate: {max_hr:.0f} bpm")
 
         # Add duration
-        lines.append(f"- Duration: {duration_minutes} minutes")
+        if duration_minutes is not None:
+            lines.append(f"- Duration: {duration_minutes} minutes")
 
         return "\n".join(lines)
 
@@ -1273,19 +1304,20 @@ class OuraAdapter(BaseAdapter):
 
         return "\n".join(lines)
 
-    def _build_spo2_summary(self, record: dict[str, Any], avg_spo2: float) -> str:
+    def _build_spo2_summary(self, record: dict[str, Any], avg_spo2: float | None) -> str:
         """Build markdown summary of a SpO2 record.
 
         Args:
             record: SpO2 record dict from API response
-            avg_spo2: Average blood oxygen saturation percentage
+            avg_spo2: Average blood oxygen saturation percentage, or None
 
         Returns:
             Markdown string with SpO2 metrics
         """
         lines = ["**Blood Oxygen (SpO2)**"]
 
-        lines.append(f"- Average: {avg_spo2:.1f}%")
+        if avg_spo2 is not None:
+            lines.append(f"- Average: {avg_spo2:.1f}%")
 
         bdi = record.get("breathingDisturbanceIndex")
         if bdi is not None:
@@ -1316,7 +1348,7 @@ class OuraAdapter(BaseAdapter):
         self,
         record: dict[str, Any],
         session_type: str,
-        duration_minutes: int,
+        duration_minutes: int | None,
     ) -> str:
         """Build markdown summary of a mindfulness session.
 
@@ -1330,7 +1362,8 @@ class OuraAdapter(BaseAdapter):
         """
         lines = [f"**{session_type.title()} Session**"]
 
-        lines.append(f"- Duration: {duration_minutes} minutes")
+        if duration_minutes is not None:
+            lines.append(f"- Duration: {duration_minutes} minutes")
 
         mood = record.get("mood")
         if mood:

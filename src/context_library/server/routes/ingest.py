@@ -190,26 +190,25 @@ async def helper_ingest(
 
     results = []
     for adapter in helper_adapters:
+        # On a broadcast push (no explicit adapter_id), skip background-polled
+        # adapters: the Poller owns them, and pulling the same adapter from both
+        # the push route and the poller concurrently can let one path's ack commit
+        # the other path's not-yet-persisted cursor (commit_push_cursors is
+        # collector-global on the helper). A targeted ?adapter_id= still runs them,
+        # so manual full re-ingests keep working.
+        if adapter_id is None and getattr(adapter, "background_poll", False):
+            continue
         domain_chunker = get_domain_chunker(adapter.domain)
         try:
             result = await asyncio.to_thread(pipeline.ingest, adapter, domain_chunker, source_ref)
 
-            # Commit-ack: now that the pipeline has committed the served page, tell the
-            # helper to advance its delivery cursor. Adapters that use stage-on-serve /
-            # commit-on-ack delivery expose ack(); others are skipped. An ack failure
-            # must not fail the ingest (the data is already committed) — the helper will
-            # re-serve the page on the next pull.
-            adapter_ack = getattr(adapter, "ack", None)
-            if callable(adapter_ack):
-                try:
-                    await asyncio.to_thread(adapter_ack)
-                except Exception as ack_err:  # noqa: BLE001
-                    logger.warning(
-                        "Commit-ack failed for adapter %s (page already committed; "
-                        "helper will re-serve): %s",
-                        adapter.adapter_id,
-                        ack_err,
-                    )
+            # Commit-ack: the page committed (pipeline.ingest only returns without
+            # raising when at least one source was stored and no whole-fetch error
+            # occurred), so confirm to the helper to advance its staged cursor
+            # (no-op for adapters not using commit-ack; best-effort, never raises).
+            # Note: this protects against *whole-page* loss (rejection/timeout), not
+            # individual malformed items that pipeline.ingest skips and logs.
+            await asyncio.to_thread(adapter.ack)
 
             # Run entity linking pass for People domain if any items were successfully ingested
             entity_linking_status: Literal["ok", "failed", "partial"] | None = None

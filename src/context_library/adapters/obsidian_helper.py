@@ -80,6 +80,10 @@ class ObsidianHelperAdapter(RemoteAdapter):
             timeout=60.0,
         )
 
+    # Poller-driven: embedding a large vault can exceed the mac's push timeout;
+    # the poller is not time-bounded, so commit-ack advances cleanly.
+    background_poll: bool = True
+
     @property
     def poll_strategy(self) -> PollStrategy:
         return PollStrategy.PULL
@@ -91,7 +95,9 @@ class ObsidianHelperAdapter(RemoteAdapter):
     def fetch(self, source_ref: str, extra_body: dict | None = None) -> Iterator[NormalizedContent]:
         since = source_ref if source_ref else None
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        params: dict = {}
+        # ack=true → commit-ack mode: the helper stages its push cursor until ack()
+        # confirms the page was durably committed (RemoteAdapter.ack()).
+        params: dict = {"ack": "true"}
         if since:
             params["since"] = since
 

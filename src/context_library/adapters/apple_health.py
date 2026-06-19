@@ -147,6 +147,7 @@ from typing import Any, Iterator
 
 from context_library.adapters.base import (
     BaseAdapter,
+    HelperAckMixin,
     EndpointFetchError,
     AllEndpointsFailedError,
     PartialFetchError,
@@ -171,7 +172,7 @@ except ImportError:
     pass
 
 
-class AppleHealthAdapter(BaseAdapter):
+class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
     """Adapter for consuming Apple HealthKit data via local or remote HTTP REST API.
 
     Fetches all available health record types from a macOS helper process that reads
@@ -227,6 +228,7 @@ class AppleHealthAdapter(BaseAdapter):
         self._api_url = api_url.rstrip("/")
         self._api_key = api_key
         self._device_id = device_id
+        self._helper_collector_name = "health"
 
     @property
     def adapter_id(self) -> str:
@@ -248,6 +250,7 @@ class AppleHealthAdapter(BaseAdapter):
         """
         since = source_ref if source_ref else None
         params = {"since": since} if since else {}
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         endpoints_config = [
@@ -358,6 +361,7 @@ class AppleHealthAdapter(BaseAdapter):
             EndpointFetchError: If the endpoint fails
         """
         params = {"since": since} if since else {}
+        params.update(self._ack_params())  # commit-ack: helper stages until ack()
 
         try:
             response = httpx.get(

@@ -92,27 +92,23 @@ class FilesystemHelperAdapter(RemoteAdapter):
         if max_pages < 1:
             raise ValueError("max_pages must be >= 1")
 
-        # Pass service_url with /filesystem suffix so RemoteAdapter posts to /filesystem/fetch
-        # Use a long timeout (default 300s) because the bridge may scan a large directory
-        # before streaming the first NDJSON line.
+        # service_url is the bare helper base URL (no /filesystem suffix), matching
+        # ObsidianHelperAdapter: the inherited reset()/ack() then correctly target
+        # POST {base}/collectors/filesystem/{reset,ack} at the helper root, while
+        # fetch() builds the /filesystem/fetch path explicitly (see fetch()).
+        # Long timeout (default 300s) because the bridge may scan before the first line.
         super().__init__(
-            service_url=f"{api_url.rstrip('/')}/filesystem",
+            service_url=api_url.rstrip("/"),
             domain=Domain.DOCUMENTS,
             adapter_id=f"filesystem_helper:{directory_id}",
             api_key=api_key,
             timeout=timeout,
         )
-        # Base URL without the /filesystem suffix — used to build the ack endpoint
-        # (POST {base}/collectors/filesystem/ack) the same way reset is built.
-        self._base_url = api_url.rstrip("/")
         self._directory_id = directory_id
         self._max_pages = max_pages
         # Opaque cursor persisted across fetch() calls. Advances as pages are drained
         # so a crash mid-drain resumes from the last fully-streamed page.
         self._cursor: str = ""
-        # Cursor served (and staged on the helper) by the most recent fetch(), pending
-        # commit-ack. ack() commits it on the helper after the pipeline commits.
-        self._pending_ack_cursor: str | None = None
         self._fetch_params: dict = {"stream": True}
         if extensions is not None:
             self._fetch_params["extensions"] = extensions
@@ -203,8 +199,6 @@ class FilesystemHelperAdapter(RemoteAdapter):
         Args:
             source_ref: Opaque cursor string (empty = start from the persisted cursor)
             extra_body: Optional additional fields merged into the JSON request body.
-                Pass ``{"ack": True}`` shape is NOT used here; ack is a query param
-                controlled by the caller via the pipeline/poller (see ack()).
 
         Yields:
             NormalizedContent for each file in every drained page. Deleted files are
@@ -224,25 +218,18 @@ class FilesystemHelperAdapter(RemoteAdapter):
         # poller passes per-file origin_refs as source_ref, which are NOT cursors.
         cursor = source_ref if source_ref else self._cursor
 
-        # Commit-ack is the default for this poller-driven adapter: the helper stages
-        # the cursor advance, and the caller commits it via ack() after the pipeline
-        # commits. A caller may disable it explicitly with extra_body={"ack": False}.
-        ack = True
-        if extra_body is not None and "ack" in extra_body:
-            ack = bool(extra_body["ack"])
-        # Reset any stale pending-ack from a prior run before draining a fresh one.
-        self._pending_ack_cursor = None
-
+        # Commit-ack: pull with ?ack=true so the helper stages (rather than commits)
+        # its cursor advance; the caller invokes the inherited RemoteAdapter.ack()
+        # after the pipeline durably commits, exactly as ObsidianHelperAdapter does.
         pages_drained = 0
         while True:
             body = {"source_ref": cursor, **self._fetch_params}
             if extra_body:
-                # Don't leak the local "ack" control flag into the JSON body; it is a
-                # query param. Other extra_body fields pass through unchanged.
-                body.update({k: v for k, v in extra_body.items() if k != "ack"})
+                body.update(extra_body)
 
-            url = f"{self._service_url}/fetch"
-            params = {"ack": "true"} if ack else None
+            # fetch path is built explicitly (service_url is the bare helper base).
+            url = f"{self._service_url}/filesystem/fetch"
+            params = {"ack": "true"}
 
             saw_meta = False
             with self._client.stream(
@@ -274,9 +261,6 @@ class FilesystemHelperAdapter(RemoteAdapter):
                             self._cursor = next_cursor
                         has_more = bool(obj.get("has_more"))
                         pages_drained += 1
-                        # Stage the cursor served by this run for commit-ack.
-                        if ack:
-                            self._pending_ack_cursor = self._cursor
                         break
 
                     # Tombstone line — retire the deleted source.
@@ -339,36 +323,6 @@ class FilesystemHelperAdapter(RemoteAdapter):
                 )
                 return
 
-    def ack(self) -> None:
-        """Commit the most recently served page on the helper (commit-ack).
-
-        Filesystem is a background_poll (poller-driven) adapter. When fetch() runs
-        under ack mode, the helper stages the cursor advance but does not commit it;
-        this method POSTs to the helper's ack endpoint to commit it *after* the
-        pipeline has durably committed the page. If the process crashes between
-        fetch() and ack(), the helper re-serves the page rather than losing it.
-
-        No-op if there is no pending cursor to acknowledge (e.g. ack mode was off,
-        or fetch() yielded no page).
-
-        Raises:
-            httpx.HTTPStatusError: If the ack request fails with 4xx/5xx status.
-            httpx.RequestError: If the request fails (connection, timeout, etc.).
-        """
-        if self._pending_ack_cursor is None:
-            return
-
-        headers: dict = {}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
-
-        cursor = self._pending_ack_cursor
-        response = self._client.post(
-            f"{self._base_url}/collectors/{self._collector_name}/ack",
-            json={"cursor": cursor},
-            headers=headers,
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        logger.debug("FilesystemHelperAdapter: committed cursor=%s via ack", cursor)
-        self._pending_ack_cursor = None
+    # ack() is inherited from RemoteAdapter: it POSTs
+    # {service_url}/collectors/filesystem/ack (best-effort) after the pipeline
+    # commits, committing the cursor the helper staged during the ?ack=true pull.

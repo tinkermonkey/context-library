@@ -115,17 +115,15 @@ class TestFilesystemHelperAdapterConstruction:
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
         assert adapter.normalizer_version == "1.0.0"
 
-    def test_service_url_has_filesystem_suffix(self):
+    def test_service_url_is_bare_base(self):
+        # service_url is the bare helper base (no /filesystem suffix), so the
+        # inherited reset()/ack() hit /collectors/filesystem/* at the root.
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
-        assert adapter._service_url == "http://host:8000/filesystem"
-
-    def test_base_url_has_no_suffix(self):
-        adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
-        assert adapter._base_url == "http://host:8000"
+        assert adapter._service_url == "http://host:8000"
 
     def test_trailing_slash_stripped_from_api_url(self):
         adapter = FilesystemHelperAdapter(api_url="http://host:8000/", api_key="secret")
-        assert adapter._service_url == "http://host:8000/filesystem"
+        assert adapter._service_url == "http://host:8000"
 
     def test_stream_always_in_fetch_params(self):
         adapter = FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret")
@@ -452,82 +450,7 @@ class TestFilesystemHelperAdapterAckRequest:
             list(adapter.fetch(""))
         assert rec.calls[0]["params"] == {"ack": "true"}
 
-    def test_fetch_stages_pending_ack_cursor(self):
-        adapter = self._make_adapter()
-        rec = _StreamRecorder([[_make_meta_line(has_more=False, next_cursor="77")]])
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            list(adapter.fetch(""))
-        assert adapter._pending_ack_cursor == "77"
-
-    def test_fetch_ack_disabled_via_extra_body(self):
-        adapter = self._make_adapter()
-        rec = _StreamRecorder([[_make_meta_line(has_more=False, next_cursor="9")]])
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            list(adapter.fetch("", extra_body={"ack": False}))
-        assert rec.calls[0]["params"] is None
-        assert adapter._pending_ack_cursor is None
-
-    def test_ack_control_flag_not_leaked_into_body(self):
-        adapter = self._make_adapter()
-        rec = _StreamRecorder([[_make_meta_line()]])
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            list(adapter.fetch("", extra_body={"ack": True, "foo": "bar"}))
-        assert "ack" not in rec.calls[0]["json"]
-        assert rec.calls[0]["json"].get("foo") == "bar"
-
-
-# ---------------------------------------------------------------------------
-# ack() — POSTs to the helper ack endpoint
-# ---------------------------------------------------------------------------
-
-class TestFilesystemHelperAdapterAck:
-    def _make_adapter(self) -> FilesystemHelperAdapter:
-        return FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret-key")
-
-    def test_ack_posts_to_collectors_filesystem_ack(self):
-        adapter = self._make_adapter()
-        adapter._pending_ack_cursor = "42"
-        mock_resp = MagicMock()
-        with patch.object(adapter._client, "post", return_value=mock_resp) as mock_post:
-            adapter.ack()
-
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        assert args[0] == "http://host:8000/collectors/filesystem/ack"
-        assert kwargs["json"] == {"cursor": "42"}
-        assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
-        mock_resp.raise_for_status.assert_called_once()
-
-    def test_ack_clears_pending_cursor_on_success(self):
-        adapter = self._make_adapter()
-        adapter._pending_ack_cursor = "42"
-        with patch.object(adapter._client, "post", return_value=MagicMock()):
-            adapter.ack()
-        assert adapter._pending_ack_cursor is None
-
-    def test_ack_noop_when_no_pending_cursor(self):
-        adapter = self._make_adapter()
-        adapter._pending_ack_cursor = None
-        with patch.object(adapter._client, "post") as mock_post:
-            adapter.ack()
-        mock_post.assert_not_called()
-
-    def test_ack_propagates_http_error(self):
-        adapter = self._make_adapter()
-        adapter._pending_ack_cursor = "42"
-        import httpx
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "boom", request=MagicMock(), response=MagicMock(status_code=500, text="err")
-        )
-        with patch.object(adapter._client, "post", return_value=mock_resp):
-            with pytest.raises(httpx.HTTPStatusError):
-                adapter.ack()
-        # Pending cursor is NOT cleared on failure, so a later ack can retry.
-        assert adapter._pending_ack_cursor == "42"
-
-    def test_fetch_then_ack_commits_drained_cursor(self):
-        """End-to-end: fetch drains pages, ack commits the final cursor."""
+    def test_fetch_sends_ack_param_on_every_page(self):
         adapter = self._make_adapter()
         pages = [
             [_make_content_line("a.md"), _make_meta_line(has_more=True, next_cursor="1")],
@@ -536,11 +459,41 @@ class TestFilesystemHelperAdapterAck:
         rec = _StreamRecorder(pages)
         with patch.object(adapter._client, "stream", side_effect=rec):
             list(adapter.fetch(""))
-        assert adapter._pending_ack_cursor == "2"
+        assert all(call["params"] == {"ack": "true"} for call in rec.calls)
 
-        with patch.object(adapter._client, "post", return_value=MagicMock()) as mock_post:
+
+# ---------------------------------------------------------------------------
+# ack() — inherited from RemoteAdapter, targets the helper ack endpoint
+# ---------------------------------------------------------------------------
+
+class TestFilesystemHelperAdapterAck:
+    def _make_adapter(self) -> FilesystemHelperAdapter:
+        return FilesystemHelperAdapter(api_url="http://host:8000", api_key="secret-key")
+
+    def test_ack_posts_to_collectors_filesystem_ack(self):
+        # ack() is inherited from RemoteAdapter; because service_url is the bare
+        # base, it correctly targets the root /collectors/filesystem/ack endpoint.
+        adapter = self._make_adapter()
+        mock_resp = MagicMock()
+        with patch.object(adapter._client, "post", return_value=mock_resp) as mock_post:
             adapter.ack()
-        assert mock_post.call_args.kwargs["json"] == {"cursor": "2"}
+
+        mock_post.assert_called_once()
+        args, kwargs = mock_post.call_args
+        assert args[0] == "http://host:8000/collectors/filesystem/ack"
+        assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
+        mock_resp.raise_for_status.assert_called_once()
+
+    def test_ack_is_best_effort_on_failure(self):
+        # Inherited ack() logs and swallows errors so it can never fail an ingest.
+        adapter = self._make_adapter()
+        import httpx
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "boom", request=MagicMock(), response=MagicMock(status_code=500, text="err")
+        )
+        with patch.object(adapter._client, "post", return_value=mock_resp):
+            adapter.ack()  # must not raise
 
 
 # ---------------------------------------------------------------------------
