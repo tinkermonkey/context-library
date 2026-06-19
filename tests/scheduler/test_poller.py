@@ -1227,3 +1227,58 @@ class TestTriggerImmediateIngest:
                     if "programming error" in str(call).lower()
                 ]
                 assert len(error_calls) > 0, "Programming error was not logged at ERROR level"
+
+
+class _AckableAdapter(MockAdapter):
+    """Mock adapter exposing ack() to exercise the poller's commit-ack flow."""
+
+    def __init__(self, adapter_id: str, domain: Domain):
+        super().__init__(adapter_id, domain)
+        self.ack_calls = 0
+        self.ack_should_raise = False
+
+    def ack(self) -> None:
+        self.ack_calls += 1
+        if self.ack_should_raise:
+            raise RuntimeError("ack endpoint unreachable")
+
+
+class TestPollerCommitAck:
+    """Commit-ack: adapter.ack() is called after a successful pipeline commit."""
+
+    def test_tick_acks_after_successful_ingest(self, pipeline, document_store):
+        adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
+        chunker = MockDomain()
+        source = {
+            "source_id": "src-1",
+            "adapter_id": "filesystem_helper:default",
+            "origin_ref": "/some/file.md",
+        }
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[source]),
+            patch.object(pipeline, "ingest", return_value={}),
+            patch.object(document_store, "update_last_fetched_at"),
+        ):
+            poller = Poller(pipeline, document_store, tick_interval=0.1)
+            poller.register(adapter, chunker)
+            poller._tick()
+
+        assert adapter.ack_calls == 1
+
+    def test_tick_does_not_ack_after_failed_ingest(self, pipeline, document_store):
+        adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
+        chunker = MockDomain()
+        source = {
+            "source_id": "src-1",
+            "adapter_id": "filesystem_helper:default",
+            "origin_ref": "/some/file.md",
+        }
+        with (
+            patch.object(document_store, "get_sources_due_for_poll", return_value=[source]),
+            patch.object(pipeline, "ingest", side_effect=RuntimeError("ingest blew up")),
+        ):
+            poller = Poller(pipeline, document_store, tick_interval=0.1)
+            poller.register(adapter, chunker)
+            poller._tick()
+
+        assert adapter.ack_calls == 0
