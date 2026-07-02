@@ -39,7 +39,7 @@ obsidian-helper   = ["httpx"]
 vcard = ["vobject"]
 youtube = ["youtube-transcript-api"]
 server = ["fastapi>=0.100", "uvicorn[standard]", "pydantic-settings>=2.0"]
-telemetry = [
+otel = [
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.25.0",

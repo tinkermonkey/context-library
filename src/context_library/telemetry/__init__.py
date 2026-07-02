@@ -212,6 +212,8 @@ def setup_telemetry(
 
     trace.set_tracer_provider(_tracer_provider)
     _otel_metrics.set_meter_provider(_meter_provider)
+    from opentelemetry._logs import set_logger_provider as _set_logger_provider
+    _set_logger_provider(_logger_provider)
 
     root_logger = logging.getLogger()
     root_logger.addHandler(_logging_handler)
