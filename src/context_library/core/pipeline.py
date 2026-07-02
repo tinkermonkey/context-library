@@ -2,11 +2,13 @@
 
 import logging
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
+from context_library import telemetry as tel
 from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
@@ -28,6 +30,25 @@ from context_library.storage.vector_store import ChunkVectorData, VectorStore
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
+
+_meter = tel.get_meter("context_library.pipeline")
+_ingest_sources_counter = _meter.create_counter(
+    "context_library.ingest.sources_total",
+    description="Sources processed by ingestion pipeline",
+)
+_ingest_chunks_added_counter = _meter.create_counter(
+    "context_library.ingest.chunks_added_total",
+    description="Chunks added to storage",
+)
+_ingest_chunks_retired_counter = _meter.create_counter(
+    "context_library.ingest.chunks_retired_total",
+    description="Chunks retired from storage",
+)
+_ingest_duration_histogram = _meter.create_histogram(
+    "context_library.ingest.duration_seconds",
+    description="Per-source ingestion duration",
+    unit="s",
+)
 
 
 @dataclass
@@ -203,6 +224,7 @@ class IngestionPipeline:
         # Statistics
         sources_processed = 0
         sources_failed = 0
+        sources_skipped = 0
         chunks_added_total = 0
         chunks_removed_total = 0
         chunks_unchanged_total = 0
@@ -233,6 +255,7 @@ class IngestionPipeline:
 
                             try:
                                 sources_processed += 1
+                                _source_start = time.monotonic()
 
                                 # Acquire the per-source lock before reading the latest version.
                                 # This prevents two concurrent ingest() calls from both passing the
@@ -293,6 +316,13 @@ class IngestionPipeline:
                                         if display_name:
                                             self.document_store.update_display_name(content.source_id, display_name)
                                         chunks_unchanged_total += len(chunks)
+                                        sources_skipped += 1
+                                        source_span.set_attribute("pipeline.version_created", False)
+                                        source_span.set_attribute("pipeline.chunks_added", 0)
+                                        source_span.set_attribute("pipeline.chunks_retired", 0)
+                                        _metric_attrs = {"adapter_id": adapter.adapter_id, "domain": effective_domain.value}
+                                        _ingest_sources_counter.add(1, _metric_attrs)
+                                        _ingest_duration_histogram.record(time.monotonic() - _source_start, _metric_attrs)
                                         continue
 
                                     # Case 2: Content changed - process added/removed/unchanged chunks
@@ -525,6 +555,16 @@ class IngestionPipeline:
                                     # Mark store consistency as successful for this source
                                     store_consistency[content.source_id] = "success"
 
+                                    # Span attributes and metrics for the changed path
+                                    source_span.set_attribute("pipeline.version_created", True)
+                                    source_span.set_attribute("pipeline.chunks_added", len(added_chunks))
+                                    source_span.set_attribute("pipeline.chunks_retired", len(diff_result.removed_hashes))
+                                    _metric_attrs = {"adapter_id": adapter.adapter_id, "domain": effective_domain.value}
+                                    _ingest_sources_counter.add(1, _metric_attrs)
+                                    _ingest_chunks_added_counter.add(len(added_chunks), _metric_attrs)
+                                    _ingest_chunks_retired_counter.add(len(diff_result.removed_hashes), _metric_attrs)
+                                    _ingest_duration_histogram.record(time.monotonic() - _source_start, _metric_attrs)
+
                             except ChunkingError as e:
                                 # Handle chunking errors (domain-specific parser/processing failures)
                                 logger.error(f"Chunking error for source '{content.source_id}': {e}", exc_info=True)
@@ -644,6 +684,11 @@ class IngestionPipeline:
                     })
                     sources_failed += 1
                     # Continue to next adapter; collision prevents further processing
+
+                # Record final ingest-level span attributes
+                ingest_span.set_attribute("pipeline.source_count", sources_processed + sources_failed)
+                ingest_span.set_attribute("pipeline.error_count", sources_failed)
+                ingest_span.set_attribute("pipeline.skipped_count", sources_skipped)
 
                 # Raise if all sources failed
                 if sources_failed > 0 and sources_processed == 0:

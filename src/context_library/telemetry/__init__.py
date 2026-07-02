@@ -1,15 +1,25 @@
 """Telemetry subsystem for OTLP instrumentation.
 
 Provides setup_telemetry() and shutdown_telemetry() for programmatic SDK initialization
-with gRPC as the default transport. Auto-instruments FastAPI and httpx.
+with gRPC as the default transport. Auto-instruments FastAPI, httpx, and sqlite3.
 Bridges Python logging into OTLP log events with trace context injection.
+
+Public API:
+  get_tracer(name)         — Returns an OTel tracer (no-op if OTel not installed)
+  get_meter(name)          — Returns an OTel meter (no-op if OTel not installed)
+  capture_context()        — Snapshot OTel context for cross-thread propagation
+  run_in_context(ctx)      — Context manager to re-attach a captured context
+  setup_telemetry(...)     — Initialize providers and wire auto-instrumentation
+  shutdown_telemetry()     — Flush and shut down all providers
 """
 
+import contextlib
 import importlib.metadata
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Generator, Optional
 
 from context_library.telemetry.config import TelemetryConfig
+from context_library.telemetry.tracer import get_tracer as get_tracer, NoOpTracer as NoOpTracer, NoOpSpan as NoOpSpan
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -17,36 +27,113 @@ if TYPE_CHECKING:
 _tracer_provider: Optional[Any] = None
 _logger_provider: Optional[Any] = None
 _logging_handler: Optional[Any] = None
+_meter_provider: Optional[Any] = None
 
+
+# ---------------------------------------------------------------------------
+# No-op meter (fallback when opentelemetry-api is not installed)
+# ---------------------------------------------------------------------------
+
+class _NoOpInstrument:
+    def add(self, amount: float, attributes: Optional[dict] = None) -> None:
+        pass
+
+    def record(self, amount: float, attributes: Optional[dict] = None) -> None:
+        pass
+
+
+class _NoOpMeter:
+    def create_counter(self, name: str, **kwargs: Any) -> _NoOpInstrument:
+        return _NoOpInstrument()
+
+    def create_histogram(self, name: str, **kwargs: Any) -> _NoOpInstrument:
+        return _NoOpInstrument()
+
+    def create_up_down_counter(self, name: str, **kwargs: Any) -> _NoOpInstrument:
+        return _NoOpInstrument()
+
+    def create_observable_gauge(self, name: str, **kwargs: Any) -> _NoOpInstrument:
+        return _NoOpInstrument()
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
+
+def get_meter(name: str) -> Any:
+    """Get a meter for the given module name.
+
+    Uses the OTel API's proxy mechanism so meters obtained before
+    setup_telemetry() is called are automatically upgraded once
+    set_meter_provider() is invoked.  Falls back to _NoOpMeter if
+    opentelemetry-api is not installed.
+    """
+    try:
+        from opentelemetry import metrics as _metrics
+        return _metrics.get_meter(name)
+    except ImportError:
+        return _NoOpMeter()
+
+
+def capture_context() -> Any:
+    """Snapshot the current OTel context for propagation to a background thread."""
+    try:
+        from opentelemetry import context as _ctx
+        return _ctx.get_current()
+    except ImportError:
+        return None
+
+
+@contextlib.contextmanager
+def run_in_context(ctx: Any) -> Generator[None, None, None]:
+    """Re-attach a captured OTel context inside a background thread."""
+    if ctx is None:
+        yield
+        return
+    try:
+        from opentelemetry import context as _ctx
+        token = _ctx.attach(ctx)
+        try:
+            yield
+        finally:
+            _ctx.detach(token)
+    except ImportError:
+        yield
+
+
+# ---------------------------------------------------------------------------
+# SDK setup / teardown
+# ---------------------------------------------------------------------------
 
 def setup_telemetry(
     config: Optional[TelemetryConfig] = None,
     app: Optional["FastAPI"] = None,
 ) -> tuple[Optional[Any], Optional[Any]]:
-    """Initialize the telemetry subsystem with TracerProvider and LoggerProvider.
+    """Initialize the telemetry subsystem.
 
-    Sets up OTLP exporters (gRPC by default, HTTP/protobuf if configured),
-    wires FastAPI and httpx auto-instrumentation, and attaches the Python logging bridge.
+    Sets up TracerProvider, LoggerProvider, and MeterProvider with OTLP exporters
+    (gRPC by default, HTTP/protobuf if configured).  Wires FastAPI, httpx, and
+    sqlite3 auto-instrumentation and attaches the Python logging bridge.
 
     Returns early (no-op) if CTX_OTEL_ENABLED is falsy or CTX_OTLP_ENDPOINT is unset.
+    Safe to call multiple times — subsequent calls are no-ops (guarded by
+    _tracer_provider sentinel).
 
     Args:
         config: TelemetryConfig instance. If None, loads from environment.
-        app: FastAPI app instance to instrument. If provided, instrument_app() is called.
+        app: FastAPI app instance. If provided, FastAPIInstrumentor is wired.
 
     Returns:
-        Tuple of (tracer_provider, logger_provider). Both are None if telemetry is disabled.
+        Tuple of (tracer_provider, logger_provider). Both are None if disabled.
     """
-    global _tracer_provider, _logger_provider, _logging_handler
+    global _tracer_provider, _logger_provider, _logging_handler, _meter_provider
 
-    # Guard against double initialization
     if _tracer_provider is not None:
         return _tracer_provider, _logger_provider
 
     if config is None:
         config = TelemetryConfig()
 
-    # No-op: telemetry disabled or no endpoint configured
     if not config.otel_enabled or not config.otlp_endpoint:
         return None, None
 
@@ -58,7 +145,7 @@ def setup_telemetry(
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogRecordExporter
     from opentelemetry.sdk._logs import LoggingHandler
 
-    # Get service version: use config override if provided, otherwise read from package metadata
+    # Service version: config override or package metadata
     if config.otel_service_version:
         service_version = config.otel_service_version
     else:
@@ -67,91 +154,113 @@ def setup_telemetry(
         except importlib.metadata.PackageNotFoundError:
             service_version = "unknown"
 
-    # Create OTLP Resource with service metadata
     resource = Resource.create({
         "service.name": config.otel_service_name,
         "service.version": service_version,
         "deployment.environment": config.otel_environment,
     })
 
-    # Create OTLP span exporter based on protocol
+    # --- Traces ---
     span_exporter: SpanExporter
     if config.otlp_protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as HTTPOTLPSpanExporter
         span_exporter = HTTPOTLPSpanExporter(endpoint=config.otlp_endpoint)
-    else:  # default: grpc
+    else:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as gRPCOTLPSpanExporter
         span_exporter = gRPCOTLPSpanExporter(endpoint=config.otlp_endpoint)
 
-    # Create TracerProvider with BatchSpanProcessor (using local variable)
     tracer_provider = TracerProvider(resource=resource)
     tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
 
-    # Create OTLP log exporter based on protocol
+    # --- Logs ---
     log_exporter: LogRecordExporter
     if config.otlp_protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter as HTTPOTLPLogExporter
         log_exporter = HTTPOTLPLogExporter(endpoint=config.otlp_endpoint)
-    else:  # default: grpc
+    else:
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as gRPCOTLPLogExporter
         log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint)
 
-    # Create LoggerProvider with BatchLogRecordProcessor (using local variable)
     logger_provider = OtelLoggerProvider(resource=resource)
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
 
-    # Create LoggingHandler (using local variable)
     logging_handler = LoggingHandler(logger_provider=logger_provider)
     logging_handler.setLevel(logging.INFO)
 
-    # All setup succeeded, assign to globals and apply configuration
+    # --- Metrics ---
+    from opentelemetry import metrics as _otel_metrics
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+    if config.otlp_protocol == "http/protobuf":
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as HTTPOTLPMetricExporter
+        metric_exporter = HTTPOTLPMetricExporter(endpoint=config.otlp_endpoint)
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as gRPCOTLPMetricExporter
+        metric_exporter = gRPCOTLPMetricExporter(endpoint=config.otlp_endpoint)
+
+    reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=15000)
+    meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
+
+    # Commit to globals before wiring instrumentation so that any
+    # re-entrant get_tracer()/get_meter() calls during instrumentation see
+    # the providers already in place.
     _tracer_provider = tracer_provider
     _logger_provider = logger_provider
     _logging_handler = logging_handler
+    _meter_provider = meter_provider
 
-    # Set global providers
     trace.set_tracer_provider(_tracer_provider)
+    _otel_metrics.set_meter_provider(_meter_provider)
 
-    # Attach LoggingHandler to the root logger to capture all log records (INFO+)
-    # from uvicorn, FastAPI internals, third-party libraries, and application code
     root_logger = logging.getLogger()
     root_logger.addHandler(_logging_handler)
 
-    # Wire FastAPI auto-instrumentation for the specific app instance
+    # --- FastAPI instrumentation ---
     if app is not None:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        FastAPIInstrumentor().instrument_app(app)
 
-    # Wire httpx auto-instrumentation with W3C Traceparent propagation (global)
+        def _auth_request_hook(span: Any, scope: Any) -> None:
+            if span is not None and hasattr(span, "is_recording") and span.is_recording():
+                headers = {k: v for k, v in scope.get("headers", [])}
+                span.set_attribute("auth.present", b"authorization" in headers)
+
+        FastAPIInstrumentor().instrument_app(app, server_request_hook=_auth_request_hook)
+
+    # --- httpx instrumentation ---
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     HTTPXClientInstrumentor().instrument()
+
+    # --- sqlite3 instrumentation ---
+    try:
+        from opentelemetry.instrumentation.sqlite3 import SQLite3Instrumentor
+        SQLite3Instrumentor().instrument()
+    except ImportError:
+        pass
 
     return _tracer_provider, _logger_provider
 
 
 def shutdown_telemetry() -> None:
-    """Flush pending spans and logs, then shut down providers.
+    """Flush pending spans, logs, and metrics, then shut down all providers.
 
-    Call this on server shutdown to ensure all telemetry is exported.
     Safe to call even if setup_telemetry() was never called.
-    Exceptions during shutdown are logged but do not crash the shutdown sequence.
+    Exceptions during shutdown are logged but do not propagate.
     """
-    global _tracer_provider, _logger_provider, _logging_handler
+    global _tracer_provider, _logger_provider, _logging_handler, _meter_provider
 
     if _tracer_provider is not None:
         try:
             _tracer_provider.force_flush(timeout_millis=5000)
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "TracerProvider.force_flush() failed during shutdown (telemetry may be incomplete): %s",
-                e
+                "TracerProvider.force_flush() failed during shutdown: %s", e
             )
         try:
             _tracer_provider.shutdown()
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "TracerProvider.shutdown() failed during shutdown: %s",
-                e
+                "TracerProvider.shutdown() failed during shutdown: %s", e
             )
         _tracer_provider = None
 
@@ -160,15 +269,13 @@ def shutdown_telemetry() -> None:
             _logger_provider.force_flush(timeout_millis=5000)
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "LoggerProvider.force_flush() failed during shutdown (telemetry may be incomplete): %s",
-                e
+                "LoggerProvider.force_flush() failed during shutdown: %s", e
             )
         try:
             _logger_provider.shutdown()
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "LoggerProvider.shutdown() failed during shutdown: %s",
-                e
+                "LoggerProvider.shutdown() failed during shutdown: %s", e
             )
         _logger_provider = None
 
@@ -177,14 +284,27 @@ def shutdown_telemetry() -> None:
             _logging_handler.close()
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "LoggingHandler.close() failed during shutdown: %s",
-                e
+                "LoggingHandler.close() failed during shutdown: %s", e
             )
         try:
             logging.getLogger().removeHandler(_logging_handler)
         except Exception as e:
             logging.getLogger(__name__).warning(
-                "Failed to remove LoggingHandler during shutdown: %s",
-                e
+                "Failed to remove LoggingHandler during shutdown: %s", e
             )
         _logging_handler = None
+
+    if _meter_provider is not None:
+        try:
+            _meter_provider.force_flush(timeout_millis=5000)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "MeterProvider.force_flush() failed during shutdown: %s", e
+            )
+        try:
+            _meter_provider.shutdown()
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "MeterProvider.shutdown() failed during shutdown: %s", e
+            )
+        _meter_provider = None

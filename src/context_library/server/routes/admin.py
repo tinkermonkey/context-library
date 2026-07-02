@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from context_library.server.auth import require_auth
+from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.server.schemas import (
     AdminAdapterListResponse,
     AdminAdapterStatus,
@@ -25,6 +26,8 @@ from context_library.scheduler.exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
+StatusCode = get_status_code()
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -95,46 +98,53 @@ async def trigger_adapter_sync(adapter_id: str, request: Request) -> TriggerSync
     if adapter_config is None:
         raise HTTPException(status_code=404, detail=f"Adapter '{adapter_id}' not found")
 
-    try:
-        triggered = poller.trigger_immediate_ingest(adapter_id)
-        if triggered:
+    with tracer.start_as_current_span("admin.sync") as span:
+        span.set_attribute("adapter.id", adapter_id)
+        span.set_attribute("admin.sync_trigger", "manual")
+
+        try:
+            triggered = poller.trigger_immediate_ingest(adapter_id)
+            span.set_attribute("admin.sync_triggered", triggered)
+            if triggered:
+                return TriggerSyncResponse(
+                    adapter_id=adapter_id,
+                    triggered=True,
+                    message="Re-sync triggered successfully",
+                )
             return TriggerSyncResponse(
                 adapter_id=adapter_id,
-                triggered=True,
-                message="Re-sync triggered successfully",
+                triggered=False,
+                message="Adapter has no pull sources; push-only adapters sync via webhook",
             )
-        return TriggerSyncResponse(
-            adapter_id=adapter_id,
-            triggered=False,
-            message="Adapter has no pull sources; push-only adapters sync via webhook",
-        )
-    except PollerNotRunningError:
-        return TriggerSyncResponse(
-            adapter_id=adapter_id,
-            triggered=False,
-            message="Poller is not running; re-sync cannot be triggered",
-        )
-    except AdapterNotRegisteredError:
-        return TriggerSyncResponse(
-            adapter_id=adapter_id,
-            triggered=False,
-            message="Adapter is not registered with poller; may be push-only",
-        )
-    except NoSourcesError:
-        return TriggerSyncResponse(
-            adapter_id=adapter_id,
-            triggered=False,
-            message="No sources found for this adapter",
-        )
-    except IngestAlreadyInProgressError:
-        return TriggerSyncResponse(
-            adapter_id=adapter_id,
-            triggered=False,
-            message="Ingest already in progress for this adapter",
-        )
-    except Exception as e:
-        logger.error("Sync trigger failed for %s: %s", adapter_id, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Sync trigger error: {e}")
+        except PollerNotRunningError:
+            return TriggerSyncResponse(
+                adapter_id=adapter_id,
+                triggered=False,
+                message="Poller is not running; re-sync cannot be triggered",
+            )
+        except AdapterNotRegisteredError:
+            return TriggerSyncResponse(
+                adapter_id=adapter_id,
+                triggered=False,
+                message="Adapter is not registered with poller; may be push-only",
+            )
+        except NoSourcesError:
+            return TriggerSyncResponse(
+                adapter_id=adapter_id,
+                triggered=False,
+                message="No sources found for this adapter",
+            )
+        except IngestAlreadyInProgressError:
+            return TriggerSyncResponse(
+                adapter_id=adapter_id,
+                triggered=False,
+                message="Ingest already in progress for this adapter",
+            )
+        except Exception as e:
+            logger.error("Sync trigger failed for %s: %s", adapter_id, e, exc_info=True)
+            span.record_exception(e)
+            span.set_status(StatusCode.ERROR)
+            raise HTTPException(status_code=500, detail=f"Sync trigger error: {e}")
 
 
 @router.get("/config", response_model=AdminConfigResponse)

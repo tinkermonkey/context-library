@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 
 from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library import telemetry as tel
 from context_library.core.pipeline import IngestionPipeline
 from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
@@ -214,7 +215,13 @@ class Poller:
             return
 
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        ctx = tel.capture_context()
+
+        def _run_with_context() -> None:
+            with tel.run_in_context(ctx):
+                self._run()
+
+        self._thread = threading.Thread(target=_run_with_context, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -465,67 +472,72 @@ class Poller:
             # Mark this adapter as having an ingest in progress
             self._ingest_in_progress[adapter_id] = True
 
+        # Capture OTel context from the calling thread (HTTP request) so the
+        # background thread's spans are parented to the incoming request trace.
+        _ingest_ctx = tel.capture_context()
+
         # Spawn a background thread to process sources immediately (non-blocking)
         def process_sources() -> None:
-            with tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span:
-                immediate_span.set_attribute("adapter_id", adapter_id)
-                immediate_span.set_attribute("trigger", "manual")
+            with tel.run_in_context(_ingest_ctx):
+                with tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span:
+                    immediate_span.set_attribute("adapter_id", adapter_id)
+                    immediate_span.set_attribute("trigger", "manual")
 
-                result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
-                try:
-                    for source in sources:
-                        source_id = source["source_id"]
-                        try:
-                            self._pipeline.ingest(
-                                adapter, chunker, source_ref=source["origin_ref"]
-                            )
-                            result.sources_succeeded += 1
-                            # Update last_fetched_at on successful ingest
+                    result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
+                    try:
+                        for source in sources:
+                            source_id = source["source_id"]
                             try:
-                                self._document_store.update_last_fetched_at(source_id)
+                                self._pipeline.ingest(
+                                    adapter, chunker, source_ref=source["origin_ref"]
+                                )
+                                result.sources_succeeded += 1
+                                # Update last_fetched_at on successful ingest
+                                try:
+                                    self._document_store.update_last_fetched_at(source_id)
+                                except Exception as e:
+                                    logger.exception(
+                                        "trigger_immediate_ingest: failed to update last_fetched_at "
+                                        "for source %s: %s",
+                                        source_id,
+                                        e,
+                                    )
+                            except MemoryError:
+                                # System-level memory exhaustion is fatal; propagate immediately
+                                raise
                             except Exception as e:
-                                logger.exception(
-                                    "trigger_immediate_ingest: failed to update last_fetched_at "
-                                    "for source %s: %s",
-                                    source_id,
-                                    e,
-                                )
-                        except MemoryError:
-                            # System-level memory exhaustion is fatal; propagate immediately
-                            raise
-                        except Exception as e:
-                            result.sources_failed += 1
-                            # Detect programming errors and flag them
-                            if _is_programming_error(e):
-                                result.had_programming_errors = True
-                                logger.error(
-                                    "trigger_immediate_ingest: source %s encountered a programming error: %s",
-                                    source_id,
-                                    e,
-                                    exc_info=True,
-                                )
-                            else:
-                                logger.exception(
-                                    "trigger_immediate_ingest: ingest failed for source %s: %s",
-                                    source_id,
-                                    e,
-                                )
-                finally:
-                    # Mark result as completed and store it
-                    result.completed_at = datetime.now()
-                    with self._results_lock:
-                        self._ingest_results[adapter_id] = result
+                                result.sources_failed += 1
+                                # Detect programming errors and flag them
+                                if _is_programming_error(e):
+                                    result.had_programming_errors = True
+                                    logger.error(
+                                        "trigger_immediate_ingest: source %s encountered a programming error: %s",
+                                        source_id,
+                                        e,
+                                        exc_info=True,
+                                    )
+                                else:
+                                    logger.exception(
+                                        "trigger_immediate_ingest: ingest failed for source %s: %s",
+                                        source_id,
+                                        e,
+                                    )
+                    finally:
+                        # Mark result as completed and store it
+                        result.completed_at = datetime.now()
+                        with self._results_lock:
+                            self._ingest_results[adapter_id] = result
 
-                    # Set span error status if any sources failed
-                    if result.sources_failed > 0:
-                        immediate_span.set_status(StatusCode.ERROR)
+                        # Set span error status if any sources failed
+                        if result.sources_failed > 0:
+                            immediate_span.set_status(StatusCode.ERROR)
 
-                    # Always clear the in-progress flag and remove thread from tracking
-                    # CRITICAL: Clear flag inside lock to prevent race conditions
-                    with self._threads_lock:
-                        self._ingest_in_progress[adapter_id] = False
-                        self._background_threads.discard(threading.current_thread())
-                        self._ingest_thread_adapters.pop(threading.current_thread(), None)
+                        # Always clear the in-progress flag and remove thread from tracking
+                        # CRITICAL: Clear flag inside lock to prevent race conditions
+                        with self._threads_lock:
+                            self._ingest_in_progress[adapter_id] = False
+                            self._background_threads.discard(threading.current_thread())
+                            self._ingest_thread_adapters.pop(threading.current_thread(), None)
 
         # Use non-daemon threads and track them for graceful shutdown
         thread = threading.Thread(target=process_sources, daemon=False)
