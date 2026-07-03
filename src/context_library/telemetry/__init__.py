@@ -179,7 +179,7 @@ def setup_telemetry(
         log_exporter = HTTPOTLPLogExporter(endpoint=config.otlp_endpoint)
     else:
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as gRPCOTLPLogExporter
-        log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint)
+        log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint, insecure=True)
 
     logger_provider = OtelLoggerProvider(resource=resource)
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
@@ -216,7 +216,16 @@ def setup_telemetry(
     _set_logger_provider(_logger_provider)
 
     root_logger = logging.getLogger()
-    root_logger.addHandler(_logging_handler)
+    root_logger.setLevel(logging.INFO)
+    if _logging_handler not in root_logger.handlers:
+        root_logger.addHandler(_logging_handler)
+
+    # Uvicorn's dictConfig sets propagate=False on its own loggers, so records
+    # from uvicorn never reach the root handler.  Attach directly to survive that.
+    for _uvi_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        _uvi_logger = logging.getLogger(_uvi_name)
+        if _logging_handler not in _uvi_logger.handlers:
+            _uvi_logger.addHandler(_logging_handler)
 
     # --- FastAPI instrumentation ---
     if app is not None:
