@@ -143,7 +143,10 @@ def setup_telemetry(
     from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
     from opentelemetry.sdk._logs import LoggerProvider as OtelLoggerProvider
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogRecordExporter
-    from opentelemetry.sdk._logs import LoggingHandler
+    from opentelemetry.instrumentation.logging.handler import (
+        LoggingHandler,
+        _overwrite_logging_config_fns,
+    )
 
     # Service version: config override or package metadata
     if config.otel_service_version:
@@ -219,6 +222,11 @@ def setup_telemetry(
     root_logger.setLevel(logging.INFO)
     if _logging_handler not in root_logger.handlers:
         root_logger.addHandler(_logging_handler)
+
+    # Patch logging.config.dictConfig / basicConfig so any subsequent call
+    # (e.g. uvicorn reload, third-party library setup) cannot silently remove
+    # the OTel handler from the root logger.
+    _overwrite_logging_config_fns(_logging_handler)
 
     # Uvicorn's dictConfig sets propagate=False on its own loggers, so records
     # from uvicorn never reach the root handler.  Attach directly to survive that.
