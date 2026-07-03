@@ -179,7 +179,7 @@ def setup_telemetry(
         log_exporter = HTTPOTLPLogExporter(endpoint=config.otlp_endpoint)
     else:
         from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as gRPCOTLPLogExporter
-        log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint, insecure=True)
+        log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint)
 
     logger_provider = OtelLoggerProvider(resource=resource)
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
