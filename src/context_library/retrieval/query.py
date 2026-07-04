@@ -6,8 +6,10 @@ Integrates vector similarity with lineage lookup for full provenance tracing.
 
 import logging
 import re
+import time
 from typing import Optional
 
+from context_library import telemetry as tel
 from context_library.telemetry.tracer import get_tracer, get_status_code
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -20,6 +22,17 @@ from context_library.storage.vector_store import VectorStore
 _logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
+
+_meter = tel.get_meter("context_library.retrieval")
+_query_counter = _meter.create_counter(
+    "context_library.retrieval.queries_total",
+    description="Total semantic retrieval queries",
+)
+_query_duration = _meter.create_histogram(
+    "context_library.retrieval.duration_seconds",
+    description="Semantic retrieval query duration",
+    unit="s",
+)
 
 # Allowlist pattern for source_filter: alphanumeric, underscore, hyphen, dot, forward slash
 _SAFE_SOURCE_FILTER_PATTERN = re.compile(r"^[a-zA-Z0-9_\-./]+$")
@@ -143,6 +156,7 @@ def retrieve(
         ValueError: If top_k <= 0, if query is empty/whitespace, or if vector store is empty/uninitialized.
         RuntimeError: If vector store connection fails or vector table is missing.
     """
+    _query_start = time.monotonic()
     with tracer.start_as_current_span("retrieval.query") as retrieval_span:
         retrieval_span.set_attribute("query_length", len(query))
         retrieval_span.set_attribute("top_k", top_k)
@@ -264,10 +278,17 @@ def retrieve(
             # Sort by similarity score (highest first)
             results.sort(key=lambda r: r.similarity_score, reverse=True)
 
+            _metric_attrs = {"domain": domain_filter.value if domain_filter else "all"}
+            _query_counter.add(1, _metric_attrs)
+            _query_duration.record(time.monotonic() - _query_start, _metric_attrs)
+
             return results
 
         except Exception as e:
             retrieval_span.set_status(StatusCode.ERROR)
             if not exception_recorded:
                 retrieval_span.record_exception(e)
+            _metric_attrs = {"domain": domain_filter.value if domain_filter else "all"}
+            _query_counter.add(1, _metric_attrs)
+            _query_duration.record(time.monotonic() - _query_start, _metric_attrs)
             raise

@@ -53,7 +53,11 @@ from pydantic import ValidationError
 from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import Domain, NormalizedContent
 
+from context_library.telemetry.tracer import get_tracer, get_status_code
+
 logger = logging.getLogger(__name__)
+_tracer = get_tracer(__name__)
+_StatusCode = get_status_code()
 
 # Try to import optional dependencies
 HAS_HTTPX = False
@@ -309,109 +313,120 @@ class RemoteAdapter(BaseAdapter):
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        # Retry loop for transient failures
-        for attempt in range(max_retries + 1):
+        validated_items: list[NormalizedContent] = []
+
+        with _tracer.start_as_current_span("adapter.remote_fetch") as span:
+            span.set_attribute("adapter.id", self._adapter_id)
+            span.set_attribute("adapter.service_url", self._service_url)
+
             try:
-                # Build request body, merging any extra params from subclasses
-                body: dict = {"source_ref": source_ref}
-                if extra_body:
-                    body.update(extra_body)
-
-                # Send POST request to remote service
-                response = self._client.post(
-                    f"{self._service_url}/fetch",
-                    json=body,
-                    headers=headers,
-                )
-
-                # Check for transient errors (502, 503, 504) and retry
-                if response.status_code in (502, 503, 504):
-                    if attempt < max_retries:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
-                        logger.warning(
-                            f"Transient error {response.status_code} from remote service, "
-                            f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
-                        )
-                        time.sleep(delay)
-                        continue
-                    # On final attempt, raise the error
-                    response.raise_for_status()
-
-                # Propagate other HTTP errors (4xx, 5xx)
-                response.raise_for_status()
-
-                # Parse JSON response
-                try:
-                    data = response.json()
-                except ValueError as e:
-                    logger.error(f"Failed to parse JSON response from remote service: {e}")
-                    raise
-
-                # Validate normalized_contents is present
-                if "normalized_contents" not in data:
-                    logger.error(
-                        f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
-                    )
-                    raise KeyError(
-                        f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
-                    )
-
-                # Log optional pagination metadata (informational for pull-flow clients)
-                if data.get("has_more"):
-                    logger.debug(
-                        "RemoteAdapter: has_more=True, next_cursor=%s",
-                        data.get("next_cursor"),
-                    )
-
-                normalized_contents = data["normalized_contents"]
-
-                # Validate normalized_contents is a list
-                if not isinstance(normalized_contents, list):
-                    logger.error(
-                        f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
-                    )
-                    raise TypeError(
-                        f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
-                    )
-
-                # Validate and collect all items before yielding
-                # This ensures callers receive either all valid items or an exception,
-                # preventing partial results if validation fails mid-stream
-                validated_items = []
-                for idx, item in enumerate(normalized_contents):
+                # Retry loop for transient failures
+                for attempt in range(max_retries + 1):
                     try:
-                        validated_items.append(NormalizedContent.model_validate(item))
-                    except ValidationError as e:
+                        # Build request body, merging any extra params from subclasses
+                        body: dict = {"source_ref": source_ref}
+                        if extra_body:
+                            body.update(extra_body)
+
+                        # Send POST request to remote service
+                        response = self._client.post(
+                            f"{self._service_url}/fetch",
+                            json=body,
+                            headers=headers,
+                        )
+
+                        # Check for transient errors (502, 503, 504) and retry
+                        if response.status_code in (502, 503, 504):
+                            if attempt < max_retries:
+                                delay = min(base_delay * (2 ** attempt), max_delay)
+                                logger.warning(
+                                    f"Transient error {response.status_code} from remote service, "
+                                    f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                                )
+                                time.sleep(delay)
+                                continue
+                            # On final attempt, raise the error
+                            response.raise_for_status()
+
+                        # Propagate other HTTP errors (4xx, 5xx)
+                        response.raise_for_status()
+
+                        # Parse JSON response
+                        try:
+                            data = response.json()
+                        except ValueError as e:
+                            logger.error(f"Failed to parse JSON response from remote service: {e}")
+                            raise
+
+                        # Validate normalized_contents is present
+                        if "normalized_contents" not in data:
+                            logger.error(
+                                f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
+                            )
+                            raise KeyError(
+                                f"Response missing 'normalized_contents' key. Got keys: {list(data.keys())}"
+                            )
+
+                        # Log optional pagination metadata (informational for pull-flow clients)
+                        if data.get("has_more"):
+                            logger.debug(
+                                "RemoteAdapter: has_more=True, next_cursor=%s",
+                                data.get("next_cursor"),
+                            )
+
+                        normalized_contents = data["normalized_contents"]
+
+                        # Validate normalized_contents is a list
+                        if not isinstance(normalized_contents, list):
+                            logger.error(
+                                f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
+                            )
+                            raise TypeError(
+                                f"'normalized_contents' must be a list, got {type(normalized_contents).__name__}"
+                            )
+
+                        # Validate and collect all items before yielding
+                        # This ensures callers receive either all valid items or an exception,
+                        # preventing partial results if validation fails mid-stream
+                        for idx, item in enumerate(normalized_contents):
+                            try:
+                                validated_items.append(NormalizedContent.model_validate(item))
+                            except ValidationError as e:
+                                logger.error(
+                                    f"Failed to validate NormalizedContent at index {idx}: {e}"
+                                )
+                                raise
+
+                        span.set_attribute("adapter.items_fetched", len(validated_items))
+                        break  # Success — exit retry loop
+
+                    except httpx.HTTPStatusError as e:
                         logger.error(
-                            f"Failed to validate NormalizedContent at index {idx}: {e}"
+                            f"HTTP error from remote service: {e.response.status_code} {e.response.text}"
                         )
                         raise
+                    except httpx.RequestError as e:
+                        # Retry on connection-level transient failures
+                        if attempt < max_retries:
+                            delay = min(base_delay * (2 ** attempt), max_delay)
+                            logger.warning(
+                                f"Request error connecting to remote service: {e}, "
+                                f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                            )
+                            time.sleep(delay)
+                            continue
+                        # On final attempt, log and re-raise
+                        logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
+                        raise
 
-                # All items validated successfully; now yield them to the caller
-                for item in validated_items:
-                    yield item
-
-                # Success - exit retry loop
-                return
-
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    f"HTTP error from remote service: {e.response.status_code} {e.response.text}"
-                )
+            except Exception as e:
+                span.record_exception(e)
+                span.set_status(_StatusCode.ERROR)
                 raise
-            except httpx.RequestError as e:
-                # Retry on connection-level transient failures (connection errors, timeouts, DNS failures)
-                if attempt < max_retries:
-                    delay = min(base_delay * (2 ** attempt), max_delay)
-                    logger.warning(
-                        f"Request error connecting to remote service: {e}, "
-                        f"retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
-                    )
-                    time.sleep(delay)
-                    continue
-                # On final attempt, log and re-raise
-                logger.error(f"Request error connecting to remote service at {self._service_url}: {e}")
-                raise
+
+        # Yield outside the span so span duration reflects only network + validation time
+        for item in validated_items:
+            yield item
 
     def reset(self) -> ResetResult:
         """Reset the helper service's delivery state for this collector.

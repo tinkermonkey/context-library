@@ -17,7 +17,6 @@ from context_library.core.pipeline import IngestionPipeline
 from context_library.scheduler.poller import Poller
 from context_library.server.config import ServerConfig
 from context_library.server.routes import admin, adapters, chunks, health, ingest, retrieve, sources, stats
-from context_library.server import telemetry
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
@@ -271,8 +270,6 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    telemetry.setup("context-library")
-    telemetry.instrument_httpx()
     app = FastAPI(title="context-library", lifespan=lifespan)
     app.include_router(health.router)
     app.include_router(ingest.router)
@@ -283,7 +280,6 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(admin.router)
 
-    telemetry.instrument_fastapi(app)
 
     # Mount static SPA if built assets exist
     ui_dist = Path(__file__).parent.parent.parent.parent / "ui" / "dist"
