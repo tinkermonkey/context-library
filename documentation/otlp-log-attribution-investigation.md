@@ -58,9 +58,18 @@ The SigNoz collector logs pipeline is `receivers: [otlp] → processors: [batch]
 
 1. **Correctness: nothing to fix in the app or the collector.** Logs are exported, received, stored, and attributed with `service.name=context-library`.
 2. **To view/query the logs:** in the SigNoz Logs Explorer, filter by the **resource attribute** `service.name = context-library` (this reads `resources_string` and works). In raw ClickHouse: `WHERE resources_string['service.name'] = 'context-library'`.
-3. **Optional tooling improvement (outside this repo):** update the homelab-data `signoz_query_logs` MCP proxy to project `resources_string['service.name']` into its `service` field for logs, so verification tooling stops reporting `null`. This is a proxy/tooling change, not a SigNoz or context-library change.
+3. **Tooling fix — DONE (2026-07-05):** the homelab-data `signoz_query_logs` MCP proxy was updated to project `resources_string['service.name']` into its `service` field for logs. The fix adds a `_LOG_SELECT_FIELDS` set that requests `service.name` with `fieldContext: "resource"`, using the logs-schema snake_case field names (`severity_text`, `trace_id`) — the initial attempt failed with a 400 because it reused the traces schema's camelCase (`SeverityText`/`traceID`). Verification tooling now reports `service = context-library` for logs. This was a proxy/tooling change (phone-home repo), not a SigNoz or context-library change.
 4. **Do NOT** add per-attribute materialized columns to `logs_v2` or otherwise mutate the SigNoz log schema — SigNoz's Logs Explorer natively filters resource attributes from the map; schema surgery is unnecessary and risky on the shared observability stack.
 
 ## Key takeaway
 
 `force_flush()` returning success and traces working did not imply logs were failing — the logs were succeeding too. The false signal came entirely from a tool projecting a trace-shaped `service` field onto log rows that store service identity in a resource map. When telemetry "disappears," verify at the storage layer (ClickHouse `resources_string`) before assuming an app or collector bug.
+
+## Resolution (2026-07-05)
+
+Closed out. Two things happened after the investigation:
+
+1. **Proxy fixed** (phone-home `homelab-data-mcp`, `sources/signoz.py`): `signoz_query_logs` now selects the `service.name` resource attribute for logs, so logs are correctly attributed in query results (see Solution item 3).
+2. **context-library rebuilt from `main` and redeployed to the t5610** (homelab `context-library` role, forced image rebuild). Post-deploy SigNoz verification confirmed **both traces and logs flowing with `service.name = context-library`**, no ongoing errors, healthy container.
+
+The telemetry code fixes listed under "How we got here" are all merged to `main` (`46058c1`) and live in the production image. No further action required for log attribution.
