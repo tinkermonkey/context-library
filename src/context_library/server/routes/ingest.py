@@ -207,6 +207,7 @@ async def helper_ingest(
                 raise HTTPException(status_code=422, detail=f"Invalid 'since' value: {since!r} — expected ISO 8601 timestamp")
 
         source_ref = "" if full else (since or "")
+        poller = getattr(request.app.state, "poller", None)
 
         results = []
         for adapter in helper_adapters:
@@ -217,6 +218,29 @@ async def helper_ingest(
             # collector-global on the helper). A targeted ?adapter_id= still runs them,
             # so manual full re-ingests keep working.
             if adapter_id is None and getattr(adapter, "background_poll", False):
+                continue
+            # Claim the shared per-adapter ingest slot so this request cannot run
+            # concurrently with the poller tick or a manual trigger on the same
+            # adapter instance (they would race its in-memory cursor and ack).
+            if poller is not None and not poller.try_begin_ingest(adapter.adapter_id):
+                logger.warning(
+                    "helper_ingest: skipping adapter %s — ingest already in progress",
+                    adapter.adapter_id,
+                )
+                results.append(AppleAdapterResult(
+                    adapter_id=adapter.adapter_id,
+                    status="skipped",
+                    sources_processed=0,
+                    sources_failed=0,
+                    chunks_added=0,
+                    chunks_removed=0,
+                    chunks_unchanged=0,
+                    errors=[IngestError(
+                        source_id="",
+                        error_type="IngestAlreadyInProgress",
+                        message="an ingest for this adapter is already running (poller or manual trigger); skipped",
+                    )],
+                ))
                 continue
             domain_chunker = get_domain_chunker(adapter.domain)
             try:
@@ -268,6 +292,9 @@ async def helper_ingest(
                     chunks_unchanged=0,
                     errors=[IngestError(source_id="", error_type=type(e).__name__, message=str(e))],
                 ))
+            finally:
+                if poller is not None:
+                    poller.end_ingest(adapter.adapter_id)
 
         span.set_attribute("ingest.adapters_run", len(results))
         span.set_attribute("ingest.chunks_added", sum(r.chunks_added for r in results))

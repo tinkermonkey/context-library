@@ -1,7 +1,8 @@
-"""Polling-based ingestion trigger; manages per-source poll intervals."""
+"""Polling-based ingestion trigger; schedules registered PULL adapters per-adapter."""
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -15,7 +16,6 @@ from context_library.domains.base import BaseDomain
 from context_library.scheduler.exceptions import (
     PollerNotRunningError,
     AdapterNotRegisteredError,
-    NoSourcesError,
     IngestAlreadyInProgressError,
 )
 
@@ -120,17 +120,28 @@ class SourceErrorTracker:
 
 
 class Poller:
-    """Background scheduler that periodically polls pull-based sources for updates.
+    """Background scheduler that periodically polls registered PULL adapters.
 
-    Manages a background thread that checks for sources due for re-ingestion based on
-    their configured poll intervals. Provides clean lifecycle management via start/stop.
+    Manages a background thread that runs one ingest per registered adapter when
+    that adapter's poll interval has elapsed. Provides clean lifecycle management
+    via start/stop.
+
+    Scheduling is per-adapter, not per-source: helper adapters drain all of their
+    changed sources in a single fetch() from their own persisted cursor, so the
+    unit of schedulable work is the adapter. (An earlier design scheduled from
+    sources.poll_interval_sec rows, but nothing ever populated that column, so no
+    source was ever due and registered adapters were never polled. Per-adapter
+    scheduling also bootstraps adapters that have no source rows yet.)
 
     Key features:
-    - Reads poll_interval_sec and last_fetched_at from DocumentStore to identify due sources
-    - Delegates to IngestionPipeline which invokes adapter.fetch() for each due source
-    - Updates last_fetched_at after successful ingestion
-    - Isolates per-source failures — one failing source doesn't prevent others from being polled
-    - Only processes sources with poll_strategy = 'pull'
+    - Polls each registered adapter every poll_interval_sec (adapter attribute,
+      defaulting to the poller tick interval) after its last successful run
+    - Delegates to IngestionPipeline (adapter.fetch() drains from the adapter's
+      own cursor) and calls adapter.ack() after the pipeline commits
+    - Isolates per-adapter failures — one failing adapter doesn't prevent others
+      from being polled; failures retry on the next tick with escalating logging
+    - Exposes the per-adapter in-progress flag (try_begin_ingest/end_ingest) so
+      the push route and manual triggers cannot race a running poll
     - Uses a single background threading.Thread with tick-based loop
     - Clean shutdown via threading.Event
     """
@@ -161,8 +172,10 @@ class Poller:
         self._registered: list[tuple[BaseAdapter, BaseDomain]] = []
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-        # Track per-source error state for escalation
+        # Track per-adapter error state for escalation
         self._error_tracker: dict[str, SourceErrorTracker] = {}
+        # Monotonic timestamp of each adapter's last successful poll
+        self._last_polled: dict[str, float] = {}
         # Prevent concurrent ingest of the same adapter
         self._ingest_in_progress: dict[str, bool] = {}
         # Track background ingest threads for graceful shutdown
@@ -285,152 +298,156 @@ class Poller:
         while not self._stop_event.wait(timeout=self._tick_interval):
             self._tick()
 
+    def try_begin_ingest(self, adapter_id: str) -> bool:
+        """Atomically claim the per-adapter ingest slot.
+
+        Shared by the poller tick, trigger_immediate_ingest(), and the push route
+        (targeted ``?adapter_id=``) so no two paths ingest the same adapter
+        concurrently: concurrent runs share one adapter instance and would race
+        its in-memory cursor and interleave ack() against the same helper
+        collector (commit_push_cursors is collector-global on the helper).
+
+        Returns:
+            True if the slot was claimed — the caller MUST call end_ingest()
+            when done. False if an ingest is already in progress.
+        """
+        with self._threads_lock:
+            if self._ingest_in_progress.get(adapter_id, False):
+                return False
+            self._ingest_in_progress[adapter_id] = True
+            return True
+
+    def end_ingest(self, adapter_id: str) -> None:
+        """Release the per-adapter ingest slot claimed by try_begin_ingest()."""
+        with self._threads_lock:
+            self._ingest_in_progress[adapter_id] = False
+
     def _tick(self) -> None:
         """Single polling cycle (internal).
 
-        Queries the document store for sources due for polling and attempts to ingest each one.
-        Per-source errors are caught, logged, and do not prevent other sources from being polled.
+        Runs one ingest for each registered adapter whose poll interval has
+        elapsed. Per-adapter errors are caught, logged, and do not prevent other
+        adapters from being polled.
 
-        Error escalation:
-        - Tracks consecutive failures per source
+        An adapter is due when poll_interval_sec (adapter attribute, defaulting
+        to the poller tick interval) has elapsed since its last *successful*
+        run. A failed run leaves the last-polled mark unchanged, so the adapter
+        retries on the next tick.
+
+        Error escalation (consecutive failures per adapter):
         - 1-2 failures: INFO level (transient issues expected)
         - 3-5 failures: WARNING level (persistent issue)
         - 6+ failures: ERROR level (critical, may be permanently broken)
 
-        Memory management:
-        - Prunes error tracker entries for sources no longer due for polling
-        - Prevents unbounded growth of _error_tracker dict over time
-
-        CRITICAL: update_last_fetched_at is only called if ingest succeeds. If ingest succeeds
-        but update_last_fetched_at fails, the source will be re-polled on the next tick (acceptable).
-        If ingest fails, update_last_fetched_at is NOT called, so the source remains due for re-polling
-        on the next tick (allowing retry without preventing the scheduler from progressing).
+        The in-progress flag is held for the whole ingest+ack so the push route
+        and manual triggers cannot run the same adapter concurrently.
         """
         with tracer.start_as_current_span("scheduler.poll") as tick_span:
-            due_sources = self._document_store.get_sources_due_for_poll()
-            due_source_ids = {source["source_id"] for source in due_sources}
-
-            tick_span.set_attribute("sources_due_count", len(due_sources))
             tick_span.set_attribute("adapters_registered", len(self._registered))
+            adapters_polled = 0
 
-            # Clean up error tracker entries for sources no longer due for polling.
-            # Note: A source that just succeeded and updated last_fetched_at won't appear in
-            # due_sources until its poll interval elapses again, so its error tracker entry will
-            # be pruned here. This is the desired behavior since clear() already resets state on success.
-            # Entries for removed/deleted sources are also pruned here, allowing failure history
-            # to be implicitly forgotten when sources are no longer in the system.
-            # (prevents unbounded growth of _error_tracker dict)
-            sources_to_remove = set(self._error_tracker.keys()) - due_source_ids
-            for source_id in sources_to_remove:
-                del self._error_tracker[source_id]
+            for adapter, chunker in self._registered:
+                if self._stop_event.is_set():
+                    break
 
-            for source in due_sources:
-                source_id = source["source_id"]
-                adapter_id = source["adapter_id"]
+                adapter_id = adapter.adapter_id
+                interval = getattr(adapter, "poll_interval_sec", None) or self._tick_interval
+                last = self._last_polled.get(adapter_id)
+                if last is not None and (time.monotonic() - last) < interval:
+                    continue
 
-                # Skip if a background ingest is already in progress for this adapter
-                with self._threads_lock:
-                    if self._ingest_in_progress.get(adapter_id, False):
-                        logger.debug(
-                            "Poller: skipping source %s; background ingest in progress for adapter %s",
-                            source_id,
-                            adapter_id,
-                        )
-                        continue
-
-                adapter, chunker = self._find_adapter(adapter_id)
-                if adapter is None or chunker is None:
-                    logger.warning(
-                        "Poller: no registered adapter found for adapter_id=%s",
+                if not self.try_begin_ingest(adapter_id):
+                    logger.debug(
+                        "Poller: skipping adapter %s; ingest already in progress",
                         adapter_id,
                     )
                     continue
 
-                # Initialize error tracker for this source if needed
-                if source_id not in self._error_tracker:
-                    self._error_tracker[source_id] = SourceErrorTracker()
+                if adapter_id not in self._error_tracker:
+                    self._error_tracker[adapter_id] = SourceErrorTracker()
 
-                with tracer.start_as_current_span("scheduler.poll.source") as source_span:
-                    source_span.set_attribute("source_id", source_id)
-                    source_span.set_attribute("adapter_id", adapter_id)
+                with tracer.start_as_current_span("scheduler.poll.adapter") as adapter_span:
+                    adapter_span.set_attribute("adapter_id", adapter_id)
 
                     try:
-                        self._pipeline.ingest(adapter, chunker, source_ref=source["origin_ref"])
+                        # source_ref="" — the adapter drains from its own
+                        # persisted cursor; per-source origin_refs are not
+                        # cursors and must not be passed here.
+                        self._pipeline.ingest(adapter, chunker, source_ref="")
                         # Commit-ack: confirm to the helper that the page was durably
                         # persisted so it advances its staged delivery cursor (no-op
                         # for adapters not using commit-ack; best-effort, never raises).
                         adapter.ack()
-                        # Clear error tracking on successful ingestion
-                        self._error_tracker[source_id].clear()
+                        self._error_tracker[adapter_id].clear()
+                        self._last_polled[adapter_id] = time.monotonic()
+                        adapters_polled += 1
                     except MemoryError:
                         # System-level memory exhaustion is fatal; propagate immediately
                         raise
                     except Exception as e:
-                        error_tracker = self._error_tracker[source_id]
+                        error_tracker = self._error_tracker[adapter_id]
                         error_msg = f"ingest failed: {e}"
                         error_tracker.record_failure()
 
-                        source_span.set_status(StatusCode.ERROR)
-                        source_span.record_exception(e)
-                        source_span.set_attribute("error.consecutive_failures", error_tracker.consecutive_failures)
+                        adapter_span.set_status(StatusCode.ERROR)
+                        adapter_span.record_exception(e)
+                        adapter_span.set_attribute("error.consecutive_failures", error_tracker.consecutive_failures)
 
                         # Programming bugs (TypeError, AttributeError, etc.) indicate code issues
                         # that won't be fixed by retrying. Log them at ERROR level immediately
                         # rather than waiting for 6+ cycles.
                         if _is_programming_error(e):
                             logger.error(
-                                "Poller: source %s encountered a programming error (escalated immediately): %s",
-                                source_id,
+                                "Poller: adapter %s encountered a programming error (escalated immediately): %s",
+                                adapter_id,
                                 error_msg,
                                 exc_info=True,
                             )
                         # Log at escalated level based on consecutive failure count for transient errors
                         elif error_tracker.should_log_at_error_level():
                             logger.error(
-                                "Poller: source %s has failed %d times (ERROR level): %s",
-                                source_id,
+                                "Poller: adapter %s has failed %d times (ERROR level): %s",
+                                adapter_id,
                                 error_tracker.consecutive_failures,
                                 error_msg,
                             )
                         elif error_tracker.should_log_at_warning_level():
                             logger.warning(
-                                "Poller: source %s has failed %d times (WARNING level): %s",
-                                source_id,
+                                "Poller: adapter %s has failed %d times (WARNING level): %s",
+                                adapter_id,
                                 error_tracker.consecutive_failures,
                                 error_msg,
                             )
                         else:
                             logger.info(
-                                "Poller: source %s ingestion attempt failed (transient): %s",
-                                source_id,
+                                "Poller: adapter %s ingestion attempt failed (transient): %s",
+                                adapter_id,
                                 error_msg,
                             )
-                        continue
+                    finally:
+                        self.end_ingest(adapter_id)
 
-                    # Only update last_fetched_at if ingest succeeded
-                    try:
-                        self._document_store.update_last_fetched_at(source_id)
-                    except Exception as e:
-                        logger.exception(
-                            "Poller: failed to update last_fetched_at for source %s: %s",
-                            source_id,
-                            e,
-                        )
+            tick_span.set_attribute("adapters_polled", adapters_polled)
 
     def trigger_immediate_ingest(self, adapter_id: str) -> bool:
         """Trigger an immediate, one-shot ingest run for a specific adapter.
 
         Finds the registered (adapter, chunker) pair for the given adapter_id and
-        schedules all sources registered to that adapter for immediate re-ingestion,
-        bypassing the normal poll-interval gate. The ingest runs asynchronously
-        in a background thread, allowing the HTTP response to return immediately.
+        runs one ingest for it immediately, bypassing the poll-interval gate. The
+        ingest runs asynchronously in a background thread, allowing the HTTP
+        response to return immediately.
 
-        Prevents concurrent ingest of the same adapter using a busy flag. If an ingest
-        is already in progress for this adapter, raises IngestAlreadyInProgressError.
+        The adapter drains from its own persisted cursor (source_ref=""), so this
+        also works for a freshly registered adapter with no source rows yet — the
+        bootstrap case a manual trigger exists for. After the pipeline commits,
+        adapter.ack() confirms delivery to the helper so its staged cursor
+        advances (previously manual triggers never acked, leaving the helper
+        cursor staged until the next scheduled poll).
 
-        Background threads are tracked and joined during shutdown to ensure graceful
-        cleanup. Per-source failures are logged with exc_info and the result is stored
-        in _ingest_results for querying (via get_ingest_result).
+        Prevents concurrent ingest of the same adapter via the shared per-adapter
+        ingest slot (try_begin_ingest). Background threads are tracked and joined
+        during shutdown. The result is stored in _ingest_results for querying
+        (via get_ingest_result).
 
         Args:
             adapter_id: The adapter ID to trigger ingest for
@@ -441,7 +458,6 @@ class Poller:
         Raises:
             PollerNotRunningError: If the poller is stopped or not running
             AdapterNotRegisteredError: If the adapter is not registered with the poller
-            NoSourcesError: If no sources are registered to the adapter
             IngestAlreadyInProgressError: If an ingest is already in progress for this adapter
         """
         # Raise if poller is stopped or not started
@@ -453,75 +469,63 @@ class Poller:
         if adapter is None or chunker is None:
             raise AdapterNotRegisteredError(f"Adapter '{adapter_id}' is not registered")
 
-        # Get all sources for this adapter
-        sources = self._document_store.get_sources_for_adapter(adapter_id)
-        if not sources:
-            raise NoSourcesError(f"No sources found for adapter '{adapter_id}'")
-
-        # Check-and-set the ingest_in_progress flag atomically
-        # This prevents TOCTOU race where two threads could both pass the check
-        with self._threads_lock:
-            if self._ingest_in_progress.get(adapter_id, False):
-                logger.warning(
-                    "trigger_immediate_ingest: ingest already in progress for adapter %s",
-                    adapter_id,
-                )
-                raise IngestAlreadyInProgressError(
-                    f"Ingest is already in progress for adapter '{adapter_id}'"
-                )
-            # Mark this adapter as having an ingest in progress
-            self._ingest_in_progress[adapter_id] = True
+        # Claim the shared per-adapter ingest slot (atomic check-and-set; also
+        # blocks the poller tick and the push route while this run is active).
+        if not self.try_begin_ingest(adapter_id):
+            logger.warning(
+                "trigger_immediate_ingest: ingest already in progress for adapter %s",
+                adapter_id,
+            )
+            raise IngestAlreadyInProgressError(
+                f"Ingest is already in progress for adapter '{adapter_id}'"
+            )
 
         # Capture OTel context from the calling thread (HTTP request) so the
         # background thread's spans are parented to the incoming request trace.
         _ingest_ctx = tel.capture_context()
 
-        # Spawn a background thread to process sources immediately (non-blocking)
-        def process_sources() -> None:
+        # Spawn a background thread to run the ingest immediately (non-blocking)
+        def process_adapter() -> None:
             with tel.run_in_context(_ingest_ctx):
                 with tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span:
                     immediate_span.set_attribute("adapter_id", adapter_id)
                     immediate_span.set_attribute("trigger", "manual")
 
-                    result = IngestResult(adapter_id=adapter_id, sources_attempted=len(sources))
+                    result = IngestResult(adapter_id=adapter_id)
                     try:
-                        for source in sources:
-                            source_id = source["source_id"]
-                            try:
-                                self._pipeline.ingest(
-                                    adapter, chunker, source_ref=source["origin_ref"]
-                                )
-                                result.sources_succeeded += 1
-                                # Update last_fetched_at on successful ingest
-                                try:
-                                    self._document_store.update_last_fetched_at(source_id)
-                                except Exception as e:
-                                    logger.exception(
-                                        "trigger_immediate_ingest: failed to update last_fetched_at "
-                                        "for source %s: %s",
-                                        source_id,
-                                        e,
-                                    )
-                            except MemoryError:
-                                # System-level memory exhaustion is fatal; propagate immediately
-                                raise
-                            except Exception as e:
-                                result.sources_failed += 1
-                                # Detect programming errors and flag them
-                                if _is_programming_error(e):
-                                    result.had_programming_errors = True
-                                    logger.error(
-                                        "trigger_immediate_ingest: source %s encountered a programming error: %s",
-                                        source_id,
-                                        e,
-                                        exc_info=True,
-                                    )
-                                else:
-                                    logger.exception(
-                                        "trigger_immediate_ingest: ingest failed for source %s: %s",
-                                        source_id,
-                                        e,
-                                    )
+                        ingest_result = self._pipeline.ingest(
+                            adapter, chunker, source_ref=""
+                        )
+                        # Commit-ack: confirm to the helper that the page was durably
+                        # persisted so it advances its staged delivery cursor (no-op
+                        # for adapters not using commit-ack; best-effort, never raises).
+                        adapter.ack()
+                        processed = ingest_result.get("sources_processed", 0)
+                        failed = ingest_result.get("sources_failed", 0)
+                        result.sources_attempted = processed + failed
+                        result.sources_succeeded = processed
+                        result.sources_failed = failed
+                        self._last_polled[adapter_id] = time.monotonic()
+                    except MemoryError:
+                        # System-level memory exhaustion is fatal; propagate immediately
+                        raise
+                    except Exception as e:
+                        result.sources_attempted = max(result.sources_attempted, 1)
+                        result.sources_failed = max(result.sources_failed, 1)
+                        if _is_programming_error(e):
+                            result.had_programming_errors = True
+                            logger.error(
+                                "trigger_immediate_ingest: adapter %s encountered a programming error: %s",
+                                adapter_id,
+                                e,
+                                exc_info=True,
+                            )
+                        else:
+                            logger.exception(
+                                "trigger_immediate_ingest: ingest failed for adapter %s: %s",
+                                adapter_id,
+                                e,
+                            )
                     finally:
                         # Mark result as completed and store it
                         result.completed_at = datetime.now()
@@ -540,7 +544,7 @@ class Poller:
                             self._ingest_thread_adapters.pop(threading.current_thread(), None)
 
         # Use non-daemon threads and track them for graceful shutdown
-        thread = threading.Thread(target=process_sources, daemon=False)
+        thread = threading.Thread(target=process_adapter, daemon=False)
         with self._threads_lock:
             self._background_threads.add(thread)
             self._ingest_thread_adapters[thread] = adapter_id

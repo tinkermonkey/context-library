@@ -218,11 +218,13 @@ class TestFilesystemHelperAdapterFetch:
         assert rec.calls[0]["method"] == "POST"
         assert rec.calls[0]["url"].endswith("/filesystem/fetch")
 
-    def test_fetch_sends_source_ref_in_body(self):
+    def test_fetch_sends_persisted_cursor_in_body(self):
+        """The request body carries the adapter's persisted cursor, not the caller's source_ref."""
         adapter = self._make_adapter()
+        adapter._cursor = "42"
         rec = _StreamRecorder([[_make_meta_line()]])
         with patch.object(adapter._client, "stream", side_effect=rec):
-            list(adapter.fetch("42"))
+            list(adapter.fetch(""))
         assert rec.calls[0]["json"]["source_ref"] == "42"
 
     def test_fetch_sends_stream_true_in_body(self):
@@ -370,23 +372,69 @@ class TestFilesystemHelperAdapterDrain:
             list(adapter.fetch(""))
         assert second.calls[0]["json"]["source_ref"] == "55"
 
-    def test_explicit_source_ref_overrides_persisted_cursor(self):
-        """A non-empty source_ref (forced replay) overrides the persisted cursor."""
+    def test_source_ref_is_ignored_in_favor_of_persisted_cursor(self):
+        """source_ref is deliberately ignored: the persisted cursor is authoritative.
+
+        Callers pass since-timestamps or per-file origin_refs as source_ref,
+        which are not change-sequence cursors — sending one to the helper would
+        corrupt paging. A full replay is done via reset(), not via source_ref.
+        """
         adapter = self._make_adapter()
         adapter._cursor = "99"
         rec = _StreamRecorder([[_make_meta_line(has_more=False, next_cursor="100")]])
         with patch.object(adapter._client, "stream", side_effect=rec):
             list(adapter.fetch("7"))
-        assert rec.calls[0]["json"]["source_ref"] == "7"
+        assert rec.calls[0]["json"]["source_ref"] == "99"
 
-    def test_stream_without_meta_line_stops_drain(self):
-        """A page that ends without a meta line stops the drain (no infinite loop)."""
+    def test_source_ref_ignored_even_when_no_cursor_persisted(self):
+        """With no persisted cursor, a non-empty source_ref still is not sent."""
+        adapter = self._make_adapter()
+        rec = _StreamRecorder([[_make_meta_line(has_more=False, next_cursor="1")]])
+        with patch.object(adapter._client, "stream", side_effect=rec):
+            list(adapter.fetch("2026-01-01T00:00:00+00:00"))  # push-route since-timestamp
+        assert rec.calls[0]["json"]["source_ref"] == ""
+
+    def test_truncated_stream_raises_runtime_error(self):
+        """A stream that ends without a meta line raises RuntimeError.
+
+        Returning normally would let the caller ack a page that was never fully
+        received, committing the helper's staged cursor past lost content. The
+        raise keeps the staged cursor uncommitted so the page is re-served.
+        """
         adapter = self._make_adapter()
         rec = _StreamRecorder([[_make_content_line("a.md")]])  # no meta line
         with patch.object(adapter._client, "stream", side_effect=rec):
-            results = list(adapter.fetch(""))
-        assert [r.source_id for r in results] == ["a.md"]
+            with pytest.raises(RuntimeError, match="without a meta"):
+                list(adapter.fetch(""))
         assert len(rec.calls) == 1
+
+    def test_truncated_stream_does_not_advance_cursor(self):
+        """A truncated page must not advance the persisted cursor."""
+        adapter = self._make_adapter()
+        adapter._cursor = "10"
+        rec = _StreamRecorder([[_make_content_line("a.md")]])  # no meta line
+        with patch.object(adapter._client, "stream", side_effect=rec):
+            with pytest.raises(RuntimeError):
+                list(adapter.fetch(""))
+        assert adapter._cursor == "10"
+
+    def test_truncation_on_later_page_raises_after_earlier_pages(self):
+        """Truncation mid-drain raises, but earlier complete pages were consumed
+        and their cursor advance is preserved (crash-resume semantics)."""
+        adapter = self._make_adapter()
+        pages = [
+            [_make_content_line("a.md"), _make_meta_line(has_more=True, next_cursor="1")],
+            [_make_content_line("b.md")],  # truncated second page
+        ]
+        rec = _StreamRecorder(pages)
+        collected = []
+        with patch.object(adapter._client, "stream", side_effect=rec):
+            with pytest.raises(RuntimeError):
+                for item in adapter.fetch(""):
+                    collected.append(item.source_id)
+        assert collected == ["a.md", "b.md"]
+        # Cursor persisted at the last fully-streamed page's next_cursor.
+        assert adapter._cursor == "1"
 
 
 # ---------------------------------------------------------------------------

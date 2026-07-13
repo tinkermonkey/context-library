@@ -461,10 +461,13 @@ class TestResetAdapter:
         assert data["reingestion_triggered"] is False
         assert any("Adapter is not registered" in err for err in data["errors"])
 
-    def test_returns_207_when_no_sources_found(self, client: TestClient) -> None:
-        """Test that NoSourcesError returns 207 with warning message."""
-        from context_library.scheduler.exceptions import NoSourcesError
+    def test_zero_source_adapter_reingestion_succeeds(self, client: TestClient) -> None:
+        """An adapter with zero source rows still triggers re-ingestion (bootstrap case).
 
+        trigger_immediate_ingest no longer raises NoSourcesError: adapters drain
+        from their own persisted cursor, so a freshly reset adapter with no
+        source rows must still be re-ingested. The reset should return 200.
+        """
         # Create a mock adapter that succeeds
         mock_adapter = MagicMock()
         mock_adapter.adapter_id = "test-adapter"
@@ -472,21 +475,18 @@ class TestResetAdapter:
 
         client.app.state.helper_adapters = [mock_adapter]
 
-        # Mock poller to raise NoSourcesError
+        # Poller trigger succeeds even though the adapter has no source rows
         poller = MagicMock()
-        poller.trigger_immediate_ingest.side_effect = NoSourcesError("No sources found")
+        poller.trigger_immediate_ingest.return_value = True
         client.app.state.poller = poller
 
         resp = client.post("/adapters/test-adapter/reset")
-        # Endpoint returns 207 Partial Success if library reset succeeded but re-ingestion failed
-        assert resp.status_code == 207
+        assert resp.status_code == 200
         data = resp.json()
         assert data["adapter_id"] == "test-adapter"
-        assert data["helper_reset"]["ok"] is True
-        assert data["library_reset"]["sources_reset"] is not None
-        assert isinstance(data["library_reset"]["sources_reset"], int)
-        assert data["reingestion_triggered"] is False
-        assert any("No sources found" in err for err in data["errors"])
+        assert data["reingestion_triggered"] is True
+        assert data["errors"] == []
+        poller.trigger_immediate_ingest.assert_called_once_with("test-adapter")
 
     def test_returns_207_when_ingest_already_in_progress(self, client: TestClient) -> None:
         """Test that IngestAlreadyInProgressError returns 207 with warning message."""
