@@ -261,6 +261,32 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         self._api_key = api_key
         self._device_id = device_id
         self._helper_collector_name = "oura"  # commit-ack via HelperAckMixin
+        # Endpoints whose fetch failed in the most recent fetch() run; read by
+        # _ack_keys() so ack() commits only the successful endpoints' cursors.
+        self._failed_endpoints: list[str] = []
+
+    # All helper cursor keys, matching OuraCollector.push_cursor_keys() on the
+    # mac. An endpoint path "/oura/heart_rate" maps to the key "oura_heart_rate".
+    _ALL_ACK_KEYS = [
+        "oura_sleep", "oura_readiness", "oura_activity", "oura_workouts",
+        "oura_heart_rate", "oura_spo2", "oura_tags", "oura_sessions",
+    ]
+
+    @staticmethod
+    def _endpoint_to_key(endpoint: str) -> str:
+        return "oura_" + endpoint.rsplit("/", 1)[-1].replace("-", "_")
+
+    def _ack_keys(self) -> list[str] | None:
+        """Commit only the endpoints that fetched successfully.
+
+        The helper's ack is collector-global; after a PartialFetchError an
+        unkeyed ack would also commit the failed endpoint's staged cursor,
+        permanently skipping the page it never delivered.
+        """
+        if not self._failed_endpoints:
+            return None  # everything succeeded — commit all staged keys
+        failed = {self._endpoint_to_key(e) for e in self._failed_endpoints}
+        return [k for k in self._ALL_ACK_KEYS if k not in failed]
 
     @property
     def adapter_id(self) -> str:
@@ -311,6 +337,9 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
             ("/oura/sessions", self._process_session, "mindfulness session"),
         ]
         failed_endpoints = []
+        # Reset per-fetch failure tracking; _ack_keys() reads this after ingest
+        # so ack() commits only the successful endpoints' helper cursors.
+        self._failed_endpoints = []
 
         for endpoint, handler, item_label in endpoints_config:
             try:
@@ -331,6 +360,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
             failed_endpoints.append("/oura/heart_rate")
 
         # Surface endpoint failures to the caller
+        self._failed_endpoints = list(failed_endpoints)
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
         if failed_endpoints:
             if len(failed_endpoints) == total_endpoints:

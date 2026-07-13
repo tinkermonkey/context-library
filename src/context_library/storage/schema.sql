@@ -119,3 +119,22 @@ CREATE TABLE IF NOT EXISTS lancedb_sync_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_lancedb_sync_log_synced_at ON lancedb_sync_log(synced_at);
+
+-- Dead letters: per-source ingest failures that were skipped so the rest of
+-- the page could commit. The page is acked (cursor advances), so without this
+-- record the failed item would be silently unrecoverable. Rows are upserted by
+-- (adapter_id, source_id, error_type) with a retry counter; retry tooling can
+-- reset the adapter cursor or re-fetch individual sources and clear rows.
+CREATE TABLE IF NOT EXISTS dead_letters (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    adapter_id   TEXT NOT NULL,
+    source_id    TEXT NOT NULL,
+    error_type   TEXT NOT NULL,
+    message      TEXT NOT NULL,
+    first_seen   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retry_count  INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (adapter_id, source_id, error_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dead_letters_adapter ON dead_letters(adapter_id);

@@ -56,7 +56,7 @@ This adapter:
 import logging
 from typing import Iterator
 
-from context_library.adapters.base import BaseAdapter
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
     Domain,
     PollStrategy,
@@ -78,7 +78,7 @@ except ImportError:
     pass
 
 
-class AppleRemindersAdapter(BaseAdapter):
+class AppleRemindersAdapter(HelperAckMixin, BaseAdapter):
     """Adapter that ingests reminders from a macOS Apple Reminders helper service.
 
     This adapter communicates with an HTTP service on the Mac that reads from
@@ -122,9 +122,14 @@ class AppleRemindersAdapter(BaseAdapter):
         self._list_name = list_name
         self._account_id = account_id
         self._client = httpx.Client(timeout=30.0)
-        # NOTE: reminders is served by a *paged* helper collector (consume_stash),
-        # which advances its page cursor on serve and does not honour commit-ack
-        # mode — so this adapter deliberately does NOT mix in HelperAckMixin.
+        # Reminders is served by a *paged* helper collector (consume_stash).
+        # Helpers now stage the page cursor under ?ack=true and commit it on
+        # POST /collectors/reminders/ack, so this adapter opts into commit-ack:
+        # a page whose ingest fails downstream is re-served instead of lost
+        # (delivery used to be at-most-once — the cursor advanced on serve).
+        # Older helpers ignore both the param and the ack (commit-on-serve),
+        # so mixed versions behave exactly as before.
+        self._helper_collector_name = "reminders"
 
     @property
     def adapter_id(self) -> str:
@@ -237,6 +242,9 @@ class AppleRemindersAdapter(BaseAdapter):
             params["list"] = self._list_name
         if since:
             params["since"] = since
+        # Commit-ack: the helper stages its page cursor instead of committing
+        # on serve; the ingest caller invokes ack() after the durable commit.
+        params.update(self._ack_params())
 
         # Build headers
         headers = {"Authorization": f"Bearer {self._api_key}"}
