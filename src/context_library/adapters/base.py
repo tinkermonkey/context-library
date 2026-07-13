@@ -212,14 +212,41 @@ class HelperAckMixin:
         """Query params that put the helper endpoint in commit-ack (stage) mode."""
         return {"ack": "true"}
 
+    def _ack_keys(self) -> "list[str] | None":
+        """Helper cursor keys to commit, or None to commit everything staged.
+
+        Multi-endpoint adapters (oura, apple_health) override this to return
+        only the keys of endpoints that fetched successfully: the helper's ack
+        endpoint is collector-global, so an unkeyed ack after a partial fetch
+        would commit the FAILED endpoint's staged cursor too, permanently
+        skipping its page. Returning [] suppresses the ack entirely (nothing
+        safe to commit).
+        """
+        return None
+
     def ack(self) -> None:
         import httpx
 
+        keys = self._ack_keys()
+        if keys is not None and not keys:
+            logger.warning(
+                "%s: skipping commit-ack — no endpoint fetched successfully",
+                type(self).__name__,
+            )
+            return
+
         try:
+            # Helpers that predate keyed acks ignore the JSON body and commit
+            # all staged keys — the pre-change behaviour — so mixed versions
+            # degrade gracefully rather than breaking.
+            kwargs: dict = {}
+            if keys is not None:
+                kwargs["json"] = {"keys": keys}
             resp = httpx.post(
                 f"{self._api_url}/collectors/{self._helper_collector_name}/ack",  # type: ignore[attr-defined]
                 headers={"Authorization": f"Bearer {self._api_key}"},  # type: ignore[attr-defined]
                 timeout=30.0,
+                **kwargs,
             )
             resp.raise_for_status()
         except Exception as e:  # noqa: BLE001 - ack is best-effort

@@ -229,6 +229,32 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         self._api_key = api_key
         self._device_id = device_id
         self._helper_collector_name = "health"
+        # Endpoints whose fetch failed in the most recent fetch() run; read by
+        # _ack_keys() so ack() commits only the successful endpoints' cursors.
+        self._failed_endpoints: list[str] = []
+
+    # All helper cursor keys, matching HealthCollector.push_cursor_keys() on
+    # the mac. "/health/heart-rate" maps to "health_heart_rate".
+    _ALL_ACK_KEYS = [
+        "health_workouts", "health_activity", "health_sleep",
+        "health_heart_rate", "health_spo2", "health_mindfulness",
+    ]
+
+    @staticmethod
+    def _endpoint_to_key(endpoint: str) -> str:
+        return "health_" + endpoint.rsplit("/", 1)[-1].replace("-", "_")
+
+    def _ack_keys(self) -> list[str] | None:
+        """Commit only the endpoints that fetched successfully.
+
+        The helper's ack is collector-global; after a PartialFetchError an
+        unkeyed ack would also commit the failed endpoint's staged cursor,
+        permanently skipping the page it never delivered.
+        """
+        if not self._failed_endpoints:
+            return None  # everything succeeded — commit all staged keys
+        failed = {self._endpoint_to_key(e) for e in self._failed_endpoints}
+        return [k for k in self._ALL_ACK_KEYS if k not in failed]
 
     @property
     def adapter_id(self) -> str:
@@ -262,6 +288,9 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         ]
 
         failed_endpoints = []
+        # Reset per-fetch failure tracking; _ack_keys() reads this after ingest
+        # so ack() commits only the successful endpoints' helper cursors.
+        self._failed_endpoints = []
 
         for endpoint, handler, item_label in endpoints_config:
             try:
@@ -279,6 +308,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         except EndpointFetchError:
             failed_endpoints.append("/health/heart-rate")
 
+        self._failed_endpoints = list(failed_endpoints)
         total_endpoints = len(endpoints_config) + 1  # +1 for heart_rate
         if failed_endpoints:
             if len(failed_endpoints) == total_endpoints:

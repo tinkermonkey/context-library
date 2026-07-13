@@ -2176,6 +2176,86 @@ class DocumentStore:
                     f"Source '{source_id}' does not exist"
                 )
 
+    # ------------------------------------------------------------------
+    # Dead letters — per-source ingest failures skipped by a committed page
+    # ------------------------------------------------------------------
+
+    def record_dead_letter(
+        self, adapter_id: str, source_id: str, error_type: str, message: str
+    ) -> None:
+        """Upsert a dead-letter row for a source that failed ingest.
+
+        The surrounding page commits and is acked (the cursor advances past the
+        failed item), so this row is the only durable record that the item was
+        dropped. Keyed by (adapter_id, source_id, error_type); repeats bump
+        retry_count and last_seen.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._write_lock, self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO dead_letters
+                    (adapter_id, source_id, error_type, message, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (adapter_id, source_id, error_type) DO UPDATE SET
+                    message = excluded.message,
+                    last_seen = excluded.last_seen,
+                    retry_count = retry_count + 1
+                """,
+                (adapter_id, source_id, error_type, message[:2000], now, now),
+            )
+
+    def list_dead_letters(
+        self, adapter_id: str | None = None, limit: int = 100
+    ) -> list[dict]:
+        """List dead-letter rows, newest failures first."""
+        sql = (
+            "SELECT id, adapter_id, source_id, error_type, message,"
+            " first_seen, last_seen, retry_count FROM dead_letters"
+        )
+        params: list = []
+        if adapter_id:
+            sql += " WHERE adapter_id = ?"
+            params.append(adapter_id)
+        sql += " ORDER BY last_seen DESC LIMIT ?"
+        params.append(limit)
+        cursor = self.conn.cursor()
+        return [dict(row) for row in cursor.execute(sql, params).fetchall()]
+
+    def count_dead_letters(self, adapter_id: str | None = None) -> int:
+        """Count dead-letter rows, optionally for one adapter."""
+        cursor = self.conn.cursor()
+        if adapter_id:
+            row = cursor.execute(
+                "SELECT COUNT(*) FROM dead_letters WHERE adapter_id = ?", (adapter_id,)
+            ).fetchone()
+        else:
+            row = cursor.execute("SELECT COUNT(*) FROM dead_letters").fetchone()
+        return int(row[0])
+
+    def clear_dead_letters(
+        self, adapter_id: str | None = None, source_id: str | None = None
+    ) -> int:
+        """Delete dead-letter rows (after a successful re-ingest or manual review).
+
+        Returns the number of rows deleted.
+        """
+        sql = "DELETE FROM dead_letters"
+        clauses = []
+        params: list = []
+        if adapter_id:
+            clauses.append("adapter_id = ?")
+            params.append(adapter_id)
+        if source_id:
+            clauses.append("source_id = ?")
+            params.append(source_id)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        with self._write_lock, self.conn:
+            cursor = self.conn.cursor()
+            cursor.execute(sql, params)
+            return cursor.rowcount
+
     def get_sources_due_for_poll(self) -> list[dict]:
         """Get all sources due for polling.
 

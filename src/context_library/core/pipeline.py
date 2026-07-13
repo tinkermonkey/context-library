@@ -127,6 +127,22 @@ class IngestionPipeline:
         self._active_runs: dict[str, _PipelineRun] = {}
         self._runs_lock = threading.Lock()
 
+    def _record_dead_letter(
+        self, adapter_id: str, source_id: str, error_type: str, message: str
+    ) -> None:
+        """Durably record a skipped source (best-effort; never raises).
+
+        Per-source failures don't stop the page from committing and being
+        acked, so the helper's cursor advances past them — this row is the only
+        recoverable trace of the dropped item.
+        """
+        try:
+            self.document_store.record_dead_letter(adapter_id, source_id, error_type, message)
+        except Exception:
+            logger.exception(
+                "Failed to record dead letter for %s/%s (non-fatal)", adapter_id, source_id
+            )
+
     def _get_source_lock(self, source_id: str) -> threading.Lock:
         """Return the per-source lock for source_id, creating it if needed.
 
@@ -230,6 +246,7 @@ class IngestionPipeline:
         chunks_unchanged_total = 0
         errors: list[dict] = []
         store_consistency: dict[str, str] = {}
+        succeeded_ids: list[str] = []
 
         # Register active run for observability via GET /admin/pipelines
         _run = _PipelineRun(
@@ -323,6 +340,7 @@ class IngestionPipeline:
                                         _metric_attrs = {"adapter_id": adapter.adapter_id, "domain": effective_domain.value}
                                         _ingest_sources_counter.add(1, _metric_attrs)
                                         _ingest_duration_histogram.record(time.monotonic() - _source_start, _metric_attrs)
+                                        succeeded_ids.append(content.source_id)
                                         continue
 
                                     # Case 2: Content changed - process added/removed/unchanged chunks
@@ -564,6 +582,7 @@ class IngestionPipeline:
                                     _ingest_chunks_added_counter.add(len(added_chunks), _metric_attrs)
                                     _ingest_chunks_retired_counter.add(len(diff_result.removed_hashes), _metric_attrs)
                                     _ingest_duration_histogram.record(time.monotonic() - _source_start, _metric_attrs)
+                                    succeeded_ids.append(content.source_id)
 
                             except ChunkingError as e:
                                 # Handle chunking errors (domain-specific parser/processing failures)
@@ -579,6 +598,9 @@ class IngestionPipeline:
                                     "message": str(e),
                                     "source_id_attr": e.source_id,
                                 })
+                                self._record_dead_letter(
+                                    adapter.adapter_id, content.source_id, "ChunkingError", str(e)
+                                )
                                 store_consistency[content.source_id] = "error"
                                 continue
                             except EmbeddingError as e:
@@ -596,6 +618,9 @@ class IngestionPipeline:
                                     "chunk_hash": e.chunk_hash,
                                     "chunk_index": e.chunk_index,
                                 })
+                                self._record_dead_letter(
+                                    adapter.adapter_id, content.source_id, "EmbeddingError", str(e)
+                                )
                                 store_consistency[content.source_id] = "error"
                                 continue
                             except StorageError as e:
@@ -615,6 +640,9 @@ class IngestionPipeline:
                                     "store_type": e.store_type,
                                     "inconsistent": e.inconsistent,
                                 })
+                                self._record_dead_letter(
+                                    adapter.adapter_id, content.source_id, "StorageError", str(e)
+                                )
                                 continue
                             except Exception as e:
                                 # Handle any other unexpected errors
@@ -629,6 +657,9 @@ class IngestionPipeline:
                                     "error_type": type(e).__name__,
                                     "message": str(e),
                                 })
+                                self._record_dead_letter(
+                                    adapter.adapter_id, content.source_id, type(e).__name__, str(e)
+                                )
                                 store_consistency[content.source_id] = "error"
                                 continue
                 except PartialFetchError as e:
@@ -699,6 +730,18 @@ class IngestionPipeline:
                     ingest_span.set_status(StatusCode.ERROR)
                     ingest_span.record_exception(error)
                     raise error
+
+            # Self-heal dead letters: sources that previously failed and have now
+            # ingested cleanly no longer need their dead-letter rows. The COUNT
+            # guard keeps the common case (no dead letters) to a single query.
+            try:
+                if succeeded_ids and self.document_store.count_dead_letters(adapter.adapter_id) > 0:
+                    for _sid in succeeded_ids:
+                        self.document_store.clear_dead_letters(
+                            adapter_id=adapter.adapter_id, source_id=_sid
+                        )
+            except Exception:
+                logger.exception("Dead-letter cleanup failed (non-fatal)")
 
             return {
                 "sources_processed": sources_processed,
