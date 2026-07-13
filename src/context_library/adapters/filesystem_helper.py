@@ -192,12 +192,12 @@ class FilesystemHelperAdapter(RemoteAdapter):
         The internal cursor is advanced to each page's ``next_cursor`` as soon as
         that page's meta line is seen, so a crash mid-drain resumes correctly.
 
-        The opaque cursor is authoritative: the per-source ``source_ref`` passed by
-        the poller (a file path, not a cursor) is ignored in favour of the persisted
-        cursor unless an explicit, non-empty cursor override is supplied.
+        The persisted opaque cursor is authoritative: ``source_ref`` is ignored —
+        callers pass since-timestamps or per-file origin_refs, which are not
+        change-sequence cursors. Use reset() for a full replay.
 
         Args:
-            source_ref: Opaque cursor string (empty = start from the persisted cursor)
+            source_ref: Ignored (see above); part of the BaseAdapter interface.
             extra_body: Optional additional fields merged into the JSON request body.
 
         Yields:
@@ -207,16 +207,19 @@ class FilesystemHelperAdapter(RemoteAdapter):
         Raises:
             httpx.HTTPStatusError: on non-2xx responses
             ValueError: if a line cannot be parsed as JSON
+            RuntimeError: if the stream ends without a meta line (truncated response)
             pydantic.ValidationError: if a content line fails NormalizedContent validation
         """
         headers: dict = {}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
 
-        # An explicit, non-empty source_ref overrides the persisted cursor (e.g. a
-        # forced replay). Otherwise the persisted cursor is authoritative — the
-        # poller passes per-file origin_refs as source_ref, which are NOT cursors.
-        cursor = source_ref if source_ref else self._cursor
+        # The persisted cursor is always authoritative. source_ref is deliberately
+        # ignored: callers pass since-timestamps (push route) or per-file
+        # origin_refs, neither of which is a filesystem change-sequence cursor —
+        # sending one to the helper would corrupt paging. A full replay is done
+        # via reset(), which clears the helper-side cursor and self._cursor.
+        cursor = self._cursor
 
         # Commit-ack: pull with ?ack=true so the helper stages (rather than commits)
         # its cursor advance; the caller invokes the inherited RemoteAdapter.ack()
@@ -300,15 +303,17 @@ class FilesystemHelperAdapter(RemoteAdapter):
                     yield nc
 
             if not saw_meta:
-                # Stream ended without a meta line — treat as the end of the drain
-                # to avoid an infinite loop, but surface it: the helper violated the
-                # contract (META line is always last).
-                logger.warning(
-                    "FilesystemHelperAdapter: stream ended without a meta line; "
-                    "stopping drain (cursor=%s)",
-                    cursor,
+                # Stream ended without a meta line: the response was truncated
+                # (the META line is always last in the helper's contract). Raise
+                # so the caller does NOT ack — the helper's staged cursor stays
+                # uncommitted and the whole page is re-served on the next poll.
+                # Returning normally here would commit the cursor past content
+                # that was never received.
+                raise RuntimeError(
+                    "FilesystemHelperAdapter: NDJSON stream ended without a meta "
+                    f"line (truncated response, cursor={cursor}); aborting drain "
+                    "so the page is re-served instead of acked"
                 )
-                return
 
             if not has_more:
                 return

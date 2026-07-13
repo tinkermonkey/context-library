@@ -1,4 +1,11 @@
-"""Tests for the scheduler poller."""
+"""Tests for the scheduler poller (per-adapter scheduling).
+
+The Poller schedules registered (adapter, chunker) pairs directly: an adapter is
+due when its poll_interval_sec (or the poller tick interval) has elapsed since
+its last *successful* run. It never queries the document store for per-source
+poll rows, always passes source_ref="" to the pipeline (adapters drain from
+their own persisted cursor), and calls adapter.ack() after a successful commit.
+"""
 import os
 
 import tempfile
@@ -16,6 +23,28 @@ from context_library.domains.base import BaseDomain
 from context_library.scheduler.poller import Poller
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Domain, NormalizedContent
+
+
+#: Minimal pipeline.ingest() result dict as returned on success.
+def _pipeline_result(processed: int = 1, failed: int = 0) -> dict:
+    return {
+        "sources_processed": processed,
+        "sources_failed": failed,
+        "chunks_added": 0,
+        "chunks_removed": 0,
+        "chunks_unchanged": 0,
+        "errors": [],
+    }
+
+
+def _wait_for(predicate, timeout: float = 3.0, interval: float = 0.01) -> bool:
+    """Poll predicate until true or timeout; returns final predicate value."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return bool(predicate())
 
 
 class MockAdapter(BaseAdapter):
@@ -172,34 +201,28 @@ class TestPollerLifecycle:
         """start() should spawn a daemon thread."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
+        poller.start()
 
-            try:
-                assert poller._thread is not None
-                assert poller._thread.is_alive()
-                assert poller._thread.daemon is True
-            finally:
-                poller.stop()
+        try:
+            assert poller._thread is not None
+            assert poller._thread.is_alive()
+            assert poller._thread.daemon is True
+        finally:
+            poller.stop()
 
     def test_stop_joins_thread(self, pipeline, document_store):
         """stop() should wait for thread to exit."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
+        poller.start()
 
-            assert poller._thread is not None
-            assert poller._thread.is_alive()
+        assert poller._thread is not None
+        assert poller._thread.is_alive()
 
-            poller.stop()
+        poller.stop()
 
-            # After stop(), thread should have exited and _thread should be None
-            assert poller._thread is None
+        # After stop(), thread should have exited and _thread should be None
+        assert poller._thread is None
 
     def test_stop_before_start_no_error(self, pipeline, document_store):
         """Calling stop() before start() should not raise."""
@@ -212,186 +235,275 @@ class TestPollerLifecycle:
         """After stop(), calling start() again should work (event cleared)."""
         poller = Poller(pipeline, document_store, tick_interval=0.1)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
-            poller.stop()
+        poller.start()
+        poller.stop()
 
-            # Should be able to start again
-            poller.start()
-            try:
-                assert poller._thread is not None
-                assert poller._thread.is_alive()
-            finally:
-                poller.stop()
+        # Should be able to start again
+        poller.start()
+        try:
+            assert poller._thread is not None
+            assert poller._thread.is_alive()
+        finally:
+            poller.stop()
 
     def test_start_already_running_is_noop(self, pipeline, document_store):
         """Calling start() when thread is already running should be a no-op."""
         poller = Poller(pipeline, document_store, tick_interval=0.5)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
+        poller.start()
 
-            thread1 = poller._thread
-            time.sleep(0.1)
+        thread1 = poller._thread
+        time.sleep(0.1)
 
-            # Call start again
-            poller.start()
-            thread2 = poller._thread
+        # Call start again
+        poller.start()
+        thread2 = poller._thread
 
-            # Should be the same thread
-            assert thread1 is thread2
+        # Should be the same thread
+        assert thread1 is thread2
 
-            poller.stop()
+        poller.stop()
 
     def test_start_stop_cycle_repeatable(self, pipeline, document_store):
         """Poller should be restartable after stop()."""
         poller = Poller(pipeline, document_store, tick_interval=0.1)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            for _ in range(3):
-                poller.start()
-                time.sleep(0.05)
-                poller.stop()
-                assert poller._thread is None
+        for _ in range(3):
+            poller.start()
+            time.sleep(0.05)
+            poller.stop()
+            assert poller._thread is None
 
 
 class TestPollerTicking:
-    """Tests for polling tick logic."""
+    """Tests for the per-adapter polling tick logic."""
 
-    def test_tick_queries_due_sources(self, pipeline, document_store):
-        """_tick() should query document_store.get_sources_due_for_poll()."""
+    def test_tick_does_not_query_document_store_for_due_sources(
+        self, pipeline, document_store
+    ):
+        """_tick() schedules per-adapter; it never calls get_sources_due_for_poll()."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
         poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ) as mock_get_due:
+        with (
+            patch.object(document_store, "get_sources_due_for_poll") as mock_get_due,
+            patch.object(pipeline, "ingest", return_value=_pipeline_result()),
+        ):
             poller._tick()
 
-            mock_get_due.assert_called_once()
+            mock_get_due.assert_not_called()
 
-    def test_tick_ingests_due_sources(self, pipeline, document_store):
-        """_tick() should call pipeline.ingest() for each due source with source_ref."""
+    def test_tick_ingests_registered_adapter_with_empty_source_ref(
+        self, pipeline, document_store
+    ):
+        """_tick() runs one ingest per due adapter with source_ref="" (adapter cursor)."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        # Mock document_store to return a due source
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
-        ):
-            with patch.object(pipeline, "ingest") as mock_ingest:
-                poller._tick()
+            mock_ingest.assert_called_once_with(adapter, chunker, source_ref="")
 
-                mock_ingest.assert_called_once_with(
-                    adapter, chunker, source_ref="/path/to/source"
-                )
+    def test_tick_ingests_all_registered_adapters(self, pipeline, document_store):
+        """_tick() should run one ingest for every registered (due) adapter."""
+        adapter1 = MockAdapter("adapter-1", Domain.NOTES)
+        adapter2 = MockAdapter("adapter-2", Domain.MESSAGES)
+        chunker1 = MockDomain()
+        chunker2 = MockDomain()
 
-    def test_tick_updates_last_fetched_at_on_success(self, pipeline, document_store):
-        """_tick() should call update_last_fetched_at() after successful ingest."""
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter1, chunker1)
+        poller.register(adapter2, chunker2)
+
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
+
+            assert mock_ingest.call_count == 2
+            called_adapters = [c.args[0] for c in mock_ingest.call_args_list]
+            assert called_adapters == [adapter1, adapter2]
+
+    def test_tick_skips_adapter_within_interval(self, pipeline, document_store):
+        """After a successful run, the adapter is not due again until the interval elapses."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=60.0)
+        poller.register(adapter, chunker)
+
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
+            poller._tick()  # immediately again — interval (60s) has not elapsed
+
+            mock_ingest.assert_called_once()
+
+    def test_tick_polls_again_after_interval_elapsed(self, pipeline, document_store):
+        """An adapter becomes due again once tick_interval has elapsed since last success."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=60.0)
+        poller.register(adapter, chunker)
+
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
+            assert mock_ingest.call_count == 1
+
+            # Simulate the interval having elapsed
+            poller._last_polled["test-adapter"] = time.monotonic() - 61.0
+            poller._tick()
+
+            assert mock_ingest.call_count == 2
+
+    def test_tick_respects_adapter_poll_interval_sec_override(
+        self, pipeline, document_store
+    ):
+        """adapter.poll_interval_sec overrides the poller tick_interval for dueness."""
+        fast_adapter = MockAdapter("fast-adapter", Domain.NOTES)
+        fast_adapter.poll_interval_sec = 5.0  # due after 5s despite 60s tick_interval
+        slow_adapter = MockAdapter("slow-adapter", Domain.NOTES)  # defaults to tick_interval
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=60.0)
+        poller.register(fast_adapter, chunker)
+        poller.register(slow_adapter, chunker)
+
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
+            assert mock_ingest.call_count == 2  # both due on first tick
+
+            # 10 seconds "ago": past the fast adapter's 5s override,
+            # but well within the slow adapter's 60s default.
+            mark = time.monotonic() - 10.0
+            poller._last_polled["fast-adapter"] = mark
+            poller._last_polled["slow-adapter"] = mark
+            poller._tick()
+
+            assert mock_ingest.call_count == 3
+            assert mock_ingest.call_args_list[-1].args[0] is fast_adapter
+
+    def test_tick_none_poll_interval_falls_back_to_tick_interval(
+        self, pipeline, document_store
+    ):
+        """poll_interval_sec=None falls back to the poller tick_interval."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        adapter.poll_interval_sec = None
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=60.0)
+        poller.register(adapter, chunker)
+
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()) as mock_ingest:
+            poller._tick()
+            poller._last_polled["test-adapter"] = time.monotonic() - 10.0
+            poller._tick()  # 10s elapsed < 60s tick_interval — not due
+
+            mock_ingest.assert_called_once()
+
+    def test_tick_updates_last_polled_on_success(self, pipeline, document_store):
+        """_tick() records the adapter's last successful poll time."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()):
+            before = time.monotonic()
+            poller._tick()
+
+        assert "test-adapter" in poller._last_polled
+        assert poller._last_polled["test-adapter"] >= before
+
+    def test_tick_does_not_update_last_polled_on_failure_and_retries(
+        self, pipeline, document_store
+    ):
+        """A failed run leaves _last_polled unset so the adapter retries next tick."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store, tick_interval=60.0)
+        poller.register(adapter, chunker)
 
         with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
-        ):
-            with patch.object(pipeline, "ingest"):
-                with patch.object(
-                    document_store, "update_last_fetched_at"
-                ) as mock_update:
-                    poller._tick()
+            pipeline,
+            "ingest",
+            side_effect=[Exception("Test error"), _pipeline_result()],
+        ) as mock_ingest:
+            poller._tick()
+            assert "test-adapter" not in poller._last_polled
 
-                    mock_update.assert_called_once_with("source-1")
+            # Failed adapter is immediately due again on the next tick
+            poller._tick()
 
-    def test_tick_handles_missing_adapter(self, pipeline, document_store):
-        """_tick() should handle missing adapter gracefully."""
+            assert mock_ingest.call_count == 2
+            assert "test-adapter" in poller._last_polled
+
+    def test_tick_does_not_call_update_last_fetched_at(self, pipeline, document_store):
+        """The poller no longer touches per-source last_fetched_at (pipeline owns it)."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
         poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
 
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "missing-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
-
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
+        with (
+            patch.object(pipeline, "ingest", return_value=_pipeline_result()),
+            patch.object(document_store, "update_last_fetched_at") as mock_update,
         ):
-            with patch.object(pipeline, "ingest") as mock_ingest:
-                # Should not raise
+            poller._tick()
+
+            mock_update.assert_not_called()
+
+    def test_tick_isolates_per_adapter_failures(self, pipeline, document_store):
+        """_tick() should continue polling other adapters after one adapter fails."""
+        adapter1 = MockAdapter("adapter-1", Domain.NOTES)
+        adapter2 = MockAdapter("adapter-2", Domain.MESSAGES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter1, chunker)
+        poller.register(adapter2, chunker)
+
+        # First adapter's ingest raises, second succeeds
+        pipeline.ingest = Mock(side_effect=[Exception("Test error"), _pipeline_result()])
+
+        # Should not raise
+        poller._tick()
+
+        assert pipeline.ingest.call_count == 2
+        # Only the successful adapter got a last-polled mark
+        assert "adapter-1" not in poller._last_polled
+        assert "adapter-2" in poller._last_polled
+
+    def test_tick_skips_adapter_when_ingest_in_progress(self, pipeline, document_store):
+        """_tick() skips (with a debug log) an adapter whose ingest slot is busy."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
+
+        # Claim the slot as another path (push route / manual trigger) would
+        assert poller.try_begin_ingest("test-adapter") is True
+        try:
+            with (
+                patch.object(pipeline, "ingest") as mock_ingest,
+                patch("context_library.scheduler.poller.logger") as mock_logger,
+            ):
                 poller._tick()
 
-                # Should not have called ingest
                 mock_ingest.assert_not_called()
-
-    def test_tick_isolates_per_source_failures(self, pipeline, document_store):
-        """_tick() should continue processing after one source fails."""
-        adapter = MockAdapter("test-adapter", Domain.NOTES)
-        chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store)
-        poller.register(adapter, chunker)
-
-        due_sources = [
-            {
-                "source_id": "source-1",
-                "adapter_id": "test-adapter",
-                "origin_ref": "/path/to/source-1",
-                "poll_interval_sec": 60,
-                "last_fetched_at": None,
-            },
-            {
-                "source_id": "source-2",
-                "adapter_id": "test-adapter",
-                "origin_ref": "/path/to/source-2",
-                "poll_interval_sec": 60,
-                "last_fetched_at": None,
-            },
-        ]
-
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=due_sources
-        ):
-            # Make first ingest raise, second succeed
-            pipeline.ingest = Mock(side_effect=[Exception("Test error"), {}])
-
-            with patch.object(
-                document_store, "update_last_fetched_at"
-            ) as mock_update:
-                # Should not raise
-                poller._tick()
-
-                # Both sources should have been attempted
-                assert pipeline.ingest.call_count == 2
-                # update_last_fetched_at should only be called for the successful source
-                mock_update.assert_called_once_with("source-2")
+                mock_logger.debug.assert_called_once()
+                assert "already in progress" in str(mock_logger.debug.call_args)
+        finally:
+            poller.end_ingest("test-adapter")
 
     def test_tick_logs_failure_at_info_level_on_first_failure(
         self, pipeline, document_store
@@ -403,111 +515,123 @@ class TestPollerTicking:
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
+            with patch("context_library.scheduler.poller.logger") as mock_logger:
+                poller._tick()
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
-        ):
-            with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-                with patch("context_library.scheduler.poller.logger") as mock_logger:
-                    poller._tick()
-
-                    # First failure should log at INFO level (transient)
-                    mock_logger.info.assert_called_once()
-                    call_args = str(mock_logger.info.call_args)
-                    assert "source-1" in call_args
-                    assert "transient" in call_args
+                # First failure should log at INFO level (transient)
+                mock_logger.info.assert_called_once()
+                call_args = str(mock_logger.info.call_args)
+                assert "test-adapter" in call_args
+                assert "transient" in call_args
 
     def test_tick_logs_failure_at_warning_level_after_3_failures(
         self, pipeline, document_store
     ):
-        """_tick() should log at WARNING level after 3 consecutive failures."""
+        """_tick() should log at WARNING level after 3 consecutive adapter failures."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        # A failing adapter never gets a _last_polled mark, so it stays due every tick.
+        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
+            with patch("context_library.scheduler.poller.logger") as mock_logger:
+                # First tick: failure 1 (INFO level)
+                poller._tick()
+                mock_logger.info.assert_called_once()
+                mock_logger.warning.assert_not_called()
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
-        ):
-            with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-                with patch("context_library.scheduler.poller.logger") as mock_logger:
-                    # First tick: failure 1 (INFO level)
-                    poller._tick()
-                    mock_logger.info.assert_called_once()
-                    mock_logger.warning.assert_not_called()
+                # Second tick: failure 2 (INFO level)
+                mock_logger.reset_mock()
+                poller._tick()
+                mock_logger.info.assert_called_once()
+                mock_logger.warning.assert_not_called()
 
-                    # Second tick: failure 2 (INFO level)
-                    mock_logger.reset_mock()
-                    poller._tick()
-                    mock_logger.info.assert_called_once()
-                    mock_logger.warning.assert_not_called()
-
-                    # Third tick: failure 3 (WARNING level)
-                    mock_logger.reset_mock()
-                    poller._tick()
-                    mock_logger.warning.assert_called_once()
-                    call_args = str(mock_logger.warning.call_args)
-                    assert "source-1" in call_args
-                    assert "WARNING level" in call_args
+                # Third tick: failure 3 (WARNING level)
+                mock_logger.reset_mock()
+                poller._tick()
+                mock_logger.warning.assert_called_once()
+                call_args = str(mock_logger.warning.call_args)
+                assert "test-adapter" in call_args
+                assert "WARNING level" in call_args
 
     def test_tick_logs_failure_at_error_level_after_6_failures(
         self, pipeline, document_store
     ):
-        """_tick() should log at ERROR level after 6 consecutive failures."""
+        """_tick() should log at ERROR level after 6 consecutive adapter failures."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
+            with patch("context_library.scheduler.poller.logger") as mock_logger:
+                # Simulate 6 failures (ticks 1-6)
+                for tick_num in range(6):
+                    mock_logger.reset_mock()
+                    poller._tick()
+
+                    if tick_num < 2:
+                        # Failures 1-2: INFO level
+                        mock_logger.info.assert_called_once()
+                        mock_logger.error.assert_not_called()
+                    elif tick_num < 5:
+                        # Failures 3-5: WARNING level
+                        mock_logger.warning.assert_called_once()
+                        mock_logger.error.assert_not_called()
+                    else:
+                        # Failure 6+: ERROR level
+                        mock_logger.error.assert_called_once()
+                        call_args = str(mock_logger.error.call_args)
+                        assert "test-adapter" in call_args
+                        assert "ERROR level" in call_args
+
+    def test_tick_clears_error_tracker_on_success(self, pipeline, document_store):
+        """A success resets the consecutive-failure count for the adapter."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        poller = Poller(pipeline, document_store)
+        poller.register(adapter, chunker)
 
         with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[due_source]
+            pipeline,
+            "ingest",
+            side_effect=[Exception("boom"), Exception("boom"), _pipeline_result()],
         ):
-            with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-                with patch("context_library.scheduler.poller.logger") as mock_logger:
-                    # Simulate 6 failures (ticks 1-6)
-                    for tick_num in range(6):
-                        mock_logger.reset_mock()
-                        poller._tick()
+            poller._tick()
+            poller._tick()
+            assert poller._error_tracker["test-adapter"].consecutive_failures == 2
 
-                        if tick_num < 2:
-                            # Failures 1-2: INFO level
-                            mock_logger.info.assert_called_once()
-                            mock_logger.error.assert_not_called()
-                        elif tick_num < 5:
-                            # Failures 3-5: WARNING level
-                            mock_logger.warning.assert_called_once()
-                            mock_logger.error.assert_not_called()
-                        else:
-                            # Failure 6+: ERROR level
-                            mock_logger.error.assert_called_once()
-                            call_args = str(mock_logger.error.call_args)
-                            assert "source-1" in call_args
-                            assert "ERROR level" in call_args
+            poller._tick()
+            assert poller._error_tracker["test-adapter"].consecutive_failures == 0
+
+    def test_tick_detects_programming_errors(self, pipeline, document_store):
+        """_tick() should log programming errors at ERROR level immediately."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        # Simulate a programming error (TypeError)
+        def ingest_with_type_error(*args, **kwargs):
+            raise TypeError("Wrong argument type")
+
+        with patch.object(pipeline, "ingest", side_effect=ingest_with_type_error):
+            poller = Poller(pipeline, document_store, tick_interval=0.1)
+            poller.register(adapter, chunker)
+
+            with patch("context_library.scheduler.poller.logger") as mock_logger:
+                poller._tick()
+
+                # Should log at ERROR level immediately (not INFO)
+                # and not record multiple failures for escalation
+                error_calls = [
+                    call for call in mock_logger.error.call_args_list
+                    if "programming error" in str(call).lower()
+                ]
+                assert len(error_calls) > 0, "Programming error was not logged at ERROR level"
 
 
 class TestPollerBackgroundThread:
@@ -527,15 +651,12 @@ class TestPollerBackgroundThread:
 
         poller._tick = counting_tick
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
+        poller.start()
 
-            # Let it run for ~0.3 seconds (should have at least 2 ticks)
-            time.sleep(0.3)
+        # Let it run for ~0.3 seconds (should have at least 2 ticks)
+        time.sleep(0.3)
 
-            poller.stop()
+        poller.stop()
 
         # Should have ticked at least twice
         assert tick_count["count"] >= 2
@@ -544,20 +665,17 @@ class TestPollerBackgroundThread:
         """Setting _stop_event should halt the thread within tick_interval."""
         poller = Poller(pipeline, document_store, tick_interval=1.0)
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
-            thread = poller._thread
+        poller.start()
+        thread = poller._thread
 
-            # Stop should complete quickly (within a couple seconds)
-            start_time = time.time()
-            poller.stop()
-            elapsed = time.time() - start_time
+        # Stop should complete quickly (within a couple seconds)
+        start_time = time.time()
+        poller.stop()
+        elapsed = time.time() - start_time
 
-            # Thread should have joined quickly (much less than tick_interval)
-            assert elapsed < 3.0
-            assert not thread.is_alive()
+        # Thread should have joined quickly (much less than tick_interval)
+        assert elapsed < 3.0
+        assert not thread.is_alive()
 
     def test_stop_timeout_on_hung_thread(self, pipeline, document_store):
         """stop() should timeout if thread is hung on network call and log error."""
@@ -579,30 +697,27 @@ class TestPollerBackgroundThread:
 
         poller._run = hanging_run
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
-            thread = poller._thread
+        poller.start()
+        thread = poller._thread
 
-            # Wait for thread to be hanging
-            hung_event.wait(timeout=2.0)
+        # Wait for thread to be hanging
+        hung_event.wait(timeout=2.0)
 
-            # Call stop - should timeout since thread is hung
-            with patch("context_library.scheduler.poller.logger") as mock_logger:
-                poller.stop()
+        # Call stop - should timeout since thread is hung
+        with patch("context_library.scheduler.poller.logger") as mock_logger:
+            poller.stop()
 
-                # Should have logged an error about timeout
-                mock_logger.error.assert_called_once()
-                error_call = str(mock_logger.error.call_args)
-                assert "timeout" in error_call.lower() or "did not exit" in error_call
+            # Should have logged an error about timeout
+            mock_logger.error.assert_called_once()
+            error_call = str(mock_logger.error.call_args)
+            assert "timeout" in error_call.lower() or "did not exit" in error_call
 
-            # _thread should NOT be cleared because thread didn't exit
-            assert poller._thread is not None
+        # _thread should NOT be cleared because thread didn't exit
+        assert poller._thread is not None
 
-            # Clean up: resume the hung thread
-            resume_event.set()
-            thread.join(timeout=1.0)
+        # Clean up: resume the hung thread
+        resume_event.set()
+        thread.join(timeout=1.0)
 
 
 class TestPollerIntegration:
@@ -617,43 +732,90 @@ class TestPollerIntegration:
     def test_full_lifecycle_with_mocked_pipeline(self, document_store, embedder, differ):
         """Test full start/register/stop lifecycle with mocked pipeline."""
         pipeline = Mock(spec=IngestionPipeline)
+        pipeline.ingest.return_value = _pipeline_result()
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
         poller = Poller(pipeline, document_store, tick_interval=0.1)
         poller.register(adapter, chunker)
 
-        # Mock document_store to return a due source on first call
-        call_count = {"count": 0}
-
-        def counting_get_due():
-            call_count["count"] += 1
-            if call_count["count"] == 1:
-                return [
-                    {
-                        "source_id": "source-1",
-                        "adapter_id": "test-adapter",
-                        "origin_ref": "/path/to/source",
-                        "poll_interval_sec": 60,
-                        "last_fetched_at": None,
-                    }
-                ]
-            return []
-
-        document_store.get_sources_due_for_poll = counting_get_due
-
         poller.start()
-        time.sleep(0.2)
+        assert _wait_for(lambda: pipeline.ingest.called), "Pipeline was never invoked"
         poller.stop()
 
-        # Pipeline.ingest should have been called at least once
+        # Pipeline.ingest should have been called for the registered adapter,
+        # draining from the adapter's own cursor (source_ref="")
         assert pipeline.ingest.called
+        first_call = pipeline.ingest.call_args_list[0]
+        assert first_call.args[0] is adapter
+        assert first_call.args[1] is chunker
+        assert first_call.kwargs == {"source_ref": ""}
+
+
+class TestIngestSlot:
+    """Tests for the public try_begin_ingest()/end_ingest() slot API."""
+
+    def test_try_begin_ingest_claims_slot(self, pipeline, document_store):
+        """First claim succeeds, second is rejected until the slot is released."""
+        poller = Poller(pipeline, document_store)
+
+        assert poller.try_begin_ingest("adapter-x") is True
+        assert poller.try_begin_ingest("adapter-x") is False
+
+        poller.end_ingest("adapter-x")
+        assert poller.try_begin_ingest("adapter-x") is True
+        poller.end_ingest("adapter-x")
+
+    def test_slots_are_per_adapter(self, pipeline, document_store):
+        """A busy slot for one adapter does not block another adapter."""
+        poller = Poller(pipeline, document_store)
+
+        assert poller.try_begin_ingest("adapter-a") is True
+        assert poller.try_begin_ingest("adapter-b") is True
+        poller.end_ingest("adapter-a")
+        poller.end_ingest("adapter-b")
+
+    def test_try_begin_ingest_is_atomic_under_contention(self, pipeline, document_store):
+        """Exactly one of many racing claimants wins the slot."""
+        poller = Poller(pipeline, document_store)
+
+        wins = []
+        barrier = threading.Barrier(8)
+
+        def claim():
+            barrier.wait()
+            if poller.try_begin_ingest("adapter-x"):
+                wins.append(threading.current_thread().name)
+
+        threads = [threading.Thread(target=claim) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(wins) == 1
+        poller.end_ingest("adapter-x")
 
 
 class TestTriggerImmediateIngest:
     """Tests for trigger_immediate_ingest() method."""
 
-    def test_trigger_returns_false_if_poller_stopped(self, pipeline, document_store):
+    def _started_poller(
+        self, pipeline, document_store, adapter, chunker, tick_interval=60.0
+    ) -> Poller:
+        """Build, register, and start a poller whose first tick won't ingest.
+
+        Pre-marks the adapter as freshly polled so the immediate first tick
+        skips it (trigger_immediate_ingest bypasses the interval gate), keeping
+        pipeline call counts deterministic in these tests.
+        """
+        poller = Poller(pipeline, document_store, tick_interval=tick_interval)
+        poller.register(adapter, chunker)
+        poller._last_polled[adapter.adapter_id] = time.monotonic()
+        poller.start()
+        return poller
+
+    def test_trigger_raises_if_poller_stopped(self, pipeline, document_store):
         """trigger_immediate_ingest() should raise PollerNotRunningError if poller is stopped."""
         from context_library.scheduler.exceptions import PollerNotRunningError
 
@@ -667,172 +829,130 @@ class TestTriggerImmediateIngest:
         with pytest.raises(PollerNotRunningError):
             poller.trigger_immediate_ingest("test-adapter")
 
-    def test_trigger_returns_false_if_adapter_not_registered(self, pipeline, document_store):
+    def test_trigger_raises_if_adapter_not_registered(self, pipeline, document_store):
         """trigger_immediate_ingest() should raise AdapterNotRegisteredError for unknown adapter."""
         from context_library.scheduler.exceptions import AdapterNotRegisteredError
 
         poller = Poller(pipeline, document_store, tick_interval=0.5)
+        poller.start()
 
-        with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            poller.start()
+        try:
+            with pytest.raises(AdapterNotRegisteredError):
+                poller.trigger_immediate_ingest("unknown-adapter")
+        finally:
+            poller.stop()
 
-            try:
-                with pytest.raises(AdapterNotRegisteredError):
-                    poller.trigger_immediate_ingest("unknown-adapter")
-            finally:
-                poller.stop()
+    def test_trigger_works_with_zero_sources(self, pipeline, document_store):
+        """An adapter with no source rows can be triggered (the bootstrap case).
 
-    def test_trigger_returns_false_if_no_sources(self, pipeline, document_store):
-        """trigger_immediate_ingest() should raise NoSourcesError if adapter has no sources."""
-        from context_library.scheduler.exceptions import NoSourcesError
-
+        NoSourcesError is gone from this path: the adapter drains from its own
+        cursor, so a freshly registered adapter with zero sources must still run.
+        """
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
         with patch.object(
-            document_store, "get_sources_due_for_poll", return_value=[]
-        ):
-            with patch.object(
-                document_store, "get_sources_for_adapter", return_value=[]
-            ):
-                poller.start()
-
-                try:
-                    with pytest.raises(NoSourcesError):
-                        poller.trigger_immediate_ingest("test-adapter")
-                finally:
-                    poller.stop()
-
-    def test_trigger_calls_ingest_for_all_sources(self, pipeline, document_store):
-        """trigger_immediate_ingest() should call ingest for all sources of the adapter."""
-        adapter = MockAdapter("test-adapter", Domain.NOTES)
-        chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        # Mock sources for the adapter
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path/1"},
-            {"source_id": "source-2", "adapter_id": "test-adapter", "origin_ref": "/path/2"},
-            {"source_id": "source-3", "adapter_id": "test-adapter", "origin_ref": "/path/3"},
-        ]
-
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest"),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
-
+            pipeline, "ingest", return_value=_pipeline_result(processed=0)
+        ) as mock_ingest:
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 result = poller.trigger_immediate_ingest("test-adapter")
                 assert result is True
 
-                # Wait for background thread to process
-                time.sleep(0.2)
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                ), "Background ingest did not complete"
 
-                # Should have called ingest 3 times (once per source)
-                assert pipeline.ingest.call_count == 3
+                mock_ingest.assert_called_once_with(adapter, chunker, source_ref="")
             finally:
                 poller.stop()
 
-    def test_trigger_passes_correct_source_ref(self, pipeline, document_store):
-        """trigger_immediate_ingest() should pass origin_ref as source_ref to ingest."""
+    def test_trigger_runs_single_adapter_ingest_with_empty_source_ref(
+        self, pipeline, document_store
+    ):
+        """trigger runs exactly ONE pipeline.ingest for the adapter, source_ref=""."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/specific/path"},
-        ]
-
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest") as mock_ingest,
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
-
+        with patch.object(
+            pipeline, "ingest", return_value=_pipeline_result(processed=3)
+        ) as mock_ingest:
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
-                poller.trigger_immediate_ingest("test-adapter")
-                time.sleep(0.2)
+                result = poller.trigger_immediate_ingest("test-adapter")
+                assert result is True
 
-                # Verify ingest was called with correct source_ref
-                mock_ingest.assert_called_once_with(
-                    adapter, chunker, source_ref="/specific/path"
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
                 )
+
+                # One ingest per trigger — no per-source loop, no origin_refs
+                mock_ingest.assert_called_once_with(adapter, chunker, source_ref="")
             finally:
                 poller.stop()
 
-    def test_trigger_updates_last_fetched_at_on_success(self, pipeline, document_store):
-        """trigger_immediate_ingest() should update last_fetched_at after successful ingest."""
-        adapter = MockAdapter("test-adapter", Domain.NOTES)
+    def test_trigger_acks_after_successful_ingest(self, pipeline, document_store):
+        """adapter.ack() is called after the pipeline commits a triggered ingest."""
+        adapter = _AckableAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
-
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest"),
-            patch.object(document_store, "update_last_fetched_at") as mock_update,
-        ):
-            poller.start()
-
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 poller.trigger_immediate_ingest("test-adapter")
-                time.sleep(0.2)
-
-                # Should have called update_last_fetched_at for the source
-                mock_update.assert_called_once_with("source-1")
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
+                assert adapter.ack_calls == 1
             finally:
                 poller.stop()
 
-    def test_trigger_handles_ingest_failure_gracefully(self, pipeline, document_store):
-        """trigger_immediate_ingest() should continue on ingest failure (per-source isolation)."""
+    def test_trigger_does_not_ack_on_failure(self, pipeline, document_store):
+        """adapter.ack() is NOT called when the triggered ingest fails."""
+        adapter = _AckableAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        with patch.object(pipeline, "ingest", side_effect=RuntimeError("ingest blew up")):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
+                assert adapter.ack_calls == 0
+            finally:
+                poller.stop()
+
+    def test_trigger_sets_last_polled_on_success(self, pipeline, document_store):
+        """A successful triggered ingest advances the adapter's last-polled mark."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path/1"},
-            {"source_id": "source-2", "adapter_id": "test-adapter", "origin_ref": "/path/2"},
-        ]
-
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            # Make first ingest fail, second succeed
-            patch.object(pipeline, "ingest", side_effect=[Exception("Test error"), None]),
-            patch.object(document_store, "update_last_fetched_at") as mock_update,
-        ):
-            poller.start()
-
+        with patch.object(pipeline, "ingest", return_value=_pipeline_result()):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
+            mark_before = poller._last_polled["test-adapter"]
             try:
                 poller.trigger_immediate_ingest("test-adapter")
-                time.sleep(0.2)
+                assert _wait_for(
+                    lambda: poller._last_polled["test-adapter"] > mark_before
+                ), "last-polled mark was not advanced"
+            finally:
+                poller.stop()
 
-                # Both sources should have been attempted
-                assert pipeline.ingest.call_count == 2
-                # Only second source should have been updated
-                mock_update.assert_called_once_with("source-2")
+    def test_trigger_does_not_set_last_polled_on_failure(self, pipeline, document_store):
+        """A failed triggered ingest leaves the last-polled mark unchanged."""
+        adapter = MockAdapter("test-adapter", Domain.NOTES)
+        chunker = MockDomain()
+
+        with patch.object(pipeline, "ingest", side_effect=RuntimeError("boom")):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
+            mark_before = poller._last_polled["test-adapter"]
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
+                assert poller._last_polled["test-adapter"] == mark_before
             finally:
                 poller.stop()
 
@@ -841,25 +961,12 @@ class TestTriggerImmediateIngest:
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        # Create a source that would take time to process
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
-
         def slow_ingest(*args, **kwargs):
             time.sleep(0.5)  # Simulate slow ingest
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
-
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # trigger_immediate_ingest should return quickly
                 start_time = time.time()
@@ -872,56 +979,40 @@ class TestTriggerImmediateIngest:
             finally:
                 poller.stop()
 
-    def test_trigger_returns_false_when_ingest_already_in_progress(self, pipeline, document_store):
-        """trigger_immediate_ingest() should raise IngestAlreadyInProgressError if ingest already in progress."""
+    def test_trigger_raises_when_ingest_already_in_progress(self, pipeline, document_store):
+        """trigger_immediate_ingest() should raise IngestAlreadyInProgressError if busy."""
         from context_library.scheduler.exceptions import IngestAlreadyInProgressError
 
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        # Create sources with slow ingest to allow us to call trigger before completion
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
+        ingest_started = threading.Event()
 
         def slow_ingest(*args, **kwargs):
+            ingest_started.set()
             time.sleep(0.5)  # Slow enough to trigger second call before completion
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
-
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # First call should succeed
                 result1 = poller.trigger_immediate_ingest("test-adapter")
                 assert result1 is True
+                assert ingest_started.wait(timeout=2.0)
 
-                # Second call while first is still in progress should raise IngestAlreadyInProgressError
+                # Second call while first is still in progress should raise
                 with pytest.raises(IngestAlreadyInProgressError):
                     poller.trigger_immediate_ingest("test-adapter")
             finally:
                 poller.stop()
 
     def test_trigger_race_condition_protection_with_lock(self, pipeline, document_store):
-        """trigger_immediate_ingest() check-and-set should be atomic (protected by lock)."""
+        """trigger_immediate_ingest() check-and-set should be atomic (try_begin_ingest)."""
         from context_library.scheduler.exceptions import IngestAlreadyInProgressError
 
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
 
         call_count = {"count": 0}
         condition = threading.Condition()
@@ -932,15 +1023,10 @@ class TestTriggerImmediateIngest:
                 call_count["count"] += 1
                 condition.notify()
             time.sleep(0.5)
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
-
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # First call should succeed
                 result1 = poller.trigger_immediate_ingest("test-adapter")
@@ -950,14 +1036,16 @@ class TestTriggerImmediateIngest:
                 with condition:
                     condition.wait_for(lambda: call_count["count"] > 0, timeout=1.0)
 
-                # Second call should raise IngestAlreadyInProgressError (not spawn another thread)
+                # Second call should raise (not spawn another thread)
                 with pytest.raises(IngestAlreadyInProgressError):
                     poller.trigger_immediate_ingest("test-adapter")
 
-                # Wait for background threads to finish
-                time.sleep(0.6)
+                # Wait for background thread to finish
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
 
-                # Only one ingest should have been called (not two)
+                # Only one ingest should have been run (not two)
                 assert call_count["count"] == 1
             finally:
                 poller.stop()
@@ -967,13 +1055,6 @@ class TestTriggerImmediateIngest:
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
-
         ingest_started = threading.Event()
         ingest_finished = threading.Event()
 
@@ -981,14 +1062,10 @@ class TestTriggerImmediateIngest:
             ingest_started.set()
             time.sleep(0.3)  # Simulate work
             ingest_finished.set()
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # Trigger background ingest
                 result = poller.trigger_immediate_ingest("test-adapter")
@@ -1007,82 +1084,56 @@ class TestTriggerImmediateIngest:
                 if poller._thread and poller._thread.is_alive():
                     poller.stop()
 
-    def test_tick_skips_sources_when_background_ingest_in_progress(self, pipeline, document_store):
-        """_tick() should skip sources when a background ingest is in progress for that adapter."""
+    def test_tick_skips_adapter_when_background_ingest_in_progress(
+        self, pipeline, document_store
+    ):
+        """_tick() must not ingest an adapter whose background ingest is running."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store, tick_interval=0.1)
-        poller.register(adapter, chunker)
-
-        # Set up a due source
-        due_source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path/to/source",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
 
         ingest_started = threading.Event()
 
         def slow_ingest(*args, **kwargs):
             ingest_started.set()
-            time.sleep(0.5)  # Hold ingest lock for a while
+            time.sleep(0.5)  # Hold the ingest slot for a while
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[due_source]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=[due_source]),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest) as mock_ingest:
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # Trigger background ingest
                 result = poller.trigger_immediate_ingest("test-adapter")
                 assert result is True
 
-                # Wait for background ingest to start
+                # Wait for background ingest to start (slot held)
                 assert ingest_started.wait(timeout=2.0), "Background ingest did not start"
 
-                # Now tick while ingest is in progress
-                # The tick should skip this source since _ingest_in_progress is set
-                initial_ingest_calls = pipeline.ingest.call_count
+                # Make the adapter due, then tick while the slot is busy —
+                # the tick must skip it because the ingest slot is claimed.
+                poller._last_polled.pop("test-adapter", None)
+                initial_ingest_calls = mock_ingest.call_count
 
                 poller._tick()
 
-                # Should not have called ingest again (would be initial_ingest_calls + 1)
-                # since the background ingest is in progress
-                assert pipeline.ingest.call_count == initial_ingest_calls
+                assert mock_ingest.call_count == initial_ingest_calls
             finally:
                 if poller._thread and poller._thread.is_alive():
                     poller.stop()
 
     def test_stop_clears_stale_ingest_in_progress_flags(self, pipeline, document_store):
-        """stop() should clear stale _ingest_in_progress flags after shutdown."""
+        """The per-adapter in-progress flag is set during ingest and cleared after stop()."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
-
-        poller = Poller(pipeline, document_store, tick_interval=0.5)
-        poller.register(adapter, chunker)
-
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path"},
-        ]
 
         ingest_started = threading.Event()
 
         def slow_ingest(*args, **kwargs):
             ingest_started.set()
             time.sleep(0.3)
+            return _pipeline_result()
 
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[]),
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=slow_ingest),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
-            poller.start()
+        with patch.object(pipeline, "ingest", side_effect=slow_ingest):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 # Trigger background ingest
                 result = poller.trigger_immediate_ingest("test-adapter")
@@ -1114,30 +1165,21 @@ class TestTriggerImmediateIngest:
         assert result is None
 
     def test_get_ingest_result_tracks_success(self, pipeline, document_store):
-        """get_ingest_result() should track successful ingest for all sources."""
+        """get_ingest_result() reflects the pipeline result dict on success."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path1"},
-            {"source_id": "source-2", "adapter_id": "test-adapter", "origin_ref": "/path2"},
-        ]
-
-        with (
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest"),
-            patch.object(document_store, "update_last_fetched_at"),
+        with patch.object(
+            pipeline, "ingest", return_value=_pipeline_result(processed=2, failed=0)
         ):
-            poller = Poller(pipeline, document_store, tick_interval=0.1)
-            poller.register(adapter, chunker)
-            poller.start()
-
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 result = poller.trigger_immediate_ingest("test-adapter")
                 assert result is True
 
-                # Wait for background thread to complete
-                time.sleep(0.5)
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
 
                 ingest_result = poller.get_ingest_result("test-adapter")
                 assert ingest_result is not None
@@ -1148,39 +1190,24 @@ class TestTriggerImmediateIngest:
                 assert ingest_result.overall_success is True
                 assert ingest_result.completed_at is not None
             finally:
-                if poller._thread and poller._thread.is_alive():
-                    poller.stop()
+                poller.stop()
 
-    def test_get_ingest_result_tracks_failures(self, pipeline, document_store):
-        """get_ingest_result() should track per-source failures."""
+    def test_get_ingest_result_tracks_partial_failures(self, pipeline, document_store):
+        """get_ingest_result() reflects per-source failures reported by the pipeline."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        sources = [
-            {"source_id": "source-1", "adapter_id": "test-adapter", "origin_ref": "/path1"},
-            {"source_id": "source-2", "adapter_id": "test-adapter", "origin_ref": "/path2"},
-        ]
-
-        def ingest_side_effect(*args, **kwargs):
-            # Fail on the second source
-            if kwargs.get("source_ref") == "/path2":
-                raise RuntimeError("Test error")
-
-        with (
-            patch.object(document_store, "get_sources_for_adapter", return_value=sources),
-            patch.object(pipeline, "ingest", side_effect=ingest_side_effect),
-            patch.object(document_store, "update_last_fetched_at"),
+        with patch.object(
+            pipeline, "ingest", return_value=_pipeline_result(processed=1, failed=1)
         ):
-            poller = Poller(pipeline, document_store, tick_interval=0.1)
-            poller.register(adapter, chunker)
-            poller.start()
-
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
             try:
                 result = poller.trigger_immediate_ingest("test-adapter")
                 assert result is True
 
-                # Wait for background thread to complete
-                time.sleep(0.5)
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
 
                 ingest_result = poller.get_ingest_result("test-adapter")
                 assert ingest_result is not None
@@ -1190,43 +1217,29 @@ class TestTriggerImmediateIngest:
                 assert ingest_result.overall_success is False
                 assert ingest_result.partial_success is True
             finally:
-                if poller._thread and poller._thread.is_alive():
-                    poller.stop()
+                poller.stop()
 
-    def test_tick_detects_programming_errors(self, pipeline, document_store):
-        """_tick() should log programming errors at ERROR level immediately."""
+    def test_get_ingest_result_tracks_whole_fetch_exception(self, pipeline, document_store):
+        """An exception from pipeline.ingest is recorded as a failed result."""
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        source = {
-            "source_id": "source-1",
-            "adapter_id": "test-adapter",
-            "origin_ref": "/path",
-            "poll_interval_sec": 60,
-            "last_fetched_at": None,
-        }
+        with patch.object(pipeline, "ingest", side_effect=TypeError("bad call")):
+            poller = self._started_poller(pipeline, document_store, adapter, chunker)
+            try:
+                poller.trigger_immediate_ingest("test-adapter")
+                assert _wait_for(
+                    lambda: poller.get_ingest_result("test-adapter") is not None
+                )
 
-        # Simulate a programming error (TypeError)
-        def ingest_with_type_error(*args, **kwargs):
-            raise TypeError("Wrong argument type")
-
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[source]),
-            patch.object(pipeline, "ingest", side_effect=ingest_with_type_error),
-        ):
-            poller = Poller(pipeline, document_store, tick_interval=0.1)
-            poller.register(adapter, chunker)
-
-            with patch("context_library.scheduler.poller.logger") as mock_logger:
-                poller._tick()
-
-                # Should log at ERROR level immediately (not INFO)
-                # and not record multiple failures for escalation
-                error_calls = [
-                    call for call in mock_logger.error.call_args_list
-                    if "programming error" in str(call).lower()
-                ]
-                assert len(error_calls) > 0, "Programming error was not logged at ERROR level"
+                ingest_result = poller.get_ingest_result("test-adapter")
+                assert ingest_result is not None
+                assert ingest_result.sources_failed >= 1
+                assert ingest_result.overall_success is False
+                # TypeError is a programming error and is flagged as such
+                assert ingest_result.had_programming_errors is True
+            finally:
+                poller.stop()
 
 
 class _AckableAdapter(MockAdapter):
@@ -1249,16 +1262,7 @@ class TestPollerCommitAck:
     def test_tick_acks_after_successful_ingest(self, pipeline, document_store):
         adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
         chunker = MockDomain()
-        source = {
-            "source_id": "src-1",
-            "adapter_id": "filesystem_helper:default",
-            "origin_ref": "/some/file.md",
-        }
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[source]),
-            patch.object(pipeline, "ingest", return_value={}),
-            patch.object(document_store, "update_last_fetched_at"),
-        ):
+        with patch.object(pipeline, "ingest", return_value={}):
             poller = Poller(pipeline, document_store, tick_interval=0.1)
             poller.register(adapter, chunker)
             poller._tick()
@@ -1268,15 +1272,7 @@ class TestPollerCommitAck:
     def test_tick_does_not_ack_after_failed_ingest(self, pipeline, document_store):
         adapter = _AckableAdapter("filesystem_helper:default", Domain.DOCUMENTS)
         chunker = MockDomain()
-        source = {
-            "source_id": "src-1",
-            "adapter_id": "filesystem_helper:default",
-            "origin_ref": "/some/file.md",
-        }
-        with (
-            patch.object(document_store, "get_sources_due_for_poll", return_value=[source]),
-            patch.object(pipeline, "ingest", side_effect=RuntimeError("ingest blew up")),
-        ):
+        with patch.object(pipeline, "ingest", side_effect=RuntimeError("ingest blew up")):
             poller = Poller(pipeline, document_store, tick_interval=0.1)
             poller.register(adapter, chunker)
             poller._tick()
