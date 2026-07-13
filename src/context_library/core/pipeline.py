@@ -328,7 +328,15 @@ class IngestionPipeline:
 
                                     # Case 1: Content unchanged - just update last_fetched_at, skip writes.
                                     # Still update display_name so existing sources are backfilled.
-                                    if not diff_result.changed:
+                                    # EXCEPTION: if the source's chunks were retired (adapter
+                                    # reset), "unchanged" must NOT short-circuit — skipping here
+                                    # left reset sources retired forever, because the differ
+                                    # compares against version history that survives the reset.
+                                    # Fall through to Case 2 so the chunks are rewritten.
+                                    retired_needs_rewrite = bool(chunks) and not (
+                                        self.document_store.has_active_chunks(content.source_id)
+                                    )
+                                    if not diff_result.changed and not retired_needs_rewrite:
                                         self.document_store.update_last_fetched_at(content.source_id)
                                         if display_name:
                                             self.document_store.update_display_name(content.source_id, display_name)
@@ -377,12 +385,19 @@ class IngestionPipeline:
                                         create_version_span.set_attribute("version", new_version)
 
                                     # Separate added and unchanged chunks
-                                    added_chunks = [
-                                        c for c in chunks if c.chunk_hash in diff_result.added_hashes
-                                    ]
-                                    unchanged_chunks = [
-                                        c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
-                                    ]
+                                    if retired_needs_rewrite and not diff_result.changed:
+                                        # Resurrection after an adapter reset: the "unchanged"
+                                        # chunks' vectors were deleted at retirement, so every
+                                        # chunk must be re-embedded and re-added as if new.
+                                        added_chunks = list(chunks)
+                                        unchanged_chunks = []
+                                    else:
+                                        added_chunks = [
+                                            c for c in chunks if c.chunk_hash in diff_result.added_hashes
+                                        ]
+                                        unchanged_chunks = [
+                                            c for c in chunks if c.chunk_hash in diff_result.unchanged_hashes
+                                        ]
 
                                     # Embed added chunks with context headers for semantic enrichment
                                     # Context header is prepended only for embedding, not stored in content field

@@ -2256,6 +2256,21 @@ class DocumentStore:
             cursor.execute(sql, params)
             return cursor.rowcount
 
+    def has_active_chunks(self, source_id: str) -> bool:
+        """True if the source has at least one non-retired chunk.
+
+        Used by the pipeline's unchanged short-circuit: an "unchanged" source
+        whose chunks were all retired (adapter reset) must be rewritten, not
+        skipped — the diff compares against version history, which survives
+        resets.
+        """
+        cursor = self.conn.cursor()
+        row = cursor.execute(
+            "SELECT 1 FROM chunks WHERE source_id = ? AND retired_at IS NULL LIMIT 1",
+            (source_id,),
+        ).fetchone()
+        return row is not None
+
     def get_sources_due_for_poll(self) -> list[dict]:
         """Get all sources due for polling.
 
