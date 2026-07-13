@@ -328,6 +328,18 @@ class FilesystemHelperAdapter(RemoteAdapter):
                 )
                 return
 
+    def reset(self):
+        """Reset helper-side state AND the in-memory drain cursor.
+
+        The inherited reset only clears the helper's persisted state; leaving
+        self._cursor populated made the next drain resume from a cursor issued
+        against the pre-reset index — served empty pages in production when the
+        rebuilt index had a similar seq range.
+        """
+        result = super().reset()
+        self._cursor = ""
+        return result
+
     # ack() is inherited from RemoteAdapter: it POSTs
     # {service_url}/collectors/filesystem/ack (best-effort) after the pipeline
     # commits, committing the cursor the helper staged during the ?ack=true pull.
