@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
 
+_meter = tel.get_meter("context_library.poller")
+# Heartbeat counters: alert on ABSENCE of ticks/polls in SigNoz — the July
+# 2026 outage was a poller that registered adapters and then never polled.
+_tick_counter = _meter.create_counter(
+    "context_library.poller.ticks_total",
+    description="Poller tick cycles executed",
+)
+_poll_counter = _meter.create_counter(
+    "context_library.poller.adapter_polls_total",
+    description="Per-adapter poll ingests executed (status=ok|error)",
+)
+
 
 def _is_programming_error(exc: Exception) -> bool:
     """Detect programming bugs that should escalate to ERROR level immediately.
@@ -344,6 +356,7 @@ class Poller:
         """
         with tracer.start_as_current_span("scheduler.poll") as tick_span:
             tick_span.set_attribute("adapters_registered", len(self._registered))
+            _tick_counter.add(1)
             adapters_polled = 0
 
             for adapter, chunker in self._registered:
@@ -381,6 +394,7 @@ class Poller:
                         self._error_tracker[adapter_id].clear()
                         self._last_polled[adapter_id] = time.monotonic()
                         adapters_polled += 1
+                        _poll_counter.add(1, {"adapter_id": adapter_id, "status": "ok"})
                     except MemoryError:
                         # System-level memory exhaustion is fatal; propagate immediately
                         raise
@@ -388,6 +402,7 @@ class Poller:
                         error_tracker = self._error_tracker[adapter_id]
                         error_msg = f"ingest failed: {e}"
                         error_tracker.record_failure()
+                        _poll_counter.add(1, {"adapter_id": adapter_id, "status": "error"})
 
                         adapter_span.set_status(StatusCode.ERROR)
                         adapter_span.record_exception(e)
