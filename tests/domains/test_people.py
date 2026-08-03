@@ -367,6 +367,71 @@ class TestSingleContactChunk:
         assert chunks[0].domain_metadata["organization"] == "Acme Corp"
         assert chunks[0].domain_metadata["job_title"] == "Senior Engineer"
 
+    def test_chunk_domain_metadata_includes_extended_fields(
+        self, people_domain
+    ):
+        """chunk() passes extended_fields through to domain_metadata unchanged."""
+        meta = PeopleMetadata(
+            contact_id="contact-004",
+            display_name="Dana Lee",
+            source_type="google-contacts",
+            extended_fields={"birthday": "1990-05-14", "related_names": {"spouse": "Sam Lee"}},
+        )
+        hints = StructuralHints(
+            has_headings=False,
+            has_lists=False,
+            has_tables=False,
+            natural_boundaries=[],
+            extra_metadata=meta.model_dump(),
+        )
+
+        content = NormalizedContent(
+            markdown="Contact description.",
+            source_id="contact-004",
+            structural_hints=hints,
+            normalizer_version="1.0.0",
+        )
+
+        chunks = people_domain.chunk(content)
+
+        assert chunks[0].domain_metadata["extended_fields"] == {
+            "birthday": "1990-05-14",
+            "related_names": {"spouse": "Sam Lee"},
+        }
+
+    def test_chunk_hash_unaffected_by_extended_fields(self, people_domain):
+        """chunk_hash is identical regardless of extended_fields since it hashes content only."""
+        base_kwargs = {
+            "contact_id": "contact-005",
+            "display_name": "Eve Adams",
+            "source_type": "google-contacts",
+        }
+        meta_without = PeopleMetadata(**base_kwargs)
+        meta_with = PeopleMetadata(
+            **base_kwargs, extended_fields={"birthday": "1985-01-01"}
+        )
+
+        def build_chunks(meta):
+            hints = StructuralHints(
+                has_headings=False,
+                has_lists=False,
+                has_tables=False,
+                natural_boundaries=[],
+                extra_metadata=meta.model_dump(),
+            )
+            content = NormalizedContent(
+                markdown="Contact description.",
+                source_id="contact-005",
+                structural_hints=hints,
+                normalizer_version="1.0.0",
+            )
+            return people_domain.chunk(content)
+
+        chunks_without = build_chunks(meta_without)
+        chunks_with = build_chunks(meta_with)
+
+        assert chunks_without[0].chunk_hash == chunks_with[0].chunk_hash
+
 
 class TestLongContactSplitting:
     """Tests for chunking long contacts that exceed hard_limit."""
