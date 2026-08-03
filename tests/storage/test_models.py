@@ -2383,6 +2383,7 @@ class TestPeopleMetadata:
         assert metadata.organization is None
         assert metadata.job_title is None
         assert metadata.notes is None
+        assert metadata.extended_fields == {}
 
     def test_people_metadata_empty_contact_id_rejected(self) -> None:
         """Test that empty contact_id is rejected."""
@@ -2488,6 +2489,73 @@ class TestPeopleMetadata:
                 source_type=source_type,
             )
             assert metadata.source_type == source_type
+
+    def test_people_metadata_extended_fields_default_empty(self) -> None:
+        """Test that extended_fields defaults to an empty dict."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Alice",
+            source_type="apple_contacts",
+        )
+        assert metadata.extended_fields == {}
+
+    def test_people_metadata_extended_fields_populated(self) -> None:
+        """Test that extended_fields accepts arbitrary structured contact data."""
+        metadata = PeopleMetadata(
+            contact_id="person-1",
+            display_name="Alice",
+            source_type="apple_contacts",
+            extended_fields={
+                "birthday": "1990-05-14",
+                "related_names": {"spouse": "Bob Smith"},
+                "social_profiles": ["https://example.com/alice"],
+            },
+        )
+        assert metadata.extended_fields["birthday"] == "1990-05-14"
+        assert metadata.extended_fields["related_names"] == {"spouse": "Bob Smith"}
+        assert metadata.extended_fields["social_profiles"] == ["https://example.com/alice"]
+
+    def test_people_metadata_extended_fields_independent_defaults(self) -> None:
+        """Test that separate instances don't share the default extended_fields dict."""
+        metadata_a = PeopleMetadata(
+            contact_id="person-1", display_name="Alice", source_type="apple_contacts"
+        )
+        metadata_b = PeopleMetadata(
+            contact_id="person-2", display_name="Bob", source_type="apple_contacts"
+        )
+        assert metadata_a.extended_fields is not metadata_b.extended_fields
+
+    def test_people_metadata_extended_fields_round_trip_serialization(self) -> None:
+        """Test that extended_fields survives model_dump/model_validate round-trip."""
+        original = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            source_type="apple_contacts",
+            extended_fields={"birthday": "1990-05-14"},
+        )
+        dumped = original.model_dump()
+        restored = PeopleMetadata.model_validate(dumped)
+        assert restored.extended_fields == original.extended_fields
+
+        import json
+        json_str = json.dumps(dumped)
+        assert isinstance(json_str, str)
+
+    def test_people_metadata_extended_fields_excluded_from_chunk_hash(self) -> None:
+        """Test that chunk_hash is unaffected by extended_fields since compute_chunk_hash
+        only hashes chunk content, never metadata."""
+        content = "Alice Johnson."
+        hash_without_extended = compute_chunk_hash(content)
+
+        metadata = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            source_type="apple_contacts",
+            extended_fields={"birthday": "1990-05-14", "related_names": {"spouse": "Bob"}},
+        )
+        # extended_fields is never passed into compute_chunk_hash; only chunk content is.
+        assert hash_without_extended == compute_chunk_hash(content)
+        assert metadata.extended_fields  # sanity check the field is actually populated
 
 
 class TestLocationMetadata:

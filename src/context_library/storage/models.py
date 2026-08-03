@@ -733,6 +733,10 @@ class PeopleMetadata(BaseModel):
     - contact_id, display_name, and source_type must be non-empty strings
     - emails and phones are tuples of strings (empty tuple by default)
     - given_name, family_name, organization, job_title, and notes are optional strings
+    - extended_fields is a catch-all mapping for contact data without a dedicated
+      typed field (e.g. phone/email labels, birthdays, related names, social
+      profiles, group membership); it is never included in chunk_hash computation
+      since compute_chunk_hash only hashes chunk content, not metadata
     """
 
     model_config = ConfigDict(frozen=True)
@@ -747,6 +751,7 @@ class PeopleMetadata(BaseModel):
     job_title: str | None = None
     notes: str | None = None
     source_type: str
+    extended_fields: dict[str, object] = Field(default_factory=dict)
 
     @field_validator("contact_id")
     @classmethod
