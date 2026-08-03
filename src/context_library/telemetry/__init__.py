@@ -195,6 +195,9 @@ def setup_telemetry(
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
+    from opentelemetry.sdk.metrics.export import MetricExporter
+
+    metric_exporter: MetricExporter
     if config.otlp_protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as HTTPOTLPMetricExporter
         metric_exporter = HTTPOTLPMetricExporter(endpoint=config.otlp_endpoint)

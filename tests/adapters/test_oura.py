@@ -1453,14 +1453,15 @@ class TestOuraAdapterCommitAck:
         assert adapter._helper_collector_name == "oura"
         assert adapter._ack_params() == {"ack": "true"}
 
-    def test_paged_reminders_does_not_opt_into_ack(self):
-        # Reminders is a *paged* helper collector (consume_stash) that ignores ack
-        # mode, so it must NOT advertise commit-ack — it inherits the no-op ack().
+    def test_reminders_opts_into_ack_via_mixin(self):
+        # Reminders is a *paged* helper collector (consume_stash), but helpers now
+        # stage the page cursor under ?ack=true and commit it on ack(), so this
+        # adapter opts into commit-ack like the other HelperAckMixin adapters.
         from context_library.adapters.apple_reminders import AppleRemindersAdapter
 
         adapter = AppleRemindersAdapter(api_url="http://helper:7123", api_key="k")
-        assert not hasattr(adapter, "_ack_params")
-        assert adapter.ack() is None  # no-op default, no network call
+        assert adapter._helper_collector_name == "reminders"
+        assert adapter._ack_params() == {"ack": "true"}
 
     def test_apple_adapter_ack_posts_to_its_collector(self, monkeypatch):
         import httpx
