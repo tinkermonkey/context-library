@@ -1,0 +1,3849 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "context-library",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks/ingest": {
+      "post": {
+        "summary": "Webhook Ingest",
+        "operationId": "webhook_ingest_webhooks_ingest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookIngestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookIngestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/helpers": {
+      "post": {
+        "summary": "Helper Ingest",
+        "description": "Pull and ingest content from all configured helper adapters.",
+        "operationId": "helper_ingest_ingest_helpers_post",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO 8601 cursor; only return items modified after this time",
+              "title": "Since"
+            },
+            "description": "ISO 8601 cursor; only return items modified after this time"
+          },
+          {
+            "name": "full",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Force a full pull, ignoring the since cursor",
+              "default": false,
+              "title": "Full"
+            },
+            "description": "Force a full pull, ignoring the since cursor"
+          },
+          {
+            "name": "adapter_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Run only this adapter (matches adapter_id prefix)",
+              "title": "Adapter Id"
+            },
+            "description": "Run only this adapter (matches adapter_id prefix)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppleIngestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/query": {
+      "post": {
+        "summary": "Query",
+        "operationId": "query_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adapters": {
+      "get": {
+        "tags": [
+          "adapters"
+        ],
+        "summary": "List Adapters",
+        "operationId": "list_adapters_adapters_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adapters/{adapter_id}": {
+      "get": {
+        "tags": [
+          "adapters"
+        ],
+        "summary": "Get Adapter",
+        "operationId": "get_adapter_adapters__adapter_id__get",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Adapter Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/adapters/{adapter_id}/reset": {
+      "post": {
+        "tags": [
+          "adapters"
+        ],
+        "summary": "Reset Adapter",
+        "description": "Reset an adapter: reset helper state, retire library data, and trigger re-ingest.\n\nOrchestrates a coordinated reset across six steps in strict abort-on-failure order:\n1. Validate adapter exists (404 if not found)\n2. Reset adapter state in helper service (502 if fails \u2014 do NOT proceed to step 3)\n3. Retire all chunks and reset fetch state in library (500 if fails)\n4. Trigger immediate re-ingestion (may fail if poller unavailable \u2014 non-fatal)\n5. Determine if re-ingestion is needed by checking source poll strategies\n6. Return response (200 on success, 207 if library reset succeeded but re-ingestion failed)\n\nCritical ordering: Steps 1-3 use abort-on-failure semantics (earlier failures prevent\nlater steps). Step 4 failures are non-fatal after Step 3 succeeds \u2014 library data is\nretired but re-ingestion may be deferred or require manual trigger if poller is unavailable.",
+        "operationId": "reset_adapter_adapters__adapter_id__reset_post",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Adapter Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterResetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "List Sources",
+        "operationId": "list_sources_sources_get",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Domain"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "adapter_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Adapter Id"
+            }
+          },
+          {
+            "name": "source_id_prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id Prefix"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(active|inactive)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "last_fetched_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Fetched After"
+            }
+          },
+          {
+            "name": "last_fetched_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Fetched Before"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 5000,
+              "exclusiveMinimum": 0,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(created_at|updated_at|chunk_count)$",
+              "default": "created_at",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "default": "asc",
+              "title": "Order"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources/{source_id}/versions": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Version History",
+        "operationId": "get_version_history_sources__source_id__versions_get",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources/{source_id}/versions/{version}": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Source Version",
+        "operationId": "get_source_version_sources__source_id__versions__version__get",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources/{source_id}/chunks": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Source Chunks",
+        "operationId": "get_source_chunks_sources__source_id__chunks_get",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 1000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources/{source_id}/diff": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Version Diff Endpoint",
+        "operationId": "get_version_diff_endpoint_sources__source_id__diff_get",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          },
+          {
+            "name": "from_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "From Version"
+            }
+          },
+          {
+            "name": "to_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "To Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionDiffResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sources/{source_id}": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Source",
+        "operationId": "get_source_sources__source_id__get",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chunks": {
+      "get": {
+        "tags": [
+          "chunks"
+        ],
+        "summary": "List Chunks",
+        "description": "List active chunks with optional domain, adapter, and source filtering.\n\nReturns paginated chunks across all sources (or filtered by source_id),\nordered by created_at DESC. Only returns non-retired chunks from current\nsource versions. Corrupt chunks are skipped with warnings, ensuring partial\ndata availability.\n\nQuery parameters for metadata filtering can be passed as repeating parameters\nin the form `?metadata_filter=key:value&metadata_filter=key2:value2`.\nFor example: `GET /chunks?domain=health&metadata_filter=health_type:workout_session`",
+        "operationId": "list_chunks_chunks_get",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Domain"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "adapter_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Adapter Id"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "exclusiveMinimum": 0,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopLevelChunkListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chunks/{chunk_hash}": {
+      "get": {
+        "tags": [
+          "chunks"
+        ],
+        "summary": "Get Chunk",
+        "operationId": "get_chunk_chunks__chunk_hash__get",
+        "parameters": [
+          {
+            "name": "chunk_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Chunk Hash"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chunks/{chunk_hash}/provenance": {
+      "get": {
+        "tags": [
+          "chunks"
+        ],
+        "summary": "Get Chunk Provenance",
+        "operationId": "get_chunk_provenance_chunks__chunk_hash__provenance_get",
+        "parameters": [
+          {
+            "name": "chunk_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Chunk Hash"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkProvenanceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chunks/{chunk_hash}/version-chain": {
+      "get": {
+        "tags": [
+          "chunks"
+        ],
+        "summary": "Get Chunk Version Chain",
+        "operationId": "get_chunk_version_chain_chunks__chunk_hash__version_chain_get",
+        "parameters": [
+          {
+            "name": "chunk_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Chunk Hash"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkVersionChainResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Stats",
+        "operationId": "get_stats_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats/activity": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Activity Feed",
+        "description": "Return recent ingestion activity events derived from source_versions.\n\nEach event represents a completed ingestion pass for a source. Events are\nordered newest-first and include the event type, entity name, source identifier,\ntimestamp, and domain/adapter tags.",
+        "operationId": "get_activity_feed_stats_activity_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityFeedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats/adapters": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "Get Adapter Stats",
+        "description": "Get per-adapter source and active chunk counts.\n\nReturns one entry per adapter with source_count (total sources for that adapter)\nand active_chunk_count (total non-retired chunks in those sources).",
+        "operationId": "get_adapter_stats_stats_adapters_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/adapters": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Admin Adapters",
+        "description": "Per-adapter status: last run, item counts, domain.",
+        "operationId": "list_admin_adapters_admin_adapters_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAdapterListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/pipelines": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Active Pipelines",
+        "description": "Return currently active pipeline ingestion runs.\n\nEach entry represents an in-flight call to IngestionPipeline.ingest(). Returns\nan empty list when no ingestion is in progress. Duration is computed from the\nrun's start time to now.",
+        "operationId": "list_active_pipelines_admin_pipelines_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/adapters/{adapter_id}/sync": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Trigger Adapter Sync",
+        "description": "Trigger an immediate re-sync for the given adapter without resetting data.\n\nReturns a TriggerSyncResponse in all non-error cases \u2014 even when the adapter\nis push-only or the poller is unavailable \u2014 so callers get a structured message\nrather than a 4xx/5xx. A 404 is returned only when the adapter does not exist.",
+        "operationId": "trigger_adapter_sync_admin_adapters__adapter_id__sync_post",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Adapter Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerSyncResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/config": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Admin Config",
+        "description": "Return non-sensitive server configuration values.\n\nSensitive values (webhook_secret, helper_api_key) are never returned in responses.\nThe presence of a webhook secret is indicated by the webhook_secret_set boolean.",
+        "operationId": "get_admin_config_admin_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminConfigResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/logs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Get Sync Logs",
+        "description": "Return paginated entries from the lancedb_sync_log table, newest first.",
+        "operationId": "get_sync_logs_admin_logs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncLogResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dead-letters": {
+      "get": {
+        "tags": [
+          "dead-letters"
+        ],
+        "summary": "List Dead Letters",
+        "description": "List sources that failed ingest and were skipped by a committed page.",
+        "operationId": "list_dead_letters_dead_letters_get",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by adapter_id",
+              "title": "Adapter Id"
+            },
+            "description": "Filter by adapter_id"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeadLetterListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dead-letters/clear": {
+      "post": {
+        "tags": [
+          "dead-letters"
+        ],
+        "summary": "Clear Dead Letters",
+        "description": "Delete dead-letter rows after manual review or a successful re-ingest.",
+        "operationId": "clear_dead_letters_dead_letters_clear_post",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only clear rows for this adapter",
+              "title": "Adapter Id"
+            },
+            "description": "Only clear rows for this adapter"
+          },
+          {
+            "name": "source_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only clear rows for this source",
+              "title": "Source Id"
+            },
+            "description": "Only clear rows for this source"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeadLetterClearResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/favicon.svg": {
+      "get": {
+        "summary": "Favicon",
+        "operationId": "favicon_favicon_svg_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{full_path}": {
+      "get": {
+        "summary": "Spa Fallback",
+        "operationId": "spa_fallback__full_path__get",
+        "parameters": [
+          {
+            "name": "full_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Full Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActivityEvent": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "entity_name": {
+            "type": "string",
+            "title": "Entity Name"
+          },
+          "identifier": {
+            "type": "string",
+            "title": "Identifier"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_type",
+          "entity_name",
+          "identifier",
+          "timestamp",
+          "domain",
+          "adapter_type"
+        ],
+        "title": "ActivityEvent",
+        "description": "A single ingestion event derived from source_versions."
+      },
+      "ActivityFeedResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityEvent"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ActivityFeedResponse"
+      },
+      "AdapterListResponse": {
+        "properties": {
+          "adapters": {
+            "items": {
+              "$ref": "#/components/schemas/AdapterResponse"
+            },
+            "type": "array",
+            "title": "Adapters"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapters",
+          "total"
+        ],
+        "title": "AdapterListResponse"
+      },
+      "AdapterResetResponse": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "helper_reset": {
+            "$ref": "#/components/schemas/HelperResetInfo"
+          },
+          "library_reset": {
+            "$ref": "#/components/schemas/LibraryResetInfo"
+          },
+          "reingestion_triggered": {
+            "type": "boolean",
+            "title": "Reingestion Triggered"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "helper_reset",
+          "library_reset",
+          "reingestion_triggered"
+        ],
+        "title": "AdapterResetResponse",
+        "description": "Response from POST /adapters/{adapter_id}/reset endpoint.\n\nContains details of the reset operation across helper, library, and re-ingestion phases."
+      },
+      "AdapterResponse": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "adapter_type",
+          "domain",
+          "normalizer_version"
+        ],
+        "title": "AdapterResponse"
+      },
+      "AdapterStats": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "active_chunk_count": {
+            "type": "integer",
+            "title": "Active Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "adapter_type",
+          "domain",
+          "source_count",
+          "active_chunk_count"
+        ],
+        "title": "AdapterStats"
+      },
+      "AdapterStatsResponse": {
+        "properties": {
+          "adapters": {
+            "items": {
+              "$ref": "#/components/schemas/AdapterStats"
+            },
+            "type": "array",
+            "title": "Adapters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapters"
+        ],
+        "title": "AdapterStatsResponse"
+      },
+      "AdminAdapterListResponse": {
+        "properties": {
+          "adapters": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAdapterStatus"
+            },
+            "type": "array",
+            "title": "Adapters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapters"
+        ],
+        "title": "AdminAdapterListResponse"
+      },
+      "AdminAdapterStatus": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "active_chunk_count": {
+            "type": "integer",
+            "title": "Active Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "adapter_type",
+          "domain",
+          "source_count",
+          "active_chunk_count"
+        ],
+        "title": "AdminAdapterStatus"
+      },
+      "AdminConfigResponse": {
+        "properties": {
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "reranker_model": {
+            "type": "string",
+            "title": "Reranker Model"
+          },
+          "enable_reranker": {
+            "type": "boolean",
+            "title": "Enable Reranker"
+          },
+          "sqlite_db_path": {
+            "type": "string",
+            "title": "Sqlite Db Path"
+          },
+          "chromadb_path": {
+            "type": "string",
+            "title": "Chromadb Path"
+          },
+          "webhook_secret_set": {
+            "type": "boolean",
+            "title": "Webhook Secret Set"
+          },
+          "helper_url_set": {
+            "type": "boolean",
+            "title": "Helper Url Set"
+          },
+          "helper_oura_enabled": {
+            "type": "boolean",
+            "title": "Helper Oura Enabled"
+          },
+          "helper_filesystem_enabled": {
+            "type": "boolean",
+            "title": "Helper Filesystem Enabled"
+          },
+          "youtube_enabled": {
+            "type": "boolean",
+            "title": "Youtube Enabled"
+          },
+          "db_size_bytes": {
+            "type": "integer",
+            "title": "Db Size Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "embedding_model",
+          "reranker_model",
+          "enable_reranker",
+          "sqlite_db_path",
+          "chromadb_path",
+          "webhook_secret_set",
+          "helper_url_set",
+          "helper_oura_enabled",
+          "helper_filesystem_enabled",
+          "youtube_enabled",
+          "db_size_bytes"
+        ],
+        "title": "AdminConfigResponse"
+      },
+      "AppleAdapterResult": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "sources_processed": {
+            "type": "integer",
+            "title": "Sources Processed"
+          },
+          "sources_failed": {
+            "type": "integer",
+            "title": "Sources Failed"
+          },
+          "chunks_added": {
+            "type": "integer",
+            "title": "Chunks Added"
+          },
+          "chunks_removed": {
+            "type": "integer",
+            "title": "Chunks Removed"
+          },
+          "chunks_unchanged": {
+            "type": "integer",
+            "title": "Chunks Unchanged"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/IngestError"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "entity_linking_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "failed",
+                  "partial"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Linking Status"
+          },
+          "entity_linking_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Linking Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "status",
+          "sources_processed",
+          "sources_failed",
+          "chunks_added",
+          "chunks_removed",
+          "chunks_unchanged",
+          "errors"
+        ],
+        "title": "AppleAdapterResult"
+      },
+      "AppleIngestResponse": {
+        "properties": {
+          "adapters_run": {
+            "type": "integer",
+            "title": "Adapters Run"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AppleAdapterResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapters_run",
+          "results"
+        ],
+        "title": "AppleIngestResponse"
+      },
+      "ChunkListResponse": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkResponse"
+            },
+            "type": "array",
+            "title": "Chunks"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "version",
+          "chunks"
+        ],
+        "title": "ChunkListResponse"
+      },
+      "ChunkProvenanceResponse": {
+        "properties": {
+          "chunk": {
+            "$ref": "#/components/schemas/ChunkResponse"
+          },
+          "lineage": {
+            "$ref": "#/components/schemas/LineageResponse"
+          },
+          "source_origin_ref": {
+            "type": "string",
+            "title": "Source Origin Ref"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "version_chain": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkVersionChainItem"
+            },
+            "type": "array",
+            "title": "Version Chain"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk",
+          "lineage",
+          "source_origin_ref",
+          "adapter_type",
+          "version_chain"
+        ],
+        "title": "ChunkProvenanceResponse"
+      },
+      "ChunkResponse": {
+        "properties": {
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "context_header": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Header"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "title": "Chunk Index"
+          },
+          "chunk_type": {
+            "type": "string",
+            "title": "Chunk Type"
+          },
+          "domain_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Metadata"
+          },
+          "cross_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cross Refs"
+          },
+          "lineage": {
+            "$ref": "#/components/schemas/LineageResponse"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_hash",
+          "content",
+          "context_header",
+          "chunk_index",
+          "chunk_type",
+          "domain_metadata",
+          "cross_refs",
+          "lineage"
+        ],
+        "title": "ChunkResponse"
+      },
+      "ChunkVersionChainItem": {
+        "properties": {
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "context_header": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Header"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "title": "Chunk Index"
+          },
+          "chunk_type": {
+            "type": "string",
+            "title": "Chunk Type"
+          },
+          "fetch_timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Timestamp"
+          },
+          "similarity_to_head": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity To Head"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_hash",
+          "content",
+          "context_header",
+          "chunk_index",
+          "chunk_type"
+        ],
+        "title": "ChunkVersionChainItem"
+      },
+      "ChunkVersionChainResponse": {
+        "properties": {
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "chain": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkVersionChainItem"
+            },
+            "type": "array",
+            "title": "Chain"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_hash",
+          "source_id",
+          "chain"
+        ],
+        "title": "ChunkVersionChainResponse"
+      },
+      "CollectorDeliveryStatus": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "default": false
+          },
+          "has_pending": {
+            "type": "boolean",
+            "title": "Has Pending",
+            "default": false
+          },
+          "endpoints": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/EndpointDeliveryStatus"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoints"
+          }
+        },
+        "type": "object",
+        "title": "CollectorDeliveryStatus",
+        "description": "Delivery progress for a single collector (from helper /status)."
+      },
+      "CollectorStatus": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "healthy": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Healthy"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CollectorDeliveryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "adapter_type",
+          "enabled"
+        ],
+        "title": "CollectorStatus",
+        "description": "Health status of a single configured adapter / helper collector."
+      },
+      "DatasetStatsResponse": {
+        "properties": {
+          "total_sources": {
+            "type": "integer",
+            "title": "Total Sources"
+          },
+          "total_active_chunks": {
+            "type": "integer",
+            "title": "Total Active Chunks"
+          },
+          "retired_chunk_count": {
+            "type": "integer",
+            "title": "Retired Chunk Count"
+          },
+          "sync_queue_pending_insert": {
+            "type": "integer",
+            "title": "Sync Queue Pending Insert"
+          },
+          "sync_queue_pending_delete": {
+            "type": "integer",
+            "title": "Sync Queue Pending Delete"
+          },
+          "by_domain": {
+            "items": {
+              "$ref": "#/components/schemas/DomainStats"
+            },
+            "type": "array",
+            "title": "By Domain"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_sources",
+          "total_active_chunks",
+          "retired_chunk_count",
+          "sync_queue_pending_insert",
+          "sync_queue_pending_delete",
+          "by_domain"
+        ],
+        "title": "DatasetStatsResponse"
+      },
+      "DeadLetter": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "error_type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "first_seen": {
+            "type": "string",
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "type": "string",
+            "title": "Last Seen"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "adapter_id",
+          "source_id",
+          "error_type",
+          "message",
+          "first_seen",
+          "last_seen",
+          "retry_count"
+        ],
+        "title": "DeadLetter"
+      },
+      "DeadLetterClearResponse": {
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "DeadLetterClearResponse"
+      },
+      "DeadLetterListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "dead_letters": {
+            "items": {
+              "$ref": "#/components/schemas/DeadLetter"
+            },
+            "type": "array",
+            "title": "Dead Letters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "dead_letters"
+        ],
+        "title": "DeadLetterListResponse"
+      },
+      "Domain": {
+        "type": "string",
+        "enum": [
+          "messages",
+          "notes",
+          "events",
+          "tasks",
+          "health",
+          "documents",
+          "people",
+          "location"
+        ],
+        "title": "Domain",
+        "description": "Fixed set of domain types for vector metadata.\n\nUsed across SQLite schema, vector store, and domain modules."
+      },
+      "DomainStats": {
+        "properties": {
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "active_chunk_count": {
+            "type": "integer",
+            "title": "Active Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain",
+          "source_count",
+          "active_chunk_count"
+        ],
+        "title": "DomainStats"
+      },
+      "EndpointDeliveryStatus": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "EndpointDeliveryStatus",
+        "description": "Delivery state for one endpoint within a multi-endpoint collector."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "vector_count": {
+            "type": "integer",
+            "title": "Vector Count"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "embedding_dimension": {
+            "type": "integer",
+            "title": "Embedding Dimension"
+          },
+          "sqlite_ok": {
+            "type": "boolean",
+            "title": "Sqlite Ok",
+            "default": true
+          },
+          "chromadb_ok": {
+            "type": "boolean",
+            "title": "Chromadb Ok",
+            "default": true
+          },
+          "helper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HelperHealth"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "vector_count",
+          "embedding_model",
+          "embedding_dimension"
+        ],
+        "title": "HealthResponse"
+      },
+      "HelperHealth": {
+        "properties": {
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "probed_at": {
+            "type": "string",
+            "title": "Probed At"
+          },
+          "collectors": {
+            "items": {
+              "$ref": "#/components/schemas/CollectorStatus"
+            },
+            "type": "array",
+            "title": "Collectors",
+            "default": []
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "watermark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermark"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reachable",
+          "probed_at"
+        ],
+        "title": "HelperHealth",
+        "description": "Health status of the context-helper service."
+      },
+      "HelperResetInfo": {
+        "properties": {
+          "ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ok"
+          },
+          "cleared": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cleared"
+          }
+        },
+        "type": "object",
+        "title": "HelperResetInfo",
+        "description": "Helper reset result with status and cleared state names.\n\nAttributes:\n    ok: Reset operation result for helper service.\n        - True: Reset was performed and succeeded\n        - False: Reset was performed and failed\n        - None: Adapter is not a helper adapter; reset was not applicable\n    cleared: List of state items that were cleared (e.g., \"push_cursor:obsidian\").\n        Only populated when ok=True."
+      },
+      "IngestError": {
+        "properties": {
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "error_type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "chunk_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Hash"
+          },
+          "chunk_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Index"
+          },
+          "store_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Store Type"
+          },
+          "inconsistent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inconsistent"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "error_type",
+          "message"
+        ],
+        "title": "IngestError",
+        "description": "Structured error from the ingestion pipeline.\n\nDifferent error types include different optional fields:\n- ChunkingError: source_id_attr\n- EmbeddingError: chunk_hash, chunk_index\n- StorageError: store_type, inconsistent"
+      },
+      "LibraryResetInfo": {
+        "properties": {
+          "sources_reset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources Reset"
+          },
+          "chunks_retired": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunks Retired"
+          }
+        },
+        "type": "object",
+        "title": "LibraryResetInfo",
+        "description": "Library reset result with source and chunk counts.\n\nBoth `sources_reset` and `chunks_retired` must be either both None or both int,\nensuring consistent representation of reset completion state."
+      },
+      "LineageResponse": {
+        "properties": {
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "source_version_id": {
+            "type": "integer",
+            "title": "Source Version Id"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "embedding_model_id": {
+            "type": "string",
+            "title": "Embedding Model Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_hash",
+          "source_id",
+          "source_version_id",
+          "adapter_id",
+          "domain",
+          "normalizer_version",
+          "embedding_model_id"
+        ],
+        "title": "LineageResponse"
+      },
+      "PipelineListResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineRun"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs",
+          "total"
+        ],
+        "title": "PipelineListResponse"
+      },
+      "PipelineRun": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "current_step": {
+            "type": "string",
+            "enum": [
+              "fetch",
+              "chunk",
+              "diff",
+              "embed",
+              "store"
+            ],
+            "title": "Current Step"
+          },
+          "started_at": {
+            "type": "string",
+            "title": "Started At"
+          },
+          "duration_sec": {
+            "type": "number",
+            "title": "Duration Sec"
+          },
+          "ingested": {
+            "type": "integer",
+            "title": "Ingested"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "unchanged": {
+            "type": "integer",
+            "title": "Unchanged"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "adapter_id",
+          "current_step",
+          "started_at",
+          "duration_sec",
+          "ingested",
+          "created",
+          "unchanged",
+          "errors"
+        ],
+        "title": "PipelineRun",
+        "description": "Status of a currently active pipeline ingestion run."
+      },
+      "ProvenanceInfo": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "source_version_id": {
+            "type": "integer",
+            "title": "Source Version Id"
+          },
+          "chunk_type": {
+            "type": "string",
+            "title": "Chunk Type"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "domain",
+          "source_version_id",
+          "chunk_type",
+          "normalizer_version",
+          "embedding_model"
+        ],
+        "title": "ProvenanceInfo",
+        "description": "Lineage metadata for a query result chunk."
+      },
+      "QueryRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Query"
+          },
+          "top_k": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "domain_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Domain"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filter"
+          },
+          "rerank": {
+            "type": "boolean",
+            "title": "Rerank",
+            "default": false
+          },
+          "rerank_top_k": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rerank Top K"
+          },
+          "include_provenance": {
+            "type": "boolean",
+            "title": "Include Provenance",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "QueryRequest"
+      },
+      "QueryResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/QueryResultItem"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "total"
+        ],
+        "title": "QueryResponse"
+      },
+      "QueryResultItem": {
+        "properties": {
+          "chunk_text": {
+            "type": "string",
+            "title": "Chunk Text"
+          },
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "context_header": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Header"
+          },
+          "chunk_index": {
+            "type": "integer",
+            "title": "Chunk Index"
+          },
+          "chunk_type": {
+            "type": "string",
+            "title": "Chunk Type"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "source_version_id": {
+            "type": "integer",
+            "title": "Source Version Id"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "embedding_model": {
+            "type": "string",
+            "title": "Embedding Model"
+          },
+          "similarity_score": {
+            "type": "number",
+            "title": "Similarity Score"
+          },
+          "version_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Date"
+          },
+          "domain_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Metadata"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_text",
+          "chunk_hash",
+          "context_header",
+          "chunk_index",
+          "chunk_type",
+          "source_id",
+          "source_version_id",
+          "domain",
+          "adapter_id",
+          "embedding_model",
+          "similarity_score"
+        ],
+        "title": "QueryResultItem"
+      },
+      "SourceDetailResponse": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "origin_ref": {
+            "type": "string",
+            "title": "Origin Ref"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "last_fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fetched At"
+          },
+          "poll_strategy": {
+            "type": "string",
+            "title": "Poll Strategy"
+          },
+          "poll_interval_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poll Interval Sec"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "adapter_id",
+          "adapter_type",
+          "domain",
+          "origin_ref",
+          "display_name",
+          "current_version",
+          "last_fetched_at",
+          "poll_strategy",
+          "poll_interval_sec",
+          "normalizer_version",
+          "created_at",
+          "updated_at",
+          "chunk_count"
+        ],
+        "title": "SourceDetailResponse"
+      },
+      "SourceListResponse": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceSummary"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sources",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "SourceListResponse"
+      },
+      "SourceSummary": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "origin_ref": {
+            "type": "string",
+            "title": "Origin Ref"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "current_version": {
+            "type": "integer",
+            "title": "Current Version"
+          },
+          "last_fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fetched At"
+          },
+          "poll_strategy": {
+            "type": "string",
+            "title": "Poll Strategy"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "adapter_id",
+          "adapter_type",
+          "domain",
+          "origin_ref",
+          "display_name",
+          "current_version",
+          "last_fetched_at",
+          "poll_strategy",
+          "chunk_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SourceSummary"
+      },
+      "StructuralHints": {
+        "properties": {
+          "has_headings": {
+            "type": "boolean",
+            "title": "Has Headings"
+          },
+          "has_lists": {
+            "type": "boolean",
+            "title": "Has Lists"
+          },
+          "has_tables": {
+            "type": "boolean",
+            "title": "Has Tables"
+          },
+          "natural_boundaries": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Natural Boundaries"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Path"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
+          },
+          "file_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size Bytes"
+          },
+          "extra_metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extra Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_headings",
+          "has_lists",
+          "has_tables",
+          "natural_boundaries"
+        ],
+        "title": "StructuralHints",
+        "description": "Structural metadata extracted from normalized content.\n\nCaptures formatting characteristics (headings, lists, tables) and filesystem metadata\nfor content-specific chunking strategies and filtering.\n\nextra_metadata is a domain-specific contract between adapters and chunkers:\n- Adapters populate it with domain-specific metadata according to their domain\n- Chunkers extract and validate it according to their domain's expectations\n- For EmailMessages domain: extra_metadata must be deserializable to MessageMetadata\n- For Events domain: extra_metadata must be deserializable to EventMetadata\n- For Tasks domain: extra_metadata must be deserializable to TaskMetadata\n- For Health domain: extra_metadata must be deserializable to HealthMetadata\n- For Documents domain: extra_metadata must be deserializable to DocumentMetadata\n- For Location domain: extra_metadata must be deserializable to LocationMetadata\n- For Notes domain: extra_metadata is propagated as-is to domain_metadata in chunks\n\nNote: This field uses dict[str, object] to allow flexible domain-specific contracts.\nType safety for specific domains is achieved through validation in domain chunkers\n(e.g., MessageMetadata(**meta_dict) with ValidationError handling)."
+      },
+      "SyncLogEntry": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "chunk_hash": {
+            "type": "string",
+            "title": "Chunk Hash"
+          },
+          "operation": {
+            "type": "string",
+            "title": "Operation"
+          },
+          "synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Synced At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "chunk_hash",
+          "operation"
+        ],
+        "title": "SyncLogEntry"
+      },
+      "SyncLogResponse": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SyncLogEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "SyncLogResponse"
+      },
+      "TopLevelChunkListResponse": {
+        "properties": {
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkResponse"
+            },
+            "type": "array",
+            "title": "Chunks"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunks",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TopLevelChunkListResponse"
+      },
+      "TriggerSyncResponse": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "triggered": {
+            "type": "boolean",
+            "title": "Triggered"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "triggered",
+          "message"
+        ],
+        "title": "TriggerSyncResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionDetailResponse": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "chunk_hashes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Chunk Hashes"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "fetch_timestamp": {
+            "type": "string",
+            "title": "Fetch Timestamp"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "version",
+          "markdown",
+          "chunk_hashes",
+          "adapter_id",
+          "normalizer_version",
+          "fetch_timestamp"
+        ],
+        "title": "VersionDetailResponse"
+      },
+      "VersionDiffResponse": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "from_version": {
+            "type": "integer",
+            "title": "From Version"
+          },
+          "to_version": {
+            "type": "integer",
+            "title": "To Version"
+          },
+          "added_hashes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Added Hashes"
+          },
+          "removed_hashes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Removed Hashes"
+          },
+          "unchanged_hashes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unchanged Hashes"
+          },
+          "added_chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkVersionChainItem"
+            },
+            "type": "array",
+            "title": "Added Chunks"
+          },
+          "removed_chunks": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkVersionChainItem"
+            },
+            "type": "array",
+            "title": "Removed Chunks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "from_version",
+          "to_version",
+          "added_hashes",
+          "removed_hashes",
+          "unchanged_hashes",
+          "added_chunks",
+          "removed_chunks"
+        ],
+        "title": "VersionDiffResponse"
+      },
+      "VersionHistoryResponse": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/VersionSummary"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "versions"
+        ],
+        "title": "VersionHistoryResponse"
+      },
+      "VersionSummary": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "chunk_hash_count": {
+            "type": "integer",
+            "title": "Chunk Hash Count"
+          },
+          "added_chunks": {
+            "type": "integer",
+            "title": "Added Chunks"
+          },
+          "removed_chunks": {
+            "type": "integer",
+            "title": "Removed Chunks"
+          },
+          "unchanged_chunks": {
+            "type": "integer",
+            "title": "Unchanged Chunks"
+          },
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version"
+          },
+          "fetch_timestamp": {
+            "type": "string",
+            "title": "Fetch Timestamp"
+          },
+          "_links": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "version",
+          "chunk_hash_count",
+          "added_chunks",
+          "removed_chunks",
+          "unchanged_chunks",
+          "adapter_id",
+          "normalizer_version",
+          "fetch_timestamp"
+        ],
+        "title": "VersionSummary"
+      },
+      "WebhookIngestRequest": {
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "title": "Adapter Id"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/Domain"
+          },
+          "normalizer_version": {
+            "type": "string",
+            "title": "Normalizer Version",
+            "default": "1.0.0"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookItem"
+            },
+            "type": "array",
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter_id",
+          "domain",
+          "items"
+        ],
+        "title": "WebhookIngestRequest",
+        "description": "Webhook ingestion payload \u2014 pre-normalized content from external sources.\n\nThe caller identifies itself via adapter_id + domain + normalizer_version,\nthen provides one or more content items to ingest."
+      },
+      "WebhookIngestResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "sources_processed": {
+            "type": "integer",
+            "title": "Sources Processed"
+          },
+          "sources_failed": {
+            "type": "integer",
+            "title": "Sources Failed"
+          },
+          "chunks_added": {
+            "type": "integer",
+            "title": "Chunks Added"
+          },
+          "chunks_removed": {
+            "type": "integer",
+            "title": "Chunks Removed"
+          },
+          "chunks_unchanged": {
+            "type": "integer",
+            "title": "Chunks Unchanged"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/IngestError"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "entity_linking_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "failed",
+                  "partial"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Linking Status"
+          },
+          "entity_linking_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Linking Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "sources_processed",
+          "sources_failed",
+          "chunks_added",
+          "chunks_removed",
+          "chunks_unchanged",
+          "errors"
+        ],
+        "title": "WebhookIngestResponse"
+      },
+      "WebhookItem": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "markdown": {
+            "type": "string",
+            "title": "Markdown"
+          },
+          "structural_hints": {
+            "$ref": "#/components/schemas/StructuralHints"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "markdown",
+          "structural_hints"
+        ],
+        "title": "WebhookItem",
+        "description": "A single content item within a webhook payload."
+      }
+    }
+  }
+}

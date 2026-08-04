@@ -265,6 +265,21 @@ See [context-helpers/README.md](../context-helpers/README.md) for setup instruct
 
 All detail responses include a `_links` object with URLs to related resources, so the API is traversable without consulting docs.
 
+#### API Reference (OpenAPI)
+
+FastAPI generates the full OpenAPI spec automatically from the route/schema definitions — no separate spec is hand-maintained. While the server is running:
+
+- Interactive docs: `http://localhost:8000/docs` (Swagger UI) or `http://localhost:8000/redoc`
+- Raw spec: `http://localhost:8000/openapi.json`
+
+To inspect the API surface without running the server, export the spec to a versioned `openapi.json` at the repo root:
+
+```bash
+./scripts/generate-openapi.sh
+```
+
+Re-run it whenever `server/routes/*.py` or `server/schemas.py` change and commit the resulting `openapi.json`, so the API surface is diffable in review.
+
 #### Example traversal
 
 ```bash
@@ -324,7 +339,10 @@ curl -X POST http://localhost:8000/ingest/apple \
 
 - [Architecture](./documentation/Architecture.md) — System design and component structure
 - [Persistence Design](./documentation/persistence-design.md) — Dual-storage architecture and data consistency
+- [Schema ERD](./documentation/schema-erd.md) — Entity-relationship reference for the SQLite schema
 - [Chunking Strategy](./documentation/chunking-strategy.md) — Content-aware chunking for each domain
+- [Entity Linking](./documentation/entity-linking.md) — How person chunks get linked to mentions across other domains, and known failure modes
+- [Normalization Contract](./documentation/normalization-contract.md) — The phone/email format contract between context-helpers and the entity linker
 - [Roadmap](./documentation/roadmap.md) — Implementation phases and status
 
 ---
