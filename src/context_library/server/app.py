@@ -16,7 +16,7 @@ from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.scheduler.poller import Poller
 from context_library.server.config import ServerConfig
-from context_library.server.routes import admin, adapters, chunks, dead_letters, health, ingest, retrieve, sources, stats
+from context_library.server.routes import admin, adapters, chunks, dead_letters, health, ingest, people, retrieve, sources, stats
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
@@ -277,6 +277,7 @@ def create_app() -> FastAPI:
     app.include_router(adapters.router)
     app.include_router(sources.router)
     app.include_router(chunks.router)
+    app.include_router(people.router)
     app.include_router(stats.router)
     app.include_router(admin.router)
     app.include_router(dead_letters.router)

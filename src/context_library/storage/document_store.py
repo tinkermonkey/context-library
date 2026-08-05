@@ -3216,6 +3216,134 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [row[0] for row in rows]
 
+    def get_person_chunk_hashes_by_contact_id(self, contact_id: str) -> list[str]:
+        """Resolve a contact_id to its active PEOPLE chunk hashes.
+
+        A contact may have more than one active person chunk (e.g. re-chunked across
+        source versions), so this returns all matches rather than a single hash.
+
+        Args:
+            contact_id: The contact UUID stored in PeopleMetadata.contact_id.
+
+        Returns:
+            List of chunk_hashes from active (non-retired) PEOPLE chunks whose
+            domain_metadata.contact_id matches. Empty list if no match is found.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT c.chunk_hash
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE s.domain = ?
+              AND c.retired_at IS NULL
+              AND c.source_version = s.current_version
+              AND json_extract(c.domain_metadata, '$.contact_id') = ?
+            """,
+            (Domain.PEOPLE.value, contact_id),
+        )
+        return [row["chunk_hash"] for row in cursor.fetchall()]
+
+    def get_entity_linked_chunks(
+        self,
+        person_chunk_hashes: list[str],
+        domains: Optional[list[str]] = None,
+        since: Optional[str] = None,
+        before: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ChunkWithLineageContext], int]:
+        """Fetch chunks linked (via entity_links) to any of the given PEOPLE chunk hashes.
+
+        Traverses entity_links from person_chunk_hashes (as source) to their target
+        chunks, joining in lineage metadata. Only active (non-retired, current-version)
+        target chunks are returned. Results are ordered by fetch_timestamp descending
+        (most recent first), matching the "recency" contract of the contact-context API.
+
+        Args:
+            person_chunk_hashes: PEOPLE chunk hashes to traverse links from.
+            domains: Optional list of domain values to restrict target chunks to.
+            since: Optional ISO 8601 timestamp (inclusive lower bound on fetch_timestamp).
+            before: Optional ISO 8601 timestamp (inclusive upper bound on fetch_timestamp).
+            limit: Maximum number of results to return.
+            offset: Number of results to skip.
+
+        Returns:
+            Tuple of (page of ChunkWithLineageContext, total matching count). Corrupt
+            chunks (malformed domain_metadata JSON) are skipped with a warning logged.
+        """
+        if not person_chunk_hashes:
+            return [], 0
+
+        cursor = self.conn.cursor()
+        where_clauses = [
+            "c.retired_at IS NULL",
+            "c.source_version = s.current_version",
+            f"el.source_chunk_hash IN ({','.join('?' * len(person_chunk_hashes))})",
+            "el.link_type = ?",
+        ]
+        params: list = list(person_chunk_hashes) + [ENTITY_LINK_TYPE_PERSON_APPEARANCE]
+
+        if domains:
+            where_clauses.append(f"s.domain IN ({','.join('?' * len(domains))})")
+            params.extend(domains)
+        if since is not None:
+            where_clauses.append("c.fetch_timestamp >= ?")
+            params.append(since)
+        if before is not None:
+            where_clauses.append("c.fetch_timestamp <= ?")
+            params.append(before)
+
+        where_sql = " AND ".join(where_clauses)
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS count FROM (
+                SELECT DISTINCT c.chunk_hash, c.source_id
+                FROM entity_links el
+                JOIN chunks c ON c.chunk_hash = el.target_chunk_hash
+                JOIN sources s ON c.source_id = s.source_id
+                WHERE {where_sql}
+            )
+            """,
+            params,
+        )
+        total = cursor.fetchone()["count"]
+
+        query = f"""
+            SELECT DISTINCT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+                   c.content, c.context_header, c.chunk_type, c.domain_metadata,
+                   c.normalizer_version, c.embedding_model_id, c.fetch_timestamp,
+                   s.adapter_id, s.domain, s.current_version as source_version_id
+            FROM entity_links el
+            JOIN chunks c ON c.chunk_hash = el.target_chunk_hash
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE {where_sql}
+            ORDER BY c.fetch_timestamp DESC
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(query, params + [limit, offset])
+        rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            try:
+                chunk = self._build_chunk_from_row(row)
+                results.append(ChunkWithLineageContext(
+                    chunk=chunk,
+                    source_id=row["source_id"],
+                    source_version_id=row["source_version_id"],
+                    adapter_id=row["adapter_id"],
+                    domain=row["domain"],
+                    normalizer_version=row["normalizer_version"],
+                    embedding_model_id=row["embedding_model_id"],
+                ))
+            except ValueError as e:
+                logger.warning("Skipping corrupt chunk during entity-linked context fetch: %s", e)
+                continue
+
+        return results, total
+
     def delete_retired_person_links_atomic(self) -> int:
         """Atomically delete entity_links for all retired person chunks.
 
