@@ -394,6 +394,31 @@ class TopLevelChunkListResponse(BaseModel):
     offset: int
 
 
+# ── Contact context (entity_links traversal) ─────────────────────────
+
+
+class PersonContextItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    chunk_hash: str
+    content: str
+    context_header: str | None
+    chunk_index: int
+    chunk_type: str
+    domain: str
+    domain_metadata: dict | None
+    lineage: LineageResponse
+    links: dict[str, str] = Field(default_factory=dict, alias="_links")
+
+
+class PersonContextResponse(BaseModel):
+    contact_id: str
+    items: list[PersonContextItem]
+    total: int
+    limit: int
+    offset: int
+
+
 # ── Adapter stats ────────────────────────────────────────────────────
 
 
