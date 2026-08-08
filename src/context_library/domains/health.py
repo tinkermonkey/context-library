@@ -1,6 +1,7 @@
 """Health domain chunker for health-related content."""
 
 import logging
+
 from pydantic import ValidationError
 
 from context_library.domains.base import BaseDomain
@@ -114,7 +115,7 @@ class HealthDomain(BaseDomain):
 logger = logging.getLogger(__name__)
 
 
-def format_sleep_efficiency(efficiency: float | int | None) -> str:
+def format_sleep_efficiency(efficiency: float | None) -> str:
     """Format sleep efficiency value for markdown output.
 
     Args:

@@ -87,12 +87,10 @@ async def get_person_context(
                 normalizer_version=chunk_ctx.normalizer_version,
                 embedding_model_id=chunk_ctx.embedding_model_id,
             ),
-            **{
-                "_links": {
+            _links={
                     "chunk": f"/chunks/{chunk_ctx.chunk.chunk_hash}?source_id={chunk_ctx.source_id}",
                     "source": f"/sources/{chunk_ctx.source_id}",
-                }
-            },
+                },
         )
         for chunk_ctx in chunk_tuples
     ]

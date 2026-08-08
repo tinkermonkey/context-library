@@ -1,17 +1,16 @@
 """Tests for the scheduler watcher."""
 import os
-
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, call, patch
 
 import pytest
 
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileEvent, FileSystemWatcher
+from context_library.adapters.base import BaseAdapter
+from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
-from context_library.core.differ import Differ
 from context_library.domains.base import BaseDomain
 from context_library.scheduler.watcher import Watcher
 from context_library.storage.document_store import DocumentStore
@@ -335,24 +334,23 @@ class TestWatcherEventIsolation:
         # Mock pipeline.ingest to fail on first call, succeed on second
         with patch.object(
             pipeline, "ingest", side_effect=[Exception("First failure"), None]
-        ):
-            with patch("context_library.scheduler.watcher.logger"):
-                # First event (fails)
-                watcher.handle_webhook(
-                    source_ref="/test/file1.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        ), patch("context_library.scheduler.watcher.logger"):
+            # First event (fails)
+            watcher.handle_webhook(
+                source_ref="/test/file1.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
-                # Second event (succeeds)
-                watcher.handle_webhook(
-                    source_ref="/test/file2.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+            # Second event (succeeds)
+            watcher.handle_webhook(
+                source_ref="/test/file2.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
-                # Both should have attempted to call ingest
-                assert pipeline.ingest.call_count == 2
+            # Both should have attempted to call ingest
+            assert pipeline.ingest.call_count == 2
 
 
 class TestWatcherImportability:
@@ -527,16 +525,15 @@ class TestWatcherRetryMechanism:
 
         with patch.object(
             pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
-        ):
-            with patch("context_library.scheduler.watcher.logger"):
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        ), patch("context_library.scheduler.watcher.logger"):
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
-                # Should be in retry queue
-                assert watcher.get_retry_queue_size() == 1
+            # Should be in retry queue
+            assert watcher.get_retry_queue_size() == 1
 
     def test_retry_queue_respects_max_retries(self, pipeline):
         """Events should be dropped after max_retries is exceeded."""
@@ -546,34 +543,33 @@ class TestWatcherRetryMechanism:
 
         with patch.object(
             pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
-        ):
-            with patch("context_library.scheduler.watcher.logger"):
-                # First failure
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                    retry_count=0,
-                )
-                assert watcher.get_retry_queue_size() == 1
+        ), patch("context_library.scheduler.watcher.logger"):
+            # First failure
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+                retry_count=0,
+            )
+            assert watcher.get_retry_queue_size() == 1
 
-                # Second failure (retry 1)
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                    retry_count=1,
-                )
-                assert watcher.get_retry_queue_size() == 2
+            # Second failure (retry 1)
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+                retry_count=1,
+            )
+            assert watcher.get_retry_queue_size() == 2
 
-                # Third failure (retry 2) - should not be queued (exceeds max_retries)
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                    retry_count=2,
-                )
-                assert watcher.get_retry_queue_size() == 2
+            # Third failure (retry 2) - should not be queued (exceeds max_retries)
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+                retry_count=2,
+            )
+            assert watcher.get_retry_queue_size() == 2
 
     def test_flush_retry_queue_retries_events(self, pipeline):
         """flush_retry_queue() should process queued events."""
@@ -584,13 +580,12 @@ class TestWatcherRetryMechanism:
         # Queue a failed event
         with patch.object(
             pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
-        ):
-            with patch("context_library.scheduler.watcher.logger"):
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        ), patch("context_library.scheduler.watcher.logger"):
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
         assert watcher.get_retry_queue_size() == 1
 
@@ -633,13 +628,12 @@ class TestWatcherRetryMechanism:
         # Queue a failed event
         with patch.object(
             pipeline, "ingest", side_effect=RuntimeError("Pipeline failed")
-        ):
-            with patch("context_library.scheduler.watcher.logger"):
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        ), patch("context_library.scheduler.watcher.logger"):
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
         assert watcher.get_retry_queue_size() == 1
 

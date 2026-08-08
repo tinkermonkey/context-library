@@ -2,13 +2,12 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 from pydantic import ValidationError
 
-from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
 from context_library.adapters.base import ResetResult
-
+from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

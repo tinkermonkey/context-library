@@ -54,15 +54,15 @@ This adapter:
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
     EventMetadata,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
 )
 

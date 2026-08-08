@@ -12,7 +12,6 @@ import pytest
 from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
 from context_library.storage.models import Domain, NormalizedContent
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

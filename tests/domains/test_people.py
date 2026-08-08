@@ -2,14 +2,14 @@
 
 import pytest
 
-from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.domains.people import PeopleDomain
+from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.storage.models import (
     Chunk,
     ChunkType,
     NormalizedContent,
-    StructuralHints,
     PeopleMetadata,
+    StructuralHints,
     compute_chunk_hash,
 )
 

@@ -45,7 +45,6 @@ class BaseDomain(ABC):
         Returns:
             A list of Chunk instances with sequential chunk_index values
         """
-        pass
 
     def _token_count(self, text: str) -> int:
         """Count tokens as whitespace-split words.

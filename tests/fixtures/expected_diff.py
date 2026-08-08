@@ -42,7 +42,7 @@ def get_expected_changes(initial_chunks, modified_chunks):
     removed_hashes = initial_hashes - modified_hashes
 
     return {
-        "added_hashes": sorted(list(added_hashes)),
-        "removed_hashes": sorted(list(removed_hashes)),
-        "unchanged_hashes": sorted(list(unchanged_hashes)),
+        "added_hashes": sorted(added_hashes),
+        "removed_hashes": sorted(removed_hashes),
+        "unchanged_hashes": sorted(unchanged_hashes),
     }

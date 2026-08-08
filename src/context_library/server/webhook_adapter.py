@@ -5,7 +5,7 @@ as a standard BaseAdapter to the IngestionPipeline. The pipeline sees it
 as just another adapter — no special-casing required.
 """
 
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import Domain, NormalizedContent, PollStrategy

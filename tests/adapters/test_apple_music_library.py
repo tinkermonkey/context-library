@@ -3,7 +3,12 @@
 import pytest
 
 from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, DocumentMetadata
+from context_library.storage.models import (
+    DocumentMetadata,
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestAppleMusicLibraryAdapterInitialization:

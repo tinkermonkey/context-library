@@ -4,9 +4,9 @@ This module provides common setup and server startup logic for all adapter servi
 scripts, reducing code duplication while maintaining clear, independent examples.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 from typing import Any
 
 

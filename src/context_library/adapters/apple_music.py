@@ -28,13 +28,14 @@ Security:
 """
 
 import logging
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.adapters.apple_music_base import AppleMusicBaseMixin
+from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
-    Domain,
     DocumentMetadata,
+    Domain,
     NormalizedContent,
     PollStrategy,
     StructuralHints,

@@ -1,7 +1,6 @@
 """Tests for the pipeline module."""
-import os
-
 import logging
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -891,6 +890,7 @@ class TestChunkVersioningFixes:
         When two sources have identical content, both should be queryable without warnings.
         """
         import tempfile
+
         from context_library.adapters.filesystem import FilesystemAdapter
 
         # Create a markdown directory with identical content in multiple files
@@ -1019,7 +1019,7 @@ class TestPipelineErrorHandling:
         assert len(result["errors"]) == 0
 
         # All sources should have successful consistency status
-        for source_id, status in result["store_consistency"].items():
+        for status in result["store_consistency"].values():
             assert status == "success"
 
     def test_embedding_error_tracked_and_reported(
@@ -1449,6 +1449,7 @@ class TestPipelineRunLifecycle:
     def test_active_runs_empty_after_ingest_raises(self, pipeline, domain_chunker):
         """_active_runs should be empty even when ingest() raises an exception."""
         from unittest.mock import MagicMock
+
         from context_library.adapters.base import AllEndpointsFailedError
         from context_library.core.exceptions import AllSourcesFailedError
         from context_library.storage.models import Domain
@@ -1468,6 +1469,7 @@ class TestPipelineRunLifecycle:
         """_active_runs should contain exactly one entry while ingest() is executing."""
         import threading
         from unittest.mock import MagicMock
+
         from context_library.storage.models import Domain
 
         fetch_started = threading.Event()
@@ -1502,6 +1504,7 @@ class TestPipelineRunLifecycle:
         """current_step should be 'fetch' while adapter.fetch() is iterating."""
         import threading
         from unittest.mock import MagicMock
+
         from context_library.storage.models import Domain
 
         fetch_started = threading.Event()
@@ -1549,6 +1552,7 @@ class TestPipelineRunLifecycle:
     ):
         """errors counter increments when per-source chunking fails, and run is cleaned up."""
         from unittest.mock import MagicMock
+
         from context_library.core.exceptions import AllSourcesFailedError, ChunkingError
 
         failing_chunker = MagicMock(spec=NotesDomain)

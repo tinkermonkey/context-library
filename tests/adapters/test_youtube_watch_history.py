@@ -2,16 +2,15 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 
+from context_library.adapters.base import ResetResult
 from context_library.adapters.youtube_watch_history import (
     YouTubeWatchHistoryAdapter,
     _build_watch_markdown,
 )
-from context_library.adapters.base import ResetResult
 from context_library.storage.models import Domain, EventMetadata, PollStrategy
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 

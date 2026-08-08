@@ -1,7 +1,7 @@
 """Tests for the FilesystemAdapter."""
 
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 

@@ -32,14 +32,14 @@ Requires ``youtube-transcript-api``::
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
-    Domain,
     DocumentMetadata,
+    Domain,
     NormalizedContent,
     PollStrategy,
     StructuralHints,

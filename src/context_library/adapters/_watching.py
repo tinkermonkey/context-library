@@ -5,13 +5,14 @@ extension filtering, and atomic-save protection. Uses watchdog if available,
 otherwise falls back to watchfiles.
 """
 
+import gc
 import logging
 import threading
-import gc
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from context_library.storage.models import EventType, PollStrategy
 
@@ -22,8 +23,8 @@ HAS_WATCHDOG = False
 HAS_WATCHFILES = False
 
 try:
+    from watchdog.events import FileSystemEvent, FileSystemEventHandler
     from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler, FileSystemEvent
     HAS_WATCHDOG = True
 except ImportError:
     pass
@@ -403,9 +404,8 @@ class FileSystemWatcher:
             event_type: Type of event (created, modified, or deleted)
         """
         # Filter by extension if configured
-        if self._extensions is not None:
-            if path.suffix not in self._extensions:
-                return
+        if self._extensions is not None and path.suffix not in self._extensions:
+            return
 
         with self._buffer_lock:
             # Cancel existing timer and update buffer

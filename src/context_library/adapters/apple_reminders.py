@@ -54,15 +54,15 @@ This adapter:
 """
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
-    TaskMetadata,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
+    TaskMetadata,
 )
 
 logger = logging.getLogger(__name__)

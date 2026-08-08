@@ -1,12 +1,16 @@
 """Tests for the AppleCalendarAdapter."""
 
-import pytest
-
 import httpx
+import pytest
 
 from context_library.adapters.apple_calendar import AppleCalendarAdapter
 from context_library.adapters.base import EndpointFetchError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, EventMetadata
+from context_library.storage.models import (
+    Domain,
+    EventMetadata,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestAppleCalendarAdapterInitialization:

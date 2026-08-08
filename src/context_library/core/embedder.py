@@ -2,8 +2,9 @@
 
 from typing import cast
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from sentence_transformers import SentenceTransformer
+
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()

@@ -20,7 +20,7 @@ from context_library.server.schemas import (
 from context_library.server.webhook_adapter import WebhookAdapter
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Domain, NormalizedContent
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)

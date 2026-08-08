@@ -12,18 +12,18 @@ from context_library.domains.location import LocationDomain
 from context_library.domains.messages import MessagesDomain
 from context_library.domains.notes import NotesDomain
 from context_library.domains.people import PeopleDomain
-from context_library.domains.tasks import TasksDomain
 from context_library.domains.registry import get_domain_chunker, list_registered_domains
+from context_library.domains.tasks import TasksDomain
 
 __all__ = [
+    "DocumentsDomain",
+    "EventsDomain",
+    "HealthDomain",
+    "LocationDomain",
     "MessagesDomain",
     "NotesDomain",
-    "EventsDomain",
-    "TasksDomain",
-    "HealthDomain",
-    "DocumentsDomain",
     "PeopleDomain",
-    "LocationDomain",
+    "TasksDomain",
     "get_domain_chunker",
     "list_registered_domains",
 ]

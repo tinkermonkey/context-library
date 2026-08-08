@@ -10,7 +10,7 @@ Covers:
 
 import os
 import tempfile
-from typing import Generator
+from collections.abc import Generator
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,7 +18,13 @@ import pytest
 from context_library.core.embedder import Embedder
 from context_library.retrieval.query import RetrievalResult, retrieve
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import AdapterConfig, Chunk, ChunkType, Domain, LineageRecord
+from context_library.storage.models import (
+    AdapterConfig,
+    Chunk,
+    ChunkType,
+    Domain,
+    LineageRecord,
+)
 from context_library.storage.vector_store import VectorSearchResult, VectorStore
 
 
@@ -754,7 +760,7 @@ class TestRetrieve:
         import logging
         caplog.set_level(logging.WARNING)
 
-        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+        _source_id, _adapter_id, _version_id = self._setup_document_store(document_store)
 
         chunk = _create_test_chunk("a", chunk_index=0)
         document_store.get_lineage = MagicMock(return_value=None)
@@ -778,7 +784,7 @@ class TestRetrieve:
         import logging
         caplog.set_level(logging.WARNING)
 
-        source_id, adapter_id, version_id = self._setup_document_store(document_store)
+        source_id, _adapter_id, _version_id = self._setup_document_store(document_store)
         chunk = _create_test_chunk("a", chunk_index=0)
         lineage = _create_test_lineage("a", source_id=source_id)
         document_store.write_chunks([chunk], [lineage])

@@ -17,24 +17,25 @@ Covers:
 
 import os
 import tempfile
+from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast, Generator
+from typing import cast
 
 import pytest
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     AdapterConfig,
     Chunk,
     ChunkType,
     Domain,
     EntityLink,
-    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     LineageRecord,
     PollStrategy,
     VersionDiff,
-    compute_chunk_hash
+    compute_chunk_hash,
 )
 
 
@@ -508,7 +509,7 @@ class TestChunkWriteAndRead:
         self, store: DocumentStore
     ) -> None:
         """Test that write_chunks raises IntegrityError for foreign key violation."""
-        source_id, adapter_id, version_id = self._setup_with_version(store)
+        source_id, _adapter_id, version_id = self._setup_with_version(store)
 
         chunk = Chunk(
             chunk_hash=_make_hash("1"),
@@ -651,7 +652,7 @@ class TestGetChunkByHashWithSourceId:
     ) -> None:
         """Test that source_id parameter returns None if chunk not in that source."""
         source1_id, adapter1_id, version1_id = self._setup_with_version(store)
-        source2_id, adapter2_id, version2_id = self._setup_with_version(store)
+        source2_id, _adapter2_id, _version2_id = self._setup_with_version(store)
 
         # Write chunk to source 1 only
         chunk = Chunk(
@@ -1206,7 +1207,7 @@ class TestAdapterReset:
 
     def test_reset_adapter_retires_chunks(self, store: DocumentStore) -> None:
         """Test that reset_adapter retires all chunks for the adapter."""
-        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+        _source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=2
         )
 
@@ -1222,7 +1223,7 @@ class TestAdapterReset:
 
     def test_reset_adapter_writes_sync_log_entries(self, store: DocumentStore) -> None:
         """Test that reset_adapter writes DELETE entries to lancedb_sync_log."""
-        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+        _source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=2
         )
 
@@ -1240,7 +1241,7 @@ class TestAdapterReset:
 
     def test_reset_adapter_clears_last_fetched_at(self, store: DocumentStore) -> None:
         """Test that reset_adapter clears last_fetched_at for all sources."""
-        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+        _source_ids, _ = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=2
         )
 
@@ -1287,7 +1288,7 @@ class TestAdapterReset:
 
     def test_reset_adapter_preserves_adapter_row(self, store: DocumentStore) -> None:
         """Test that reset_adapter preserves adapter registration."""
-        source_ids, _ = self._setup_adapter_with_sources_and_chunks(
+        _source_ids, _ = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=1
         )
 
@@ -1327,7 +1328,7 @@ class TestAdapterReset:
         - First call retires all non-retired chunks
         - Second call finds 0 chunks to retire (all already retired) but counts sources
         """
-        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+        _source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=2
         )
 
@@ -1350,10 +1351,10 @@ class TestAdapterReset:
     ) -> None:
         """Test that reset_adapter only affects the specified adapter."""
         # Setup two adapters with different seeds to avoid hash collisions
-        source_ids_1, chunk_hashes_1 = self._setup_adapter_with_sources_and_chunks(
+        _source_ids_1, chunk_hashes_1 = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=1
         )
-        source_ids_2, chunk_hashes_2 = self._setup_adapter_with_sources_and_chunks(
+        _source_ids_2, chunk_hashes_2 = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-2", num_sources=1
         )
 
@@ -1392,7 +1393,7 @@ class TestAdapterReset:
         self, store: DocumentStore
     ) -> None:
         """Test that reset_adapter preserves source_version history."""
-        source_ids, chunk_hashes = self._setup_adapter_with_sources_and_chunks(
+        source_ids, _chunk_hashes = self._setup_adapter_with_sources_and_chunks(
             store, "adapter-1", num_sources=1
         )
 
@@ -4799,7 +4800,7 @@ class TestCrossReferencesRoundTrip:
 
     def test_build_chunk_from_row_malformed_json_raises_value_error(self, store: DocumentStore) -> None:
         """Test that malformed JSON in domain_metadata raises informative ValueError."""
-        source_id, adapter_id, version_id = self._setup_with_version(store)
+        source_id, adapter_id, _version_id = self._setup_with_version(store)
 
         # Manually insert a chunk with corrupt JSON in domain_metadata
         cursor = store.conn.cursor()
@@ -4836,7 +4837,7 @@ class TestCrossReferencesRoundTrip:
 
     def test_build_chunk_from_row_non_iterable_cross_refs_raises_value_error(self, store: DocumentStore) -> None:
         """Test that non-iterable _system_cross_refs value raises informative ValueError."""
-        source_id, adapter_id, version_id = self._setup_with_version(store)
+        source_id, adapter_id, _version_id = self._setup_with_version(store)
 
         # Manually insert a chunk with non-iterable _system_cross_refs
         cursor = store.conn.cursor()
@@ -5405,7 +5406,7 @@ class TestListChunks:
         assert total == 0
 
     def test_returns_all_chunks(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         ch1 = compute_chunk_hash("content1")
@@ -5439,12 +5440,12 @@ class TestListChunks:
         chunk_tuples, total = store.list_chunks()
         assert total == 1
         assert len(chunk_tuples) == 1
-        chunk, src_id, src_version_id, adapter_id_val, domain_val, normalizer_version, embedding_model_id = chunk_tuples[0]
+        chunk, _src_id, _src_version_id, _adapter_id_val, _domain_val, _normalizer_version, _embedding_model_id = chunk_tuples[0]
         assert chunk.chunk_hash == ch1
         assert chunk.content == "content1"
 
     def test_filters_by_domain(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         # Create a chunk in notes domain
@@ -5487,7 +5488,7 @@ class TestListChunks:
         assert len(rows) == 0
 
     def test_filters_by_adapter_id(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         ch1 = compute_chunk_hash("content")
@@ -5523,11 +5524,11 @@ class TestListChunks:
         assert total == 1
 
         # Query for different adapter_id returns nothing
-        rows, total = store.list_chunks(adapter_id="other-adapter")
+        _rows, total = store.list_chunks(adapter_id="other-adapter")
         assert total == 0
 
     def test_pagination(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         # Create 5 chunks in a single source version
@@ -5578,7 +5579,7 @@ class TestListChunks:
         assert len(rows) == 2
 
     def test_excludes_retired_chunks(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         ch1 = compute_chunk_hash("content")
@@ -5617,7 +5618,7 @@ class TestListChunks:
         store.retire_chunks({ch1}, "read-src", 1)
 
         # Should now have 0 chunks
-        rows, total = store.list_chunks()
+        _rows, total = store.list_chunks()
         assert total == 0
 
 
@@ -5629,7 +5630,7 @@ class TestGetAdapterStats:
         assert stats == []
 
     def test_single_adapter_single_source(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         ch1 = compute_chunk_hash("content")
@@ -5669,7 +5670,7 @@ class TestGetAdapterStats:
         assert stats[0]["active_chunk_count"] == 1
 
     def test_single_adapter_multiple_chunks(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         # Create multiple chunks in same source
@@ -5713,7 +5714,7 @@ class TestGetAdapterStats:
         assert stats[0]["active_chunk_count"] == 3
 
     def test_excludes_retired_chunks(self, store: DocumentStore) -> None:
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
         _setup_adapter_and_source(store)
 
         # Create 2 chunks
@@ -6006,7 +6007,7 @@ class TestQueryChunksByIdentifiers:
 
     def _setup_chunks_with_metadata(self, store: DocumentStore) -> None:
         """Set up test chunks with domain_metadata for identifier searching."""
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
 
         _setup_adapter_and_source(store)
 
@@ -6283,7 +6284,7 @@ class TestQueryChunksByIdentifiers:
 
     def test_retired_chunks_excluded(self, store: DocumentStore) -> None:
         """Test that retired chunks are excluded from results."""
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
 
         _setup_adapter_and_source(store)
 

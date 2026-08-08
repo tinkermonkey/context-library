@@ -45,15 +45,14 @@ This adapter:
 
 import logging
 import time
-from typing import Iterator
+from collections.abc import Iterator
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
 from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import Domain, NormalizedContent
-
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 _tracer = get_tracer(__name__)

@@ -172,11 +172,17 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
-from context_library.adapters.base import BaseAdapter, HelperAckMixin, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.base import (
+    AllEndpointsFailedError,
+    BaseAdapter,
+    EndpointFetchError,
+    HelperAckMixin,
+    PartialFetchError,
+)
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,

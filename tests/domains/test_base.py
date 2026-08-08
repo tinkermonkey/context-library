@@ -10,7 +10,12 @@ Covers:
 import pytest
 
 from context_library.domains.base import BaseDomain
-from context_library.storage.models import Chunk, ChunkType, NormalizedContent, compute_chunk_hash
+from context_library.storage.models import (
+    Chunk,
+    ChunkType,
+    NormalizedContent,
+    compute_chunk_hash,
+)
 
 
 class ConcreteBaseDomain(BaseDomain):

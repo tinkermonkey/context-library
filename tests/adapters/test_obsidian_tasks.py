@@ -805,6 +805,7 @@ class TestPushMode:
     def test_push_mode_records_file_changes(self, vault_with_standard_tasks, tmp_path):
         """_on_file_changed records file paths for re-ingestion."""
         from pathlib import Path
+
         from context_library.adapters._watching import FileEvent
         from context_library.storage.models import EventType
 
@@ -823,6 +824,7 @@ class TestPushMode:
     def test_push_mode_selective_reingestion(self, vault_with_standard_tasks):
         """Subsequent fetches in push mode only process changed files."""
         from pathlib import Path
+
         from context_library.adapters._watching import FileEvent
         from context_library.storage.models import EventType
 
@@ -866,6 +868,7 @@ class TestPushMode:
     def test_push_mode_clears_changed_files_after_fetch(self, vault_with_standard_tasks):
         """_changed_files set is cleared after processing changed files."""
         from pathlib import Path
+
         from context_library.adapters._watching import FileEvent
         from context_library.storage.models import EventType
 

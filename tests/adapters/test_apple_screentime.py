@@ -10,7 +10,7 @@ except ImportError:
 
 from context_library.adapters.apple_screentime import AppleScreenTimeAdapter
 from context_library.adapters.base import AllEndpointsFailedError, PartialFetchError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent
+from context_library.storage.models import Domain, NormalizedContent, PollStrategy
 
 
 class TestAppleScreenTimeAdapterInitialization:

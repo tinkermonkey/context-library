@@ -7,10 +7,11 @@ Tests for:
 - v1 to v3 chained migration: ensures v1→v2→v3 path works correctly
 """
 
-import pytest
 import sqlite3
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from context_library.storage.document_store import DocumentStore
 

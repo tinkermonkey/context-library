@@ -1,6 +1,7 @@
 """Tests for POST /query endpoint (semantic search)."""
 
 from typing import Any
+
 from fastapi.testclient import TestClient
 
 
@@ -162,6 +163,7 @@ class TestSemanticSearch:
     def test_include_provenance_true_returns_provenance(self, client_multi_source) -> None:
         """Verify provenance field is returned when include_provenance=True."""
         from unittest.mock import MagicMock
+
         from context_library.storage.models import compute_chunk_hash
 
         # Set up mock search result

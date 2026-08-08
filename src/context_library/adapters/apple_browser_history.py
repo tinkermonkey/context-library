@@ -57,14 +57,14 @@ This adapter:
 
 import hashlib
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
-    Domain,
-    PollStrategy,
     DocumentMetadata,
+    Domain,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
 )
 

@@ -5,9 +5,9 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.retrieval.query import retrieve
 from context_library.server.schemas import QueryRequest, QueryResponse, QueryResultItem
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 try:
     from opentelemetry import context as otel_context

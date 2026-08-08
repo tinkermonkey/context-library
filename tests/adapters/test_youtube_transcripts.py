@@ -10,8 +10,7 @@ from context_library.adapters.youtube_transcripts import (
     _format_timestamp,
     _merge_segments,
 )
-from context_library.storage.models import Domain, DocumentMetadata, PollStrategy
-
+from context_library.storage.models import DocumentMetadata, Domain, PollStrategy
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 

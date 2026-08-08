@@ -27,8 +27,8 @@ def document_store():
     # Use a temporary file instead of :memory: to support multi-threaded access.
     # SQLite :memory: databases are per-connection, so each thread gets its own
     # isolated empty database. File-based databases work correctly across threads.
-    import tempfile
     import os
+    import tempfile
 
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
     temp_path = temp_file.name

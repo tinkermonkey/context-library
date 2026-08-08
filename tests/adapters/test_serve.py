@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from context_library.adapters.base import BaseAdapter
-from context_library.adapters.serve import serve_adapter, MAX_BODY_SIZE
+from context_library.adapters.serve import MAX_BODY_SIZE, serve_adapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,

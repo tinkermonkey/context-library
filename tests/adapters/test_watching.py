@@ -1,15 +1,19 @@
 """Tests for the shared filesystem watcher module."""
 
-import pytest
+import gc
 import tempfile
 import time
-import gc
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from context_library.adapters._watching import FileEvent, FileSystemWatcher, PollStrategy
-from context_library.storage.models import EventType
+import pytest
 
+from context_library.adapters._watching import (
+    FileEvent,
+    FileSystemWatcher,
+    PollStrategy,
+)
+from context_library.storage.models import EventType
 
 # Marker for tests that require active filesystem watching
 requires_fs_watch = pytest.mark.requires_fs_watch
@@ -67,7 +71,6 @@ def skip_if_inotify_exhausted(request):
         pytest.skip("inotify resources exhausted, skipping filesystem watch tests")
     # Allow test to set this flag if it hits an inotify limit error
     request.addfinalizer(lambda: None)
-    return
 
 
 class TestFileEvent:
@@ -770,6 +773,7 @@ class TestFileSystemWatcherInitializationFailure:
     def test_thread_death_during_initialization_raises_error(self) -> None:
         """Test that RuntimeError is raised when watchfiles thread dies during startup."""
         from unittest.mock import patch
+
         from context_library.adapters import _watching
 
         # Only run this test if watchfiles is available

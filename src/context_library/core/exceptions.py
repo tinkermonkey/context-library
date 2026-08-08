@@ -4,7 +4,6 @@
 class PipelineError(Exception):
     """Base exception for pipeline errors."""
 
-    pass
 
 
 class EmbeddingError(PipelineError):
@@ -98,7 +97,6 @@ class AllSourcesFailedError(PipelineError):
     failed to process successfully (sources_failed > 0 AND sources_processed == 0).
     """
 
-    pass
 
 
 class EntityLinkingError(PipelineError):
@@ -108,4 +106,3 @@ class EntityLinkingError(PipelineError):
     during cleanup of retired person links, identifier extraction, or link creation.
     """
 
-    pass

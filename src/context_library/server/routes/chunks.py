@@ -44,16 +44,14 @@ def _chunk_response(chunk, lineage, source_id: str) -> ChunkResponse:
         domain_metadata=chunk.domain_metadata,
         cross_refs=list(chunk.cross_refs),
         lineage=_lineage_response(lineage),
-        **{
-            "_links": {
+        _links={
                 "self": f"/chunks/{chunk.chunk_hash}?source_id={source_id}",
                 "source": f"/sources/{source_id}",
                 "source_version": f"/sources/{source_id}/versions/{lineage.source_version_id}",
                 "provenance": f"/chunks/{chunk.chunk_hash}/provenance?source_id={source_id}",
                 "version_chain": f"/chunks/{chunk.chunk_hash}/version-chain?source_id={source_id}",
                 "adapter": f"/adapters/{lineage.adapter_id}",
-            }
-        },
+            },
     )
 
 
@@ -187,13 +185,11 @@ async def get_chunk_provenance(
         source_origin_ref=prov.source_origin_ref,
         adapter_type=prov.adapter_type,
         version_chain=chain,
-        **{
-            "_links": {
+        _links={
                 "chunk": f"/chunks/{chunk_hash}?source_id={effective_source}",
                 "source": f"/sources/{effective_source}",
                 "adapter": f"/adapters/{prov.lineage.adapter_id}",
-            }
-        },
+            },
     )
 
 

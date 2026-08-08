@@ -13,16 +13,17 @@ Image and audio file support:
 - Use the extensions parameter to pre-filter unwanted file types.
 """
 
+import logging
 import mimetypes
 import re
 import subprocess
-import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, cast
+from typing import Any, cast
 
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileEvent, FileSystemWatcher
+from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,

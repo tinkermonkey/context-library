@@ -39,8 +39,8 @@ This adapter:
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (

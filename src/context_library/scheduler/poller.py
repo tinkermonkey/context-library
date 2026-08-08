@@ -5,19 +5,18 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library import telemetry as tel
-from context_library.core.pipeline import IngestionPipeline
-from context_library.storage.document_store import DocumentStore
 from context_library.adapters.base import BaseAdapter
+from context_library.core.pipeline import IngestionPipeline
 from context_library.domains.base import BaseDomain
 from context_library.scheduler.exceptions import (
-    PollerNotRunningError,
     AdapterNotRegisteredError,
     IngestAlreadyInProgressError,
+    PollerNotRunningError,
 )
+from context_library.storage.document_store import DocumentStore
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -82,7 +81,7 @@ class IngestResult:
     sources_attempted: int = 0
     sources_succeeded: int = 0
     sources_failed: int = 0
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
     had_programming_errors: bool = False  # True if any programming errors were detected
 
     @property
@@ -201,7 +200,7 @@ class Poller:
         # Lock for thread-safe access to ingest results
         self._results_lock = threading.Lock()
 
-    def get_ingest_result(self, adapter_id: str) -> Optional[IngestResult]:
+    def get_ingest_result(self, adapter_id: str) -> IngestResult | None:
         """Retrieve the result of the last background ingest for an adapter.
 
         Returns the IngestResult from the most recent call to trigger_immediate_ingest()

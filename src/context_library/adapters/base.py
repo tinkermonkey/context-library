@@ -2,12 +2,12 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Iterator
+from collections.abc import Iterator
 
 from pydantic import BaseModel, computed_field
 
-from context_library.storage.models import AdapterConfig, Domain, NormalizedContent
 from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import AdapterConfig, Domain, NormalizedContent
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,6 @@ class EndpointFetchError(Exception):
     problems that should terminate the entire fetch operation.
     """
 
-    pass
 
 
 class PartialFetchError(Exception):
@@ -124,7 +123,6 @@ class BaseAdapter(ABC):
         Yields:
             NormalizedContent: Normalized markdown content with structural hints
         """
-        pass
 
     @property
     @abstractmethod
@@ -133,7 +131,6 @@ class BaseAdapter(ABC):
 
         The same adapter type and configuration must always produce the same ID.
         """
-        pass
 
     @property
     @abstractmethod
@@ -142,7 +139,6 @@ class BaseAdapter(ABC):
 
         All content from this adapter belongs to this domain.
         """
-        pass
 
     @property
     @abstractmethod
@@ -151,7 +147,6 @@ class BaseAdapter(ABC):
 
         Used to track when normalization behavior changes.
         """
-        pass
 
     def register(self, document_store: DocumentStore) -> str:
         """Register this adapter with the document store.
@@ -193,7 +188,7 @@ class BaseAdapter(ABC):
         successful pipeline.ingest(); implementations must be best-effort (never
         raise) so an ack failure cannot fail an otherwise-successful ingest.
         """
-        return None
+        return
 
 
 class HelperAckMixin:

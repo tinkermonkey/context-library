@@ -7,17 +7,16 @@ Integrates vector similarity with lineage lookup for full provenance tracing.
 import logging
 import re
 import time
-from typing import Optional
 
-from context_library import telemetry as tel
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from context_library import telemetry as tel
 from context_library.core.embedder import Embedder
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Chunk, Domain, LineageRecord
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import VectorStore
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 _logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -129,8 +128,8 @@ def retrieve(
     document_store: DocumentStore,
     vector_store: VectorStore,
     top_k: int = 10,
-    domain_filter: Optional[Domain] = None,
-    source_filter: Optional[str] = None,
+    domain_filter: Domain | None = None,
+    source_filter: str | None = None,
 ) -> list[RetrievalResult]:
     """Retrieve relevant chunks via semantic similarity search.
 

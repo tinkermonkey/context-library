@@ -1,6 +1,7 @@
 """Tests for GET /stats/activity and GET /admin/pipelines endpoints."""
 
 from unittest.mock import MagicMock
+
 from fastapi.testclient import TestClient
 
 
@@ -76,6 +77,7 @@ class TestGetPipelines:
     def test_returns_active_runs(self, client: TestClient) -> None:
         """Inject a fake active run and verify the endpoint returns it."""
         from datetime import datetime, timedelta, timezone
+
         from context_library.core.pipeline import _PipelineRun
 
         pipeline = client.app.state.pipeline
@@ -107,8 +109,10 @@ class TestGetPipelines:
         assert run["duration_sec"] >= 0
 
     def test_auth_required_when_secret_set(self, ds) -> None:
+        from collections.abc import AsyncGenerator
         from contextlib import asynccontextmanager
-        from typing import AsyncGenerator, Any
+        from typing import Any
+
         from context_library.server.app import create_app
 
         mock_config = MagicMock()

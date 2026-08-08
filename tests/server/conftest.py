@@ -1,12 +1,14 @@
 """Shared fixtures for server tests."""
 
-import pytest
-import tempfile
 import os
-from typing import Generator, AsyncGenerator, Any
-from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
+import tempfile
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
 
 from context_library.server.app import create_app
 from context_library.storage.document_store import DocumentStore

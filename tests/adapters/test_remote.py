@@ -1,12 +1,11 @@
 """Tests for the RemoteAdapter."""
 
-import pytest
-
 import httpx
+import pytest
 from pydantic import ValidationError
 
-from context_library.adapters.remote import RemoteAdapter
 from context_library.adapters.base import ResetResult
+from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import Domain, NormalizedContent
 from tests.adapters.conftest import MockResponse
 

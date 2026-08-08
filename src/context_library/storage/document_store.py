@@ -6,15 +6,18 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, cast
+from typing import cast
+
+from typing_extensions import Self
 
 from context_library.core.identifier_normalizer import normalize_email, normalize_phone
+
 from .models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     AdapterConfig,
     Chunk,
     ChunkWithLineageContext,
     Domain,
-    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     EntityLink,
     LineageRecord,
     PollStrategy,
@@ -1434,7 +1437,7 @@ class DocumentStore:
                 [(h,) for h in chunk_hashes],
             )
 
-    def get_latest_version(self, source_id: str) -> Optional[SourceVersion]:
+    def get_latest_version(self, source_id: str) -> SourceVersion | None:
         """Get the latest version of a source.
 
         Args:
@@ -1780,8 +1783,8 @@ class DocumentStore:
     def get_chunks_by_source(
         self,
         source_id: str,
-        version: Optional[int] = None,
-        limit: Optional[int] = None,
+        version: int | None = None,
+        limit: int | None = None,
         offset: int = 0,
     ) -> tuple[list[Chunk], int]:
         """Get active chunks for a source with optional pagination.
@@ -1840,7 +1843,7 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [self._build_chunk_from_row(row) for row in rows], total
 
-    def get_chunk_by_hash(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[Chunk]:
+    def get_chunk_by_hash(self, chunk_hash: str, source_id: str | None = None) -> Chunk | None:
         """Get a chunk by its hash.
 
         Only returns non-retired chunks. Retired chunks are not returned.
@@ -1886,7 +1889,7 @@ class DocumentStore:
         row = cursor.fetchone()
         return self._build_chunk_from_row(row) if row else None
 
-    def _get_chunk_by_hash_including_retired(self, chunk_hash: str, source_id: str) -> Optional[Chunk]:
+    def _get_chunk_by_hash_including_retired(self, chunk_hash: str, source_id: str) -> Chunk | None:
         """Get a chunk by its hash, including retired chunks.
 
         Internal helper for get_version_diff to retrieve removed chunks that may have been
@@ -1947,7 +1950,7 @@ class DocumentStore:
 
         return row["retired_at"] is not None
 
-    def get_lineage(self, chunk_hash: str, source_id: Optional[str] = None) -> Optional[LineageRecord]:
+    def get_lineage(self, chunk_hash: str, source_id: str | None = None) -> LineageRecord | None:
         """Get the lineage record for a chunk.
 
         Retrieves the full provenance information for a chunk, including the
@@ -2055,7 +2058,7 @@ class DocumentStore:
                 )
         return result
 
-    def get_adapter(self, adapter_id: str) -> Optional[AdapterConfig]:
+    def get_adapter(self, adapter_id: str) -> AdapterConfig | None:
         """Get an adapter configuration by ID.
 
         Args:
@@ -2440,7 +2443,7 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [row["chunk_hash"] for row in rows]
 
-    def get_source_info(self, source_id: str) -> Optional[SourceInfo]:
+    def get_source_info(self, source_id: str) -> SourceInfo | None:
         """Fetch origin_ref and adapter_type for a source.
 
         Joins sources and adapters tables to retrieve both pieces of metadata
@@ -2497,12 +2500,12 @@ class DocumentStore:
 
     def list_sources(
         self,
-        domain: Optional[str] = None,
-        adapter_id: Optional[str] = None,
-        source_id_prefix: Optional[str] = None,
-        state: Optional[str] = None,
-        last_fetched_after: Optional[str] = None,
-        last_fetched_before: Optional[str] = None,
+        domain: str | None = None,
+        adapter_id: str | None = None,
+        source_id_prefix: str | None = None,
+        state: str | None = None,
+        last_fetched_after: str | None = None,
+        last_fetched_before: str | None = None,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = "created_at",
@@ -2594,7 +2597,7 @@ class DocumentStore:
         rows = cursor.fetchall()
         return [dict(row) for row in rows], total
 
-    def get_source_detail(self, source_id: str) -> Optional[dict]:
+    def get_source_detail(self, source_id: str) -> dict | None:
         """Get detailed information about a single source, including adapter metadata.
 
         Args:
@@ -2626,7 +2629,7 @@ class DocumentStore:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def get_source_version(self, source_id: str, version: int) -> Optional[SourceVersion]:
+    def get_source_version(self, source_id: str, version: int) -> SourceVersion | None:
         """Get a specific version of a source.
 
         Args:
@@ -2719,12 +2722,12 @@ class DocumentStore:
 
     def list_chunks(
         self,
-        domain: Optional[str] = None,
-        adapter_id: Optional[str] = None,
-        source_id: Optional[str] = None,
+        domain: str | None = None,
+        adapter_id: str | None = None,
+        source_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
-        metadata_filter: Optional[dict[str, str]] = None,
+        metadata_filter: dict[str, str] | None = None,
     ) -> tuple[list[ChunkWithLineageContext], int]:
         """List active chunks with optional filtering and pagination.
 
@@ -3056,7 +3059,7 @@ class DocumentStore:
         identifiers: list[str],
         scalar_fields: list[str],
         array_fields: list[str],
-        exclude_domain: Optional[str] = None,
+        exclude_domain: str | None = None,
     ) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.
 
@@ -3167,7 +3170,7 @@ class DocumentStore:
         rows = cursor.fetchall()
         found_hashes = {row[0] for row in rows}
 
-        return sorted(list(found_hashes))
+        return sorted(found_hashes)
 
     def get_linked_chunks(
         self,
@@ -3247,9 +3250,9 @@ class DocumentStore:
     def get_entity_linked_chunks(
         self,
         person_chunk_hashes: list[str],
-        domains: Optional[list[str]] = None,
-        since: Optional[str] = None,
-        before: Optional[str] = None,
+        domains: list[str] | None = None,
+        since: str | None = None,
+        before: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ChunkWithLineageContext], int]:
@@ -3438,7 +3441,7 @@ class DocumentStore:
             self._local.conn.close()
             self._local.conn = None
 
-    def __enter__(self) -> "DocumentStore":
+    def __enter__(self) -> Self:
         """Enter context manager."""
         return self
 

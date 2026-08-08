@@ -13,8 +13,9 @@ The adapter uses incremental fetch via CalDAV sync-token for efficient delta syn
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -296,8 +297,7 @@ class CalDAVAdapter(BaseAdapter):
         unicode_error_count = 0
         for event in events_list:
             try:
-                for item in self._process_event(event, calendar_name, cutoff_dt):
-                    yield item
+                yield from self._process_event(event, calendar_name, cutoff_dt)
             except UnicodeDecodeError:
                 # Track actual encoding errors separately
                 unicode_error_count += 1

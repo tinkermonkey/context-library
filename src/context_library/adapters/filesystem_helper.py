@@ -44,8 +44,8 @@ Commit-ack:
 import json as _json
 import logging
 import mimetypes
+from collections.abc import Iterator
 from pathlib import PurePosixPath
-from typing import Iterator
 
 from pydantic import ValidationError
 

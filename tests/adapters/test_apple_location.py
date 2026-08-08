@@ -1,7 +1,8 @@
 """Tests for AppleLocationAdapter."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 try:
     import httpx
@@ -11,8 +12,8 @@ except ImportError:
 
 from context_library.adapters.apple_location import AppleLocationAdapter
 from context_library.adapters.base import (
-    PartialFetchError,
     AllEndpointsFailedError,
+    PartialFetchError,
 )
 from context_library.storage.models import Domain
 

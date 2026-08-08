@@ -1,11 +1,11 @@
 """Tests for the CalDAVAdapter."""
 
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 
-from context_library.adapters.caldav import CalDAVAdapter, HAS_CALDAV
+from context_library.adapters.caldav import HAS_CALDAV, CalDAVAdapter
 from context_library.storage.models import Domain, EventMetadata, NormalizedContent
-
 
 pytestmark = pytest.mark.skipif(not HAS_CALDAV, reason="caldav and icalendar not installed")
 
@@ -700,7 +700,7 @@ class TestCalDAVAdapterIntegration:
 
         # Create events for each calendar
         work_event = MagicMock()
-        work_event.data = """BEGIN:VCALENDAR
+        work_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:work1
@@ -708,10 +708,10 @@ SUMMARY:Work Meeting
 DTSTART:20260307T090000Z
 DTEND:20260307T100000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         personal_event = MagicMock()
-        personal_event.data = """BEGIN:VCALENDAR
+        personal_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:personal1
@@ -719,7 +719,7 @@ SUMMARY:Personal Appointment
 DTSTART:20260307T170000Z
 DTEND:20260307T180000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         work_cal.search.return_value = [work_event]
         personal_cal.search.return_value = [personal_event]
@@ -814,7 +814,7 @@ END:VCALENDAR"""
 
         # Create one all-day event and one timed event
         all_day_event = MagicMock()
-        all_day_event.data = """BEGIN:VCALENDAR
+        all_day_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:allday1
@@ -822,10 +822,10 @@ SUMMARY:All-Day Event
 DTSTART;VALUE=DATE:20260307
 DTEND;VALUE=DATE:20260308
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         timed_event = MagicMock()
-        timed_event.data = """BEGIN:VCALENDAR
+        timed_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:timed1
@@ -833,7 +833,7 @@ SUMMARY:Timed Meeting
 DTSTART:20260307T100000Z
 DTEND:20260307T110000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         mock_calendar.search.return_value = [all_day_event, timed_event]
 

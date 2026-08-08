@@ -74,7 +74,6 @@ def mock_apple_music_library_client(monkeypatch):
 
         def close(self):
             """No-op for mock client."""
-            pass
 
     mock_client = MockClient()
 

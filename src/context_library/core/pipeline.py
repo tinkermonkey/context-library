@@ -9,23 +9,27 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from context_library import telemetry as tel
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.adapters.base import (
+    AllEndpointsFailedError,
+    BaseAdapter,
+    PartialFetchError,
+)
+from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.exceptions import (
+    AllSourcesFailedError,
     ChunkingError,
     EmbeddingError,
     StorageError,
-    AllSourcesFailedError,
 )
-from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
-from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.domains.base import BaseDomain
 from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVectorData, VectorStore
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)

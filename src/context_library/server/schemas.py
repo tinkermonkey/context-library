@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from context_library.storage.models import Domain, StructuralHints
 
-
 # ── Webhook ingestion ──────────────────────────────────────────────
 
 

@@ -45,15 +45,15 @@ This adapter:
 """
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.domains.people import PeopleDomain
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
-    PeopleMetadata,
     NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
     StructuralHints,
 )
 

@@ -68,19 +68,20 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
 from context_library.adapters.base import (
+    AllEndpointsFailedError,
     BaseAdapter,
     EndpointFetchError,
-    AllEndpointsFailedError,
     PartialFetchError,
 )
 from context_library.storage.models import (
+    DocumentMetadata,
     Domain,
     EventMetadata,
-    DocumentMetadata,
     NormalizedContent,
     PollStrategy,
     StructuralHints,

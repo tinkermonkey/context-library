@@ -10,13 +10,14 @@ Covers:
 
 import os
 import tempfile
-from typing import Generator
-import pytest
 import time
+from collections.abc import Generator
+
+import pytest
 
 from context_library.retrieval.provenance import (
-    get_version_diff,
     get_source_timeline,
+    get_version_diff,
     trace_chunk_provenance,
 )
 from context_library.storage.document_store import DocumentStore

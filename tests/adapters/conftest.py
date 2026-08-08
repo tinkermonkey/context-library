@@ -120,7 +120,6 @@ class MockClient:
 
     def close(self):
         """No-op for mock client."""
-        pass
 
 
 @pytest.fixture

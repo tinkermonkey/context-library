@@ -3,7 +3,12 @@
 import pytest
 
 from context_library.adapters.apple_music import AppleMusicAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, DocumentMetadata
+from context_library.storage.models import (
+    DocumentMetadata,
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestAppleMusicAdapterInitialization:
@@ -344,7 +349,7 @@ class TestAppleMusicAdapterImportability:
     def test_adapter_in_registry(self):
         """AppleMusicAdapter is registered in the adapter registry."""
         from context_library.config.loader import _instantiate_local_adapter
-        from context_library.config.models import LocalAdapterConfig, Domain
+        from context_library.config.models import Domain, LocalAdapterConfig
 
         # This should not raise an error
         config = LocalAdapterConfig(

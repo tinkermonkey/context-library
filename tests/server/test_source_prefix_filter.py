@@ -1,9 +1,12 @@
 """Tests for source_id_prefix filtering on GET /sources endpoint."""
 
-from fastapi.testclient import TestClient
-import pytest
-import tempfile
 import os
+import tempfile
+from collections.abc import Generator
+
+import pytest
+from fastapi.testclient import TestClient
+
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     AdapterConfig,
@@ -14,7 +17,6 @@ from context_library.storage.models import (
     PollStrategy,
     compute_chunk_hash,
 )
-from typing import Generator
 
 from .conftest import _create_app_with_store
 

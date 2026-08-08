@@ -1,12 +1,18 @@
 """Tests for the EntityLinker post-pipeline linking pass."""
 
-import pytest
 import sys
 from pathlib import Path
 
+import pytest
+
 from context_library.core.entity_linker import EntityLinker
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Chunk, Domain, EntityLink, ENTITY_LINK_TYPE_PERSON_APPEARANCE
+from context_library.storage.models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    Chunk,
+    Domain,
+    EntityLink,
+)
 
 # Add parent directory to sys.path to allow importing helpers module
 sys.path.insert(0, str(Path(__file__).parent.parent))

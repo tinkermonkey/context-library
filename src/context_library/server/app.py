@@ -9,14 +9,25 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from context_library.adapters.base import BaseAdapter
-from context_library.domains.registry import get_domain_chunker
 from context_library.core.differ import Differ
-from context_library.server.helper_health import HelperHealthCache
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
+from context_library.domains.registry import get_domain_chunker
 from context_library.scheduler.poller import Poller
 from context_library.server.config import ServerConfig
-from context_library.server.routes import admin, adapters, chunks, dead_letters, health, ingest, people, retrieve, sources, stats
+from context_library.server.helper_health import HelperHealthCache
+from context_library.server.routes import (
+    adapters,
+    admin,
+    chunks,
+    dead_letters,
+    health,
+    ingest,
+    people,
+    retrieve,
+    sources,
+    stats,
+)
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
@@ -113,7 +124,9 @@ async def lifespan(app: FastAPI):
 
         # AppleMusicLibraryAdapter (track catalog → documents domain, play events → events domain)
         try:
-            from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+            from context_library.adapters.apple_music_library import (
+                AppleMusicLibraryAdapter,
+            )
             helper_adapters.append(AppleMusicLibraryAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
         except ImportError as e:
             logger.warning("AppleMusicLibraryAdapter not available (missing dependency): %s", e)
@@ -155,7 +168,9 @@ async def lifespan(app: FastAPI):
 
         if config.helper_filesystem_enabled:
             try:
-                from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
+                from context_library.adapters.filesystem_helper import (
+                    FilesystemHelperAdapter,
+                )
                 helper_adapters.append(FilesystemHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key, timeout=config.helper_filesystem_timeout))
             except ImportError as e:
                 logger.warning("FilesystemHelperAdapter not available (missing dependency): %s", e)
@@ -163,7 +178,9 @@ async def lifespan(app: FastAPI):
         if config.helper_obsidian_enabled:
             # ObsidianHelperAdapter
             try:
-                from context_library.adapters.obsidian_helper import ObsidianHelperAdapter
+                from context_library.adapters.obsidian_helper import (
+                    ObsidianHelperAdapter,
+                )
                 helper_adapters.append(ObsidianHelperAdapter(api_url=config.helper_url, api_key=config.helper_api_key))
             except ImportError as e:
                 logger.warning("ObsidianHelperAdapter not available (missing dependency): %s", e)
@@ -191,8 +208,12 @@ async def lifespan(app: FastAPI):
         # YouTube watch history + transcripts (requires helper bridge with youtube collector enabled)
         if config.youtube_enabled:
             try:
-                from context_library.adapters.youtube_watch_history import YouTubeWatchHistoryAdapter
-                from context_library.adapters.youtube_transcripts import YouTubeTranscriptAdapter
+                from context_library.adapters.youtube_transcripts import (
+                    YouTubeTranscriptAdapter,
+                )
+                from context_library.adapters.youtube_watch_history import (
+                    YouTubeWatchHistoryAdapter,
+                )
 
                 languages = [lang.strip() for lang in config.youtube_transcript_languages.split(",") if lang.strip()]
                 watch_adapter = YouTubeWatchHistoryAdapter(

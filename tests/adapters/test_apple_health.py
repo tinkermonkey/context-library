@@ -2,9 +2,13 @@
 
 import pytest
 
-
 from context_library.adapters.apple_health import AppleHealthAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata
+from context_library.storage.models import (
+    Domain,
+    HealthMetadata,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestAppleHealthAdapterInitialization:
@@ -777,6 +781,7 @@ class TestAppleHealthAdapterNetworkErrors:
     def test_fetch_network_error_raises_all_endpoints_failed(self, monkeypatch):
         """fetch() raises AllEndpointsFailedError when /workouts fails with a network error."""
         import httpx
+
         from context_library.adapters.base import AllEndpointsFailedError
 
         adapter = AppleHealthAdapter(api_url="http://127.0.0.1:7124", api_key="test-token")

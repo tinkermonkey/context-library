@@ -2,29 +2,37 @@
 
 import importlib.util
 
-from context_library.adapters.base import BaseAdapter, EndpointFetchError, PartialFetchError, AllEndpointsFailedError, ResetResult
+from context_library.adapters.base import (
+    AllEndpointsFailedError,
+    BaseAdapter,
+    EndpointFetchError,
+    PartialFetchError,
+    ResetResult,
+)
 from context_library.adapters.filesystem import FilesystemAdapter
-from context_library.adapters.serve import serve_adapter as serve_adapter  # noqa: F401
+from context_library.adapters.serve import serve_adapter as serve_adapter
 
 __all__ = [
+    "AllEndpointsFailedError",
     "BaseAdapter",
     "EndpointFetchError",
-    "PartialFetchError",
-    "AllEndpointsFailedError",
-    "ResetResult",
     "FilesystemAdapter",
+    "PartialFetchError",
+    "ResetResult",
     "serve_adapter",
 ]
 
 # Check if obsidian adapter's dependencies are available
 if importlib.util.find_spec("obsidiantools") is not None:
-    from context_library.adapters.obsidian import ObsidianAdapter as ObsidianAdapter  # noqa: F401
+    from context_library.adapters.obsidian import (
+        ObsidianAdapter as ObsidianAdapter,
+    )
 
     __all__.append("ObsidianAdapter")
 
 # Check if obsidian tasks adapter's dependencies are available
 if importlib.util.find_spec("frontmatter") is not None:
-    from context_library.adapters.obsidian_tasks import (  # noqa: F401
+    from context_library.adapters.obsidian_tasks import (
         ObsidianTasksAdapter as ObsidianTasksAdapter,
     )
 
@@ -35,7 +43,9 @@ if (
     importlib.util.find_spec("httpx") is not None
     and importlib.util.find_spec("html2text") is not None
 ):
-    from context_library.adapters.email import EmailAdapter as EmailAdapter  # noqa: F401
+    from context_library.adapters.email import (
+        EmailAdapter as EmailAdapter,
+    )
 
     __all__.append("EmailAdapter")
 
@@ -44,13 +54,15 @@ if (
     importlib.util.find_spec("caldav") is not None
     and importlib.util.find_spec("icalendar") is not None
 ):
-    from context_library.adapters.caldav import CalDAVAdapter as CalDAVAdapter  # noqa: F401
+    from context_library.adapters.caldav import (
+        CalDAVAdapter as CalDAVAdapter,
+    )
 
     __all__.append("CalDAVAdapter")
 
 # Check if apple_calendar adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_calendar import (  # noqa: F401
+    from context_library.adapters.apple_calendar import (
         AppleCalendarAdapter as AppleCalendarAdapter,
     )
 
@@ -58,7 +70,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_reminders adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_reminders import (  # noqa: F401
+    from context_library.adapters.apple_reminders import (
         AppleRemindersAdapter as AppleRemindersAdapter,
     )
 
@@ -66,7 +78,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_health adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_health import (  # noqa: F401
+    from context_library.adapters.apple_health import (
         AppleHealthAdapter as AppleHealthAdapter,
     )
 
@@ -74,7 +86,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if remote adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.remote import (  # noqa: F401
+    from context_library.adapters.remote import (
         RemoteAdapter as RemoteAdapter,
     )
 
@@ -82,7 +94,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if oura adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.oura import (  # noqa: F401
+    from context_library.adapters.oura import (
         OuraAdapter as OuraAdapter,
     )
 
@@ -90,7 +102,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_music adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_music import (  # noqa: F401
+    from context_library.adapters.apple_music import (
         AppleMusicAdapter as AppleMusicAdapter,
     )
 
@@ -98,7 +110,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_music_library adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_music_library import (  # noqa: F401
+    from context_library.adapters.apple_music_library import (
         AppleMusicLibraryAdapter as AppleMusicLibraryAdapter,
     )
 
@@ -106,7 +118,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_contacts adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_contacts import (  # noqa: F401
+    from context_library.adapters.apple_contacts import (
         AppleContactsAdapter as AppleContactsAdapter,
     )
 
@@ -114,7 +126,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_imessage adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_imessage import (  # noqa: F401
+    from context_library.adapters.apple_imessage import (
         AppleiMessageAdapter as AppleiMessageAdapter,
     )
 
@@ -122,7 +134,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_notes adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_notes import (  # noqa: F401
+    from context_library.adapters.apple_notes import (
         AppleNotesAdapter as AppleNotesAdapter,
     )
 
@@ -130,7 +142,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_podcasts adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_podcasts import (  # noqa: F401
+    from context_library.adapters.apple_podcasts import (
         ApplePodcastsAdapter as ApplePodcastsAdapter,
     )
 
@@ -138,7 +150,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_browser_history adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_browser_history import (  # noqa: F401
+    from context_library.adapters.apple_browser_history import (
         AppleBrowserHistoryAdapter as AppleBrowserHistoryAdapter,
     )
 
@@ -146,7 +158,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_screentime adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_screentime import (  # noqa: F401
+    from context_library.adapters.apple_screentime import (
         AppleScreenTimeAdapter as AppleScreenTimeAdapter,
     )
 
@@ -154,7 +166,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if apple_location adapter's dependencies are available
 if importlib.util.find_spec("httpx") is not None:
-    from context_library.adapters.apple_location import (  # noqa: F401
+    from context_library.adapters.apple_location import (
         AppleLocationAdapter as AppleLocationAdapter,
     )
 
@@ -162,7 +174,7 @@ if importlib.util.find_spec("httpx") is not None:
 
 # Check if vcard adapter's dependencies are available
 if importlib.util.find_spec("vobject") is not None:
-    from context_library.adapters.vcard import (  # noqa: F401
+    from context_library.adapters.vcard import (
         VCardAdapter as VCardAdapter,
     )
 

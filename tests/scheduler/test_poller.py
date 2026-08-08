@@ -7,7 +7,6 @@ poll rows, always passes source_ref="" to the pipeline (adapters drain from
 their own persisted cursor), and calls adapter.ack() after a successful commit.
 """
 import os
-
 import tempfile
 import threading
 import time
@@ -16,9 +15,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from context_library.adapters.base import BaseAdapter
+from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
-from context_library.core.differ import Differ
 from context_library.domains.base import BaseDomain
 from context_library.scheduler.poller import Poller
 from context_library.storage.document_store import DocumentStore

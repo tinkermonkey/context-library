@@ -1,11 +1,17 @@
 """Tests for the VCardAdapter."""
 
 import logging
-import pytest
 from pathlib import Path
 
-from context_library.adapters.vcard import VCardAdapter, ContactIDCollisionError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, PeopleMetadata
+import pytest
+
+from context_library.adapters.vcard import ContactIDCollisionError, VCardAdapter
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
+)
 
 
 class TestVCardAdapterInitialization:

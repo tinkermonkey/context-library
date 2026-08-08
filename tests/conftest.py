@@ -1,6 +1,7 @@
 """Root pytest configuration and fixtures."""
 
 import gc
+
 import pytest
 
 

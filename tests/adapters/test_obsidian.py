@@ -1,12 +1,17 @@
 """Tests for the ObsidianAdapter."""
 
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
 from context_library.adapters.obsidian import ObsidianAdapter
-from context_library.storage.models import Domain, NormalizedContent, StructuralHints, PollStrategy
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+    StructuralHints,
+)
 
 
 @pytest.fixture
@@ -535,7 +540,7 @@ class TestObsidianAdapterPushMode:
         the vault cache must be cleared so that the next fetch() call
         rebuilds the wikilink graph to reflect the change.
         """
-        from context_library.adapters._watching import FileEvent, EventType
+        from context_library.adapters._watching import EventType, FileEvent
 
         adapter = ObsidianAdapter(vault_with_notes, poll_strategy=PollStrategy.PUSH)
 
@@ -668,7 +673,7 @@ Another-Field:: Test
         dataview_fields = results[0].structural_hints.extra_metadata["dataview_fields"]
         # Keys should be normalized
         if dataview_fields:
-            for key in dataview_fields.keys():
+            for key in dataview_fields:
                 assert key.islower() or "_" in key
 
     def test_bracketed_dataview_fields(self, tmp_path):

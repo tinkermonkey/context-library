@@ -16,18 +16,21 @@ Public API:
 import contextlib
 import importlib.metadata
 import logging
-from typing import TYPE_CHECKING, Any, Generator, Optional
+from collections.abc import Generator
+from typing import TYPE_CHECKING, Any, Optional
 
 from context_library.telemetry.config import TelemetryConfig
-from context_library.telemetry.tracer import get_tracer as get_tracer, NoOpTracer as NoOpTracer, NoOpSpan as NoOpSpan
+from context_library.telemetry.tracer import NoOpSpan as NoOpSpan
+from context_library.telemetry.tracer import NoOpTracer as NoOpTracer
+from context_library.telemetry.tracer import get_tracer as get_tracer
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-_tracer_provider: Optional[Any] = None
-_logger_provider: Optional[Any] = None
-_logging_handler: Optional[Any] = None
-_meter_provider: Optional[Any] = None
+_tracer_provider: Any | None = None
+_logger_provider: Any | None = None
+_logging_handler: Any | None = None
+_meter_provider: Any | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -35,10 +38,10 @@ _meter_provider: Optional[Any] = None
 # ---------------------------------------------------------------------------
 
 class _NoOpInstrument:
-    def add(self, amount: float, attributes: Optional[dict] = None) -> None:
+    def add(self, amount: float, attributes: dict | None = None) -> None:
         pass
 
-    def record(self, amount: float, attributes: Optional[dict] = None) -> None:
+    def record(self, amount: float, attributes: dict | None = None) -> None:
         pass
 
 
@@ -106,9 +109,9 @@ def run_in_context(ctx: Any) -> Generator[None, None, None]:
 # ---------------------------------------------------------------------------
 
 def setup_telemetry(
-    config: Optional[TelemetryConfig] = None,
+    config: TelemetryConfig | None = None,
     app: Optional["FastAPI"] = None,
-) -> tuple[Optional[Any], Optional[Any]]:
+) -> tuple[Any | None, Any | None]:
     """Initialize the telemetry subsystem.
 
     Sets up TracerProvider, LoggerProvider, and MeterProvider with OTLP exporters
@@ -138,15 +141,18 @@ def setup_telemetry(
         return None, None
 
     from opentelemetry import trace
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
-    from opentelemetry.sdk._logs import LoggerProvider as OtelLoggerProvider
-    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogRecordExporter
     from opentelemetry.instrumentation.logging.handler import (
         LoggingHandler,
         _overwrite_logging_config_fns,
     )
+    from opentelemetry.sdk._logs import LoggerProvider as OtelLoggerProvider
+    from opentelemetry.sdk._logs.export import (
+        BatchLogRecordProcessor,
+        LogRecordExporter,
+    )
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
 
     # Service version: config override or package metadata
     if config.otel_service_version:
@@ -166,10 +172,14 @@ def setup_telemetry(
     # --- Traces ---
     span_exporter: SpanExporter
     if config.otlp_protocol == "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as HTTPOTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPOTLPSpanExporter,
+        )
         span_exporter = HTTPOTLPSpanExporter(endpoint=config.otlp_endpoint)
     else:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as gRPCOTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter as gRPCOTLPSpanExporter,
+        )
         span_exporter = gRPCOTLPSpanExporter(endpoint=config.otlp_endpoint)
 
     tracer_provider = TracerProvider(resource=resource)
@@ -178,10 +188,14 @@ def setup_telemetry(
     # --- Logs ---
     log_exporter: LogRecordExporter
     if config.otlp_protocol == "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter as HTTPOTLPLogExporter
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+            OTLPLogExporter as HTTPOTLPLogExporter,
+        )
         log_exporter = HTTPOTLPLogExporter(endpoint=config.otlp_endpoint)
     else:
-        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter as gRPCOTLPLogExporter
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+            OTLPLogExporter as gRPCOTLPLogExporter,
+        )
         log_exporter = gRPCOTLPLogExporter(endpoint=config.otlp_endpoint)
 
     logger_provider = OtelLoggerProvider(resource=resource)
@@ -193,16 +207,21 @@ def setup_telemetry(
     # --- Metrics ---
     from opentelemetry import metrics as _otel_metrics
     from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-
-    from opentelemetry.sdk.metrics.export import MetricExporter
+    from opentelemetry.sdk.metrics.export import (
+        MetricExporter,
+        PeriodicExportingMetricReader,
+    )
 
     metric_exporter: MetricExporter
     if config.otlp_protocol == "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as HTTPOTLPMetricExporter
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as HTTPOTLPMetricExporter,
+        )
         metric_exporter = HTTPOTLPMetricExporter(endpoint=config.otlp_endpoint)
     else:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter as gRPCOTLPMetricExporter
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+            OTLPMetricExporter as gRPCOTLPMetricExporter,
+        )
         metric_exporter = gRPCOTLPMetricExporter(endpoint=config.otlp_endpoint)
 
     reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=15000)

@@ -1,11 +1,15 @@
 """Tests for the AppleRemindersAdapter."""
 
+import httpx
 import pytest
 
-import httpx
-
 from context_library.adapters.apple_reminders import AppleRemindersAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, TaskMetadata
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+    TaskMetadata,
+)
 
 
 class TestAppleRemindersAdapterInitialization:

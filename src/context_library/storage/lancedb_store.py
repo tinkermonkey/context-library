@@ -6,7 +6,6 @@ Derived and fully rebuildable from the document store (SQLite).
 import logging
 import math
 from pathlib import Path
-from typing import Optional
 
 import lancedb
 import pyarrow as pa
@@ -85,8 +84,8 @@ class LanceDBVectorStore(VectorStore):
         self,
         query_vector: list[float],
         top_k: int = 10,
-        domain_filter: Optional[Domain] = None,
-        source_filter: Optional[str] = None,
+        domain_filter: Domain | None = None,
+        source_filter: str | None = None,
     ) -> list[VectorSearchResult]:
         if not self._table_exists():
             raise RuntimeError(

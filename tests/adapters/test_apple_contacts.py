@@ -1,11 +1,15 @@
 """Tests for the AppleContactsAdapter."""
 
+import httpx
 import pytest
 
-import httpx
-
 from context_library.adapters.apple_contacts import AppleContactsAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, PeopleMetadata
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
+)
 
 
 class TestAppleContactsAdapterInitialization:

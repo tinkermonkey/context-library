@@ -1,8 +1,9 @@
 """EmailAdapter for ingesting email from EmailEngine's REST API."""
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Iterator, Literal
+from typing import Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (

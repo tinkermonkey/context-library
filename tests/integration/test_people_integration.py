@@ -4,16 +4,22 @@ These tests verify the end-to-end integration of the people domain adapter with 
 ingestion pipeline and entity linker, using real SHA-256 hashing and the full pipeline flow.
 """
 
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-import pytest
-import sys
 
-from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Domain, Chunk, PeopleMetadata, ENTITY_LINK_TYPE_PERSON_APPEARANCE
+import pytest
+
 from context_library.adapters.apple_contacts import AppleContactsAdapter
 from context_library.domains.people import PeopleDomain
+from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    Chunk,
+    Domain,
+    PeopleMetadata,
+)
 
 # Add parent directory to sys.path to allow importing helpers module
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -83,9 +89,9 @@ class TestPeopleDomainIntegration:
         """
         # This test requires sentence_transformers for the Embedder
         pytest.importorskip("sentence_transformers")
-        from context_library.core.pipeline import IngestionPipeline
         from context_library.core.differ import Differ
         from context_library.core.embedder import Embedder
+        from context_library.core.pipeline import IngestionPipeline
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.db")
@@ -170,7 +176,7 @@ class TestPeopleDomainIntegration:
                     assert all(c in "0123456789abcdef" for c in alice_hash)
 
                     # Second chunk should be Bob
-                    bob_hash, bob_content, bob_metadata = rows[1]
+                    _bob_hash, bob_content, bob_metadata = rows[1]
                     assert "Bob Johnson" in bob_content
                     assert bob_metadata is not None
 

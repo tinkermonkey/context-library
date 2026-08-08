@@ -10,7 +10,13 @@ except ImportError:
 
 from context_library.adapters.apple_podcasts import ApplePodcastsAdapter
 from context_library.adapters.base import AllEndpointsFailedError, PartialFetchError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, EventMetadata, DocumentMetadata
+from context_library.storage.models import (
+    DocumentMetadata,
+    Domain,
+    EventMetadata,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestApplePodcastsAdapterInitialization:

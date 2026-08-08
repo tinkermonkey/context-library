@@ -4,7 +4,7 @@ import pytest
 
 from context_library.adapters.apple_browser_history import AppleBrowserHistoryAdapter
 from context_library.adapters.base import EndpointFetchError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent
+from context_library.storage.models import Domain, NormalizedContent, PollStrategy
 
 
 class TestAppleBrowserHistoryAdapterInitialization:

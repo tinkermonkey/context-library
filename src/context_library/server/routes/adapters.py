@@ -8,20 +8,20 @@ import sqlite3
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from context_library.scheduler.exceptions import (
+    AdapterNotRegisteredError,
+    IngestAlreadyInProgressError,
+    NoSourcesError,
+    PollerNotRunningError,
+)
 from context_library.server.schemas import (
     AdapterListResponse,
-    AdapterResponse,
     AdapterResetResponse,
+    AdapterResponse,
     HelperResetInfo,
     LibraryResetInfo,
 )
-from context_library.scheduler.exceptions import (
-    PollerNotRunningError,
-    AdapterNotRegisteredError,
-    NoSourcesError,
-    IngestAlreadyInProgressError,
-)
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 try:
     import httpx
@@ -46,12 +46,10 @@ async def list_adapters(request: Request) -> AdapterListResponse:
             domain=c.domain.value,
             normalizer_version=c.normalizer_version,
             config=c.config,
-            **{
-                "_links": {
+            _links={
                     "self": f"/adapters/{c.adapter_id}",
                     "sources": f"/sources?adapter_id={c.adapter_id}",
-                }
-            },
+                },
         )
         for c in configs
     ]
@@ -70,12 +68,10 @@ async def get_adapter(adapter_id: str, request: Request) -> AdapterResponse:
         domain=config.domain.value,
         normalizer_version=config.normalizer_version,
         config=config.config,
-        **{
-            "_links": {
+        _links={
                 "self": f"/adapters/{config.adapter_id}",
                 "sources": f"/sources?adapter_id={config.adapter_id}",
-            }
-        },
+            },
     )
 
 

@@ -30,7 +30,7 @@ Expected endpoint contract:
 """
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (

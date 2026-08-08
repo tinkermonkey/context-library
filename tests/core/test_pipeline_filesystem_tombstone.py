@@ -23,7 +23,6 @@ from context_library.domains.documents import DocumentsDomain
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 
-
 # ---------------------------------------------------------------------------
 # Wire-shape helpers (mirror the helper's NDJSON contract)
 # ---------------------------------------------------------------------------

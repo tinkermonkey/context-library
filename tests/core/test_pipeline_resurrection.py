@@ -9,6 +9,7 @@ import tempfile
 
 import pytest
 
+from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
@@ -21,7 +22,6 @@ from context_library.storage.models import (
     PollStrategy,
     StructuralHints,
 )
-from context_library.adapters.base import BaseAdapter
 
 
 class _StaticAdapter(BaseAdapter):

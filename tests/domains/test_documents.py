@@ -985,7 +985,9 @@ class TestAppleMusicLibraryAdapterIntegration:
         2. DocumentsDomain.chunk() extracts and validates DocumentMetadata (including music fields like album, play_count)
         3. The domain chunker preserves all validated fields in domain_metadata
         """
-        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+        from context_library.adapters.apple_music_library import (
+            AppleMusicLibraryAdapter,
+        )
 
         # Setup: Mock the /music/tracks endpoint with a track containing music-specific fields
         mock_apple_music_library_endpoints.set_response(
@@ -1062,7 +1064,9 @@ class TestAppleMusicLibraryAdapterIntegration:
         Verifies that when optional music fields are null, they're excluded from both
         markdown and domain_metadata (via exclude_none=True), but chunking still succeeds.
         """
-        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+        from context_library.adapters.apple_music_library import (
+            AppleMusicLibraryAdapter,
+        )
 
         # Setup: Mock with minimal/null fields
         mock_apple_music_library_endpoints.set_response(
@@ -1111,7 +1115,9 @@ class TestAppleMusicLibraryAdapterIntegration:
         This verifies the adapter production path where date_first_observed is not set,
         testing the gap mentioned in the issue.
         """
-        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+        from context_library.adapters.apple_music_library import (
+            AppleMusicLibraryAdapter,
+        )
 
         mock_apple_music_library_endpoints.set_response(
             "http://127.0.0.1:7123/music/tracks",

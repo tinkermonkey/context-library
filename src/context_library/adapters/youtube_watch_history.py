@@ -39,8 +39,8 @@ A Bearer API token is REQUIRED: ``Authorization: Bearer <api_key>``
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (

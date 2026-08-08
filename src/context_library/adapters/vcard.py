@@ -18,16 +18,17 @@ This adapter uses the vobject library for RFC 6350-compliant parsing.
 
 import hashlib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.people import PeopleDomain
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
-    PeopleMetadata,
     NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -136,7 +137,6 @@ class VCardAdapter(BaseAdapter):
 
     def __del__(self) -> None:
         """Clean up resources when adapter is destroyed (safety net)."""
-        pass
 
     @property
     def adapter_id(self) -> str:
@@ -296,7 +296,7 @@ class VCardAdapter(BaseAdapter):
                         f"Processed {contact_index} contacts before error. Continuing with next file."
                     )
 
-    def _extract_people_metadata(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> PeopleMetadata:
+    def _extract_people_metadata(self, vcard, vcf_file: Path | None = None, contact_index: int = 0) -> PeopleMetadata:
         """Extract PeopleMetadata from a vCard component.
 
         Parses vCard fields per RFC 6350:
@@ -412,7 +412,7 @@ class VCardAdapter(BaseAdapter):
             source_type="vcard",
         )
 
-    def _derive_contact_id(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> str:
+    def _derive_contact_id(self, vcard, vcf_file: Path | None = None, contact_index: int = 0) -> str:
         """Derive a stable contact identifier from vCard per RFC 6350 spec.
 
         Uses UID if present. For vCards without UID, generates a deterministic
