@@ -14,6 +14,7 @@ from typing import Annotated, ClassVar, NamedTuple, TypedDict
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
+from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.validators import validate_iso8601_timestamp
 
 
@@ -776,6 +777,44 @@ class PeopleMetadata(BaseModel):
         if not value:
             raise ValueError("source_type must be a non-empty string")
         return value
+
+    @field_validator("emails")
+    @classmethod
+    def normalize_emails(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalize emails to lowercase and deduplicate, preserving order.
+
+        Ensures emails are stored in the same canonical form the entity linker
+        matches against, so identifiers collected from adapters in whatever
+        case they arrive in still cross-link consistently.
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for email in value:
+            canonical = normalize_email(email) or email
+            if canonical not in seen:
+                seen.add(canonical)
+                normalized.append(canonical)
+        return tuple(normalized)
+
+    @field_validator("phones")
+    @classmethod
+    def normalize_phones(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalize phones to canonical E.164 form and deduplicate, preserving order.
+
+        Ensures phones are stored in the same canonical form the entity linker
+        matches against, so a contact phone collected as "(555) 123-4567" still
+        cross-links with a message sender collected as "5551234567". Numbers
+        that can't be parsed as a possible phone number are kept as-is rather
+        than dropped, to avoid losing contact data.
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for phone in value:
+            canonical = normalize_phone(phone) or phone
+            if canonical not in seen:
+                seen.add(canonical)
+                normalized.append(canonical)
+        return tuple(normalized)
 
 
 class LocationMetadata(BaseModel):

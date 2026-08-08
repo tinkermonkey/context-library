@@ -231,9 +231,10 @@ class TestAppleContactsAdapterFetch:
         results = list(adapter.fetch(""))
         metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
         assert len(metadata.phones) == 3
-        assert "555-1111" in metadata.phones
-        assert "555-2222" in metadata.phones
-        assert "555-3333" in metadata.phones
+        # Phones are normalized to canonical E.164 form on construction.
+        assert "+15551111" in metadata.phones
+        assert "+15552222" in metadata.phones
+        assert "+15553333" in metadata.phones
 
     def test_fetch_with_missing_optional_fields(self, mock_apple_contacts_client):
         """fetch() handles contacts with missing optional fields."""
@@ -500,10 +501,10 @@ class TestAppleContactsAdapterMarkdownGeneration:
         markdown = results[0].markdown
         assert "555-1111" not in markdown
         assert "555-2222" not in markdown
-        # But phones should be in metadata for entity linking
+        # But phones should be in metadata for entity linking, normalized to E.164
         metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
-        assert "555-1111" in metadata.phones
-        assert "555-2222" in metadata.phones
+        assert "+15551111" in metadata.phones
+        assert "+15552222" in metadata.phones
 
     def test_markdown_includes_notes(self, mock_apple_contacts_client):
         """Generated markdown includes notes when present."""

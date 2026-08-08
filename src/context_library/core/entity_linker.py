@@ -192,9 +192,10 @@ class EntityLinker:
     def _extract_identifiers(self, domain_metadata: Optional[dict]) -> list[str]:
         """Extract email and phone identifiers from PeopleMetadata.
 
-        Identifiers are normalized:
+        Identifiers are normalized via the shared normalization contract
+        (context_library.core.identifier_normalizer):
         - Emails: lowercase, stripped of whitespace
-        - Phones: digits and leading '+' only, extra formatting removed
+        - Phones: canonical E.164 form (e.g. "+15551234567")
 
         Args:
             domain_metadata: Serialized PeopleMetadata dict from chunk.domain_metadata.

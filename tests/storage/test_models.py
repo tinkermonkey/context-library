@@ -2360,7 +2360,8 @@ class TestPeopleMetadata:
         assert metadata.given_name == "Alice"
         assert metadata.family_name == "Johnson"
         assert metadata.emails == ("alice@example.com", "alice.johnson@work.com")
-        assert metadata.phones == ("+1-555-123-4567", "+1-555-987-6543")
+        # Phones are normalized to canonical E.164 form on construction.
+        assert metadata.phones == ("+15551234567", "+15559876543")
         assert metadata.organization == "Tech Corp"
         assert metadata.job_title == "Senior Engineer"
         assert metadata.notes == "Important contact"
@@ -2438,7 +2439,8 @@ class TestPeopleMetadata:
         assert dumped["contact_id"] == "person-1"
         assert dumped["display_name"] == "Alice Johnson"
         assert dumped["emails"] == ("alice@example.com",)
-        assert dumped["phones"] == ("+1-555-123-4567",)
+        # Phones are normalized to canonical E.164 form on construction.
+        assert dumped["phones"] == ("+15551234567",)
         assert dumped["source_type"] == "apple_contacts"
         # Verify serializable to JSON
         import json
@@ -2556,6 +2558,47 @@ class TestPeopleMetadata:
         # extended_fields is never passed into compute_chunk_hash; only chunk content is.
         assert hash_without_extended == compute_chunk_hash(content)
         assert metadata.extended_fields  # sanity check the field is actually populated
+
+    def test_people_metadata_phones_normalized_to_e164(self) -> None:
+        """Test that phones in varied formats are normalized to canonical E.164."""
+        metadata = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            phones=("(555) 123-4567", "555-987-6543", "+1 555 111 2222"),
+            source_type="apple_contacts",
+        )
+        assert metadata.phones == ("+15551234567", "+15559876543", "+15551112222")
+
+    def test_people_metadata_phones_deduplicated_after_normalization(self) -> None:
+        """Test that phones that normalize to the same E.164 value are deduplicated."""
+        metadata = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            phones=("(555) 123-4567", "555-123-4567", "+15551234567"),
+            source_type="apple_contacts",
+        )
+        assert metadata.phones == ("+15551234567",)
+
+    def test_people_metadata_unparseable_phone_preserved(self) -> None:
+        """Test that a phone that can't be parsed as a possible number is kept as-is
+        rather than dropped, to avoid losing contact data."""
+        metadata = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            phones=("not-a-real-phone",),
+            source_type="apple_contacts",
+        )
+        assert metadata.phones == ("not-a-real-phone",)
+
+    def test_people_metadata_emails_normalized_to_lowercase(self) -> None:
+        """Test that emails are lowercased and deduplicated on construction."""
+        metadata = PeopleMetadata(
+            contact_id="c1",
+            display_name="Alice",
+            emails=("Alice@Example.COM", "alice@example.com", "  bob@company.org  "),
+            source_type="apple_contacts",
+        )
+        assert metadata.emails == ("alice@example.com", "bob@company.org")
 
 
 class TestLocationMetadata:
