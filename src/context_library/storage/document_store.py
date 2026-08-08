@@ -342,11 +342,11 @@ class DocumentStore:
         except Exception as e:
             try:
                 self.conn.rollback()
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # noqa: BLE001
                 logger.error(f"Failed to rollback migration: {rollback_error}")
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
-            except Exception as pragma_error:
+            except Exception as pragma_error:  # noqa: BLE001
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v1 to v2: {e}"
@@ -516,11 +516,11 @@ class DocumentStore:
             # Rollback transaction using connection object, catching any rollback errors
             try:
                 self.conn.rollback()
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # noqa: BLE001
                 logger.error(f"Failed to rollback migration: {rollback_error}")
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
-            except Exception as pragma_error:
+            except Exception as pragma_error:  # noqa: BLE001
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v2 to v3: {e}"
@@ -705,11 +705,11 @@ class DocumentStore:
             # Rollback transaction using connection object, catching any rollback errors
             try:
                 self.conn.rollback()
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # noqa: BLE001
                 logger.error(f"Failed to rollback migration: {rollback_error}")
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
-            except Exception as pragma_error:
+            except Exception as pragma_error:  # noqa: BLE001
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v3 to v4: {e}"
@@ -878,11 +878,11 @@ class DocumentStore:
             # Rollback transaction using connection object, catching any rollback errors
             try:
                 self.conn.rollback()
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # noqa: BLE001
                 logger.error(f"Failed to rollback migration: {rollback_error}")
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
-            except Exception as pragma_error:
+            except Exception as pragma_error:  # noqa: BLE001
                 logger.error(f"Failed to re-enable foreign keys after migration error: {pragma_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v4 to v5: {e}"
@@ -910,7 +910,7 @@ class DocumentStore:
         except Exception as e:
             try:
                 self.conn.rollback()
-            except Exception as rollback_error:
+            except Exception as rollback_error:  # noqa: BLE001
                 logger.error(f"Failed to rollback migration: {rollback_error}")
             raise RuntimeError(
                 f"Failed to migrate schema from v5 to v6: {e}"

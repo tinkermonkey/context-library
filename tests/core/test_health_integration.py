@@ -30,9 +30,8 @@ def document_store():
     import os
     import tempfile
 
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
 
     store = DocumentStore(temp_path)
     yield store

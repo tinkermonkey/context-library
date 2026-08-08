@@ -18,32 +18,34 @@ class TestLifespanInitialization:
 
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Mock environment variables for this test
-            with patch.dict(
+        # Mock environment variables for this test
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
                     "CTX_CHROMADB_PATH": str(Path(tmpdir) / "chroma"),
                     "CTX_EMBEDDING_MODEL": "all-MiniLM-L6-v2",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    # Verify all required components are initialized
-                    assert hasattr(app.state, "document_store")
-                    assert hasattr(app.state, "embedder")
-                    assert hasattr(app.state, "vector_store")
-                    assert hasattr(app.state, "pipeline")
-                    assert hasattr(app.state, "helper_adapters")
+            async with lifespan(app):
+                # Verify all required components are initialized
+                assert hasattr(app.state, "document_store")
+                assert hasattr(app.state, "embedder")
+                assert hasattr(app.state, "vector_store")
+                assert hasattr(app.state, "pipeline")
+                assert hasattr(app.state, "helper_adapters")
 
-                    # Verify they're not None
-                    assert app.state.document_store is not None
-                    assert app.state.embedder is not None
-                    assert app.state.vector_store is not None
-                    assert app.state.pipeline is not None
-                    assert isinstance(app.state.helper_adapters, list)
+                # Verify they're not None
+                assert app.state.document_store is not None
+                assert app.state.embedder is not None
+                assert app.state.vector_store is not None
+                assert app.state.pipeline is not None
+                assert isinstance(app.state.helper_adapters, list)
 
     @pytest.mark.asyncio
     async def test_lifespan_sets_config_on_app_state(self):
@@ -119,10 +121,11 @@ class TestLifespanInitialization:
 
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Set CTX_HELPER_URL="" explicitly — env vars take priority over .env file in
-            # pydantic-settings, so an empty string here overrides any value in .env.
-            with patch.dict(
+        # Set CTX_HELPER_URL="" explicitly — env vars take priority over .env file in
+        # pydantic-settings, so an empty string here overrides any value in .env.
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -132,11 +135,12 @@ class TestLifespanInitialization:
                     "CTX_HELPER_API_KEY": "",
                     "CTX_YOUTUBE_ENABLED": "false",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    assert app.state.helper_adapters == []
+            async with lifespan(app):
+                assert app.state.helper_adapters == []
 
     @pytest.mark.asyncio
     async def test_location_adapter_gated_by_helper_location_enabled(self):
@@ -212,8 +216,9 @@ class TestOuraAdapterInitialization:
         from context_library.adapters.oura import OuraAdapter
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -223,14 +228,15 @@ class TestOuraAdapterInitialization:
                     "CTX_HELPER_API_KEY": "test-key",
                     "CTX_HELPER_OURA_ENABLED": "true",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    # OuraAdapter should be in helper_adapters
-                    oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
-                    assert len(oura_adapters) == 1
-                    assert oura_adapters[0]._api_url == "http://localhost:7123"
+            async with lifespan(app):
+                # OuraAdapter should be in helper_adapters
+                oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
+                assert len(oura_adapters) == 1
+                assert oura_adapters[0]._api_url == "http://localhost:7123"
 
     @pytest.mark.asyncio
     async def test_oura_adapter_not_initialized_when_disabled(self):
@@ -240,8 +246,9 @@ class TestOuraAdapterInitialization:
         from context_library.adapters.oura import OuraAdapter
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -251,13 +258,14 @@ class TestOuraAdapterInitialization:
                     "CTX_HELPER_API_KEY": "test-key",
                     "CTX_HELPER_OURA_ENABLED": "false",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    # OuraAdapter should NOT be in helper_adapters
-                    oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
-                    assert len(oura_adapters) == 0
+            async with lifespan(app):
+                # OuraAdapter should NOT be in helper_adapters
+                oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
+                assert len(oura_adapters) == 0
 
     @pytest.mark.asyncio
     async def test_oura_adapter_initialization_failure_gracefully_handled(self):
@@ -266,10 +274,11 @@ class TestOuraAdapterInitialization:
 
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Set CTX_HELPER_API_KEY="" explicitly — env vars take priority over .env file in
-            # pydantic-settings, so an empty string here overrides any value in .env.
-            with patch.dict(
+        # Set CTX_HELPER_API_KEY="" explicitly — env vars take priority over .env file in
+        # pydantic-settings, so an empty string here overrides any value in .env.
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -279,18 +288,19 @@ class TestOuraAdapterInitialization:
                     "CTX_HELPER_API_KEY": "",  # empty → OuraAdapter raises ValueError
                     "CTX_HELPER_OURA_ENABLED": "true",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                # lifespan should complete successfully despite OuraAdapter failing
-                async with lifespan(app):
-                    # Verify core components are still initialized
-                    assert app.state.document_store is not None
-                    assert app.state.embedder is not None
-                    # OuraAdapter should not be in helper_adapters due to ValueError
-                    from context_library.adapters.oura import OuraAdapter
-                    oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
-                    assert len(oura_adapters) == 0
+            # lifespan should complete successfully despite OuraAdapter failing
+            async with lifespan(app):
+                # Verify core components are still initialized
+                assert app.state.document_store is not None
+                assert app.state.embedder is not None
+                # OuraAdapter should not be in helper_adapters due to ValueError
+                from context_library.adapters.oura import OuraAdapter
+                oura_adapters = [a for a in app.state.helper_adapters if isinstance(a, OuraAdapter)]
+                assert len(oura_adapters) == 0
 
     @pytest.mark.asyncio
     async def test_oura_adapter_receives_correct_config_parameters(self):
@@ -334,8 +344,9 @@ class TestOuraAdapterInitialization:
         from context_library.adapters.oura import OuraAdapter
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -345,15 +356,16 @@ class TestOuraAdapterInitialization:
                     "CTX_HELPER_API_KEY": "test-key",
                     "CTX_HELPER_OURA_ENABLED": "true",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    # helper_adapters should be a list
-                    assert isinstance(app.state.helper_adapters, list)
+            async with lifespan(app):
+                # helper_adapters should be a list
+                assert isinstance(app.state.helper_adapters, list)
 
-                    # Should contain at least the OuraAdapter
-                    assert any(isinstance(a, OuraAdapter) for a in app.state.helper_adapters)
+                # Should contain at least the OuraAdapter
+                assert any(isinstance(a, OuraAdapter) for a in app.state.helper_adapters)
 
     @pytest.mark.asyncio
     async def test_lifespan_with_multiple_helper_adapters_including_oura(self):
@@ -363,8 +375,9 @@ class TestOuraAdapterInitialization:
         from context_library.adapters.oura import OuraAdapter
         from context_library.server.app import lifespan
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(
                 os.environ,
                 {
                     "CTX_SQLITE_DB_PATH": str(Path(tmpdir) / "test.db"),
@@ -374,12 +387,13 @@ class TestOuraAdapterInitialization:
                     "CTX_HELPER_API_KEY": "test-key",
                     "CTX_HELPER_OURA_ENABLED": "true",
                 },
-            ):
-                app = FastAPI()
+            ),
+        ):
+            app = FastAPI()
 
-                async with lifespan(app):
-                    # Should have at least one adapter (OuraAdapter)
-                    assert len(app.state.helper_adapters) >= 1
+            async with lifespan(app):
+                # Should have at least one adapter (OuraAdapter)
+                assert len(app.state.helper_adapters) >= 1
 
-                    # At least one should be OuraAdapter
-                    assert any(isinstance(a, OuraAdapter) for a in app.state.helper_adapters)
+                # At least one should be OuraAdapter
+                assert any(isinstance(a, OuraAdapter) for a in app.state.helper_adapters)

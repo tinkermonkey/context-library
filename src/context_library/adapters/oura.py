@@ -174,7 +174,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, ClassVar
 
 from context_library.adapters.base import (
     AllEndpointsFailedError,
@@ -273,7 +273,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
     # All helper cursor keys, matching OuraCollector.push_cursor_keys() on the
     # mac. An endpoint path "/oura/heart_rate" maps to the key "oura_heart_rate".
-    _ALL_ACK_KEYS = [
+    _ALL_ACK_KEYS: ClassVar[list[str]] = [
         "oura_sleep", "oura_readiness", "oura_activity", "oura_workouts",
         "oura_heart_rate", "oura_spo2", "oura_tags", "oura_sessions",
     ]
@@ -426,7 +426,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
             records = response.json()
             if not isinstance(records, list):
-                raise ValueError(f"Expected list of records from {endpoint}, got {type(records)}")
+                raise TypeError(f"Expected list of records from {endpoint}, got {type(records)}")
 
             # Process each record
             for idx, record in enumerate(records):
@@ -493,7 +493,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
             samples = response.json()
             if not isinstance(samples, list):
-                raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
+                raise TypeError(f"Expected list of heart rate samples, got {type(samples)}")
 
             # Group samples by date + hour
             windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
@@ -888,7 +888,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         for sample in window:
             bpm = sample["bpm"]
             if not isinstance(bpm, (int, float)):
-                raise ValueError("Heart rate sample 'bpm' must be numeric")
+                raise TypeError("Heart rate sample 'bpm' must be numeric")
             heart_rates.append(bpm)
 
         if not heart_rates:

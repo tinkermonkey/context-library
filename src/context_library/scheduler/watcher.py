@@ -94,10 +94,9 @@ class Watcher:
             if original_callback is not None:
                 try:
                     original_callback(event)
-                except Exception as e:
-                    logger.error(
-                        f"Error in adapter's internal callback for {event.path}: {e}",
-                        exc_info=True,
+                except Exception:
+                    logger.exception(
+                        f"Error in adapter's internal callback for {event.path}"
                     )
                     # Do not continue to handle_webhook if adapter callback fails
                     # The failure may leave adapter state inconsistent (e.g., stale vault cache)

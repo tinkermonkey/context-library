@@ -44,13 +44,15 @@ class TestCalDAVAdapterInitialization:
         assert HAS_CALDAV is True
 
         # Verify constructor checks the flag by patching it
-        with patch("context_library.adapters.caldav.HAS_CALDAV", False):
-            with pytest.raises(ImportError, match="caldav"):
-                CalDAVAdapter(
-                    url="https://calendar.example.com/",
-                    username="user",
-                    password="pass",
-                )
+        with (
+            patch("context_library.adapters.caldav.HAS_CALDAV", False),
+            pytest.raises(ImportError, match="caldav"),
+        ):
+            CalDAVAdapter(
+                url="https://calendar.example.com/",
+                username="user",
+                password="pass",
+            )
 
 
 class TestCalDAVAdapterProperties:
@@ -1035,7 +1037,7 @@ END:VCALENDAR"""
             # Create a mock LAST-MODIFIED property with naive datetime
             last_modified = MagicMock()
             # Naive datetime (no timezone info)
-            last_modified.dt = datetime(2026, 3, 8, 12, 0, 0)
+            last_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # noqa: DTZ001
 
             # Create a timezone-aware cutoff
             cutoff_dt = datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -1110,11 +1112,11 @@ END:VCALENDAR"""
 
             # Event 1: modified March 2 (before cutoff) - with naive datetime
             old_modified = MagicMock()
-            old_modified.dt = datetime(2026, 3, 2, 12, 0, 0)  # naive
+            old_modified.dt = datetime(2026, 3, 2, 12, 0, 0)  # naive  # noqa: DTZ001
 
             # Event 2: modified March 8 (after cutoff) - with naive datetime
             new_modified = MagicMock()
-            new_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # naive
+            new_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # naive  # noqa: DTZ001
 
             # Before fix: both would fail comparison and return True, defeating filtering
             # After fix: proper naive->UTC normalization allows correct filtering

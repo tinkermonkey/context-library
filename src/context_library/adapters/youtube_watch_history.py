@@ -167,7 +167,7 @@ class YouTubeWatchHistoryAdapter(RemoteAdapter):
 
             videos = response.json()
             if not isinstance(videos, list):
-                raise ValueError(
+                raise TypeError(
                     f"Helper /youtube/history response must be a list, got {type(videos).__name__}"
                 )
             if videos and not isinstance(videos[0], dict):

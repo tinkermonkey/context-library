@@ -85,9 +85,11 @@ class TestYouTubeWatchHistoryAdapterInitialization:
         assert adapter._account_id == "personal"
 
     def test_init_requires_api_key(self):
-        with patch("httpx.Client"):
-            with pytest.raises(ValueError, match="api_key is required"):
-                YouTubeWatchHistoryAdapter(api_url="http://localhost:7123", api_key="")
+        with (
+            patch("httpx.Client"),
+            pytest.raises(ValueError, match="api_key is required"),
+        ):
+            YouTubeWatchHistoryAdapter(api_url="http://localhost:7123", api_key="")
 
     def test_init_raises_without_httpx(self):
         import context_library.adapters.youtube_watch_history as mod
@@ -284,7 +286,7 @@ class TestYouTubeWatchHistoryAdapterErrors:
         mock_resp.raise_for_status.return_value = None
         mock_resp.json.side_effect = ValueError("not json")
         adapter._client.get.return_value = mock_resp
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="not json"):
             list(adapter.fetch(""))
 
     def test_fetch_raises_when_response_not_list(self):

@@ -288,7 +288,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(visits, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'browser/history' response must be a list, got {type(visits).__name__}"
             )
 
@@ -319,7 +319,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(tabs, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'browser/tabs' response must be a list, got {type(tabs).__name__}"
             )
 

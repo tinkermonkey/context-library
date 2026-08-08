@@ -1,5 +1,6 @@
 """Tests for the AppleMusicAdapter."""
 
+import httpx
 import pytest
 
 from context_library.adapters.apple_music import AppleMusicAdapter
@@ -294,7 +295,7 @@ class TestAppleMusicAdapterFetch:
 
         mock_apple_music_endpoints.set_status("http://127.0.0.1:7123/music/tracks", 401)
 
-        with pytest.raises(Exception):  # httpx.HTTPStatusError
+        with pytest.raises(httpx.HTTPStatusError):
             list(adapter.fetch(""))
 
     def test_fetch_invalid_json_response(self, mock_apple_music_endpoints):
@@ -303,7 +304,7 @@ class TestAppleMusicAdapterFetch:
 
         mock_apple_music_endpoints.set_raw_response("http://127.0.0.1:7123/music/tracks", "<html>error</html>", "text/html")
 
-        with pytest.raises(Exception):  # json.JSONDecodeError or ValueError
+        with pytest.raises(ValueError):
             list(adapter.fetch(""))
 
     def test_fetch_only_yields_documents_domain(self, mock_apple_music_endpoints):

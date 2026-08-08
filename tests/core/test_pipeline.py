@@ -50,9 +50,8 @@ More content."""
 def document_store():
     """Create an in-memory document store."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path)
     yield store
     store.close()
@@ -457,9 +456,8 @@ class TestIngestionPipelineEdgeCases:
 
         # Reset for second test: close old store and create fresh file-based store
         pipeline.document_store.close()
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-        temp_path = temp_file.name
-        temp_file.close()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+            temp_path = temp_file.name
         pipeline.document_store = DocumentStore(temp_path)
 
         try:
@@ -1412,7 +1410,7 @@ class TestSourceLocksLRUCache:
                     # Simulate some work with the lock
                     with lock:
                         pass
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 errors.append(e)
 
         # Spawn multiple threads to access locks concurrently

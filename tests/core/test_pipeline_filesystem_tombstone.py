@@ -80,9 +80,8 @@ class _Recorder:
 
 @pytest.fixture
 def document_store():
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    path = tf.name
-    tf.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tf:
+        path = tf.name
     store = DocumentStore(path)
     yield store
     store.close()

@@ -5,6 +5,7 @@ RemoteAdapter and local adapters from declarative configuration.
 """
 
 import json
+import logging
 import tempfile
 from pathlib import Path
 
@@ -13,6 +14,8 @@ import pytest
 from context_library.adapters.filesystem import FilesystemAdapter
 from context_library.config.loader import load_adapters_from_file
 from context_library.storage.models import Domain
+
+logger = logging.getLogger(__name__)
 
 
 class TestLoadAdaptersFromYAML:
@@ -311,9 +314,9 @@ local_adapters:
                 adapters = load_adapters_from_file(config_path)
                 # If it succeeds, the dependency is available
                 assert len(adapters) == 1
-            except (ImportError, Exception):
+            except (ImportError, Exception) as e:  # noqa: BLE001
                 # Dependencies not available or adapter instantiation failed
-                pass
+                logger.debug("Adapter dependency unavailable or instantiation failed: %s", e)
 
 
 class TestConfigValidation:

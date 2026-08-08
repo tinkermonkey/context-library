@@ -81,6 +81,7 @@ def _convert_with_pandoc(file_path: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout
@@ -186,9 +187,8 @@ class FilesystemAdapter(BaseAdapter):
             if not file_path.is_file():
                 continue
 
-            if self._extensions is not None:
-                if file_path.suffix.lower() not in self._extensions:
-                    continue
+            if self._extensions is not None and file_path.suffix.lower() not in self._extensions:
+                continue
 
             try:
                 yield from self._process_file(file_path)

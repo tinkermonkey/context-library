@@ -5,6 +5,7 @@ is not installed. This allows core modules to conditionally use telemetry withou
 making it a hard dependency.
 """
 
+import types
 from collections.abc import Generator
 from contextlib import contextmanager
 from enum import Enum
@@ -32,7 +33,12 @@ class NoOpSpan:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         pass
 
     def set_attribute(self, key: str, value: Any) -> None:

@@ -1,5 +1,6 @@
 """Tests for the AppleBrowserHistoryAdapter."""
 
+import httpx
 import pytest
 
 from context_library.adapters.apple_browser_history import AppleBrowserHistoryAdapter
@@ -328,7 +329,7 @@ class TestAppleBrowserHistoryAdapterFetch:
         assert "chrome" in browsers
 
     def test_fetch_error_response_not_list(self, mock_httpx_client_browser_history):
-        """fetch() raises ValueError if API returns non-list response."""
+        """fetch() raises TypeError if API returns non-list response."""
         adapter = AppleBrowserHistoryAdapter(api_url="http://127.0.0.1:7123", api_key="test-token")
 
         visits_url = "http://127.0.0.1:7123/browser/history"
@@ -336,7 +337,7 @@ class TestAppleBrowserHistoryAdapterFetch:
         mock_httpx_client_browser_history.set_response(visits_url, {"error": "bad response"})
         mock_httpx_client_browser_history.set_response(tabs_url, [])
 
-        with pytest.raises(ValueError, match="must be a list"):
+        with pytest.raises(TypeError, match="must be a list"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_id(self, mock_httpx_client_browser_history):
@@ -474,7 +475,7 @@ class TestAppleBrowserHistoryAdapterFetch:
         mock_httpx_client_browser_history.set_response(visits_url, {"error": "Internal Server Error"}, status_code=500)
         mock_httpx_client_browser_history.set_response(tabs_url, [])
 
-        with pytest.raises(Exception):  # httpx.HTTPStatusError
+        with pytest.raises(httpx.HTTPStatusError):
             list(adapter.fetch(""))
 
     def test_fetch_empty_response_yields_nothing(self, mock_httpx_client_browser_history):

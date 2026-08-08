@@ -133,6 +133,6 @@ def run_service(
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
         sys.exit(0)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

@@ -244,7 +244,7 @@ class ApplePodcastsAdapter(BaseAdapter):
 
             items = response.json()
             if not isinstance(items, list):
-                raise ValueError(f"Expected list from /podcasts/listen-history, got {type(items)}")
+                raise TypeError(f"Expected list from /podcasts/listen-history, got {type(items)}")
 
             item_count = len(items)
             yielded_count = 0
@@ -283,7 +283,7 @@ class ApplePodcastsAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /podcasts/listen-history: {e}")
             raise EndpointFetchError(f"JSON decode error at /podcasts/listen-history: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /podcasts/listen-history: {e}")
             raise EndpointFetchError(f"Invalid schema at /podcasts/listen-history: {e}")
 
@@ -308,7 +308,7 @@ class ApplePodcastsAdapter(BaseAdapter):
 
             items = response.json()
             if not isinstance(items, list):
-                raise ValueError(f"Expected list from /podcasts/transcripts, got {type(items)}")
+                raise TypeError(f"Expected list from /podcasts/transcripts, got {type(items)}")
 
             item_count = len(items)
             yielded_count = 0
@@ -347,7 +347,7 @@ class ApplePodcastsAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /podcasts/transcripts: {e}")
             raise EndpointFetchError(f"JSON decode error at /podcasts/transcripts: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /podcasts/transcripts: {e}")
             raise EndpointFetchError(f"Invalid schema at /podcasts/transcripts: {e}")
 

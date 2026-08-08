@@ -204,7 +204,7 @@ class AppleNotesAdapter(HelperAckMixin, BaseAdapter):
 
         notes = response.json()
         if not isinstance(notes, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'notes' response must be a list, got {type(notes).__name__}"
             )
 
@@ -222,6 +222,6 @@ class AppleNotesAdapter(HelperAckMixin, BaseAdapter):
                 raise KeyError(f"Note missing required '{field}' field")
 
         if not isinstance(note["title"], str):
-            raise ValueError(f"Note 'title' must be a string, got {type(note['title']).__name__}")
+            raise TypeError(f"Note 'title' must be a string, got {type(note['title']).__name__}")
         if not note["title"]:
             raise ValueError("Note 'title' must be non-empty")

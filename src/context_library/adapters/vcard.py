@@ -215,7 +215,7 @@ class VCardAdapter(BaseAdapter):
                 try:
                     with open(vcf_file, "r", encoding="latin-1") as f:
                         content = f.read()
-                except Exception as fallback_err:
+                except Exception as fallback_err:  # noqa: BLE001
                     logger.error(f"Failed to read {vcf_file.name} with both UTF-8 and latin-1: {fallback_err}")
                     continue
 
@@ -270,7 +270,7 @@ class VCardAdapter(BaseAdapter):
                     except ContactIDCollisionError:
                         # Re-raise collision errors to prevent silent data loss
                         raise
-                    except Exception as contact_err:  # Catch all per-contact errors (ValueError, KeyError, TypeError, AttributeError, ValidationError, etc.)
+                    except Exception as contact_err:  # noqa: BLE001
                         logger.error(
                             f"Error processing contact at index {contact_index} in {vcf_file.name}: {contact_err}. "
                             f"Skipping this contact and continuing with next."
@@ -281,7 +281,7 @@ class VCardAdapter(BaseAdapter):
             except ContactIDCollisionError:
                 # Re-raise collision errors to prevent silent data loss
                 raise
-            except Exception as parse_err:
+            except Exception as parse_err:  # noqa: BLE001
                 # Catch vobject.ParseError (if vobject is available) and other exceptions
                 # from vobject.readComponents. Check if it's a vobject ParseError specifically.
                 if HAS_VOBJECT and VOBJECT_PARSE_ERROR is not None and isinstance(parse_err, VOBJECT_PARSE_ERROR):

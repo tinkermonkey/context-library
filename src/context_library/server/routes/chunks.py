@@ -83,7 +83,7 @@ def _to_chain_item(
 @router.get("", response_model=TopLevelChunkListResponse)
 async def list_chunks(
     request: Request,
-    domain: Domain | None = Query(default=None),
+    domain: Domain | None = Query(default=None),  # noqa: B008
     adapter_id: str | None = Query(default=None),
     source_id: str | None = Query(default=None),
     limit: int = Query(default=50, gt=0, le=1000),

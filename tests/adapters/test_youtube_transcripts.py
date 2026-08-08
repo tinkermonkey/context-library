@@ -56,9 +56,11 @@ class TestYouTubeTranscriptAdapterInitialization:
     def test_init_requires_youtube_transcript_api(self):
         """Raises ImportError when youtube-transcript-api is not installed."""
         store = _make_mock_store()
-        with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", False):
-            with pytest.raises(ImportError, match="youtube-transcript-api"):
-                YouTubeTranscriptAdapter(document_store=store)
+        with (
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", False),
+            pytest.raises(ImportError, match="youtube-transcript-api"),
+        ):
+            YouTubeTranscriptAdapter(document_store=store)
 
     def test_init_default_parameters(self):
         store = _make_mock_store()
@@ -149,9 +151,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_transcript.fetch.return_value = SAMPLE_SEGMENTS
         mock_transcript_api.list_transcripts.return_value.find_transcript.return_value = mock_transcript
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_transcript_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_transcript_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         assert len(results) == 1
         assert results[0].source_id == "youtube/transcript/abc123"
@@ -167,9 +171,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.return_value.find_transcript.return_value.fetch.return_value = SAMPLE_SEGMENTS
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         assert results[0].source_id == "youtube/transcript/vid999"
 
@@ -181,9 +187,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.return_value.find_transcript.return_value.fetch.return_value = SAMPLE_SEGMENTS
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         extra = results[0].structural_hints.extra_metadata
         assert extra["document_type"] == "video/transcript"
@@ -208,9 +216,11 @@ class TestYouTubeTranscriptAdapterFetch:
             "abc123", ["en"], MagicMock()
         )
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         assert results == []
 
@@ -223,9 +233,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.side_effect = TranscriptsDisabled("abc123")
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         assert results == []
 
@@ -248,9 +260,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.side_effect = side_effect
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         assert len(results) == 1  # Only ok_vid succeeded
 
@@ -273,9 +287,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.return_value.find_transcript.return_value.fetch.return_value = SAMPLE_SEGMENTS
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         md = results[0].markdown
         assert "Great Talk" in md
@@ -302,9 +318,11 @@ class TestYouTubeTranscriptAdapterFetch:
         mock_api = MagicMock()
         mock_api.list_transcripts.side_effect = side_effect
 
-        with patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api):
-            with patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True):
-                results = list(adapter.fetch(""))
+        with (
+            patch("context_library.adapters.youtube_transcripts.YouTubeTranscriptApi", mock_api),
+            patch("context_library.adapters.youtube_transcripts.HAS_YOUTUBE_TRANSCRIPT_API", True),
+        ):
+            results = list(adapter.fetch(""))
 
         # Should process both videos: fail_vid logs and skips, ok_vid succeeds
         assert len(results) == 1  # Only ok_vid succeeded

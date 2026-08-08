@@ -14,6 +14,7 @@ import time
 from collections.abc import Generator
 
 import pytest
+from pydantic import ValidationError
 
 from context_library.retrieval.provenance import (
     get_source_timeline,
@@ -37,9 +38,8 @@ from context_library.storage.models import (
 def store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store_obj = DocumentStore(temp_path)
     yield store_obj
     store_obj.close()
@@ -589,7 +589,7 @@ class TestTraceChunkProvenance:
 
         provenance = trace_chunk_provenance(store, hash_a)
         # Frozen models should raise when attempting to modify
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(ValidationError):
             provenance.source_origin_ref = "modified"  # type: ignore
 
     def test_trace_chunk_provenance_lineage_not_found_without_source_id(
@@ -657,9 +657,8 @@ class TestTraceChunkProvenance:
         # without deleting the chunk itself. This ensures get_chunk_by_hash
         # succeeds but get_lineage returns None, properly triggering the
         # lineage-not-found error path at provenance.py:92-95.
-        with patch.object(store, 'get_lineage', return_value=None):
-            with pytest.raises(ValueError) as exc_info:
-                trace_chunk_provenance(store, hash_a)
+        with patch.object(store, 'get_lineage', return_value=None), pytest.raises(ValueError) as exc_info:
+            trace_chunk_provenance(store, hash_a)
 
         error_msg = str(exc_info.value)
         # Validate the exact error message for the lineage-not-found path

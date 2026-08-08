@@ -19,9 +19,8 @@ from context_library.storage.models import AdapterConfig, Domain
 def ds_for_spa() -> Generator[DocumentStore, None, None]:
     """In-memory DocumentStore for SPA tests."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path, check_same_thread=False)
     config = AdapterConfig(
         adapter_id="test-adapter",

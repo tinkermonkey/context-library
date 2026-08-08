@@ -59,7 +59,7 @@ async def health(request: Request) -> HealthResponse:
 
     try:
         vector_count = await asyncio.to_thread(vector_store.count)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Health check: vector store unreachable: %s", e)
         vector_count = 0
         chromadb_ok = False
@@ -67,7 +67,7 @@ async def health(request: Request) -> HealthResponse:
 
     try:
         await asyncio.to_thread(lambda: document_store.conn.execute("SELECT 1"))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning("Health check: document store unreachable: %s", e)
         sqlite_ok = False
         status = "degraded"
@@ -79,7 +79,7 @@ async def health(request: Request) -> HealthResponse:
         try:
             snapshot = await asyncio.to_thread(cache.get_or_probe)
             helper_health = _snapshot_to_schema(snapshot)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("Failed to get helper health snapshot: %s", e)
 
     return HealthResponse(

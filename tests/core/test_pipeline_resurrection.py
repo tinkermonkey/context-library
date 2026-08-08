@@ -60,9 +60,9 @@ class _StaticAdapter(BaseAdapter):
 
 @pytest.fixture
 def pipeline_env():
-    dbf = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    dbf.close()
-    ds = DocumentStore(dbf.name)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as dbf:
+        db_path = dbf.name
+    ds = DocumentStore(db_path)
     with tempfile.TemporaryDirectory() as vdir:
         vs = ChromaDBVectorStore(vdir)
         pipe = IngestionPipeline(
@@ -73,7 +73,7 @@ def pipeline_env():
         )
         yield pipe, ds, vs
     ds.close()
-    os.unlink(dbf.name)
+    os.unlink(db_path)
 
 
 class TestResetResurrection:

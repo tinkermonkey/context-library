@@ -60,12 +60,12 @@ def _chunk_response(chunk, lineage, source_id: str) -> ChunkResponse:
 @router.get("", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
-    domain: Domain | None = Query(default=None),
+    domain: Domain | None = Query(default=None),  # noqa: B008
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
     state: str | None = Query(default=None, pattern="^(active|inactive)$"),
-    last_fetched_after: datetime | None = Query(default=None),
-    last_fetched_before: datetime | None = Query(default=None),
+    last_fetched_after: datetime | None = Query(default=None),  # noqa: B008
+    last_fetched_before: datetime | None = Query(default=None),  # noqa: B008
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),

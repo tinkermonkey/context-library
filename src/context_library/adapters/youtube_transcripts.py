@@ -169,7 +169,7 @@ class YouTubeTranscriptAdapter(BaseAdapter):
                 # Data validation errors (malformed API response or metadata) are logged and skipped
                 logger.warning("Skipping transcript for video_id=%s due to malformed data: %s", video_id, exc)
                 continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 # Unexpected API or processing errors are logged and skipped per the per-source error isolation pattern
                 logger.warning("Transcript fetch failed for video_id=%s: %s", video_id, exc)
                 continue

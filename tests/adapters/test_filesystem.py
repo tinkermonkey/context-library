@@ -708,7 +708,7 @@ class TestFilesystemAdapterDocumentMetadata:
             doc_meta = DMeta(**meta_dict)
             assert doc_meta.source_type == "filesystem"
             assert doc_meta.document_id == "test.md"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             pytest.fail(f"Failed to deserialize extra_metadata to DocumentMetadata: {e}")
 
     def test_extra_metadata_all_files_have_metadata(self, tmp_path):

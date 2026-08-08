@@ -66,7 +66,6 @@ _inotify_exhausted = False
 @pytest.fixture
 def skip_if_inotify_exhausted(request):
     """Fixture to skip tests that require filesystem watching if inotify is exhausted."""
-    global _inotify_exhausted
     if _inotify_exhausted:
         pytest.skip("inotify resources exhausted, skipping filesystem watch tests")
     # Allow test to set this flag if it hits an inotify limit error
@@ -485,47 +484,49 @@ class TestFileSystemWatcherIndependence:
         callback1 = MagicMock()
         callback2 = MagicMock()
 
-        with tempfile.TemporaryDirectory() as tmpdir1:
-            with tempfile.TemporaryDirectory() as tmpdir2:
-                watch_dir1 = Path(tmpdir1)
-                watch_dir2 = Path(tmpdir2)
+        with (
+            tempfile.TemporaryDirectory() as tmpdir1,
+            tempfile.TemporaryDirectory() as tmpdir2,
+        ):
+            watch_dir1 = Path(tmpdir1)
+            watch_dir2 = Path(tmpdir2)
 
-                watcher1 = create_watching_watcher(
-                    watch_path=watch_dir1,
-                    callback=callback1,
-                    debounce_ms=100,
-                )
-                watcher2 = create_watching_watcher(
-                    watch_path=watch_dir2,
-                    callback=callback2,
-                    debounce_ms=100,
-                )
+            watcher1 = create_watching_watcher(
+                watch_path=watch_dir1,
+                callback=callback1,
+                debounce_ms=100,
+            )
+            watcher2 = create_watching_watcher(
+                watch_path=watch_dir2,
+                callback=callback2,
+                debounce_ms=100,
+            )
 
-                # Create files in different directories
-                file1 = watch_dir1 / "test1.md"
-                file2 = watch_dir2 / "test2.md"
+            # Create files in different directories
+            file1 = watch_dir1 / "test1.md"
+            file2 = watch_dir2 / "test2.md"
 
-                file1.write_text("content1")
-                file2.write_text("content2")
+            file1.write_text("content1")
+            file2.write_text("content2")
 
-                # Wait for debounce
-                time.sleep(0.2)
+            # Wait for debounce
+            time.sleep(0.2)
 
-                watcher1.stop()
-                watcher2.stop()
+            watcher1.stop()
+            watcher2.stop()
 
-                # Each callback should only see its own directory's events
-                assert callback1.called
-                assert callback2.called
+            # Each callback should only see its own directory's events
+            assert callback1.called
+            assert callback2.called
 
-                paths1 = {c[0][0].path for c in callback1.call_args_list}
-                paths2 = {c[0][0].path for c in callback2.call_args_list}
+            paths1 = {c[0][0].path for c in callback1.call_args_list}
+            paths2 = {c[0][0].path for c in callback2.call_args_list}
 
-                assert file1 in paths1
-                assert file2 not in paths1
+            assert file1 in paths1
+            assert file2 not in paths1
 
-                assert file2 in paths2
-                assert file1 not in paths2
+            assert file2 in paths2
+            assert file1 not in paths2
 
 
 class TestModuleImports:
@@ -786,18 +787,20 @@ class TestFileSystemWatcherInitializationFailure:
             watcher = FileSystemWatcher(watch_path=watch_dir, callback=callback)
 
             # Force watchfiles path by mocking HAS_WATCHDOG=False
-            with patch.object(_watching, 'HAS_WATCHDOG', False):
+            with (
+                patch.object(_watching, 'HAS_WATCHDOG', False),
                 # Mock watchfiles.watch to raise an exception immediately (simulating inotify limit)
-                with patch('context_library.adapters._watching._watchfiles.watch') as mock_watch:
-                    # Make the watch generator raise an exception when created
-                    mock_watch.side_effect = RuntimeError("inotify limit reached")
+                patch('context_library.adapters._watching._watchfiles.watch') as mock_watch,
+            ):
+                # Make the watch generator raise an exception when created
+                mock_watch.side_effect = RuntimeError("inotify limit reached")
 
-                    # start() should raise RuntimeError due to thread failure
-                    with pytest.raises(RuntimeError, match="watchfiles thread failed to initialize"):
-                        watcher.start()
+                # start() should raise RuntimeError due to thread failure
+                with pytest.raises(RuntimeError, match="watchfiles thread failed to initialize"):
+                    watcher.start()
 
-                    # Watcher should not be alive after failed initialization
-                    assert not watcher.is_alive
+                # Watcher should not be alive after failed initialization
+                assert not watcher.is_alive
 
     def test_successful_initialization_completes_within_timeout(self) -> None:
         """Test that successful initialization is detected and startup completes quickly."""

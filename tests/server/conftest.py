@@ -74,9 +74,8 @@ def ds() -> Generator[DocumentStore, None, None]:
     # Use a temporary file instead of :memory: to support multi-threaded access.
     # SQLite :memory: databases are per-connection, so each thread gets its own
     # isolated empty database. File-based databases work correctly across threads.
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
 
     store = DocumentStore(temp_path, check_same_thread=False)
 

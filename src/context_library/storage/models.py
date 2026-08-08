@@ -191,7 +191,7 @@ class MessageMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate MessageMetadata invariants after model construction.
 
         Enforces:
@@ -380,7 +380,7 @@ class EventMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate EventMetadata invariants after model construction.
 
         Enforces:
@@ -912,7 +912,7 @@ class LocationMetadata(BaseModel):
             raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate LocationMetadata invariants after model construction.
 
         Enforces:
@@ -1091,7 +1091,7 @@ class DiffResult(BaseModel):
     prev_hash: Sha256Hash | None = None
     curr_hash: Sha256Hash | None = None
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate DiffResult invariants after model construction.
 
         Enforces:
@@ -1120,12 +1120,11 @@ class DiffResult(BaseModel):
             )
 
         # Check changed flag consistency: if changed=False, must have no added/removed hashes
-        if not self.changed:
-            if self.added_hashes or self.removed_hashes:
-                raise ValueError(
-                    f"If changed=False, both added_hashes and removed_hashes must be empty. "
-                    f"Got added_hashes={self.added_hashes}, removed_hashes={self.removed_hashes}"
-                )
+        if not self.changed and (self.added_hashes or self.removed_hashes):
+            raise ValueError(
+                f"If changed=False, both added_hashes and removed_hashes must be empty. "
+                f"Got added_hashes={self.added_hashes}, removed_hashes={self.removed_hashes}"
+            )
 
 
 class VersionDiff(BaseModel):
@@ -1161,7 +1160,7 @@ class VersionDiff(BaseModel):
             raise ValueError("source_id must be a non-empty string")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate VersionDiff invariants after model construction.
 
         Enforces:
@@ -1293,7 +1292,7 @@ class SourceTimeline(BaseModel):
             raise ValueError("source_id must be a non-empty string")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate SourceTimeline invariants after model construction.
 
         Enforces:
@@ -1343,7 +1342,7 @@ class ChunkProvenance(BaseModel):
     adapter_type: str
     version_chain: tuple[Chunk, ...]
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate ChunkProvenance invariants after model construction.
 
         Enforces:

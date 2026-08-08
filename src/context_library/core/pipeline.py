@@ -570,7 +570,7 @@ class IngestionPipeline:
                                                 del_span.set_attribute("count", len(diff_result.removed_hashes))
                                             # Clear sync log entries now that vector store delete succeeded
                                             self.document_store.clear_sync_log(list(diff_result.removed_hashes))
-                                        except Exception as e:
+                                        except Exception as e:  # noqa: BLE001
                                             # Vector store delete failed, but SQLite already recorded the delete.
                                             # This creates inconsistency (SQLite says deleted, but vectors remain in store).
                                             raise StorageError(
@@ -605,7 +605,7 @@ class IngestionPipeline:
 
                             except ChunkingError as e:
                                 # Handle chunking errors (domain-specific parser/processing failures)
-                                logger.error(f"Chunking error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Chunking error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -624,7 +624,7 @@ class IngestionPipeline:
                                 continue
                             except EmbeddingError as e:
                                 # Handle embedding-specific errors
-                                logger.error(f"Embedding error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Embedding error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -644,7 +644,7 @@ class IngestionPipeline:
                                 continue
                             except StorageError as e:
                                 # Handle storage-specific errors
-                                logger.error(f"Storage error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Storage error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -665,7 +665,7 @@ class IngestionPipeline:
                                 continue
                             except Exception as e:
                                 # Handle any other unexpected errors
-                                logger.error(f"Unexpected error processing source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Unexpected error processing source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1

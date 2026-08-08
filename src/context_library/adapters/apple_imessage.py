@@ -183,7 +183,7 @@ class AppleiMessageAdapter(HelperAckMixin, BaseAdapter):
 
         messages = response.json()
         if not isinstance(messages, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'messages' response must be a list, got {type(messages).__name__}"
             )
 

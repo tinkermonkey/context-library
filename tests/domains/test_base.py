@@ -7,6 +7,7 @@ Covers:
 - Integration with cross-reference detection
 """
 
+import pydantic
 import pytest
 
 from context_library.domains.base import BaseDomain
@@ -203,7 +204,7 @@ class TestApplyCrossReferences:
         chunk = _make_chunk("See above", 0)
 
         # Verify chunk is frozen
-        with pytest.raises(Exception):  # Pydantic frozen models raise on mutation
+        with pytest.raises(pydantic.ValidationError):  # Pydantic frozen models raise on mutation
             chunk.cross_refs = ("a" * 64,)  # type: ignore
 
         # But model_copy should work

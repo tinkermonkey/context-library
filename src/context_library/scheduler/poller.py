@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from context_library import telemetry as tel
 from context_library.adapters.base import BaseAdapter
@@ -411,11 +411,10 @@ class Poller:
                         # that won't be fixed by retrying. Log them at ERROR level immediately
                         # rather than waiting for 6+ cycles.
                         if _is_programming_error(e):
-                            logger.error(
+                            logger.exception(
                                 "Poller: adapter %s encountered a programming error (escalated immediately): %s",
                                 adapter_id,
                                 error_msg,
-                                exc_info=True,
                             )
                         # Log at escalated level based on consecutive failure count for transient errors
                         elif error_tracker.should_log_at_error_level():
@@ -500,62 +499,61 @@ class Poller:
 
         # Spawn a background thread to run the ingest immediately (non-blocking)
         def process_adapter() -> None:
-            with tel.run_in_context(_ingest_ctx):
-                with tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span:
-                    immediate_span.set_attribute("adapter_id", adapter_id)
-                    immediate_span.set_attribute("trigger", "manual")
+            with (
+                tel.run_in_context(_ingest_ctx),
+                tracer.start_as_current_span("scheduler.poll.immediate") as immediate_span,
+            ):
+                immediate_span.set_attribute("adapter_id", adapter_id)
+                immediate_span.set_attribute("trigger", "manual")
 
-                    result = IngestResult(adapter_id=adapter_id)
-                    try:
-                        ingest_result = self._pipeline.ingest(
-                            adapter, chunker, source_ref=""
+                result = IngestResult(adapter_id=adapter_id)
+                try:
+                    ingest_result = self._pipeline.ingest(
+                        adapter, chunker, source_ref=""
+                    )
+                    # Commit-ack: confirm to the helper that the page was durably
+                    # persisted so it advances its staged delivery cursor (no-op
+                    # for adapters not using commit-ack; best-effort, never raises).
+                    adapter.ack()
+                    processed = ingest_result.get("sources_processed", 0)
+                    failed = ingest_result.get("sources_failed", 0)
+                    result.sources_attempted = processed + failed
+                    result.sources_succeeded = processed
+                    result.sources_failed = failed
+                    self._last_polled[adapter_id] = time.monotonic()
+                except MemoryError:
+                    # System-level memory exhaustion is fatal; propagate immediately
+                    raise
+                except Exception as e:
+                    result.sources_attempted = max(result.sources_attempted, 1)
+                    result.sources_failed = max(result.sources_failed, 1)
+                    if _is_programming_error(e):
+                        result.had_programming_errors = True
+                        logger.exception(
+                            "trigger_immediate_ingest: adapter %s encountered a programming error",
+                            adapter_id,
                         )
-                        # Commit-ack: confirm to the helper that the page was durably
-                        # persisted so it advances its staged delivery cursor (no-op
-                        # for adapters not using commit-ack; best-effort, never raises).
-                        adapter.ack()
-                        processed = ingest_result.get("sources_processed", 0)
-                        failed = ingest_result.get("sources_failed", 0)
-                        result.sources_attempted = processed + failed
-                        result.sources_succeeded = processed
-                        result.sources_failed = failed
-                        self._last_polled[adapter_id] = time.monotonic()
-                    except MemoryError:
-                        # System-level memory exhaustion is fatal; propagate immediately
-                        raise
-                    except Exception as e:
-                        result.sources_attempted = max(result.sources_attempted, 1)
-                        result.sources_failed = max(result.sources_failed, 1)
-                        if _is_programming_error(e):
-                            result.had_programming_errors = True
-                            logger.error(
-                                "trigger_immediate_ingest: adapter %s encountered a programming error: %s",
-                                adapter_id,
-                                e,
-                                exc_info=True,
-                            )
-                        else:
-                            logger.exception(
-                                "trigger_immediate_ingest: ingest failed for adapter %s: %s",
-                                adapter_id,
-                                e,
-                            )
-                    finally:
-                        # Mark result as completed and store it
-                        result.completed_at = datetime.now()
-                        with self._results_lock:
-                            self._ingest_results[adapter_id] = result
+                    else:
+                        logger.exception(
+                            "trigger_immediate_ingest: ingest failed for adapter %s",
+                            adapter_id,
+                        )
+                finally:
+                    # Mark result as completed and store it
+                    result.completed_at = datetime.now(tz=timezone.utc)
+                    with self._results_lock:
+                        self._ingest_results[adapter_id] = result
 
-                        # Set span error status if any sources failed
-                        if result.sources_failed > 0:
-                            immediate_span.set_status(StatusCode.ERROR)
+                    # Set span error status if any sources failed
+                    if result.sources_failed > 0:
+                        immediate_span.set_status(StatusCode.ERROR)
 
-                        # Always clear the in-progress flag and remove thread from tracking
-                        # CRITICAL: Clear flag inside lock to prevent race conditions
-                        with self._threads_lock:
-                            self._ingest_in_progress[adapter_id] = False
-                            self._background_threads.discard(threading.current_thread())
-                            self._ingest_thread_adapters.pop(threading.current_thread(), None)
+                    # Always clear the in-progress flag and remove thread from tracking
+                    # CRITICAL: Clear flag inside lock to prevent race conditions
+                    with self._threads_lock:
+                        self._ingest_in_progress[adapter_id] = False
+                        self._background_threads.discard(threading.current_thread())
+                        self._ingest_thread_adapters.pop(threading.current_thread(), None)
 
         # Use non-daemon threads and track them for graceful shutdown
         thread = threading.Thread(target=process_adapter, daemon=False)

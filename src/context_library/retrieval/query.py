@@ -60,7 +60,7 @@ class RetrievalResult(BaseModel):
             )
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate RetrievalResult invariants after model construction.
 
         Enforces:
@@ -173,11 +173,10 @@ def retrieve(
                 raise ValueError(f"top_k must be positive, got {top_k}")
 
             # Validate source_filter early, before expensive operations
-            if source_filter is not None:
-                if not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
-                    raise ValueError(
-                        f'source_filter contains invalid characters: {source_filter!r}'
-                    )
+            if source_filter is not None and not _SAFE_SOURCE_FILTER_PATTERN.match(source_filter):
+                raise ValueError(
+                    f'source_filter contains invalid characters: {source_filter!r}'
+                )
 
             # Step 1: Embed the query
             try:

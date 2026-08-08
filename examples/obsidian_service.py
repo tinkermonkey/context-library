@@ -80,7 +80,7 @@ def main():
     # Initialize adapter
     try:
         adapter = ObsidianAdapter(vault_path=str(vault_path))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: Failed to initialize ObsidianAdapter: {e}", file=sys.stderr)
         sys.exit(1)
 

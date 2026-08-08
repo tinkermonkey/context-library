@@ -43,11 +43,9 @@ async def lifespan(app: FastAPI):
     # Initialize telemetry (setup_telemetry is a no-op if telemetry is disabled)
     try:
         setup_telemetry(app=app)
-    except Exception as e:
-        logger.error(
-            "Telemetry setup failed (server will continue without telemetry): %s",
-            e,
-            exc_info=True
+    except Exception:
+        logger.exception(
+            "Telemetry setup failed (server will continue without telemetry)"
         )
 
     # Ensure parent directory exists for SQLite DB

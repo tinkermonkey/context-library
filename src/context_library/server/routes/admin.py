@@ -141,7 +141,7 @@ async def trigger_adapter_sync(adapter_id: str, request: Request) -> TriggerSync
                 message="Ingest already in progress for this adapter",
             )
         except Exception as e:
-            logger.error("Sync trigger failed for %s: %s", adapter_id, e, exc_info=True)
+            logger.exception("Sync trigger failed for %s", adapter_id)
             span.record_exception(e)
             span.set_status(StatusCode.ERROR)
             raise HTTPException(status_code=500, detail=f"Sync trigger error: {e}")

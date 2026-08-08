@@ -119,7 +119,7 @@ class LanceDBVectorStore(VectorStore):
                     f"Missing _distance field in search result for chunk {row['chunk_hash']}."
                 )
             if not isinstance(distance, (int, float)):
-                raise RuntimeError(
+                raise TypeError(
                     f"Invalid _distance type {type(distance)} for chunk {row['chunk_hash']}."
                 )
             # LanceDB cosine distance [0, 2] → similarity [0, 1]

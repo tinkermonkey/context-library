@@ -38,9 +38,8 @@ def embedder() -> Embedder:
 def document_store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path)
     yield store
     store.close()

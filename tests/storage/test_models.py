@@ -1520,7 +1520,7 @@ class TestVersionDiff:
             unchanged_hashes=frozenset(),
         )
 
-        with pytest.raises(Exception):  # Pydantic frozen model
+        with pytest.raises(ValidationError):  # Pydantic frozen model
             diff.source_id = "src-2"  # type: ignore
 
     def test_version_diff_empty_source_id_rejected(self) -> None:
@@ -1719,7 +1719,7 @@ class TestSourceTimeline:
             versions=(version,),
         )
 
-        with pytest.raises(Exception):  # Pydantic frozen model
+        with pytest.raises(ValidationError):  # Pydantic frozen model
             timeline.source_id = "src-2"  # type: ignore
 
     def test_source_timeline_empty_source_id_rejected(self) -> None:
@@ -2027,7 +2027,7 @@ class TestChunkProvenance:
             version_chain=(chunk,),
         )
 
-        with pytest.raises(Exception):  # Pydantic frozen model
+        with pytest.raises(ValidationError):  # Pydantic frozen model
             provenance.source_origin_ref = "other-source"  # type: ignore
 
 

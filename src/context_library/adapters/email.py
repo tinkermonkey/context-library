@@ -230,7 +230,7 @@ class EmailAdapter(BaseAdapter):
 
         # Validate that messages is a list
         if not isinstance(messages, list):
-            raise ValueError(
+            raise TypeError(
                 f"EmailEngine API 'messages' field must be a list, got {type(messages).__name__}"
             )
 
@@ -268,7 +268,7 @@ class EmailAdapter(BaseAdapter):
 
         # Validate that text is a string
         if not isinstance(body, str):
-            raise ValueError(
+            raise TypeError(
                 f"EmailEngine API 'text' field must be a string, got {type(body).__name__}"
             )
 

@@ -570,8 +570,7 @@ class TestRemoteAdapterFetch:
 
         results = []
         with pytest.raises(ValidationError):
-            for item in adapter.fetch("source_ref"):
-                results.append(item)
+            results.extend(adapter.fetch("source_ref"))
 
         # Key assertion: no items should have been yielded before the error
         assert len(results) == 0

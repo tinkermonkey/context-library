@@ -30,13 +30,15 @@ class TestConversionFunctions:
         file_path = tmp_path / "test.pdf"
         file_path.write_text("dummy pdf", encoding="utf-8")
 
-        with patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True):
-            with patch("context_library.adapters.filesystem.MarkItDown") as mock_class:
-                mock_inst = MagicMock()
-                mock_class.return_value = mock_inst
-                mock_inst.convert.side_effect = ValueError("Corrupted PDF")
-                with patch("context_library.adapters.filesystem.logger") as mock_logger:
-                    result = _convert_with_markitdown(file_path)
+        with (
+            patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True),
+            patch("context_library.adapters.filesystem.MarkItDown") as mock_class,
+        ):
+            mock_inst = MagicMock()
+            mock_class.return_value = mock_inst
+            mock_inst.convert.side_effect = ValueError("Corrupted PDF")
+            with patch("context_library.adapters.filesystem.logger") as mock_logger:
+                result = _convert_with_markitdown(file_path)
 
         assert result is None
         mock_logger.warning.assert_called_once()
@@ -48,12 +50,14 @@ class TestConversionFunctions:
         file_path = tmp_path / "test.pdf"
         file_path.write_text("dummy", encoding="utf-8")
 
-        with patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True):
-            with patch("context_library.adapters.filesystem.MarkItDown") as mock_class:
-                mock_inst = MagicMock()
-                mock_class.return_value = mock_inst
-                mock_inst.convert.side_effect = RuntimeError("Timeout")
-                result = _convert_with_markitdown(file_path)
+        with (
+            patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True),
+            patch("context_library.adapters.filesystem.MarkItDown") as mock_class,
+        ):
+            mock_inst = MagicMock()
+            mock_class.return_value = mock_inst
+            mock_inst.convert.side_effect = RuntimeError("Timeout")
+            result = _convert_with_markitdown(file_path)
 
         assert result is None
 
@@ -62,12 +66,14 @@ class TestConversionFunctions:
         file_path = tmp_path / "test.pdf"
         file_path.write_text("dummy", encoding="utf-8")
 
-        with patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True):
-            with patch("context_library.adapters.filesystem.MarkItDown") as mock_class:
-                mock_inst = MagicMock()
-                mock_class.return_value = mock_inst
-                mock_inst.convert.side_effect = OSError("Disk full")
-                result = _convert_with_markitdown(file_path)
+        with (
+            patch("context_library.adapters.filesystem.HAS_MARKITDOWN", True),
+            patch("context_library.adapters.filesystem.MarkItDown") as mock_class,
+        ):
+            mock_inst = MagicMock()
+            mock_class.return_value = mock_inst
+            mock_inst.convert.side_effect = OSError("Disk full")
+            result = _convert_with_markitdown(file_path)
 
         assert result is None
 

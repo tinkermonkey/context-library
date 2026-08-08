@@ -43,9 +43,8 @@ from context_library.storage.models import (
 def store() -> Generator[DocumentStore, None, None]:
     """Create an in-memory DocumentStore for testing."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store_obj = DocumentStore(temp_path)
     yield store_obj
     store_obj.close()
@@ -5520,7 +5519,7 @@ class TestListChunks:
         store.write_chunks([chunk1], [lineage1])
 
         # Query for correct adapter_id
-        rows, total = store.list_chunks(adapter_id="read-adapter")
+        _rows, total = store.list_chunks(adapter_id="read-adapter")
         assert total == 1
 
         # Query for different adapter_id returns nothing
@@ -5611,7 +5610,7 @@ class TestListChunks:
         store.write_chunks([chunk1], [lineage1])
 
         # Initially should have 1 chunk
-        rows, total = store.list_chunks()
+        _rows, total = store.list_chunks()
         assert total == 1
 
         # Retire the chunk

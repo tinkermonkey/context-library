@@ -142,7 +142,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 except HTTPException:
                     # Re-raise HTTPException (our 502 error)
                     raise
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     # Distinguish between legitimate network errors (502) and internal bugs (500)
                     is_network_error = False
                     if httpx is not None:
@@ -179,7 +179,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 error_msg = f"Library reset error: {type(e).__name__}: {e}"
                 if helper_reset_ok is True:
                     error_msg += " (Note: helper was already reset)"
-                logger.error("Reset adapter %s failed at step 3: %s", adapter_id, e, exc_info=True)
+                logger.exception("Reset adapter %s failed at step 3", adapter_id)
                 raise HTTPException(status_code=500, detail=error_msg)
 
             # Step 4: Trigger immediate re-ingestion
@@ -203,7 +203,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 error_msg = f"Database error while triggering re-ingestion: {e}"
                 errors.append(error_msg)
                 logger.warning("Reset adapter %s: re-ingestion trigger failed (DB error): %s", adapter_id, e)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 error_msg = f"Unexpected error while triggering re-ingestion: {type(e).__name__}: {e}"
                 errors.append(error_msg)
                 logger.warning("Reset adapter %s: re-ingestion trigger failed (unexpected error): %s", adapter_id, e)

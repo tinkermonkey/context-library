@@ -293,13 +293,13 @@ def shutdown_telemetry() -> None:
     if _tracer_provider is not None:
         try:
             _tracer_provider.force_flush(timeout_millis=5000)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "TracerProvider.force_flush() failed during shutdown: %s", e
             )
         try:
             _tracer_provider.shutdown()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "TracerProvider.shutdown() failed during shutdown: %s", e
             )
@@ -308,13 +308,13 @@ def shutdown_telemetry() -> None:
     if _logger_provider is not None:
         try:
             _logger_provider.force_flush(timeout_millis=5000)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "LoggerProvider.force_flush() failed during shutdown: %s", e
             )
         try:
             _logger_provider.shutdown()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "LoggerProvider.shutdown() failed during shutdown: %s", e
             )
@@ -323,13 +323,13 @@ def shutdown_telemetry() -> None:
     if _logging_handler is not None:
         try:
             _logging_handler.close()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "LoggingHandler.close() failed during shutdown: %s", e
             )
         try:
             logging.getLogger().removeHandler(_logging_handler)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "Failed to remove LoggingHandler during shutdown: %s", e
             )
@@ -338,13 +338,13 @@ def shutdown_telemetry() -> None:
     if _meter_provider is not None:
         try:
             _meter_provider.force_flush(timeout_millis=5000)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "MeterProvider.force_flush() failed during shutdown: %s", e
             )
         try:
             _meter_provider.shutdown()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logging.getLogger(__name__).warning(
                 "MeterProvider.shutdown() failed during shutdown: %s", e
             )

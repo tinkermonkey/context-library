@@ -234,7 +234,7 @@ class AppleRemindersAdapter(HelperAckMixin, BaseAdapter):
 
         Raises:
             httpx.HTTPError: If the API request fails
-            ValueError: If the API returns unexpected response schema
+            TypeError: If the API returns unexpected response schema
         """
         # Build query parameters
         params = {}
@@ -262,7 +262,7 @@ class AppleRemindersAdapter(HelperAckMixin, BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(reminders, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'reminders' response must be a list, got {type(reminders).__name__}"
             )
 

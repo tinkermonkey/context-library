@@ -53,9 +53,8 @@ class MockDomain(BaseDomain):
 def document_store():
     """Create an in-memory document store."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path)
     yield store
     store.close()
@@ -195,19 +194,21 @@ class TestWatcherHandleWebhook:
         adapter = MockAdapter("test-adapter", Domain.NOTES)
         chunker = MockDomain()
 
-        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-            with patch("context_library.scheduler.watcher.logger") as mock_logger:
-                # Should not raise
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        with (
+            patch.object(pipeline, "ingest", side_effect=Exception("Test error")),
+            patch("context_library.scheduler.watcher.logger") as mock_logger,
+        ):
+            # Should not raise
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
-                # logger.exception should have been called
-                mock_logger.exception.assert_called_once()
-                call_args = mock_logger.exception.call_args[0]
-                assert "/test/file.txt" in str(call_args)
+            # logger.exception should have been called
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args[0]
+            assert "/test/file.txt" in str(call_args)
 
     def test_handle_webhook_does_not_propagate_exception(self, pipeline):
         """handle_webhook() should not propagate exceptions."""
@@ -502,16 +503,18 @@ class TestWatcherCallbackChaining:
         watcher.register(adapter, chunker, file_watcher)
 
         # Should not raise even though original callback fails
-        with patch("context_library.scheduler.watcher.logger"):
-            with patch.object(watcher, "handle_webhook") as mock_webhook:
-                event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
-                file_watcher._callback(event)
+        with (
+            patch("context_library.scheduler.watcher.logger"),
+            patch.object(watcher, "handle_webhook") as mock_webhook,
+        ):
+            event = FileEvent(path=Path("/test/file.txt"), event_type="modified")
+            file_watcher._callback(event)
 
-                # Original callback was called and failed
-                original_callback.assert_called_once_with(event)
-                # Webhook handler should NOT be called if adapter callback fails
-                # (could leave adapter state inconsistent, e.g., stale vault cache)
-                mock_webhook.assert_not_called()
+            # Original callback was called and failed
+            original_callback.assert_called_once_with(event)
+            # Webhook handler should NOT be called if adapter callback fails
+            # (could leave adapter state inconsistent, e.g., stale vault cache)
+            mock_webhook.assert_not_called()
 
 
 class TestWatcherRetryMechanism:
@@ -764,14 +767,16 @@ class TestWatcherPeriodicDraining:
                 raise RuntimeError("Pipeline failed initially")
             # Subsequent calls succeed (drain succeeds)
 
-        with patch.object(pipeline, "ingest", side_effect=ingest_side_effect):
-            with patch("context_library.scheduler.watcher.logger"):
-                # Initial event handling - this will fail and queue the event
-                watcher.handle_webhook(
-                    source_ref="/test/file.txt",
-                    adapter=adapter,
-                    domain_chunker=chunker,
-                )
+        with (
+            patch.object(pipeline, "ingest", side_effect=ingest_side_effect),
+            patch("context_library.scheduler.watcher.logger"),
+        ):
+            # Initial event handling - this will fail and queue the event
+            watcher.handle_webhook(
+                source_ref="/test/file.txt",
+                adapter=adapter,
+                domain_chunker=chunker,
+            )
 
         assert watcher.get_retry_queue_size() == 1
 

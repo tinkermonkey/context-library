@@ -263,7 +263,7 @@ class AppleCalendarAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(events, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'calendar/events' response must be a list, got {type(events).__name__}"
             )
 

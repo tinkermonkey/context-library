@@ -89,7 +89,7 @@ class AppleMusicBaseMixin:
 
             tracks = response.json()
             if not isinstance(tracks, list):
-                raise ValueError(
+                raise TypeError(
                     f"macOS helper API '/music/tracks' response must be a list, got {type(tracks).__name__}"
                 )
 

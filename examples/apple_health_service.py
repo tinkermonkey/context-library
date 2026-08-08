@@ -80,7 +80,7 @@ def main():
     except ImportError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: Failed to initialize AppleHealthAdapter: {e}", file=sys.stderr)
         sys.exit(1)
 
