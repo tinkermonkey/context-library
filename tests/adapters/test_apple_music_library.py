@@ -835,7 +835,7 @@ class TestAppleMusicLibraryAdapterFetch:
             {"error": "unexpected response format"}  # dict instead of list
         )
 
-        with pytest.raises(ValueError, match="must be a list"):
+        with pytest.raises(TypeError, match="must be a list"):
             list(adapter.fetch(""))
 
     def test_fetch_all_tracks_malformed_raises_endpoint_fetch_error(self, mock_apple_music_library_endpoints):

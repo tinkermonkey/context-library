@@ -353,7 +353,7 @@ class TestAppleCalendarAdapterFetch:
         events_url = "http://127.0.0.1:7123/calendar/events"
         mock_httpx_client_calendar.set_response(events_url, {"events": []})  # Should be a list, not dict
 
-        with pytest.raises(ValueError, match="must be a list"):
+        with pytest.raises(TypeError, match="must be a list"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_title_raises(self, mock_httpx_client_calendar):

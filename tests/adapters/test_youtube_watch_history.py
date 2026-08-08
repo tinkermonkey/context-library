@@ -292,7 +292,7 @@ class TestYouTubeWatchHistoryAdapterErrors:
     def test_fetch_raises_when_response_not_list(self):
         adapter = _make_adapter()
         adapter._client.get.return_value = _make_mock_response({"error": "unexpected"})
-        with pytest.raises(ValueError, match="must be a list"):
+        with pytest.raises(TypeError, match="must be a list"):
             list(adapter.fetch(""))
 
     def test_fetch_raises_when_response_items_not_dicts(self):

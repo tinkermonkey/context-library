@@ -632,7 +632,7 @@ class TestPollerTicking:
                 # Should log at ERROR level immediately (not INFO)
                 # and not record multiple failures for escalation
                 error_calls = [
-                    call for call in mock_logger.error.call_args_list
+                    call for call in mock_logger.exception.call_args_list
                     if "programming error" in str(call).lower()
                 ]
                 assert len(error_calls) > 0, "Programming error was not logged at ERROR level"

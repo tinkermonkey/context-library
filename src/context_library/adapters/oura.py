@@ -453,7 +453,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from {endpoint} (possible proxy/HTML response): {e}")
             raise EndpointFetchError(f"JSON decode error at {endpoint}: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from {endpoint}: {e}")
             raise EndpointFetchError(f"Invalid schema at {endpoint}: {e}")
 
@@ -515,7 +515,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
             for (date, hour), window_samples in sorted(windows.items()):
                 try:
                     yield from self._process_heart_rate(window_samples, date, hour)
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError, TypeError) as e:
                     logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
                     continue
 
@@ -535,7 +535,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /oura/heart_rate (possible proxy/HTML response): {e}")
             raise EndpointFetchError(f"JSON decode error at /oura/heart_rate: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid heart rate response schema: {e}")
             raise EndpointFetchError(f"Invalid schema at /oura/heart_rate: {e}")
 
