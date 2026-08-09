@@ -57,14 +57,14 @@ This adapter:
 
 import hashlib
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
-    Domain,
-    PollStrategy,
     DocumentMetadata,
+    Domain,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -288,7 +288,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(visits, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'browser/history' response must be a list, got {type(visits).__name__}"
             )
 
@@ -319,7 +319,7 @@ class AppleBrowserHistoryAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(tabs, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'browser/tabs' response must be a list, got {type(tabs).__name__}"
             )
 

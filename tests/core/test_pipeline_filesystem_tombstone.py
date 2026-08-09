@@ -23,7 +23,6 @@ from context_library.domains.documents import DocumentsDomain
 from context_library.storage.chromadb_store import ChromaDBVectorStore
 from context_library.storage.document_store import DocumentStore
 
-
 # ---------------------------------------------------------------------------
 # Wire-shape helpers (mirror the helper's NDJSON contract)
 # ---------------------------------------------------------------------------
@@ -81,9 +80,8 @@ class _Recorder:
 
 @pytest.fixture
 def document_store():
-    tf = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    path = tf.name
-    tf.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tf:
+        path = tf.name
     store = DocumentStore(path)
     yield store
     store.close()

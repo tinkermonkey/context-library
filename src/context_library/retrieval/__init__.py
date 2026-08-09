@@ -9,10 +9,10 @@ from context_library.retrieval.query import RetrievalResult, retrieve
 from context_library.retrieval.reranker import Reranker
 
 __all__ = [
-    "retrieve",
-    "RetrievalResult",
-    "get_version_diff",
-    "get_source_timeline",
-    "trace_chunk_provenance",
     "Reranker",
+    "RetrievalResult",
+    "get_source_timeline",
+    "get_version_diff",
+    "retrieve",
+    "trace_chunk_provenance",
 ]

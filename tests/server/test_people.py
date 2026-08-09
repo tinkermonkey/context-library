@@ -1,17 +1,17 @@
 """Tests for GET /people/{contact_id}/context."""
 
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
 
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     AdapterConfig,
     Chunk,
     ChunkType,
     Domain,
-    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
     EntityLink,
     LineageRecord,
     PeopleMetadata,
@@ -20,7 +20,6 @@ from context_library.storage.models import (
 )
 
 from .conftest import _create_app_with_store
-
 
 CONTACT_ID = "apple-uuid-abc123"
 

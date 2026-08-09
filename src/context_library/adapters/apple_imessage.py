@@ -41,7 +41,7 @@ This adapter:
 """
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
@@ -183,7 +183,7 @@ class AppleiMessageAdapter(HelperAckMixin, BaseAdapter):
 
         messages = response.json()
         if not isinstance(messages, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'messages' response must be a list, got {type(messages).__name__}"
             )
 

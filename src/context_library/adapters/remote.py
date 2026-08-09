@@ -45,15 +45,14 @@ This adapter:
 
 import logging
 import time
-from typing import Iterator
+from collections.abc import Iterator
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
 from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import Domain, NormalizedContent
-
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 _tracer = get_tracer(__name__)
@@ -161,14 +160,13 @@ class RemoteAdapter(BaseAdapter):
         early rather than at runtime.
         """
         super().__init_subclass__(**kwargs)
-        # Check that the subclass overrides _collector_name
-        if "_collector_name" not in cls.__dict__:
-            # Allow RemoteAdapter itself to not have _collector_name, but subclasses must define it
-            if cls.__name__ != "RemoteAdapter":
-                raise TypeError(
-                    f"{cls.__name__} must define _collector_name property. "
-                    f"This should match the collector name in the context-helpers registry."
-                )
+        # Check that the subclass overrides _collector_name.
+        # Allow RemoteAdapter itself to not have _collector_name, but subclasses must define it.
+        if "_collector_name" not in cls.__dict__ and cls.__name__ != "RemoteAdapter":
+            raise TypeError(
+                f"{cls.__name__} must define _collector_name property. "
+                f"This should match the collector name in the context-helpers registry."
+            )
 
     def __init__(
         self,

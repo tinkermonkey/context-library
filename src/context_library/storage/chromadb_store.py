@@ -5,8 +5,9 @@ Derived and fully rebuildable from the document store (SQLite).
 """
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import chromadb
 
@@ -91,8 +92,8 @@ class ChromaDBVectorStore(VectorStore):
         self,
         query_vector: list[float],
         top_k: int = 10,
-        domain_filter: Optional[Domain] = None,
-        source_filter: Optional[str] = None,
+        domain_filter: Domain | None = None,
+        source_filter: str | None = None,
     ) -> list[VectorSearchResult]:
         collection = self._get_collection()
 

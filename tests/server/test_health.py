@@ -1,8 +1,9 @@
 """Tests for GET /health endpoint."""
 
 from typing import Any, cast
-from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
+
+from fastapi.testclient import TestClient
 
 
 class TestGetHealth:

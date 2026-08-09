@@ -141,15 +141,15 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any, ClassVar
 
 from context_library.adapters.base import (
-    BaseAdapter,
-    HelperAckMixin,
-    EndpointFetchError,
     AllEndpointsFailedError,
+    BaseAdapter,
+    EndpointFetchError,
+    HelperAckMixin,
     PartialFetchError,
 )
 from context_library.storage.models import (
@@ -235,7 +235,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
     # All helper cursor keys, matching HealthCollector.push_cursor_keys() on
     # the mac. "/health/heart-rate" maps to "health_heart_rate".
-    _ALL_ACK_KEYS = [
+    _ALL_ACK_KEYS: ClassVar[list[str]] = [
         "health_workouts", "health_activity", "health_sleep",
         "health_heart_rate", "health_spo2", "health_mindfulness",
     ]
@@ -350,12 +350,12 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
             records = response.json()
             if not isinstance(records, list):
-                raise ValueError(f"Expected list from {endpoint}, got {type(records)}")
+                raise TypeError(f"Expected list from {endpoint}, got {type(records)}")
 
             for idx, record in enumerate(records):
                 try:
                     yield from handler(record)
-                except (ValueError, KeyError) as e:
+                except (TypeError, ValueError, KeyError) as e:
                     record_id = record.get("id", f"<index {idx}>")
                     logger.error(f"Skipping malformed {item_label} (ID: {record_id}): {e}")
                     continue
@@ -375,7 +375,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from {endpoint}: {e}")
             raise EndpointFetchError(f"JSON decode error at {endpoint}: {e}")
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             logger.error(f"Invalid response schema from {endpoint}: {e}")
             raise EndpointFetchError(f"Invalid schema at {endpoint}: {e}")
 
@@ -404,7 +404,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
             samples = response.json()
             if not isinstance(samples, list):
-                raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
+                raise TypeError(f"Expected list of heart rate samples, got {type(samples)}")
 
             # Group samples by date + hour
             windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
@@ -429,7 +429,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
             for (date, hour), window_samples in sorted(windows.items()):
                 try:
                     yield from self._process_heart_rate_window(window_samples, date, hour)
-                except (ValueError, KeyError) as e:
+                except (TypeError, ValueError, KeyError) as e:
                     logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
                     continue
 
@@ -448,7 +448,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /health/heart-rate: {e}")
             raise EndpointFetchError(f"JSON decode error at /health/heart-rate: {e}")
-        except ValueError as e:
+        except (TypeError, ValueError) as e:
             logger.error(f"Invalid heart rate response schema: {e}")
             raise EndpointFetchError(f"Invalid schema at /health/heart-rate: {e}")
 
@@ -476,7 +476,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
         duration_seconds = workout["durationSeconds"]
         if not isinstance(duration_seconds, (int, float)):
-            raise ValueError(f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}")
+            raise TypeError(f"Workout 'durationSeconds' must be numeric, got {type(duration_seconds)}")
 
         duration_minutes = int(duration_seconds // 60)
         now = datetime.now(timezone.utc).isoformat()
@@ -576,7 +576,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
         total_sleep_minutes = record["totalSleepMinutes"]
         if not isinstance(total_sleep_minutes, (int, float)):
-            raise ValueError(f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}")
+            raise TypeError(f"Sleep record 'totalSleepMinutes' must be numeric, got {type(total_sleep_minutes)}")
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -628,7 +628,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
         for sample in window:
             bpm = sample["bpm"]
             if not isinstance(bpm, (int, float)):
-                raise ValueError("Heart rate sample 'bpm' must be numeric")
+                raise TypeError("Heart rate sample 'bpm' must be numeric")
             heart_rates.append(float(bpm))
 
         if not heart_rates:
@@ -688,7 +688,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
         avg_spo2 = record["avgSpo2"]
         if not isinstance(avg_spo2, (int, float)):
-            raise ValueError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
+            raise TypeError(f"SpO2 record 'avgSpo2' must be numeric, got {type(avg_spo2)}")
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -739,7 +739,7 @@ class AppleHealthAdapter(HelperAckMixin, BaseAdapter):
 
         duration_seconds = record["durationSeconds"]
         if not isinstance(duration_seconds, (int, float)):
-            raise ValueError(f"Mindfulness record 'durationSeconds' must be numeric, got {type(duration_seconds)}")
+            raise TypeError(f"Mindfulness record 'durationSeconds' must be numeric, got {type(duration_seconds)}")
 
         duration_minutes = int(duration_seconds // 60)
         date = start_date[:10]

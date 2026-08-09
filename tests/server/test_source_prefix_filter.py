@@ -1,9 +1,12 @@
 """Tests for source_id_prefix filtering on GET /sources endpoint."""
 
-from fastapi.testclient import TestClient
-import pytest
-import tempfile
 import os
+import tempfile
+from collections.abc import Generator
+
+import pytest
+from fastapi.testclient import TestClient
+
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
     AdapterConfig,
@@ -14,7 +17,6 @@ from context_library.storage.models import (
     PollStrategy,
     compute_chunk_hash,
 )
-from typing import Generator
 
 from .conftest import _create_app_with_store
 
@@ -22,9 +24,8 @@ from .conftest import _create_app_with_store
 @pytest.fixture()
 def ds_with_hierarchical_sources() -> Generator[DocumentStore, None, None]:
     """DocumentStore with hierarchical source_ids for prefix filtering tests."""
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
 
     store = DocumentStore(temp_path, check_same_thread=False)
 

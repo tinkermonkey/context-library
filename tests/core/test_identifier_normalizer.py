@@ -72,13 +72,12 @@ class TestNormalizePhone:
 
     def test_remove_extensions(self):
         """Handle extensions (ext, x, etc)."""
-        # Extensions with recognized patterns (ext., x, extension) are stripped
-        # to prevent false matches with the base number
+        # Extensions are parsed out and dropped, since E.164 has no extension
+        # component and this prevents false mismatches on the base number.
         assert normalize_phone("555-123-4567 ext. 123") == "+15551234567"
         assert normalize_phone("555-123-4567 EXT. 456") == "+15551234567"
         assert normalize_phone("555-123-4567 extension 789") == "+15551234567"
-        # Note: "x123" without space is not stripped (ambiguous edge case)
-        assert normalize_phone("555-123-4567x123") == "+15551234567123"
+        assert normalize_phone("555-123-4567x123") == "+15551234567"
 
     def test_no_digits_returns_empty(self):
         """Return empty string if no digits found."""
@@ -94,9 +93,9 @@ class TestNormalizePhone:
         assert normalize_phone("+ - ()") == ""
 
     def test_single_digit(self):
-        """Handle single-digit phone numbers."""
-        assert normalize_phone("9") == "+19"
-        assert normalize_phone("+9") == "+9"
+        """A single digit isn't a possible phone number, so it's rejected."""
+        assert normalize_phone("9") == ""
+        assert normalize_phone("+9") == ""
 
     def test_long_phone_numbers(self):
         """Handle long phone numbers with extensions.
@@ -116,16 +115,13 @@ class TestNormalizePhone:
     def test_phone_leading_zeros(self):
         """Handle leading zeros in phone numbers.
 
-        Leading zeros are stripped from domestic (non-+) numbers before adding
-        the +1 country code, since US phone numbers don't use leading zeros.
-        For international numbers with explicit country codes, leading zeros
-        within the number are preserved (they're part of the number in some
-        countries like the UK, where +44 0207 946 0958 uses 0 as a trunk prefix).
+        A domestic (non-+) number with a leading zero isn't a possible NANP
+        number, so it's rejected rather than guessed at. International numbers
+        with explicit country codes have the national trunk prefix ("0" in the
+        UK, e.g. +44 0207 946 0958) stripped, per E.164.
         """
-        # Domestic number with leading zero: stripped before +1 is added
-        assert normalize_phone("0555 123 4567") == "+15551234567"
-        # International number: leading zero in the body is preserved
-        assert normalize_phone("+44 0207 946 0958") == "+4402079460958"
+        assert normalize_phone("0555 123 4567") == ""
+        assert normalize_phone("+44 0207 946 0958") == "+442079460958"
 
 
 class TestNormalizationIntegration:

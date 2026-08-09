@@ -34,10 +34,10 @@ from pathlib import Path
 # Add parent directory to path to import shared utilities
 sys.path.insert(0, str(Path(__file__).parent))
 from _service_base import (
-    setup_logging,
     get_api_key,
     print_startup_info,
     run_service,
+    setup_logging,
 )
 
 
@@ -79,7 +79,7 @@ def main():
     except ImportError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: Failed to initialize AppleRemindersAdapter: {e}", file=sys.stderr)
         sys.exit(1)
 

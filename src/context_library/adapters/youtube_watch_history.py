@@ -39,8 +39,8 @@ A Bearer API token is REQUIRED: ``Authorization: Bearer <api_key>``
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.remote import RemoteAdapter
 from context_library.storage.models import (
@@ -167,7 +167,7 @@ class YouTubeWatchHistoryAdapter(RemoteAdapter):
 
             videos = response.json()
             if not isinstance(videos, list):
-                raise ValueError(
+                raise TypeError(
                     f"Helper /youtube/history response must be a list, got {type(videos).__name__}"
                 )
             if videos and not isinstance(videos[0], dict):

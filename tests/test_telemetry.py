@@ -2,8 +2,9 @@
 
 
 import logging
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from context_library.telemetry import setup_telemetry, shutdown_telemetry
 from context_library.telemetry.config import TelemetryConfig
@@ -43,8 +44,9 @@ def test_setup_telemetry_no_op_without_endpoint():
 
 def test_setup_telemetry_idempotent():
     """Calling setup_telemetry twice returns the same providers (guard against double init)."""
-    import context_library.telemetry as tel_module
     from unittest.mock import MagicMock
+
+    import context_library.telemetry as tel_module
 
     # Simulate a provider already being initialized by setting it directly
     mock_provider = MagicMock()
@@ -115,7 +117,7 @@ def test_setup_telemetry_resource_has_service_version_override():
         otel_environment="test",
         otel_service_version="1.2.3-custom",
     )
-    tp, lp = setup_telemetry(config=config)
+    tp, _lp = setup_telemetry(config=config)
 
     assert tp is not None
     attributes = tp.resource.attributes

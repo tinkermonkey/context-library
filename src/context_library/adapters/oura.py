@@ -172,11 +172,17 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any, ClassVar
 
-from context_library.adapters.base import BaseAdapter, HelperAckMixin, EndpointFetchError, PartialFetchError, AllEndpointsFailedError
+from context_library.adapters.base import (
+    AllEndpointsFailedError,
+    BaseAdapter,
+    EndpointFetchError,
+    HelperAckMixin,
+    PartialFetchError,
+)
 from context_library.domains.health import format_sleep_efficiency
 from context_library.storage.models import (
     Domain,
@@ -267,7 +273,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
     # All helper cursor keys, matching OuraCollector.push_cursor_keys() on the
     # mac. An endpoint path "/oura/heart_rate" maps to the key "oura_heart_rate".
-    _ALL_ACK_KEYS = [
+    _ALL_ACK_KEYS: ClassVar[list[str]] = [
         "oura_sleep", "oura_readiness", "oura_activity", "oura_workouts",
         "oura_heart_rate", "oura_spo2", "oura_tags", "oura_sessions",
     ]
@@ -420,7 +426,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
             records = response.json()
             if not isinstance(records, list):
-                raise ValueError(f"Expected list of records from {endpoint}, got {type(records)}")
+                raise TypeError(f"Expected list of records from {endpoint}, got {type(records)}")
 
             # Process each record
             for idx, record in enumerate(records):
@@ -447,7 +453,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from {endpoint} (possible proxy/HTML response): {e}")
             raise EndpointFetchError(f"JSON decode error at {endpoint}: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from {endpoint}: {e}")
             raise EndpointFetchError(f"Invalid schema at {endpoint}: {e}")
 
@@ -487,7 +493,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
 
             samples = response.json()
             if not isinstance(samples, list):
-                raise ValueError(f"Expected list of heart rate samples, got {type(samples)}")
+                raise TypeError(f"Expected list of heart rate samples, got {type(samples)}")
 
             # Group samples by date + hour
             windows: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
@@ -509,7 +515,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
             for (date, hour), window_samples in sorted(windows.items()):
                 try:
                     yield from self._process_heart_rate(window_samples, date, hour)
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError, TypeError) as e:
                     logger.error(f"Skipping malformed heart rate window ({date}T{hour:02d}): {e}")
                     continue
 
@@ -529,7 +535,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /oura/heart_rate (possible proxy/HTML response): {e}")
             raise EndpointFetchError(f"JSON decode error at /oura/heart_rate: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid heart rate response schema: {e}")
             raise EndpointFetchError(f"Invalid schema at /oura/heart_rate: {e}")
 
@@ -882,7 +888,7 @@ class OuraAdapter(HelperAckMixin, BaseAdapter):
         for sample in window:
             bpm = sample["bpm"]
             if not isinstance(bpm, (int, float)):
-                raise ValueError("Heart rate sample 'bpm' must be numeric")
+                raise TypeError("Heart rate sample 'bpm' must be numeric")
             heart_rates.append(bpm)
 
         if not heart_rates:

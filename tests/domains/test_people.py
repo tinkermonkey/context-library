@@ -2,14 +2,14 @@
 
 import pytest
 
-from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.domains.people import PeopleDomain
+from context_library.domains.registry import Domain, get_domain_chunker
 from context_library.storage.models import (
     Chunk,
     ChunkType,
     NormalizedContent,
-    StructuralHints,
     PeopleMetadata,
+    StructuralHints,
     compute_chunk_hash,
 )
 
@@ -798,9 +798,9 @@ class TestPrivacyCompliance:
             "Phone numbers must not be exposed in chunk content (chunk_text) per FR-6.3"
         )
 
-        # Verify phones ARE in domain_metadata for entity linking
+        # Verify phones ARE in domain_metadata for entity linking, normalized to E.164
         assert chunks[0].domain_metadata is not None
-        assert "555-123-4567" in chunks[0].domain_metadata.get("phones", [])
+        assert "+15551234567" in chunks[0].domain_metadata.get("phones", [])
 
     def test_chunk_content_includes_public_information_fr63(
         self, people_domain, sample_people_metadata

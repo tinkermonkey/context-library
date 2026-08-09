@@ -18,15 +18,16 @@ Dependencies:
 import logging
 import re
 import threading
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Any
+from typing import Any
 
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import (
     FileEvent,
     FileSystemWatcher,
 )
+from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,

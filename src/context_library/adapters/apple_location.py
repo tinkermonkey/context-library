@@ -56,13 +56,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
 from context_library.adapters.base import (
+    AllEndpointsFailedError,
     BaseAdapter,
     EndpointFetchError,
-    AllEndpointsFailedError,
     PartialFetchError,
 )
 from context_library.domains.location import CURRENT_LOCATION_SOURCE_TYPE
@@ -230,7 +231,7 @@ class AppleLocationAdapter(BaseAdapter):
 
             items = response.json()
             if not isinstance(items, list):
-                raise ValueError(f"Expected list from /location/visits, got {type(items)}")
+                raise TypeError(f"Expected list from /location/visits, got {type(items)}")
 
             item_count = len(items)
             yielded_count = 0
@@ -269,7 +270,7 @@ class AppleLocationAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /location/visits: {e}")
             raise EndpointFetchError(f"JSON decode error at /location/visits: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /location/visits: {e}")
             raise EndpointFetchError(f"Invalid schema at /location/visits: {e}")
 
@@ -292,7 +293,7 @@ class AppleLocationAdapter(BaseAdapter):
 
             item = response.json()
             if not isinstance(item, dict):
-                raise ValueError(f"Expected dict from /location/current, got {type(item)}")
+                raise TypeError(f"Expected dict from /location/current, got {type(item)}")
 
             # Gracefully skip empty response
             if not item:
@@ -317,7 +318,7 @@ class AppleLocationAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /location/current: {e}")
             raise EndpointFetchError(f"JSON decode error at /location/current: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /location/current: {e}")
             raise EndpointFetchError(f"Invalid schema at /location/current: {e}")
 

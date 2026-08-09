@@ -4,9 +4,9 @@ This module provides common setup and server startup logic for all adapter servi
 scripts, reducing code duplication while maintaining clear, independent examples.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 from typing import Any
 
 
@@ -133,6 +133,6 @@ def run_service(
     except KeyboardInterrupt:
         print("\nShutting down gracefully...")
         sys.exit(0)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

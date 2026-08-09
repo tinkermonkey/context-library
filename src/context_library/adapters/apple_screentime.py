@@ -50,13 +50,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
 from context_library.adapters.base import (
+    AllEndpointsFailedError,
     BaseAdapter,
     EndpointFetchError,
-    AllEndpointsFailedError,
     PartialFetchError,
 )
 from context_library.storage.models import (
@@ -223,7 +224,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
 
             items = response.json()
             if not isinstance(items, list):
-                raise ValueError(f"Expected list from /screentime/app-usage, got {type(items)}")
+                raise TypeError(f"Expected list from /screentime/app-usage, got {type(items)}")
 
             item_count = len(items)
             yielded_count = 0
@@ -262,7 +263,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /screentime/app-usage: {e}")
             raise EndpointFetchError(f"JSON decode error at /screentime/app-usage: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /screentime/app-usage: {e}")
             raise EndpointFetchError(f"Invalid schema at /screentime/app-usage: {e}")
 
@@ -287,7 +288,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
 
             items = response.json()
             if not isinstance(items, list):
-                raise ValueError(f"Expected list from /screentime/focus, got {type(items)}")
+                raise TypeError(f"Expected list from /screentime/focus, got {type(items)}")
 
             item_count = len(items)
             yielded_count = 0
@@ -326,7 +327,7 @@ class AppleScreenTimeAdapter(BaseAdapter):
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from /screentime/focus: {e}")
             raise EndpointFetchError(f"JSON decode error at /screentime/focus: {e}")
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             logger.error(f"Invalid response schema from /screentime/focus: {e}")
             raise EndpointFetchError(f"Invalid schema at /screentime/focus: {e}")
 

@@ -1,7 +1,9 @@
 """Tests for GET /adapters, GET /adapters/{adapter_id}, and POST /adapters/{adapter_id}/reset."""
 
 from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
+
 from context_library.adapters.base import ResetResult
 
 
@@ -211,8 +213,8 @@ class TestResetAdapter:
         Push-only adapters don't need poller-driven re-ingestion, so unavailability
         should not result in 207 Partial Success — the reset fully succeeded.
         """
-        from context_library.storage.models import PollStrategy
         from context_library.scheduler.exceptions import PollerNotRunningError
+        from context_library.storage.models import PollStrategy
 
         # Update the existing source to use PUSH strategy instead of PULL
         cursor = ds.conn.cursor()

@@ -12,7 +12,6 @@ import pytest
 from context_library.adapters.filesystem_helper import FilesystemHelperAdapter
 from context_library.storage.models import Domain, NormalizedContent
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -253,9 +252,8 @@ class TestFilesystemHelperAdapterFetch:
     def test_fetch_raises_on_malformed_json(self):
         adapter = self._make_adapter()
         rec = _StreamRecorder([["{not valid json"]])
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with pytest.raises(ValueError):
-                list(adapter.fetch(""))
+        with patch.object(adapter._client, "stream", side_effect=rec), pytest.raises(ValueError):
+            list(adapter.fetch(""))
 
     def test_fetch_raises_on_invalid_normalized_content(self):
         """Content line missing required 'markdown' field raises ValidationError."""
@@ -270,9 +268,8 @@ class TestFilesystemHelperAdapterFetch:
         })
         rec = _StreamRecorder([[bad_line, _make_meta_line()]])
         from pydantic import ValidationError
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with pytest.raises(ValidationError):
-                list(adapter.fetch(""))
+        with patch.object(adapter._client, "stream", side_effect=rec), pytest.raises(ValidationError):
+            list(adapter.fetch(""))
 
     def test_fetch_includes_extensions_when_configured(self):
         adapter = FilesystemHelperAdapter(
@@ -347,9 +344,11 @@ class TestFilesystemHelperAdapterDrain:
             [_make_content_line("c.md"), _make_meta_line(has_more=False, next_cursor="3")],
         ]
         rec = _StreamRecorder(pages)
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with patch("context_library.adapters.filesystem_helper.logger") as mock_log:
-                results = list(adapter.fetch(""))
+        with (
+            patch.object(adapter._client, "stream", side_effect=rec),
+            patch("context_library.adapters.filesystem_helper.logger") as mock_log,
+        ):
+            results = list(adapter.fetch(""))
 
         assert [r.source_id for r in results] == ["a.md", "b.md"]
         assert len(rec.calls) == 2
@@ -403,9 +402,11 @@ class TestFilesystemHelperAdapterDrain:
         """
         adapter = self._make_adapter()
         rec = _StreamRecorder([[_make_content_line("a.md")]])  # no meta line
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with pytest.raises(RuntimeError, match="without a meta"):
-                list(adapter.fetch(""))
+        with (
+            patch.object(adapter._client, "stream", side_effect=rec),
+            pytest.raises(RuntimeError, match="without a meta"),
+        ):
+            list(adapter.fetch(""))
         assert len(rec.calls) == 1
 
     def test_truncated_stream_does_not_advance_cursor(self):
@@ -413,9 +414,8 @@ class TestFilesystemHelperAdapterDrain:
         adapter = self._make_adapter()
         adapter._cursor = "10"
         rec = _StreamRecorder([[_make_content_line("a.md")]])  # no meta line
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with pytest.raises(RuntimeError):
-                list(adapter.fetch(""))
+        with patch.object(adapter._client, "stream", side_effect=rec), pytest.raises(RuntimeError):
+            list(adapter.fetch(""))
         assert adapter._cursor == "10"
 
     def test_truncation_on_later_page_raises_after_earlier_pages(self):
@@ -428,10 +428,9 @@ class TestFilesystemHelperAdapterDrain:
         ]
         rec = _StreamRecorder(pages)
         collected = []
-        with patch.object(adapter._client, "stream", side_effect=rec):
-            with pytest.raises(RuntimeError):
-                for item in adapter.fetch(""):
-                    collected.append(item.source_id)
+        with patch.object(adapter._client, "stream", side_effect=rec), pytest.raises(RuntimeError):
+            for item in adapter.fetch(""):
+                collected.append(item.source_id)
         assert collected == ["a.md", "b.md"]
         # Cursor persisted at the last fully-streamed page's next_cursor.
         assert adapter._cursor == "1"

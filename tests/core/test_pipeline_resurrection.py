@@ -9,6 +9,7 @@ import tempfile
 
 import pytest
 
+from context_library.adapters.base import BaseAdapter
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
@@ -21,7 +22,6 @@ from context_library.storage.models import (
     PollStrategy,
     StructuralHints,
 )
-from context_library.adapters.base import BaseAdapter
 
 
 class _StaticAdapter(BaseAdapter):
@@ -60,9 +60,9 @@ class _StaticAdapter(BaseAdapter):
 
 @pytest.fixture
 def pipeline_env():
-    dbf = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    dbf.close()
-    ds = DocumentStore(dbf.name)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as dbf:
+        db_path = dbf.name
+    ds = DocumentStore(db_path)
     with tempfile.TemporaryDirectory() as vdir:
         vs = ChromaDBVectorStore(vdir)
         pipe = IngestionPipeline(
@@ -73,7 +73,7 @@ def pipeline_env():
         )
         yield pipe, ds, vs
     ds.close()
-    os.unlink(dbf.name)
+    os.unlink(db_path)
 
 
 class TestResetResurrection:

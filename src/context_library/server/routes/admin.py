@@ -6,8 +6,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from context_library.scheduler.exceptions import (
+    AdapterNotRegisteredError,
+    IngestAlreadyInProgressError,
+    NoSourcesError,
+    PollerNotRunningError,
+)
 from context_library.server.auth import require_auth
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.server.schemas import (
     AdminAdapterListResponse,
     AdminAdapterStatus,
@@ -18,12 +23,7 @@ from context_library.server.schemas import (
     SyncLogResponse,
     TriggerSyncResponse,
 )
-from context_library.scheduler.exceptions import (
-    AdapterNotRegisteredError,
-    IngestAlreadyInProgressError,
-    NoSourcesError,
-    PollerNotRunningError,
-)
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -141,7 +141,7 @@ async def trigger_adapter_sync(adapter_id: str, request: Request) -> TriggerSync
                 message="Ingest already in progress for this adapter",
             )
         except Exception as e:
-            logger.error("Sync trigger failed for %s: %s", adapter_id, e, exc_info=True)
+            logger.exception("Sync trigger failed for %s", adapter_id)
             span.record_exception(e)
             span.set_status(StatusCode.ERROR)
             raise HTTPException(status_code=500, detail=f"Sync trigger error: {e}")

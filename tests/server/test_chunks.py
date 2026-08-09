@@ -199,7 +199,13 @@ class TestListChunks:
         This tests the fix for issue #272: when one chunk has corrupt domain_metadata JSON,
         the list endpoint should skip it with a warning instead of returning a 500 error.
         """
-        from context_library.storage.models import compute_chunk_hash, Chunk, ChunkType, LineageRecord, Domain
+        from context_library.storage.models import (
+            Chunk,
+            ChunkType,
+            Domain,
+            LineageRecord,
+            compute_chunk_hash,
+        )
 
         # Create a valid chunk
         valid_content = "Valid chunk content"

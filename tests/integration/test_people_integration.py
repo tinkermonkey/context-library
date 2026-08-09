@@ -4,16 +4,22 @@ These tests verify the end-to-end integration of the people domain adapter with 
 ingestion pipeline and entity linker, using real SHA-256 hashing and the full pipeline flow.
 """
 
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-import pytest
-import sys
 
-from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import Domain, Chunk, ENTITY_LINK_TYPE_PERSON_APPEARANCE
+import pytest
+
 from context_library.adapters.apple_contacts import AppleContactsAdapter
 from context_library.domains.people import PeopleDomain
+from context_library.storage.document_store import DocumentStore
+from context_library.storage.models import (
+    ENTITY_LINK_TYPE_PERSON_APPEARANCE,
+    Chunk,
+    Domain,
+    PeopleMetadata,
+)
 
 # Add parent directory to sys.path to allow importing helpers module
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -83,9 +89,9 @@ class TestPeopleDomainIntegration:
         """
         # This test requires sentence_transformers for the Embedder
         pytest.importorskip("sentence_transformers")
-        from context_library.core.pipeline import IngestionPipeline
         from context_library.core.differ import Differ
         from context_library.core.embedder import Embedder
+        from context_library.core.pipeline import IngestionPipeline
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "test.db")
@@ -170,7 +176,7 @@ class TestPeopleDomainIntegration:
                     assert all(c in "0123456789abcdef" for c in alice_hash)
 
                     # Second chunk should be Bob
-                    bob_hash, bob_content, bob_metadata = rows[1]
+                    _bob_hash, bob_content, bob_metadata = rows[1]
                     assert "Bob Johnson" in bob_content
                     assert bob_metadata is not None
 
@@ -301,6 +307,83 @@ class TestPeopleDomainIntegration:
                 # Verify link was created
                 assert new_links == 1
                 assert failures == 0
+                linked = store.get_linked_chunks(alice_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
+                assert msg_hash in linked
+
+            finally:
+                store.close()
+
+    def test_round_trip_phone_normalization_links_contact_to_message(self) -> None:
+        """Round-trip test for the shared phone normalization contract.
+
+        A contact's phone number arrives in Apple Contacts' formatting
+        ("(555) 123-4567") while a message sender for the same number arrives
+        as raw digits from chat.db ("5551234567"). Without a shared E.164
+        normalization contract these never compare equal and no entity_links
+        row is created. This verifies:
+        1. PeopleMetadata normalizes the contact phone to E.164 at construction.
+        2. The entity linker normalizes the raw message sender at query time.
+        3. The two now match and produce an entity_links row.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "test.db")
+            store = DocumentStore(db_path)
+
+            try:
+                from context_library.core.entity_linker import EntityLinker
+
+                alice_hash = make_sha256_hash("alice_contact_phone_formats")
+                msg_hash = make_sha256_hash("message_from_alice_raw_digits")
+
+                # Contact phone collected in Apple Contacts' formatting.
+                contact_metadata = PeopleMetadata(
+                    contact_id="contact_alice",
+                    display_name="Alice Smith",
+                    phones=("(555) 123-4567",),
+                    source_type="apple_contacts",
+                )
+                # Normalized to E.164 at construction time.
+                assert contact_metadata.phones == ("+15551234567",)
+
+                alice_chunk = Chunk(
+                    chunk_hash=alice_hash,
+                    content="Alice Smith",
+                    chunk_index=0,
+                    domain_metadata=contact_metadata.model_dump(),
+                )
+
+                # Message sender arrives as raw, unnormalized digits (e.g. from chat.db).
+                msg_chunk = Chunk(
+                    chunk_hash=msg_hash,
+                    content="Message from Alice",
+                    chunk_index=0,
+                    domain_metadata={"sender": "5551234567"},
+                )
+
+                setup_chunk_in_store(
+                    store,
+                    alice_chunk,
+                    "people_adapter",
+                    "AppleContactsAdapter",
+                    "people_src",
+                    Domain.PEOPLE,
+                    version=1,
+                )
+                setup_chunk_in_store(
+                    store,
+                    msg_chunk,
+                    "msg_adapter",
+                    "TestAdapter",
+                    "msg_src",
+                    Domain.MESSAGES,
+                    version=1,
+                )
+
+                linker = EntityLinker(store)
+                new_links, failures = linker.run()
+
+                assert failures == 0
+                assert new_links == 1
                 linked = store.get_linked_chunks(alice_hash, link_type=ENTITY_LINK_TYPE_PERSON_APPEARANCE)
                 assert msg_hash in linked
 

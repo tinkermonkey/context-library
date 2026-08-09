@@ -8,20 +8,20 @@ import sqlite3
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from context_library.scheduler.exceptions import (
+    AdapterNotRegisteredError,
+    IngestAlreadyInProgressError,
+    NoSourcesError,
+    PollerNotRunningError,
+)
 from context_library.server.schemas import (
     AdapterListResponse,
-    AdapterResponse,
     AdapterResetResponse,
+    AdapterResponse,
     HelperResetInfo,
     LibraryResetInfo,
 )
-from context_library.scheduler.exceptions import (
-    PollerNotRunningError,
-    AdapterNotRegisteredError,
-    NoSourcesError,
-    IngestAlreadyInProgressError,
-)
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 try:
     import httpx
@@ -46,12 +46,10 @@ async def list_adapters(request: Request) -> AdapterListResponse:
             domain=c.domain.value,
             normalizer_version=c.normalizer_version,
             config=c.config,
-            **{
-                "_links": {
+            _links={
                     "self": f"/adapters/{c.adapter_id}",
                     "sources": f"/sources?adapter_id={c.adapter_id}",
-                }
-            },
+                },
         )
         for c in configs
     ]
@@ -70,12 +68,10 @@ async def get_adapter(adapter_id: str, request: Request) -> AdapterResponse:
         domain=config.domain.value,
         normalizer_version=config.normalizer_version,
         config=config.config,
-        **{
-            "_links": {
+        _links={
                 "self": f"/adapters/{config.adapter_id}",
                 "sources": f"/sources?adapter_id={config.adapter_id}",
-            }
-        },
+            },
     )
 
 
@@ -146,7 +142,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 except HTTPException:
                     # Re-raise HTTPException (our 502 error)
                     raise
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     # Distinguish between legitimate network errors (502) and internal bugs (500)
                     is_network_error = False
                     if httpx is not None:
@@ -183,7 +179,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 error_msg = f"Library reset error: {type(e).__name__}: {e}"
                 if helper_reset_ok is True:
                     error_msg += " (Note: helper was already reset)"
-                logger.error("Reset adapter %s failed at step 3: %s", adapter_id, e, exc_info=True)
+                logger.exception("Reset adapter %s failed at step 3", adapter_id)
                 raise HTTPException(status_code=500, detail=error_msg)
 
             # Step 4: Trigger immediate re-ingestion
@@ -207,7 +203,7 @@ async def reset_adapter(adapter_id: str, request: Request):
                 error_msg = f"Database error while triggering re-ingestion: {e}"
                 errors.append(error_msg)
                 logger.warning("Reset adapter %s: re-ingestion trigger failed (DB error): %s", adapter_id, e)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 error_msg = f"Unexpected error while triggering re-ingestion: {type(e).__name__}: {e}"
                 errors.append(error_msg)
                 logger.warning("Reset adapter %s: re-ingestion trigger failed (unexpected error): %s", adapter_id, e)

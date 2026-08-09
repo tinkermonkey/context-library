@@ -1,12 +1,14 @@
 """Shared fixtures for server tests."""
 
-import pytest
-import tempfile
 import os
-from typing import Generator, AsyncGenerator, Any
-from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
+import tempfile
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
 
 from context_library.server.app import create_app
 from context_library.storage.document_store import DocumentStore
@@ -72,9 +74,8 @@ def ds() -> Generator[DocumentStore, None, None]:
     # Use a temporary file instead of :memory: to support multi-threaded access.
     # SQLite :memory: databases are per-connection, so each thread gets its own
     # isolated empty database. File-based databases work correctly across threads.
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
 
     store = DocumentStore(temp_path, check_same_thread=False)
 

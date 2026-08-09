@@ -10,9 +10,8 @@ from context_library.storage.document_store import DocumentStore
 
 @pytest.fixture
 def store():
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     ds = DocumentStore(temp_path)
     yield ds
     ds.close()

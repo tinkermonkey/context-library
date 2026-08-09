@@ -32,14 +32,14 @@ Requires ``youtube-transcript-api``::
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import (
-    Domain,
     DocumentMetadata,
+    Domain,
     NormalizedContent,
     PollStrategy,
     StructuralHints,
@@ -169,7 +169,7 @@ class YouTubeTranscriptAdapter(BaseAdapter):
                 # Data validation errors (malformed API response or metadata) are logged and skipped
                 logger.warning("Skipping transcript for video_id=%s due to malformed data: %s", video_id, exc)
                 continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 # Unexpected API or processing errors are logged and skipped per the per-source error isolation pattern
                 logger.warning("Transcript fetch failed for video_id=%s: %s", video_id, exc)
                 continue

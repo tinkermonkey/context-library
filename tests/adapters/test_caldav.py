@@ -1,11 +1,11 @@
 """Tests for the CalDAVAdapter."""
 
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 
-from context_library.adapters.caldav import CalDAVAdapter, HAS_CALDAV
+from context_library.adapters.caldav import HAS_CALDAV, CalDAVAdapter
 from context_library.storage.models import Domain, EventMetadata, NormalizedContent
-
 
 pytestmark = pytest.mark.skipif(not HAS_CALDAV, reason="caldav and icalendar not installed")
 
@@ -44,13 +44,15 @@ class TestCalDAVAdapterInitialization:
         assert HAS_CALDAV is True
 
         # Verify constructor checks the flag by patching it
-        with patch("context_library.adapters.caldav.HAS_CALDAV", False):
-            with pytest.raises(ImportError, match="caldav"):
-                CalDAVAdapter(
-                    url="https://calendar.example.com/",
-                    username="user",
-                    password="pass",
-                )
+        with (
+            patch("context_library.adapters.caldav.HAS_CALDAV", False),
+            pytest.raises(ImportError, match="caldav"),
+        ):
+            CalDAVAdapter(
+                url="https://calendar.example.com/",
+                username="user",
+                password="pass",
+            )
 
 
 class TestCalDAVAdapterProperties:
@@ -700,7 +702,7 @@ class TestCalDAVAdapterIntegration:
 
         # Create events for each calendar
         work_event = MagicMock()
-        work_event.data = """BEGIN:VCALENDAR
+        work_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:work1
@@ -708,10 +710,10 @@ SUMMARY:Work Meeting
 DTSTART:20260307T090000Z
 DTEND:20260307T100000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         personal_event = MagicMock()
-        personal_event.data = """BEGIN:VCALENDAR
+        personal_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:personal1
@@ -719,7 +721,7 @@ SUMMARY:Personal Appointment
 DTSTART:20260307T170000Z
 DTEND:20260307T180000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         work_cal.search.return_value = [work_event]
         personal_cal.search.return_value = [personal_event]
@@ -814,7 +816,7 @@ END:VCALENDAR"""
 
         # Create one all-day event and one timed event
         all_day_event = MagicMock()
-        all_day_event.data = """BEGIN:VCALENDAR
+        all_day_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:allday1
@@ -822,10 +824,10 @@ SUMMARY:All-Day Event
 DTSTART;VALUE=DATE:20260307
 DTEND;VALUE=DATE:20260308
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         timed_event = MagicMock()
-        timed_event.data = """BEGIN:VCALENDAR
+        timed_event.data = b"""BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
 UID:timed1
@@ -833,7 +835,7 @@ SUMMARY:Timed Meeting
 DTSTART:20260307T100000Z
 DTEND:20260307T110000Z
 END:VEVENT
-END:VCALENDAR""".encode("utf-8")
+END:VCALENDAR"""
 
         mock_calendar.search.return_value = [all_day_event, timed_event]
 
@@ -1035,7 +1037,7 @@ END:VCALENDAR"""
             # Create a mock LAST-MODIFIED property with naive datetime
             last_modified = MagicMock()
             # Naive datetime (no timezone info)
-            last_modified.dt = datetime(2026, 3, 8, 12, 0, 0)
+            last_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # noqa: DTZ001
 
             # Create a timezone-aware cutoff
             cutoff_dt = datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -1110,11 +1112,11 @@ END:VCALENDAR"""
 
             # Event 1: modified March 2 (before cutoff) - with naive datetime
             old_modified = MagicMock()
-            old_modified.dt = datetime(2026, 3, 2, 12, 0, 0)  # naive
+            old_modified.dt = datetime(2026, 3, 2, 12, 0, 0)  # naive  # noqa: DTZ001
 
             # Event 2: modified March 8 (after cutoff) - with naive datetime
             new_modified = MagicMock()
-            new_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # naive
+            new_modified.dt = datetime(2026, 3, 8, 12, 0, 0)  # naive  # noqa: DTZ001
 
             # Before fix: both would fail comparison and return True, defeating filtering
             # After fix: proper naive->UTC normalization allows correct filtering

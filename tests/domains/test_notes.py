@@ -968,6 +968,7 @@ class TestNotesDomainParserFailure:
         to users, preventing documents from silently disappearing from the index.
         """
         from unittest.mock import MagicMock
+
         from context_library.core.exceptions import ChunkingError
 
         markdown = "# Test\n\nSome content"
@@ -994,6 +995,7 @@ class TestNotesDomainParserFailure:
     def test_chunking_error_attributes(self, base_structural_hints):
         """ChunkingError includes source_id for pipeline error tracking."""
         from unittest.mock import MagicMock
+
         from context_library.core.exceptions import ChunkingError
 
         markdown = "# Test\n\nContent"

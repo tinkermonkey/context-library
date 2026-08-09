@@ -19,15 +19,16 @@ Dependencies:
 
 import logging
 import re
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, Any
+from typing import Any
 
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import (
     FileEvent,
     FileSystemWatcher,
 )
+from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
     Domain,
     NormalizedContent,
@@ -252,7 +253,7 @@ class ObsidianAdapter(BaseAdapter):
                 # Store first occurrence (if multiple, keep first)
                 if normalized_key not in dataview_fields:
                     dataview_fields[normalized_key] = value.strip()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"Could not extract inline Dataview fields: {e}")
 
         return dataview_fields
@@ -297,7 +298,7 @@ class ObsidianAdapter(BaseAdapter):
                     logger.warning(f"Cannot convert wikilinks to list for {note_name}: {e}")
         except KeyError:
             logger.debug(f"Note '{note_name}' not found in vault graph for wikilinks")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to extract wikilinks for {note_name}: {e}")
 
         try:
@@ -310,7 +311,7 @@ class ObsidianAdapter(BaseAdapter):
                     logger.warning(f"Cannot convert backlinks to list for {note_name}: {e}")
         except KeyError:
             logger.debug(f"Note '{note_name}' not found in vault graph for backlinks")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to extract backlinks for {note_name}: {e}")
 
         return graph_data

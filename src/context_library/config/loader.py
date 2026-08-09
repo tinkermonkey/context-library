@@ -160,7 +160,7 @@ def _parse_yaml(config_path: Path) -> dict[str, Any]:
             if data is None:
                 return {}
             if not isinstance(data, dict):
-                raise ValueError("YAML root must be a dict/object")
+                raise TypeError("YAML root must be a dict/object")
             return data
     except Exception as e:
         raise ValueError(f"Failed to parse YAML file {config_path}: {e}") from e
@@ -210,7 +210,7 @@ def _parse_json(config_path: Path) -> dict[str, Any]:
         with open(config_path) as f:
             data = json.load(f)
             if not isinstance(data, dict):
-                raise ValueError("JSON root must be an object")
+                raise TypeError("JSON root must be an object")
             return data
     except Exception as e:
         raise ValueError(f"Failed to parse JSON file {config_path}: {e}") from e

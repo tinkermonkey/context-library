@@ -908,8 +908,9 @@ class TestFormatSleepEfficiency:
 
     def test_format_sleep_efficiency_ambiguous_value_2_5_logs_warning(self, caplog):
         """format_sleep_efficiency(2.5) logs a warning for ambiguous value and formats as 2.5%."""
-        from context_library.domains.health import format_sleep_efficiency
         import logging
+
+        from context_library.domains.health import format_sleep_efficiency
 
         with caplog.at_level(logging.WARNING):
             result = format_sleep_efficiency(2.5)
@@ -922,8 +923,9 @@ class TestFormatSleepEfficiency:
 
     def test_format_sleep_efficiency_ambiguous_value_5_0_logs_warning(self, caplog):
         """format_sleep_efficiency(5.0) logs a warning for ambiguous value and formats as 5.0%."""
-        from context_library.domains.health import format_sleep_efficiency
         import logging
+
+        from context_library.domains.health import format_sleep_efficiency
 
         with caplog.at_level(logging.WARNING):
             result = format_sleep_efficiency(5.0)
@@ -936,8 +938,9 @@ class TestFormatSleepEfficiency:
 
     def test_format_sleep_efficiency_ambiguous_boundary_1_1_logs_warning(self, caplog):
         """format_sleep_efficiency(1.1) logs a warning for ambiguous value."""
-        from context_library.domains.health import format_sleep_efficiency
         import logging
+
+        from context_library.domains.health import format_sleep_efficiency
 
         with caplog.at_level(logging.WARNING):
             result = format_sleep_efficiency(1.1)
@@ -949,8 +952,9 @@ class TestFormatSleepEfficiency:
 
     def test_format_sleep_efficiency_ambiguous_boundary_9_9_logs_warning(self, caplog):
         """format_sleep_efficiency(9.9) logs a warning for ambiguous value."""
-        from context_library.domains.health import format_sleep_efficiency
         import logging
+
+        from context_library.domains.health import format_sleep_efficiency
 
         with caplog.at_level(logging.WARNING):
             result = format_sleep_efficiency(9.9)
@@ -962,8 +966,9 @@ class TestFormatSleepEfficiency:
 
     def test_format_sleep_efficiency_above_ambiguous_range_10_1_no_warning(self, caplog):
         """format_sleep_efficiency(10.1) does NOT log a warning (outside ambiguous range)."""
-        from context_library.domains.health import format_sleep_efficiency
         import logging
+
+        from context_library.domains.health import format_sleep_efficiency
 
         with caplog.at_level(logging.WARNING):
             result = format_sleep_efficiency(10.1)

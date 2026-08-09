@@ -4,12 +4,12 @@ import logging
 import threading
 from typing import NamedTuple
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
-from context_library.core.pipeline import IngestionPipeline
-from context_library.adapters.base import BaseAdapter
 from context_library.adapters._watching import FileSystemWatcher
+from context_library.adapters.base import BaseAdapter
+from context_library.core.pipeline import IngestionPipeline
 from context_library.domains.base import BaseDomain
 from context_library.storage.models import PollStrategy
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -94,10 +94,9 @@ class Watcher:
             if original_callback is not None:
                 try:
                     original_callback(event)
-                except Exception as e:
-                    logger.error(
-                        f"Error in adapter's internal callback for {event.path}: {e}",
-                        exc_info=True,
+                except Exception:
+                    logger.exception(
+                        f"Error in adapter's internal callback for {event.path}"
                     )
                     # Do not continue to handle_webhook if adapter callback fails
                     # The failure may leave adapter state inconsistent (e.g., stale vault cache)

@@ -45,15 +45,15 @@ This adapter:
 """
 
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.domains.people import PeopleDomain
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
-    PeopleMetadata,
     NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -154,7 +154,7 @@ class AppleContactsAdapter(HelperAckMixin, BaseAdapter):
                 self._client.close()
             except Exception:
                 # Silently ignore exceptions during cleanup (e.g., from httpx internals during interpreter shutdown)
-                pass
+                logger.debug("Exception during httpx.Client cleanup in __del__", exc_info=True)
 
     def fetch(self, source_ref: str) -> Iterator[NormalizedContent]:
         """Fetch and normalize contacts from the macOS helper API.
@@ -245,7 +245,7 @@ class AppleContactsAdapter(HelperAckMixin, BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(contacts, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'contacts' response must be a list, got {type(contacts).__name__}"
             )
 

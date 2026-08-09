@@ -1,9 +1,15 @@
 """Tests for the AppleMusicAdapter."""
 
+import httpx
 import pytest
 
 from context_library.adapters.apple_music import AppleMusicAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, DocumentMetadata
+from context_library.storage.models import (
+    DocumentMetadata,
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestAppleMusicAdapterInitialization:
@@ -289,7 +295,7 @@ class TestAppleMusicAdapterFetch:
 
         mock_apple_music_endpoints.set_status("http://127.0.0.1:7123/music/tracks", 401)
 
-        with pytest.raises(Exception):  # httpx.HTTPStatusError
+        with pytest.raises(httpx.HTTPStatusError):
             list(adapter.fetch(""))
 
     def test_fetch_invalid_json_response(self, mock_apple_music_endpoints):
@@ -298,7 +304,7 @@ class TestAppleMusicAdapterFetch:
 
         mock_apple_music_endpoints.set_raw_response("http://127.0.0.1:7123/music/tracks", "<html>error</html>", "text/html")
 
-        with pytest.raises(Exception):  # json.JSONDecodeError or ValueError
+        with pytest.raises(ValueError):
             list(adapter.fetch(""))
 
     def test_fetch_only_yields_documents_domain(self, mock_apple_music_endpoints):
@@ -344,7 +350,7 @@ class TestAppleMusicAdapterImportability:
     def test_adapter_in_registry(self):
         """AppleMusicAdapter is registered in the adapter registry."""
         from context_library.config.loader import _instantiate_local_adapter
-        from context_library.config.models import LocalAdapterConfig, Domain
+        from context_library.config.models import Domain, LocalAdapterConfig
 
         # This should not raise an error
         config = LocalAdapterConfig(

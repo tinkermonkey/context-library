@@ -9,23 +9,27 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from context_library import telemetry as tel
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.adapters.base import (
+    AllEndpointsFailedError,
+    BaseAdapter,
+    PartialFetchError,
+)
+from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.exceptions import (
+    AllSourcesFailedError,
     ChunkingError,
     EmbeddingError,
     StorageError,
-    AllSourcesFailedError,
 )
-from context_library.adapters.base import BaseAdapter, PartialFetchError, AllEndpointsFailedError
-from context_library.adapters.vcard import ContactIDCollisionError
 from context_library.domains.base import BaseDomain
 from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVectorData, VectorStore
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -566,7 +570,7 @@ class IngestionPipeline:
                                                 del_span.set_attribute("count", len(diff_result.removed_hashes))
                                             # Clear sync log entries now that vector store delete succeeded
                                             self.document_store.clear_sync_log(list(diff_result.removed_hashes))
-                                        except Exception as e:
+                                        except Exception as e:  # noqa: BLE001
                                             # Vector store delete failed, but SQLite already recorded the delete.
                                             # This creates inconsistency (SQLite says deleted, but vectors remain in store).
                                             raise StorageError(
@@ -601,7 +605,7 @@ class IngestionPipeline:
 
                             except ChunkingError as e:
                                 # Handle chunking errors (domain-specific parser/processing failures)
-                                logger.error(f"Chunking error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Chunking error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -620,7 +624,7 @@ class IngestionPipeline:
                                 continue
                             except EmbeddingError as e:
                                 # Handle embedding-specific errors
-                                logger.error(f"Embedding error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Embedding error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -640,7 +644,7 @@ class IngestionPipeline:
                                 continue
                             except StorageError as e:
                                 # Handle storage-specific errors
-                                logger.error(f"Storage error for source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Storage error for source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1
@@ -661,7 +665,7 @@ class IngestionPipeline:
                                 continue
                             except Exception as e:
                                 # Handle any other unexpected errors
-                                logger.error(f"Unexpected error processing source '{content.source_id}': {e}", exc_info=True)
+                                logger.exception(f"Unexpected error processing source '{content.source_id}'")
                                 source_span.set_status(StatusCode.ERROR)
                                 source_span.record_exception(e)
                                 sources_processed -= 1

@@ -1,8 +1,9 @@
 """EmailAdapter for ingesting email from EmailEngine's REST API."""
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime
-from typing import Iterator, Literal
+from typing import Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -229,7 +230,7 @@ class EmailAdapter(BaseAdapter):
 
         # Validate that messages is a list
         if not isinstance(messages, list):
-            raise ValueError(
+            raise TypeError(
                 f"EmailEngine API 'messages' field must be a list, got {type(messages).__name__}"
             )
 
@@ -267,7 +268,7 @@ class EmailAdapter(BaseAdapter):
 
         # Validate that text is a string
         if not isinstance(body, str):
-            raise ValueError(
+            raise TypeError(
                 f"EmailEngine API 'text' field must be a string, got {type(body).__name__}"
             )
 

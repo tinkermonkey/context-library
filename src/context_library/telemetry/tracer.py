@@ -5,9 +5,13 @@ is not installed. This allows core modules to conditionally use telemetry withou
 making it a hard dependency.
 """
 
+import types
+from collections.abc import Generator
 from contextlib import contextmanager
 from enum import Enum
-from typing import Any, Generator
+from typing import Any
+
+from typing_extensions import Self
 
 _tracer_cache: dict[str, Any] = {}
 
@@ -26,10 +30,15 @@ class NoOpSpan:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def __enter__(self) -> "NoOpSpan":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         pass
 
     def set_attribute(self, key: str, value: Any) -> None:

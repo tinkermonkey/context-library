@@ -58,7 +58,7 @@ RUN claude --version && \
     gh --version && \
     python3 --version && \
     pip --version && \
-    python3 -c "import watchdog; import watchfiles; import mypy; import markitdown; import obsidiantools; import frontmatter; import yaml; import fastapi; import uvicorn; import pydantic_settings; import vobject; import youtube_transcript_api; import opentelemetry; import opentelemetry.instrumentation"
+    python3 -c "import phonenumbers; import watchdog; import watchfiles; import mypy; import markitdown; import obsidiantools; import frontmatter; import yaml; import fastapi; import uvicorn; import pydantic_settings; import vobject; import youtube_transcript_api; import opentelemetry; import opentelemetry.instrumentation"
 
 # ============================================================================
 # Default command

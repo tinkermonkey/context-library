@@ -136,7 +136,7 @@ class HelperHealthCache:
 
             try:
                 health_body = health_future.result()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Helper health probe to %s/health failed: %s",
                     self._helper_url,
@@ -151,7 +151,7 @@ class HelperHealthCache:
 
             try:
                 status_body = status_future.result()
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.debug("Helper /status probe failed (non-fatal): %s", exc)
                 status_body = None
 

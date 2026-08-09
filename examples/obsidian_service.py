@@ -31,10 +31,10 @@ from pathlib import Path
 # Add parent directory to path to import shared utilities
 sys.path.insert(0, str(Path(__file__).parent))
 from _service_base import (
-    setup_logging,
     get_api_key,
     print_startup_info,
     run_service,
+    setup_logging,
 )
 
 
@@ -80,7 +80,7 @@ def main():
     # Initialize adapter
     try:
         adapter = ObsidianAdapter(vault_path=str(vault_path))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Error: Failed to initialize ObsidianAdapter: {e}", file=sys.stderr)
         sys.exit(1)
 

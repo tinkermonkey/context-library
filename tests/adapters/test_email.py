@@ -1,8 +1,7 @@
 """Tests for the EmailAdapter."""
 
-import pytest
-
 import httpx
+import pytest
 
 from context_library.adapters.email import EmailAdapter
 from context_library.storage.models import Domain, NormalizedContent
@@ -175,7 +174,6 @@ class TestEmailAdapterFetch:
 
             def close(self):
                 """No-op for mock client."""
-                pass
 
         # Create a shared mock client instance that will be used for all adapters
         mock_client = MockClient()

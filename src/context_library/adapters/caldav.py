@@ -13,8 +13,9 @@ The adapter uses incremental fetch via CalDAV sync-token for efficient delta syn
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from context_library.adapters.base import BaseAdapter
 from context_library.storage.models import (
@@ -296,8 +297,7 @@ class CalDAVAdapter(BaseAdapter):
         unicode_error_count = 0
         for event in events_list:
             try:
-                for item in self._process_event(event, calendar_name, cutoff_dt):
-                    yield item
+                yield from self._process_event(event, calendar_name, cutoff_dt)
             except UnicodeDecodeError:
                 # Track actual encoding errors separately
                 unicode_error_count += 1
@@ -445,12 +445,11 @@ class CalDAVAdapter(BaseAdapter):
 
         # Filter by last-modified if cutoff provided
         last_modified = vevent.get("LAST-MODIFIED")
-        if cutoff_dt and last_modified:
-            if not self._is_event_modified_after_cutoff(
-                last_modified, cutoff_dt, calendar_name, event_id
-            ):
-                # Event is older than cutoff, skip
-                return
+        if cutoff_dt and last_modified and not self._is_event_modified_after_cutoff(
+            last_modified, cutoff_dt, calendar_name, event_id
+        ):
+            # Event is older than cutoff, skip
+            return
 
         # Get current timestamp for date_first_observed
         now = datetime.now(timezone.utc).isoformat()

@@ -14,6 +14,7 @@ from typing import Annotated, ClassVar, NamedTuple, TypedDict
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
 
+from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.validators import validate_iso8601_timestamp
 
 
@@ -190,7 +191,7 @@ class MessageMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate MessageMetadata invariants after model construction.
 
         Enforces:
@@ -379,7 +380,7 @@ class EventMetadata(BaseModel):
         validate_iso8601_timestamp(value)
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate EventMetadata invariants after model construction.
 
         Enforces:
@@ -777,6 +778,44 @@ class PeopleMetadata(BaseModel):
             raise ValueError("source_type must be a non-empty string")
         return value
 
+    @field_validator("emails")
+    @classmethod
+    def normalize_emails(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalize emails to lowercase and deduplicate, preserving order.
+
+        Ensures emails are stored in the same canonical form the entity linker
+        matches against, so identifiers collected from adapters in whatever
+        case they arrive in still cross-link consistently.
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for email in value:
+            canonical = normalize_email(email) or email
+            if canonical not in seen:
+                seen.add(canonical)
+                normalized.append(canonical)
+        return tuple(normalized)
+
+    @field_validator("phones")
+    @classmethod
+    def normalize_phones(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalize phones to canonical E.164 form and deduplicate, preserving order.
+
+        Ensures phones are stored in the same canonical form the entity linker
+        matches against, so a contact phone collected as "(555) 123-4567" still
+        cross-links with a message sender collected as "5551234567". Numbers
+        that can't be parsed as a possible phone number are kept as-is rather
+        than dropped, to avoid losing contact data.
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for phone in value:
+            canonical = normalize_phone(phone) or phone
+            if canonical not in seen:
+                seen.add(canonical)
+                normalized.append(canonical)
+        return tuple(normalized)
+
 
 class LocationMetadata(BaseModel):
     """Location metadata extracted by location-based adapters.
@@ -873,7 +912,7 @@ class LocationMetadata(BaseModel):
             raise ValueError(f"duration_minutes must be non-negative, got: {value}")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate LocationMetadata invariants after model construction.
 
         Enforces:
@@ -1052,7 +1091,7 @@ class DiffResult(BaseModel):
     prev_hash: Sha256Hash | None = None
     curr_hash: Sha256Hash | None = None
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate DiffResult invariants after model construction.
 
         Enforces:
@@ -1081,12 +1120,11 @@ class DiffResult(BaseModel):
             )
 
         # Check changed flag consistency: if changed=False, must have no added/removed hashes
-        if not self.changed:
-            if self.added_hashes or self.removed_hashes:
-                raise ValueError(
-                    f"If changed=False, both added_hashes and removed_hashes must be empty. "
-                    f"Got added_hashes={self.added_hashes}, removed_hashes={self.removed_hashes}"
-                )
+        if not self.changed and (self.added_hashes or self.removed_hashes):
+            raise ValueError(
+                f"If changed=False, both added_hashes and removed_hashes must be empty. "
+                f"Got added_hashes={self.added_hashes}, removed_hashes={self.removed_hashes}"
+            )
 
 
 class VersionDiff(BaseModel):
@@ -1122,7 +1160,7 @@ class VersionDiff(BaseModel):
             raise ValueError("source_id must be a non-empty string")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate VersionDiff invariants after model construction.
 
         Enforces:
@@ -1254,7 +1292,7 @@ class SourceTimeline(BaseModel):
             raise ValueError("source_id must be a non-empty string")
         return value
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate SourceTimeline invariants after model construction.
 
         Enforces:
@@ -1304,7 +1342,7 @@ class ChunkProvenance(BaseModel):
     adapter_type: str
     version_chain: tuple[Chunk, ...]
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, context, /) -> None:
         """Validate ChunkProvenance invariants after model construction.
 
         Enforces:

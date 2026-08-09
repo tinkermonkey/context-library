@@ -54,15 +54,15 @@ This adapter:
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Iterator
 
 from context_library.adapters.base import BaseAdapter, EndpointFetchError
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
     EventMetadata,
     NormalizedContent,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -263,7 +263,7 @@ class AppleCalendarAdapter(BaseAdapter):
 
         # Validate that response is a list
         if not isinstance(events, list):
-            raise ValueError(
+            raise TypeError(
                 f"macOS helper API 'calendar/events' response must be a list, got {type(events).__name__}"
             )
 

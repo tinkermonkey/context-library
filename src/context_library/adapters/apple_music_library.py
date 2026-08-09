@@ -39,14 +39,15 @@ Security:
 """
 
 import logging
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from typing import Any, Iterator
+from typing import Any
 
-from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.adapters.apple_music_base import AppleMusicBaseMixin
+from context_library.adapters.base import BaseAdapter, HelperAckMixin
 from context_library.storage.models import (
-    Domain,
     DocumentMetadata,
+    Domain,
     EventMetadata,
     NormalizedContent,
     PollStrategy,

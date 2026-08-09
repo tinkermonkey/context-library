@@ -2,9 +2,14 @@
 
 import pytest
 
-from context_library.adapters.oura import OuraAdapter
 from context_library.adapters.base import PartialFetchError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, HealthMetadata
+from context_library.adapters.oura import OuraAdapter
+from context_library.storage.models import (
+    Domain,
+    HealthMetadata,
+    NormalizedContent,
+    PollStrategy,
+)
 
 
 class TestOuraAdapterInitialization:
@@ -1440,7 +1445,9 @@ class TestOuraAdapterCommitAck:
         # Adapters whose helper endpoint uses apply_push_paging mix in
         # HelperAckMixin and request commit-ack mode.
         from context_library.adapters.apple_health import AppleHealthAdapter
-        from context_library.adapters.apple_music_library import AppleMusicLibraryAdapter
+        from context_library.adapters.apple_music_library import (
+            AppleMusicLibraryAdapter,
+        )
 
         for cls, name in [(AppleHealthAdapter, "health"), (AppleMusicLibraryAdapter, "music")]:
             adapter = cls(api_url="http://helper:7123", api_key="k")

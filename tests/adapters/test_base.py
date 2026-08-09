@@ -1,7 +1,8 @@
 """Tests for the base adapter module."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from context_library.adapters.base import BaseAdapter, ResetResult
 from context_library.storage.models import (

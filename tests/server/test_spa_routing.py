@@ -2,11 +2,13 @@
 
 import os
 import tempfile
-from typing import Any, AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
-from contextlib import asynccontextmanager
 
 from context_library.server.app import create_app
 from context_library.storage.document_store import DocumentStore
@@ -17,9 +19,8 @@ from context_library.storage.models import AdapterConfig, Domain
 def ds_for_spa() -> Generator[DocumentStore, None, None]:
     """In-memory DocumentStore for SPA tests."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path, check_same_thread=False)
     config = AdapterConfig(
         adapter_id="test-adapter",

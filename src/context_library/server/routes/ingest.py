@@ -20,7 +20,7 @@ from context_library.server.schemas import (
 from context_library.server.webhook_adapter import WebhookAdapter
 from context_library.storage.document_store import DocumentStore
 from context_library.storage.models import Domain, NormalizedContent
-from context_library.telemetry.tracer import get_tracer, get_status_code
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -74,15 +74,15 @@ async def _run_entity_linking(
             return "ok", None
     except EntityLinkingError as e:
         if adapter_id:
-            logger.error("Entity linking pass for %s failed: %s", adapter_id, e, exc_info=True)
+            logger.exception("Entity linking pass for %s failed", adapter_id)
         else:
-            logger.error("Entity linking pass failed: %s", e, exc_info=True)
+            logger.exception("Entity linking pass failed")
         return "failed", str(e)
     except Exception as e:
         if adapter_id:
-            logger.error("Entity linking pass for %s failed with unexpected error: %s", adapter_id, e, exc_info=True)
+            logger.exception("Entity linking pass for %s failed with unexpected error", adapter_id)
         else:
-            logger.error("Entity linking pass failed with unexpected error: %s", e, exc_info=True)
+            logger.exception("Entity linking pass failed with unexpected error")
         return "failed", f"{type(e).__name__}: {e}"
 
 
@@ -133,7 +133,7 @@ async def webhook_ingest(
             span.set_status(StatusCode.ERROR)
             raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
-            logger.error("Unexpected error during webhook ingestion: %s", e, exc_info=True)
+            logger.exception("Unexpected error during webhook ingestion")
             span.record_exception(e)
             span.set_status(StatusCode.ERROR)
             raise HTTPException(status_code=500, detail=f"Ingestion failed: {type(e).__name__}: {e}")
@@ -281,7 +281,7 @@ async def helper_ingest(
                     entity_linking_error=entity_linking_error,
                 ))
             except Exception as e:
-                logger.error("Apple adapter %s failed: %s", adapter.adapter_id, e, exc_info=True)
+                logger.exception("Apple adapter %s failed", adapter.adapter_id)
                 results.append(AppleAdapterResult(
                     adapter_id=adapter.adapter_id,
                     status="error",

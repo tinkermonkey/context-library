@@ -1,11 +1,15 @@
 """Tests for the AppleRemindersAdapter."""
 
+import httpx
 import pytest
 
-import httpx
-
 from context_library.adapters.apple_reminders import AppleRemindersAdapter
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, TaskMetadata
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PollStrategy,
+    TaskMetadata,
+)
 
 
 class TestAppleRemindersAdapterInitialization:
@@ -434,7 +438,7 @@ class TestAppleRemindersAdapterFetch:
         reminders_url = "http://127.0.0.1:7123/reminders/reminders"
         mock_httpx_client.set_response(reminders_url, {"reminders": []})  # Should be a list, not dict
 
-        with pytest.raises(ValueError, match="must be a list"):
+        with pytest.raises(TypeError, match="must be a list"):
             list(adapter.fetch(""))
 
     def test_fetch_missing_required_field_raises(self, mock_httpx_client):

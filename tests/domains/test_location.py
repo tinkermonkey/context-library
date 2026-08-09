@@ -1,12 +1,13 @@
 """Tests for LocationDomain chunking logic."""
 
 import pytest
+
 from context_library.domains.location import LocationDomain
 from context_library.storage.models import (
+    ChunkType,
     Domain,
     NormalizedContent,
     StructuralHints,
-    ChunkType,
 )
 
 

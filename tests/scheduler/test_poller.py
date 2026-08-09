@@ -7,7 +7,6 @@ poll rows, always passes source_ref="" to the pipeline (adapters drain from
 their own persisted cursor), and calls adapter.ack() after a successful commit.
 """
 import os
-
 import tempfile
 import threading
 import time
@@ -16,9 +15,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from context_library.adapters.base import BaseAdapter
+from context_library.core.differ import Differ
 from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
-from context_library.core.differ import Differ
 from context_library.domains.base import BaseDomain
 from context_library.scheduler.poller import Poller
 from context_library.storage.document_store import DocumentStore
@@ -83,9 +82,8 @@ class MockDomain(BaseDomain):
 def document_store():
     """Create an in-memory document store."""
     # Use file-based DB to support multi-threaded access
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_path = temp_file.name
-    temp_file.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as temp_file:
+        temp_path = temp_file.name
     store = DocumentStore(temp_path)
     yield store
     store.close()
@@ -515,15 +513,17 @@ class TestPollerTicking:
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-            with patch("context_library.scheduler.poller.logger") as mock_logger:
-                poller._tick()
+        with (
+            patch.object(pipeline, "ingest", side_effect=Exception("Test error")),
+            patch("context_library.scheduler.poller.logger") as mock_logger,
+        ):
+            poller._tick()
 
-                # First failure should log at INFO level (transient)
-                mock_logger.info.assert_called_once()
-                call_args = str(mock_logger.info.call_args)
-                assert "test-adapter" in call_args
-                assert "transient" in call_args
+            # First failure should log at INFO level (transient)
+            mock_logger.info.assert_called_once()
+            call_args = str(mock_logger.info.call_args)
+            assert "test-adapter" in call_args
+            assert "transient" in call_args
 
     def test_tick_logs_failure_at_warning_level_after_3_failures(
         self, pipeline, document_store
@@ -536,26 +536,28 @@ class TestPollerTicking:
         poller.register(adapter, chunker)
 
         # A failing adapter never gets a _last_polled mark, so it stays due every tick.
-        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-            with patch("context_library.scheduler.poller.logger") as mock_logger:
-                # First tick: failure 1 (INFO level)
-                poller._tick()
-                mock_logger.info.assert_called_once()
-                mock_logger.warning.assert_not_called()
+        with (
+            patch.object(pipeline, "ingest", side_effect=Exception("Test error")),
+            patch("context_library.scheduler.poller.logger") as mock_logger,
+        ):
+            # First tick: failure 1 (INFO level)
+            poller._tick()
+            mock_logger.info.assert_called_once()
+            mock_logger.warning.assert_not_called()
 
-                # Second tick: failure 2 (INFO level)
-                mock_logger.reset_mock()
-                poller._tick()
-                mock_logger.info.assert_called_once()
-                mock_logger.warning.assert_not_called()
+            # Second tick: failure 2 (INFO level)
+            mock_logger.reset_mock()
+            poller._tick()
+            mock_logger.info.assert_called_once()
+            mock_logger.warning.assert_not_called()
 
-                # Third tick: failure 3 (WARNING level)
-                mock_logger.reset_mock()
-                poller._tick()
-                mock_logger.warning.assert_called_once()
-                call_args = str(mock_logger.warning.call_args)
-                assert "test-adapter" in call_args
-                assert "WARNING level" in call_args
+            # Third tick: failure 3 (WARNING level)
+            mock_logger.reset_mock()
+            poller._tick()
+            mock_logger.warning.assert_called_once()
+            call_args = str(mock_logger.warning.call_args)
+            assert "test-adapter" in call_args
+            assert "WARNING level" in call_args
 
     def test_tick_logs_failure_at_error_level_after_6_failures(
         self, pipeline, document_store
@@ -567,27 +569,29 @@ class TestPollerTicking:
         poller = Poller(pipeline, document_store)
         poller.register(adapter, chunker)
 
-        with patch.object(pipeline, "ingest", side_effect=Exception("Test error")):
-            with patch("context_library.scheduler.poller.logger") as mock_logger:
-                # Simulate 6 failures (ticks 1-6)
-                for tick_num in range(6):
-                    mock_logger.reset_mock()
-                    poller._tick()
+        with (
+            patch.object(pipeline, "ingest", side_effect=Exception("Test error")),
+            patch("context_library.scheduler.poller.logger") as mock_logger,
+        ):
+            # Simulate 6 failures (ticks 1-6)
+            for tick_num in range(6):
+                mock_logger.reset_mock()
+                poller._tick()
 
-                    if tick_num < 2:
-                        # Failures 1-2: INFO level
-                        mock_logger.info.assert_called_once()
-                        mock_logger.error.assert_not_called()
-                    elif tick_num < 5:
-                        # Failures 3-5: WARNING level
-                        mock_logger.warning.assert_called_once()
-                        mock_logger.error.assert_not_called()
-                    else:
-                        # Failure 6+: ERROR level
-                        mock_logger.error.assert_called_once()
-                        call_args = str(mock_logger.error.call_args)
-                        assert "test-adapter" in call_args
-                        assert "ERROR level" in call_args
+                if tick_num < 2:
+                    # Failures 1-2: INFO level
+                    mock_logger.info.assert_called_once()
+                    mock_logger.error.assert_not_called()
+                elif tick_num < 5:
+                    # Failures 3-5: WARNING level
+                    mock_logger.warning.assert_called_once()
+                    mock_logger.error.assert_not_called()
+                else:
+                    # Failure 6+: ERROR level
+                    mock_logger.error.assert_called_once()
+                    call_args = str(mock_logger.error.call_args)
+                    assert "test-adapter" in call_args
+                    assert "ERROR level" in call_args
 
     def test_tick_clears_error_tracker_on_success(self, pipeline, document_store):
         """A success resets the consecutive-failure count for the adapter."""
@@ -628,7 +632,7 @@ class TestPollerTicking:
                 # Should log at ERROR level immediately (not INFO)
                 # and not record multiple failures for escalation
                 error_calls = [
-                    call for call in mock_logger.error.call_args_list
+                    call for call in mock_logger.exception.call_args_list
                     if "programming error" in str(call).lower()
                 ]
                 assert len(error_calls) > 0, "Programming error was not logged at ERROR level"

@@ -7,7 +7,6 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from context_library.retrieval.provenance import get_version_diff
-from context_library.storage.models import Domain
 from context_library.server.schemas import (
     ChunkListResponse,
     ChunkResponse,
@@ -21,6 +20,7 @@ from context_library.server.schemas import (
     VersionHistoryResponse,
     VersionSummary,
 )
+from context_library.storage.models import Domain
 
 logger = logging.getLogger(__name__)
 
@@ -46,28 +46,26 @@ def _chunk_response(chunk, lineage, source_id: str) -> ChunkResponse:
         domain_metadata=chunk.domain_metadata,
         cross_refs=list(chunk.cross_refs),
         lineage=lin,
-        **{
-            "_links": {
+        _links={
                 "self": f"/chunks/{chunk.chunk_hash}?source_id={source_id}",
                 "source": f"/sources/{source_id}",
                 "source_version": f"/sources/{source_id}/versions/{lineage.source_version_id}",
                 "provenance": f"/chunks/{chunk.chunk_hash}/provenance?source_id={source_id}",
                 "version_chain": f"/chunks/{chunk.chunk_hash}/version-chain?source_id={source_id}",
                 "adapter": f"/adapters/{lineage.adapter_id}",
-            }
-        },
+            },
     )
 
 
 @router.get("", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
-    domain: Domain | None = Query(default=None),
+    domain: Domain | None = Query(default=None),  # noqa: B008
     adapter_id: str | None = Query(default=None),
     source_id_prefix: str | None = Query(default=None),
     state: str | None = Query(default=None, pattern="^(active|inactive)$"),
-    last_fetched_after: datetime | None = Query(default=None),
-    last_fetched_before: datetime | None = Query(default=None),
+    last_fetched_after: datetime | None = Query(default=None),  # noqa: B008
+    last_fetched_before: datetime | None = Query(default=None),  # noqa: B008
     limit: int = Query(default=50, gt=0, le=5000),
     offset: int = Query(default=0, ge=0),
     sort_by: str = Query(default="created_at", pattern="^(created_at|updated_at|chunk_count)$"),
@@ -102,14 +100,12 @@ async def list_sources(
             chunk_count=r["chunk_count"],
             created_at=r["created_at"],
             updated_at=r["updated_at"],
-            **{
-                "_links": {
+            _links={
                     "self": f"/sources/{r['source_id']}",
                     "versions": f"/sources/{r['source_id']}/versions",
                     "chunks": f"/sources/{r['source_id']}/chunks",
                     "adapter": f"/adapters/{r['adapter_id']}",
-                }
-            },
+                },
         )
         for r in rows
     ]
@@ -161,7 +157,7 @@ async def get_version_history(source_id: str, request: Request) -> VersionHistor
                 adapter_id=v.adapter_id,
                 normalizer_version=v.normalizer_version,
                 fetch_timestamp=v.fetch_timestamp,
-                **{"_links": links},
+                _links=links,
             )
         )
     return VersionHistoryResponse(source_id=source_id, versions=version_summaries)
@@ -186,13 +182,11 @@ async def get_source_version(
         adapter_id=sv.adapter_id,
         normalizer_version=sv.normalizer_version,
         fetch_timestamp=sv.fetch_timestamp,
-        **{
-            "_links": {
+        _links={
                 "self": f"/sources/{source_id}/versions/{version}",
                 "chunks": f"/sources/{source_id}/chunks?version={version}",
                 "source": f"/sources/{source_id}",
-            }
-        },
+            },
     )
 
 
@@ -289,12 +283,10 @@ async def get_source(source_id: str, request: Request) -> SourceDetailResponse:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         chunk_count=row["chunk_count"],
-        **{
-            "_links": {
+        _links={
                 "self": f"/sources/{source_id}",
                 "versions": f"/sources/{source_id}/versions",
                 "chunks": f"/sources/{source_id}/chunks",
                 "adapter": f"/adapters/{row['adapter_id']}",
-            }
-        },
+            },
     )

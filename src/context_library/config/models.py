@@ -158,7 +158,7 @@ class AdaptersConfig(BaseModel):
     remote_adapters: tuple[RemoteAdapterConfig, ...] = ()
     local_adapters: tuple[LocalAdapterConfig, ...] = ()
 
-    def model_post_init(self, __context: Any) -> None:
+    def model_post_init(self, context: Any, /) -> None:
         """Validate AdaptersConfig invariants after model construction.
 
         Enforces:

@@ -6,13 +6,12 @@ Complements bi-encoder similarity with cross-encoder fine-tuned ranking.
 """
 
 import math
-from typing import Optional
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from sentence_transformers import CrossEncoder
 
 from context_library.core.exceptions import RerankerError
 from context_library.retrieval.query import RetrievalResult
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
@@ -73,7 +72,7 @@ class Reranker:
         self,
         query: str,
         candidates: list[RetrievalResult],
-        top_k: Optional[int] = None,
+        top_k: int | None = None,
     ) -> list[RetrievalResult]:
         """Rerank candidates by cross-encoder relevance score.
 

@@ -1,9 +1,7 @@
 """Post-pipeline pass that links person chunks to chunks in other domains."""
 
 import logging
-from typing import Optional
 
-from context_library.telemetry.tracer import get_tracer, get_status_code
 from context_library.core.exceptions import EntityLinkingError
 from context_library.core.identifier_normalizer import normalize_email, normalize_phone
 from context_library.storage.document_store import DocumentStore
@@ -13,6 +11,7 @@ from context_library.storage.models import (
     Domain,
     EntityLink,
 )
+from context_library.telemetry.tracer import get_status_code, get_tracer
 
 logger = logging.getLogger(__name__)
 tracer = get_tracer(__name__)
@@ -189,12 +188,13 @@ class EntityLinker:
 
         return page_links_created, failures
 
-    def _extract_identifiers(self, domain_metadata: Optional[dict]) -> list[str]:
+    def _extract_identifiers(self, domain_metadata: dict | None) -> list[str]:
         """Extract email and phone identifiers from PeopleMetadata.
 
-        Identifiers are normalized:
+        Identifiers are normalized via the shared normalization contract
+        (context_library.core.identifier_normalizer):
         - Emails: lowercase, stripped of whitespace
-        - Phones: digits and leading '+' only, extra formatting removed
+        - Phones: canonical E.164 form (e.g. "+15551234567")
 
         Args:
             domain_metadata: Serialized PeopleMetadata dict from chunk.domain_metadata.
@@ -235,7 +235,7 @@ class EntityLinker:
                 if normalized:
                     identifiers.add(normalized)
 
-        return sorted(list(identifiers))
+        return sorted(identifiers)
 
     def _find_matching_chunks(self, identifiers: list[str]) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.

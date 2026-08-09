@@ -5,13 +5,14 @@ extension filtering, and atomic-save protection. Uses watchdog if available,
 otherwise falls back to watchfiles.
 """
 
+import gc
 import logging
 import threading
-import gc
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from context_library.storage.models import EventType, PollStrategy
 
@@ -22,8 +23,8 @@ HAS_WATCHDOG = False
 HAS_WATCHFILES = False
 
 try:
+    from watchdog.events import FileSystemEvent, FileSystemEventHandler
     from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler, FileSystemEvent
     HAS_WATCHDOG = True
 except ImportError:
     pass
@@ -112,7 +113,7 @@ class FileSystemWatcher:
                 self.stop()
         except Exception:
             # Silently fail in __del__ to avoid issues during shutdown
-            pass
+            logger.debug("Ignoring exception during __del__ cleanup", exc_info=True)
 
     def start(self) -> None:
         """Start observing the watch_path for filesystem changes.
@@ -391,8 +392,8 @@ class FileSystemWatcher:
                     # Process the event through our debouncing system
                     self._on_raw_event(Path(changed_path), event_type)
 
-        except Exception as e:
-            logger.error(f"Error in watchfiles loop: {e}", exc_info=True)
+        except Exception:
+            logger.exception("Error in watchfiles loop")
             self._watchfiles_failed = True
 
     def _on_raw_event(self, path: Path, event_type: EventType) -> None:
@@ -403,9 +404,8 @@ class FileSystemWatcher:
             event_type: Type of event (created, modified, or deleted)
         """
         # Filter by extension if configured
-        if self._extensions is not None:
-            if path.suffix not in self._extensions:
-                return
+        if self._extensions is not None and path.suffix not in self._extensions:
+            return
 
         with self._buffer_lock:
             # Cancel existing timer and update buffer
@@ -467,10 +467,9 @@ class FileSystemWatcher:
             event = FileEvent(path=path, event_type=event_type)
             try:
                 self._callback(event)
-            except Exception as e:
-                logger.error(
-                    f"Error in filesystem watcher callback for {path}: {e}",
-                    exc_info=True,
+            except Exception:
+                logger.exception(
+                    f"Error in filesystem watcher callback for {path}",
                 )
 
 

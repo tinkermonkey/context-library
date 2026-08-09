@@ -18,16 +18,17 @@ This adapter uses the vobject library for RFC 6350-compliant parsing.
 
 import hashlib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any
 
 from context_library.adapters.base import BaseAdapter
 from context_library.domains.people import PeopleDomain
 from context_library.storage.models import (
     Domain,
-    PollStrategy,
-    PeopleMetadata,
     NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
     StructuralHints,
 )
 
@@ -136,7 +137,6 @@ class VCardAdapter(BaseAdapter):
 
     def __del__(self) -> None:
         """Clean up resources when adapter is destroyed (safety net)."""
-        pass
 
     @property
     def adapter_id(self) -> str:
@@ -215,7 +215,7 @@ class VCardAdapter(BaseAdapter):
                 try:
                     with open(vcf_file, "r", encoding="latin-1") as f:
                         content = f.read()
-                except Exception as fallback_err:
+                except Exception as fallback_err:  # noqa: BLE001
                     logger.error(f"Failed to read {vcf_file.name} with both UTF-8 and latin-1: {fallback_err}")
                     continue
 
@@ -270,7 +270,7 @@ class VCardAdapter(BaseAdapter):
                     except ContactIDCollisionError:
                         # Re-raise collision errors to prevent silent data loss
                         raise
-                    except Exception as contact_err:  # Catch all per-contact errors (ValueError, KeyError, TypeError, AttributeError, ValidationError, etc.)
+                    except Exception as contact_err:  # noqa: BLE001
                         logger.error(
                             f"Error processing contact at index {contact_index} in {vcf_file.name}: {contact_err}. "
                             f"Skipping this contact and continuing with next."
@@ -281,7 +281,7 @@ class VCardAdapter(BaseAdapter):
             except ContactIDCollisionError:
                 # Re-raise collision errors to prevent silent data loss
                 raise
-            except Exception as parse_err:
+            except Exception as parse_err:  # noqa: BLE001
                 # Catch vobject.ParseError (if vobject is available) and other exceptions
                 # from vobject.readComponents. Check if it's a vobject ParseError specifically.
                 if HAS_VOBJECT and VOBJECT_PARSE_ERROR is not None and isinstance(parse_err, VOBJECT_PARSE_ERROR):
@@ -296,7 +296,7 @@ class VCardAdapter(BaseAdapter):
                         f"Processed {contact_index} contacts before error. Continuing with next file."
                     )
 
-    def _extract_people_metadata(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> PeopleMetadata:
+    def _extract_people_metadata(self, vcard, vcf_file: Path | None = None, contact_index: int = 0) -> PeopleMetadata:
         """Extract PeopleMetadata from a vCard component.
 
         Parses vCard fields per RFC 6350:
@@ -412,7 +412,7 @@ class VCardAdapter(BaseAdapter):
             source_type="vcard",
         )
 
-    def _derive_contact_id(self, vcard, vcf_file: Optional[Path] = None, contact_index: int = 0) -> str:
+    def _derive_contact_id(self, vcard, vcf_file: Path | None = None, contact_index: int = 0) -> str:
         """Derive a stable contact identifier from vCard per RFC 6350 spec.
 
         Uses UID if present. For vCards without UID, generates a deterministic

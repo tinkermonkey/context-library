@@ -1,11 +1,17 @@
 """Tests for the VCardAdapter."""
 
 import logging
-import pytest
 from pathlib import Path
 
-from context_library.adapters.vcard import VCardAdapter, ContactIDCollisionError
-from context_library.storage.models import Domain, PollStrategy, NormalizedContent, PeopleMetadata
+import pytest
+
+from context_library.adapters.vcard import ContactIDCollisionError, VCardAdapter
+from context_library.storage.models import (
+    Domain,
+    NormalizedContent,
+    PeopleMetadata,
+    PollStrategy,
+)
 
 
 class TestVCardAdapterInitialization:
@@ -102,9 +108,8 @@ class TestVCardAdapterContextManager:
 
     def test_context_manager_exit_does_not_suppress_exceptions(self, tmp_path):
         """__exit__ returning False allows exceptions to propagate."""
-        with pytest.raises(ValueError):
-            with VCardAdapter(vcf_directory=str(tmp_path)):
-                raise ValueError("Test exception")
+        with pytest.raises(ValueError), VCardAdapter(vcf_directory=str(tmp_path)):
+            raise ValueError("Test exception")
 
     def test_context_manager_del_no_error(self, tmp_path):
         """__del__ can be called without error."""
@@ -237,9 +242,10 @@ END:VCARD"""
         results = list(adapter.fetch(""))
         metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
         assert len(metadata.phones) == 3
-        assert "555-1111" in metadata.phones
-        assert "555-2222" in metadata.phones
-        assert "555-3333" in metadata.phones
+        # Phones are normalized to canonical E.164 form on construction.
+        assert "+15551111" in metadata.phones
+        assert "+15552222" in metadata.phones
+        assert "+15553333" in metadata.phones
 
     def test_fetch_with_missing_optional_fields(self, tmp_path):
         """fetch() handles contacts with missing optional fields."""
@@ -467,10 +473,10 @@ END:VCARD"""
         markdown = results[0].markdown
         assert "555-1111" not in markdown
         assert "555-2222" not in markdown
-        # But phones should be in metadata for entity linking
+        # But phones should be in metadata for entity linking, normalized to E.164
         metadata = PeopleMetadata.model_validate(results[0].structural_hints.extra_metadata)
-        assert "555-1111" in metadata.phones
-        assert "555-2222" in metadata.phones
+        assert "+15551111" in metadata.phones
+        assert "+15552222" in metadata.phones
 
     def test_markdown_includes_notes(self, tmp_path):
         """Generated markdown includes notes when present."""

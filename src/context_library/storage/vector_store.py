@@ -9,7 +9,6 @@ from the document store (SQLite).
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -126,8 +125,8 @@ class VectorStore(ABC):
         self,
         query_vector: list[float],
         top_k: int = 10,
-        domain_filter: Optional[Domain] = None,
-        source_filter: Optional[str] = None,
+        domain_filter: Domain | None = None,
+        source_filter: str | None = None,
     ) -> list[VectorSearchResult]:
         """Search for nearest neighbors to the query vector.
 

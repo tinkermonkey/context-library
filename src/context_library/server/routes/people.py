@@ -35,8 +35,8 @@ async def get_person_context(
         default=None,
         description="Comma-separated domain filter, e.g. messages,events,notes,tasks",
     ),
-    since: datetime | None = Query(default=None, description="Inclusive lower bound on fetch_timestamp"),
-    before: datetime | None = Query(default=None, description="Inclusive upper bound on fetch_timestamp"),
+    since: datetime | None = Query(default=None, description="Inclusive lower bound on fetch_timestamp"),  # noqa: B008
+    before: datetime | None = Query(default=None, description="Inclusive upper bound on fetch_timestamp"),  # noqa: B008
     limit: int = Query(default=50, gt=0, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> PersonContextResponse:
@@ -87,12 +87,10 @@ async def get_person_context(
                 normalizer_version=chunk_ctx.normalizer_version,
                 embedding_model_id=chunk_ctx.embedding_model_id,
             ),
-            **{
-                "_links": {
+            _links={
                     "chunk": f"/chunks/{chunk_ctx.chunk.chunk_hash}?source_id={chunk_ctx.source_id}",
                     "source": f"/sources/{chunk_ctx.source_id}",
-                }
-            },
+                },
         )
         for chunk_ctx in chunk_tuples
     ]
