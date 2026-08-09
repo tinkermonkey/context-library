@@ -56,12 +56,20 @@ class ChromaDBVectorStore(VectorStore):
         dimension it was created with, so a mismatch on restart is detected up front and
         the collection is dropped and recreated empty. The document store remains the
         source of truth, so dropped vectors are recovered by the re-embedding pipeline.
+
+        The initial `get_or_create_collection` call intentionally omits `embedding_dimension`
+        from its metadata — passing the *new* dimension there would let ChromaDB apply it to
+        an already-existing collection before the stored dimension has been compared, which
+        (depending on ChromaDB version) can either raise or silently overwrite the recorded
+        dimension and skip the drop-and-recreate below. The dimension tag is only ever written
+        via `Collection.modify()` (once we know it matches what's already stored) or as part of
+        `create_collection` for a freshly recreated collection.
         """
         self._embedding_dimension = embedding_dimension
         client = self._get_client()
         existing = client.get_or_create_collection(
             name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine", "embedding_dimension": embedding_dimension},
+            metadata={"hnsw:space": "cosine"},
         )
         stored_dimension = self._resolve_stored_dimension(existing)
         if stored_dimension is not None and stored_dimension != embedding_dimension:
@@ -75,6 +83,11 @@ class ChromaDBVectorStore(VectorStore):
                 name=COLLECTION_NAME,
                 metadata={"hnsw:space": "cosine", "embedding_dimension": embedding_dimension},
             )
+        else:
+            # "hnsw:space" is fixed at creation time and ChromaDB rejects any modify()
+            # call that includes it (even with an unchanged value), so only the
+            # dimension tag is updated here.
+            existing.modify(metadata={"embedding_dimension": embedding_dimension})
         self._collection = existing
 
     def _resolve_stored_dimension(self, collection: chromadb.Collection) -> int | None:

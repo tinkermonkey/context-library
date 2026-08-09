@@ -38,9 +38,6 @@ coverage.xml
 # Exclude documentation (not needed for image build)
 documentation/
 
-# Exclude UI build artifacts and source (only needed for production Dockerfile, not Dockerfile.agent)
-ui/
-
 # Exclude tests (not needed for image build)
 tests/
 
