@@ -146,7 +146,9 @@ All variables use the `CTX_` prefix (set in env or `.env` file):
 |---|---|---|
 | `CTX_SQLITE_DB_PATH` | `/data/sqlite/documents.db` | SQLite database path |
 | `CTX_CHROMADB_PATH` | `/data/chromadb` | ChromaDB persistence directory |
-| `CTX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model (pre-downloaded in Docker image) |
+| `CTX_EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Sentence-transformers model (pre-downloaded in Docker image) |
+| `CTX_EMBEDDING_TRUST_REMOTE_CODE` | `true` | Allow loading custom modeling code shipped with the embedding model (required by `nomic-embed-text-v1.5`) |
+| `CTX_EMBEDDING_REEMBED_BATCH_SIZE` | `256` | Batch size for re-embedding chunks left over from a previous embedding model |
 | `CTX_ENABLE_RERANKER` | `false` | Enable cross-encoder reranking on `/query` |
 | `CTX_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model (only used if reranker enabled) |
 | `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on `/webhooks/ingest` |

@@ -1,6 +1,8 @@
 """FastAPI application factory with lifespan management."""
 
+import asyncio
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -54,7 +56,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize components in dependency order
     document_store = DocumentStore(config.sqlite_db_path, check_same_thread=False)
-    embedder = Embedder(config.embedding_model)
+    embedder = Embedder(config.embedding_model, trust_remote_code=config.embedding_trust_remote_code)
     differ = Differ()
     vector_store = ChromaDBVectorStore(config.chromadb_path)
     pipeline = IngestionPipeline(document_store, embedder, differ, vector_store)
@@ -280,8 +282,36 @@ async def lifespan(app: FastAPI):
     # Store poller on app.state for route access (e.g., POST /adapters/{id}/reset)
     app.state.poller = poller
 
+    # Re-embed any chunks left over from a previous CTX_EMBEDDING_MODEL, in the
+    # background so a large corpus doesn't delay server readiness. Runs in a thread
+    # (blocking SQLite/model calls) and is stopped cooperatively on shutdown so it
+    # doesn't race document_store.close().
+    reembed_stop_event = threading.Event()
+
+    async def _run_reembedding() -> None:
+        try:
+            result = await asyncio.to_thread(
+                pipeline.reembed_stale_chunks,
+                config.embedding_reembed_batch_size,
+                reembed_stop_event,
+            )
+            if result["chunks_reembedded"]:
+                logger.info(
+                    "Re-embedding %s: %d chunk(s) migrated to model %s",
+                    "paused" if result["stopped"] else "complete",
+                    result["chunks_reembedded"],
+                    embedder.model_id,
+                )
+        except Exception:
+            logger.exception("Background re-embedding failed; will retry on next restart")
+
+    reembed_task = asyncio.create_task(_run_reembedding())
+    app.state.reembed_task = reembed_task
+
     yield
 
+    reembed_stop_event.set()
+    await reembed_task
     poller.stop()
     document_store.close()
     logger.info("Server stopped")

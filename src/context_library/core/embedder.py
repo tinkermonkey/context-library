@@ -9,19 +9,38 @@ from context_library.telemetry.tracer import get_status_code, get_tracer
 tracer = get_tracer(__name__)
 StatusCode = get_status_code()
 
+# Asymmetric retrieval models (e.g. nomic-embed-text) declare distinct prompts for
+# queries vs. documents under different naming conventions. Checked in priority order
+# against the model's own `prompts` dict so the right instruction prefix is applied
+# automatically; models with no declared prompts (e.g. all-MiniLM-L6-v2) fall back to
+# plain encoding, so this is a no-op for symmetric models.
+_QUERY_PROMPT_NAMES = ("query", "search_query")
+_DOCUMENT_PROMPT_NAMES = ("document", "search_document", "passage", "corpus")
+
 
 class Embedder:
     """Wraps a sentence-transformers model for batch embedding."""
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", trust_remote_code: bool = False) -> None:
         """Initialize the embedder with a sentence-transformers model.
 
         Args:
             model_name: Name of the sentence-transformers model to load.
                        Defaults to "all-MiniLM-L6-v2".
+            trust_remote_code: Whether to allow loading custom modeling code bundled
+                       with the model repo. Required by some models (e.g. nomic-embed-text)
+                       that ship custom architecture code on the Hugging Face Hub.
         """
         self._model_name = model_name
-        self._model = SentenceTransformer(model_name)
+        self._model = SentenceTransformer(model_name, trust_remote_code=trust_remote_code)
+
+        available_prompts = self._model.prompts or {}
+        self._document_prompt_name = next(
+            (name for name in _DOCUMENT_PROMPT_NAMES if name in available_prompts), None
+        )
+        self._query_prompt_name = next(
+            (name for name in _QUERY_PROMPT_NAMES if name in available_prompts), None
+        )
 
     @property
     def model_id(self) -> str:
@@ -67,7 +86,9 @@ class Embedder:
                     raise ValueError("Cannot embed list containing only empty or whitespace-only strings")
                 span.set_attribute("chunk_count", len(texts))
                 span.set_attribute("model_id", self.model_id)
-                embeddings = self._model.encode(texts, convert_to_numpy=True)
+                embeddings = self._model.encode(
+                    texts, convert_to_numpy=True, prompt_name=self._document_prompt_name
+                )
                 return cast(list[list[float]], embeddings.tolist())
             except Exception as e:
                 span.set_status(StatusCode.ERROR)
@@ -93,7 +114,9 @@ class Embedder:
                 if not query or not query.strip():
                     raise ValueError("Cannot embed empty or whitespace-only query")
                 span.set_attribute("model_id", self.model_id)
-                embedding = self._model.encode(query, convert_to_numpy=True)
+                embedding = self._model.encode(
+                    query, convert_to_numpy=True, prompt_name=self._query_prompt_name
+                )
                 return cast(list[float], embedding.tolist())
             except Exception as e:
                 span.set_status(StatusCode.ERROR)

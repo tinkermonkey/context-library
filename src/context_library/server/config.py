@@ -17,7 +17,12 @@ class ServerConfig(BaseSettings):
     chromadb_path: str = "/data/chromadb"
 
     # Embedding model
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
+    # nomic-embed-text-v1.5 ships custom modeling code on the HF Hub for its rotary
+    # embeddings / Matryoshka support; sentence-transformers requires opting in to load it.
+    embedding_trust_remote_code: bool = True
+    # Batch size for re-embedding chunks left over from a previous embedding model.
+    embedding_reembed_batch_size: int = 256
 
     # Reranker (optional)
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"

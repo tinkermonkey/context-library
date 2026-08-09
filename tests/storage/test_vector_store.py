@@ -197,3 +197,77 @@ class TestVectorStoreABC:
         """ChromaDBVectorStore should be a valid VectorStore implementation."""
         store = ChromaDBVectorStore(tmp_path / "test")
         assert isinstance(store, VectorStore)
+
+
+class TestVectorStoreDimensionMigration:
+    """Tests for dimension-change handling on ChromaDBVectorStore.initialize()."""
+
+    def test_same_dimension_reinitialize_keeps_vectors(self, tmp_path, embedder):
+        """Re-initializing with the same dimension preserves existing vectors."""
+        store = ChromaDBVectorStore(tmp_path / "chromadb")
+        store.initialize(384)
+        vector = embedder.embed_query("hello world")
+        store.add_vectors([{
+            "chunk_hash": "a" * 64,
+            "content": "hello world",
+            "vector": vector,
+            "domain": "notes",
+            "source_id": "doc1",
+            "source_version": 1,
+            "created_at": "2026-03-04T12:00:00Z",
+        }])
+        assert store.count() == 1
+
+        store.initialize(384)
+        assert store.count() == 1
+
+    def test_dimension_change_drops_stale_vectors(self, tmp_path, embedder):
+        """Re-initializing with a different dimension recreates an empty collection."""
+        store = ChromaDBVectorStore(tmp_path / "chromadb")
+        store.initialize(384)
+        vector = embedder.embed_query("hello world")
+        store.add_vectors([{
+            "chunk_hash": "a" * 64,
+            "content": "hello world",
+            "vector": vector,
+            "domain": "notes",
+            "source_id": "doc1",
+            "source_version": 1,
+            "created_at": "2026-03-04T12:00:00Z",
+        }])
+        assert store.count() == 1
+
+        # Simulate switching to a model with a different embedding dimension
+        store.initialize(768)
+        assert store.count() == 0
+
+        # New-dimension vectors can now be added without raising
+        store.add_vectors([{
+            "chunk_hash": "b" * 64,
+            "content": "new content",
+            "vector": [0.1] * 768,
+            "domain": "notes",
+            "source_id": "doc1",
+            "source_version": 1,
+            "created_at": "2026-03-04T12:00:00Z",
+        }])
+        assert store.count() == 1
+
+    def test_dimension_change_detected_without_prior_metadata_tag(self, tmp_path, embedder):
+        """Legacy collections (created before dimension tagging) are still protected."""
+        store = ChromaDBVectorStore(tmp_path / "chromadb")
+        # Simulate a pre-existing collection with no "embedding_dimension" metadata,
+        # as ChromaDBVectorStore created before this change would have left behind.
+        client = store._get_client()
+        collection = client.get_or_create_collection(
+            name="chunk_vectors", metadata={"hnsw:space": "cosine"}
+        )
+        collection.add(
+            ids=["a" * 64],
+            embeddings=[[0.1] * 384],
+            documents=["legacy content"],
+            metadatas=[{"domain": "notes", "source_id": "doc1", "source_version": 1, "created_at": "2026-03-04T12:00:00Z"}],
+        )
+
+        store.initialize(768)
+        assert store.count() == 0

@@ -1565,3 +1565,61 @@ class TestPipelineRunLifecycle:
 
         # Run must be cleaned up even when all sources fail
         assert len(pipeline.get_active_runs()) == 0
+
+
+class TestReembedStaleChunks:
+    """Tests for IngestionPipeline.reembed_stale_chunks()."""
+
+    def _set_embedding_model(self, pipeline, model_id: str) -> None:
+        """Force every active chunk's embedding_model_id, simulating a prior model."""
+        cursor = pipeline.document_store.conn.cursor()
+        cursor.execute("UPDATE chunks SET embedding_model_id = ?", (model_id,))
+        pipeline.document_store.conn.commit()
+
+    def test_no_stale_chunks_is_a_noop(self, pipeline, temp_markdown_dir, domain_chunker):
+        """With nothing to migrate, reembed_stale_chunks() returns immediately."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        pipeline.ingest(adapter, domain_chunker)
+
+        result = pipeline.reembed_stale_chunks()
+        assert result == {"chunks_reembedded": 0, "stopped": False}
+
+    def test_migrates_chunks_with_stale_model_id(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """Chunks tagged with an old embedding_model_id are re-embedded and re-tagged."""
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        ingest_result = pipeline.ingest(adapter, domain_chunker)
+        total_chunks = ingest_result["chunks_added"]
+
+        self._set_embedding_model(pipeline, "old-model-v0")
+
+        result = pipeline.reembed_stale_chunks(batch_size=1)
+        assert result == {"chunks_reembedded": total_chunks, "stopped": False}
+
+        stats = pipeline.document_store.get_dataset_stats()
+        model_ids = {row["embedding_model_id"] for row in stats["by_embedding_model"]}
+        assert model_ids == {pipeline.embedder.model_id}
+
+        # Vectors were upserted in place, not duplicated
+        assert pipeline.vector_store.count() == total_chunks
+
+    def test_stop_event_halts_between_batches(
+        self, pipeline, temp_markdown_dir, domain_chunker
+    ):
+        """A set stop_event halts migration before all stale chunks are processed."""
+        import threading
+
+        adapter = FilesystemAdapter(temp_markdown_dir)
+        pipeline.ingest(adapter, domain_chunker)
+        self._set_embedding_model(pipeline, "old-model-v0")
+
+        already_set = threading.Event()
+        already_set.set()
+
+        result = pipeline.reembed_stale_chunks(batch_size=1, stop_event=already_set)
+        assert result == {"chunks_reembedded": 0, "stopped": True}
+
+        stats = pipeline.document_store.get_dataset_stats()
+        model_ids = {row["embedding_model_id"] for row in stats["by_embedding_model"]}
+        assert model_ids == {"old-model-v0"}

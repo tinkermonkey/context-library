@@ -12,6 +12,7 @@ from context_library.server.schemas import (
     AdapterStatsResponse,
     DatasetStatsResponse,
     DomainStats,
+    EmbeddingModelStats,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,13 @@ async def get_stats(request: Request) -> DatasetStatsResponse:
                 active_chunk_count=d["active_chunk_count"],
             )
             for d in raw["by_domain"]
+        ],
+        by_embedding_model=[
+            EmbeddingModelStats(
+                embedding_model_id=m["embedding_model_id"],
+                chunk_count=m["chunk_count"],
+            )
+            for m in raw["by_embedding_model"]
         ],
     )
 

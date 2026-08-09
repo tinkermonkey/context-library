@@ -52,6 +52,11 @@ export interface DomainStats {
   active_chunk_count: number;
 }
 
+export interface EmbeddingModelStats {
+  embedding_model_id: string;
+  chunk_count: number;
+}
+
 export interface DatasetStatsResponse {
   total_sources: number;
   total_active_chunks: number;
@@ -59,6 +64,7 @@ export interface DatasetStatsResponse {
   sync_queue_pending_insert: number;
   sync_queue_pending_delete: number;
   by_domain: DomainStats[];
+  by_embedding_model: EmbeddingModelStats[];
 }
 
 export interface AdapterStats {
