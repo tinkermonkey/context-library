@@ -2711,6 +2711,23 @@ class DocumentStore:
         for row in cursor.fetchall():
             sync_counts[row["operation"]] = row["cnt"]
 
+        # Active chunk counts by embedding model, so a model upgrade's re-embedding
+        # progress can be observed (old model_id count shrinking to zero).
+        cursor.execute(
+            """
+            SELECT c.embedding_model_id AS embedding_model_id, COUNT(*) AS cnt
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE c.source_version = s.current_version AND c.retired_at IS NULL
+            GROUP BY c.embedding_model_id
+            ORDER BY cnt DESC
+            """
+        )
+        by_embedding_model = [
+            {"embedding_model_id": row["embedding_model_id"], "chunk_count": row["cnt"]}
+            for row in cursor.fetchall()
+        ]
+
         return {
             "by_domain": by_domain,
             "total_sources": total_sources,
@@ -2718,6 +2735,7 @@ class DocumentStore:
             "retired_chunk_count": retired_chunk_count,
             "sync_queue_pending_insert": sync_counts["insert"],
             "sync_queue_pending_delete": sync_counts["delete"],
+            "by_embedding_model": by_embedding_model,
         }
 
     def list_chunks(
@@ -2826,6 +2844,89 @@ class DocumentStore:
                 continue
 
         return paginated_results, total
+
+    def get_chunks_with_stale_embedding_model(
+        self, current_model_id: str, limit: int = 256
+    ) -> list[ChunkWithLineageContext]:
+        """Get a batch of active chunks whose embedding_model_id differs from current_model_id.
+
+        Drives re-embedding after an embedding model upgrade: callers should loop,
+        re-embedding and then persisting each returned batch via
+        update_chunks_embedding_model(), until this method returns an empty list.
+        Because migrated chunks stop matching the filter, no offset/pagination
+        bookkeeping is needed between calls.
+
+        Only considers the current (non-retired) version of each source, matching the
+        "active chunk" definition used elsewhere (e.g. get_dataset_stats).
+
+        Args:
+            current_model_id: The embedder's current model_id. Chunks already tagged
+                with this value are excluded.
+            limit: Maximum number of chunks to return.
+
+        Returns:
+            List of ChunkWithLineageContext for chunks needing re-embedding.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            SELECT c.chunk_hash, c.source_id, c.source_version, c.chunk_index,
+                   c.content, c.context_header, c.chunk_type, c.domain_metadata,
+                   c.normalizer_version, c.embedding_model_id,
+                   s.adapter_id, s.domain, s.current_version as source_version_id
+            FROM chunks c
+            JOIN sources s ON c.source_id = s.source_id
+            WHERE c.retired_at IS NULL
+              AND c.source_version = s.current_version
+              AND c.embedding_model_id != ?
+            LIMIT ?
+            """,
+            (current_model_id, limit),
+        )
+        rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            try:
+                chunk = self._build_chunk_from_row(row)
+            except ValueError as e:
+                logger.warning("Skipping corrupt chunk during re-embed scan: %s", e)
+                continue
+            results.append(ChunkWithLineageContext(
+                chunk=chunk,
+                source_id=row["source_id"],
+                source_version_id=row["source_version_id"],
+                adapter_id=row["adapter_id"],
+                domain=row["domain"],
+                normalizer_version=row["normalizer_version"],
+                embedding_model_id=row["embedding_model_id"],
+            ))
+        return results
+
+    def update_chunks_embedding_model(
+        self, chunk_keys: list[tuple[str, str, int]], embedding_model_id: str
+    ) -> None:
+        """Update embedding_model_id for the given chunk rows after re-embedding.
+
+        Args:
+            chunk_keys: List of (chunk_hash, source_id, source_version) tuples identifying
+                the exact chunk rows to update (matches the chunks table primary key).
+            embedding_model_id: The new embedding_model_id to record.
+        """
+        if not chunk_keys:
+            return
+        with self._write_lock, self.conn:
+            self.conn.executemany(
+                """
+                UPDATE chunks
+                SET embedding_model_id = ?
+                WHERE chunk_hash = ? AND source_id = ? AND source_version = ?
+                """,
+                [
+                    (embedding_model_id, chunk_hash, source_id, source_version)
+                    for chunk_hash, source_id, source_version in chunk_keys
+                ],
+            )
 
     def get_adapter_stats(self) -> list[dict]:
         """Get per-adapter source and active chunk counts.

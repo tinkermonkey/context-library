@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 RUN pip install --no-cache-dir ".[server,otel]"
 
 # Pre-download the default embedding model into the image
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)"
 
 # Copy built frontend assets from the frontend-builder stage
 COPY --from=frontend-builder /ui/dist/ /app/ui/dist/

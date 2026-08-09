@@ -5388,6 +5388,7 @@ class TestGetDatasetStats:
         assert stats["sync_queue_pending_insert"] == 0
         assert stats["sync_queue_pending_delete"] == 0
         assert stats["by_domain"] == []
+        assert stats["by_embedding_model"] == []
 
     def test_counts_after_registration(self, store: DocumentStore) -> None:
         _setup_adapter_and_source(store)
@@ -5395,6 +5396,38 @@ class TestGetDatasetStats:
         assert stats["total_sources"] == 1
         assert stats["by_domain"][0]["domain"] == "notes"
         assert stats["by_domain"][0]["source_count"] == 1
+
+    def test_by_embedding_model_breakdown(self, store: DocumentStore) -> None:
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
+        _setup_adapter_and_source(store)
+
+        chunk_hash = compute_chunk_hash("content1")
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content1",
+            chunk_hashes=[chunk_hash],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(
+            [Chunk(chunk_hash=chunk_hash, content="content1", chunk_index=0, chunk_type=ChunkType.STANDARD)],
+            [LineageRecord(
+                chunk_hash=chunk_hash,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="nomic-ai/nomic-embed-text-v1.5",
+            )],
+        )
+
+        stats = store.get_dataset_stats()
+        assert stats["by_embedding_model"] == [
+            {"embedding_model_id": "nomic-ai/nomic-embed-text-v1.5", "chunk_count": 1}
+        ]
 
 class TestListChunks:
     """Tests for DocumentStore.list_chunks()."""
@@ -5619,6 +5652,144 @@ class TestListChunks:
         # Should now have 0 chunks
         _rows, total = store.list_chunks()
         assert total == 0
+
+
+class TestGetChunksWithStaleEmbeddingModel:
+    """Tests for DocumentStore.get_chunks_with_stale_embedding_model()."""
+
+    def _write_chunk(self, store: DocumentStore, content: str, embedding_model_id: str):
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
+
+        chunk_hash = compute_chunk_hash(content)
+        chunk = Chunk(
+            chunk_hash=chunk_hash,
+            content=content,
+            context_header="Header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown=content,
+            chunk_hashes=[chunk_hash],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage = LineageRecord(
+            chunk_hash=chunk_hash,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.NOTES,
+            normalizer_version="1.0.0",
+            embedding_model_id=embedding_model_id,
+        )
+        store.write_chunks([chunk], [lineage])
+        return chunk_hash
+
+    def test_empty_db(self, store: DocumentStore) -> None:
+        assert store.get_chunks_with_stale_embedding_model("new-model") == []
+
+    def test_returns_chunks_with_different_model(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        self._write_chunk(store, "content1", "old-model")
+
+        results = store.get_chunks_with_stale_embedding_model("new-model")
+        assert len(results) == 1
+        assert results[0].chunk.content == "content1"
+        assert results[0].embedding_model_id == "old-model"
+
+    def test_excludes_chunks_already_on_current_model(self, store: DocumentStore) -> None:
+        _setup_adapter_and_source(store)
+        self._write_chunk(store, "content1", "new-model")
+
+        assert store.get_chunks_with_stale_embedding_model("new-model") == []
+
+    def test_respects_limit(self, store: DocumentStore) -> None:
+        config = _setup_adapter_and_source(store)
+        for i in range(3):
+            store.register_source(
+                source_id=f"read-src-{i}",
+                adapter_id=config.adapter_id,
+                domain=Domain.NOTES,
+                origin_ref=f"/docs/test{i}.md",
+                poll_strategy=PollStrategy.PULL,
+            )
+            from context_library.storage.models import (
+                Chunk,
+                ChunkType,
+                compute_chunk_hash,
+            )
+            chunk_hash = compute_chunk_hash(f"content{i}")
+            store.create_source_version(
+                source_id=f"read-src-{i}",
+                version=1,
+                markdown=f"content{i}",
+                chunk_hashes=[chunk_hash],
+                adapter_id=config.adapter_id,
+                normalizer_version="1.0.0",
+                fetch_timestamp="2024-01-01T00:00:00+00:00",
+            )
+            store.write_chunks(
+                [Chunk(chunk_hash=chunk_hash, content=f"content{i}", chunk_index=0, chunk_type=ChunkType.STANDARD)],
+                [LineageRecord(
+                    chunk_hash=chunk_hash,
+                    source_id=f"read-src-{i}",
+                    source_version_id=1,
+                    adapter_id=config.adapter_id,
+                    domain=Domain.NOTES,
+                    normalizer_version="1.0.0",
+                    embedding_model_id="old-model",
+                )],
+            )
+
+        results = store.get_chunks_with_stale_embedding_model("new-model", limit=2)
+        assert len(results) == 2
+
+
+class TestUpdateChunksEmbeddingModel:
+    """Tests for DocumentStore.update_chunks_embedding_model()."""
+
+    def test_empty_list_is_noop(self, store: DocumentStore) -> None:
+        store.update_chunks_embedding_model([], "new-model")  # Should not raise
+
+    def test_updates_embedding_model_id(self, store: DocumentStore) -> None:
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
+        _setup_adapter_and_source(store)
+
+        chunk_hash = compute_chunk_hash("content1")
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content1",
+            chunk_hashes=[chunk_hash],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        store.write_chunks(
+            [Chunk(chunk_hash=chunk_hash, content="content1", chunk_index=0, chunk_type=ChunkType.STANDARD)],
+            [LineageRecord(
+                chunk_hash=chunk_hash,
+                source_id="read-src",
+                source_version_id=1,
+                adapter_id="read-adapter",
+                domain=Domain.NOTES,
+                normalizer_version="1.0.0",
+                embedding_model_id="old-model",
+            )],
+        )
+
+        store.update_chunks_embedding_model([(chunk_hash, "read-src", 1)], "new-model")
+
+        lineage = store.get_lineage(chunk_hash, source_id="read-src")
+        assert lineage is not None
+        assert lineage.embedding_model_id == "new-model"
+
+        # Chunk no longer shows up as stale
+        assert store.get_chunks_with_stale_embedding_model("new-model") == []
 
 
 class TestGetAdapterStats:

@@ -26,7 +26,7 @@ from context_library.core.exceptions import (
 from context_library.domains.base import BaseDomain
 from context_library.domains.registry import get_domain_chunker as _get_domain_chunker
 from context_library.storage.document_store import DocumentStore
-from context_library.storage.models import LineageRecord, PollStrategy
+from context_library.storage.models import Domain, LineageRecord, PollStrategy
 from context_library.storage.validators import validate_embedding_dimension
 from context_library.storage.vector_store import ChunkVectorData, VectorStore
 from context_library.telemetry.tracer import get_status_code, get_tracer
@@ -52,6 +52,10 @@ _ingest_duration_histogram = _meter.create_histogram(
     "context_library.ingest.duration_seconds",
     description="Per-source ingestion duration",
     unit="s",
+)
+_reembed_chunks_counter = _meter.create_counter(
+    "context_library.reembed.chunks_total",
+    description="Chunks migrated to the current embedding model",
 )
 
 
@@ -185,6 +189,101 @@ class IngestionPipeline:
         """Return a snapshot of all currently active ingestion runs."""
         with self._runs_lock:
             return list(self._active_runs.values())
+
+    def reembed_stale_chunks(
+        self, batch_size: int = 256, stop_event: threading.Event | None = None
+    ) -> dict:
+        """Re-embed active chunks left over from a previous embedding model.
+
+        Intended to run once at startup after CTX_EMBEDDING_MODEL changes: chunks carry
+        their embedding_model_id in SQLite (the source of truth), so any chunk whose
+        recorded model differs from the configured embedder is stale and needs its
+        vector recomputed. Processed in batches to bound memory use across large corpora
+        rather than loading the full chunk set at once.
+
+        Each batch commits its vector store write and SQLite embedding_model_id update
+        together before moving on, so an interrupted run (crash, restart, stop_event) can
+        simply be re-invoked: already-migrated chunks won't be re-selected.
+
+        Args:
+            batch_size: Number of chunks to re-embed per iteration.
+            stop_event: Optional event checked between batches to support a clean,
+                mid-migration shutdown.
+
+        Returns:
+            Dict with keys: chunks_reembedded, stopped (True if stop_event interrupted
+            the run before all stale chunks were processed).
+        """
+        current_model_id = self.embedder.model_id
+        expected_dim = self.embedder.dimension
+        chunks_reembedded = 0
+
+        with tracer.start_as_current_span("pipeline.reembed_stale_chunks") as span:
+            span.set_attribute("model_id", current_model_id)
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    span.set_attribute("stopped_early", True)
+                    return {"chunks_reembedded": chunks_reembedded, "stopped": True}
+
+                batch = self.document_store.get_chunks_with_stale_embedding_model(
+                    current_model_id, limit=batch_size
+                )
+                if not batch:
+                    break
+
+                texts = []
+                for item in batch:
+                    text = item.chunk.content
+                    if item.chunk.context_header:
+                        text = f"{item.chunk.context_header}\n\n{text}"
+                    texts.append(text)
+
+                vectors = self.embedder.embed(texts)
+
+                timestamp = datetime.now(timezone.utc).isoformat()
+                chunk_vector_dicts = []
+                for item, vector in zip(batch, vectors):
+                    validate_embedding_dimension(vector, expected_dim)
+                    chunk_vector = ChunkVectorData(
+                        chunk_hash=item.chunk.chunk_hash,
+                        content=item.chunk.content,
+                        vector=vector,
+                        domain=Domain(item.domain),
+                        source_id=item.source_id,
+                        source_version=item.source_version_id,
+                        created_at=timestamp,
+                    )
+                    chunk_vector_dicts.append({
+                        "chunk_hash": chunk_vector.chunk_hash,
+                        "content": chunk_vector.content,
+                        "vector": chunk_vector.vector,
+                        "domain": chunk_vector.domain.value,
+                        "source_id": chunk_vector.source_id,
+                        "source_version": chunk_vector.source_version,
+                        "created_at": chunk_vector.created_at,
+                    })
+
+                chunk_hashes = [item.chunk.chunk_hash for item in batch]
+                self.document_store.write_sync_log(chunk_hashes)
+                self.vector_store.add_vectors(chunk_vector_dicts)
+                self.document_store.clear_sync_log(chunk_hashes)
+
+                self.document_store.update_chunks_embedding_model(
+                    [
+                        (item.chunk.chunk_hash, item.source_id, item.source_version_id)
+                        for item in batch
+                    ],
+                    current_model_id,
+                )
+
+                chunks_reembedded += len(batch)
+                _reembed_chunks_counter.add(len(batch), {"model_id": current_model_id})
+                logger.info(
+                    "Re-embedded %d chunks so far (model=%s)", chunks_reembedded, current_model_id
+                )
+
+            span.set_attribute("chunks_reembedded", chunks_reembedded)
+            return {"chunks_reembedded": chunks_reembedded, "stopped": False}
 
     def ingest(
         self, adapter: BaseAdapter, domain_chunker: BaseDomain, source_ref: str = ""

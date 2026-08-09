@@ -48,8 +48,54 @@ class ChromaDBVectorStore(VectorStore):
         return self._collection
 
     def initialize(self, embedding_dimension: int) -> None:
+        """Initialize the store, recreating the collection if the embedding dimension changed.
+
+        A ChromaDB collection's HNSW index is fixed to the dimension of the first vector
+        inserted; upserting vectors of a different dimension (e.g. after switching to a
+        new embedding model) raises an error. The collection metadata records the
+        dimension it was created with, so a mismatch on restart is detected up front and
+        the collection is dropped and recreated empty. The document store remains the
+        source of truth, so dropped vectors are recovered by the re-embedding pipeline.
+        """
         self._embedding_dimension = embedding_dimension
-        self._get_collection()
+        client = self._get_client()
+        existing = client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine", "embedding_dimension": embedding_dimension},
+        )
+        stored_dimension = self._resolve_stored_dimension(existing)
+        if stored_dimension is not None and stored_dimension != embedding_dimension:
+            logger.warning(
+                "Vector store embedding dimension changed (%s -> %s); dropping stale "
+                "'%s' collection. Vectors will be rebuilt by the re-embedding pipeline.",
+                stored_dimension, embedding_dimension, COLLECTION_NAME,
+            )
+            client.delete_collection(name=COLLECTION_NAME)
+            existing = client.create_collection(
+                name=COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine", "embedding_dimension": embedding_dimension},
+            )
+        self._collection = existing
+
+    def _resolve_stored_dimension(self, collection: chromadb.Collection) -> int | None:
+        """Determine the dimension of vectors already stored in a collection, if any.
+
+        Prefers the dimension recorded in collection metadata (set by this class since
+        the dimension-tagging change). Falls back to sampling one stored vector for
+        collections created before that change, so pre-existing data is still protected
+        against a dimension mismatch. Returns None when the collection is empty (no
+        prior vectors to conflict with) or its dimension can't be determined.
+        """
+        metadata_dimension = (collection.metadata or {}).get("embedding_dimension")
+        if metadata_dimension is not None:
+            return int(metadata_dimension)
+        if collection.count() == 0:
+            return None
+        sample = collection.get(limit=1, include=["embeddings"])
+        embeddings = sample.get("embeddings")
+        if embeddings is not None and len(embeddings) > 0:
+            return len(embeddings[0])
+        return None
 
     def add_vectors(self, vectors: list[dict[str, Any]]) -> None:
         if not vectors:

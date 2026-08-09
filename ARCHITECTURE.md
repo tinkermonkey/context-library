@@ -26,7 +26,7 @@ graph TB
         ADP["Adapter<br/>fetch() → NormalizedContent"]
         DIF["Differ<br/>hash-set change detection"]
         DOM["Domain Chunker<br/>Notes · Messages · Events · Tasks"]
-        EMB["Embedder<br/>all-MiniLM-L6-v2"]
+        EMB["Embedder<br/>nomic-embed-text-v1.5"]
     end
 
     subgraph Storage["Storage Layer"]
@@ -184,7 +184,7 @@ flowchart TD
 
 **Context headers are embedded but not hashed.** Each chunk stores a `context_header` (e.g., the heading breadcrumb `# Section > ## Subsection` for a notes chunk, or `Subject — Sender` for a message). The embedding input is `context_header + "\n\n" + content`, but the SHA-256 hash is computed on `content` only. This means changing the heading of a section doesn't invalidate unchanged body chunks.
 
-**Only added chunks are re-embedded.** Unchanged chunks carry their original `embedding_model_id` in the lineage record, so if the embedding model is swapped, old chunks are identifiable and can be selectively re-embedded.
+**Only added chunks are re-embedded during ingestion.** Unchanged chunks carry their original `embedding_model_id` in the lineage record, so if the embedding model is swapped, old chunks are identifiable. On server startup, `IngestionPipeline.reembed_stale_chunks()` runs in the background and batches through every active chunk whose `embedding_model_id` doesn't match `CTX_EMBEDDING_MODEL`, re-embedding and updating its lineage in place — no ingestion re-run required. Progress is observable via the `by_embedding_model` breakdown on `GET /stats`.
 
 **SQLite writes precede vector writes.** If the vector write fails after SQLite succeeds, `StorageError(inconsistent=True)` is raised. The `lancedb_sync_log` table records all pending inserts and deletes, so the vector store can be rebuilt from SQLite at any time.
 

@@ -372,6 +372,11 @@ class DomainStats(BaseModel):
     active_chunk_count: int
 
 
+class EmbeddingModelStats(BaseModel):
+    embedding_model_id: str
+    chunk_count: int
+
+
 class DatasetStatsResponse(BaseModel):
     total_sources: int
     total_active_chunks: int
@@ -379,6 +384,7 @@ class DatasetStatsResponse(BaseModel):
     sync_queue_pending_insert: int
     sync_queue_pending_delete: int
     by_domain: list[DomainStats]
+    by_embedding_model: list[EmbeddingModelStats]
 
 
 # ── Top-level chunks listing ────────────────────────────────────────

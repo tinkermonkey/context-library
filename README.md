@@ -182,7 +182,7 @@ docker compose up --build
 docker compose up --build
 ```
 
-The server starts on `http://localhost:8000`. The embedding model (`all-MiniLM-L6-v2`) is baked into the image at build time, so the first request does not incur a download delay.
+The server starts on `http://localhost:8000`. The embedding model (`nomic-ai/nomic-embed-text-v1.5`) is baked into the image at build time, so the first request does not incur a download delay.
 
 To run in the background:
 
@@ -215,7 +215,8 @@ All variables use the `CTX_` prefix. Every variable has a default and none are s
 |---|---|---|
 | `CTX_SQLITE_DB_PATH` | `/data/sqlite/documents.db` | SQLite database path |
 | `CTX_CHROMADB_PATH` | `/data/chromadb` | ChromaDB persistence directory |
-| `CTX_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers model for embedding |
+| `CTX_EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Sentence-transformers model for embedding. Changing this re-embeds the corpus in the background on next restart. |
+| `CTX_EMBEDDING_TRUST_REMOTE_CODE` | `true` | Allow loading custom modeling code bundled with the embedding model (required by nomic-embed-text) |
 | `CTX_ENABLE_RERANKER` | `false` | Enable cross-encoder reranking on `/query` |
 | `CTX_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Reranker model (only used if reranker enabled) |
 | `CTX_WEBHOOK_SECRET` | `""` (no auth) | Bearer token required on ingest endpoints. If unset, endpoints are open. |
