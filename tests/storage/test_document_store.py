@@ -6214,7 +6214,7 @@ class TestQueryChunksByIdentifiers:
 
     def test_no_scalar_and_array_fields_raises_error(self, store: DocumentStore) -> None:
         """Test that providing neither scalar nor array fields raises ValueError."""
-        with pytest.raises(ValueError, match="At least one of scalar_fields or array_fields must be provided"):
+        with pytest.raises(ValueError, match="At least one of scalar_fields, array_fields, or object_array_fields must be provided"):
             store.query_chunks_by_identifiers(
                 identifiers=["test@example.com"],
                 scalar_fields=[],
@@ -6340,6 +6340,140 @@ class TestQueryChunksByIdentifiers:
             array_fields=[]
         )
         assert ch1 not in result
+
+    def _setup_event_chunk_with_attendees(
+        self, store: DocumentStore, attendees: list[dict] | None
+    ) -> str:
+        """Set up a single events-domain chunk with an `attendees` object array."""
+        from context_library.storage.models import Chunk, ChunkType, compute_chunk_hash
+
+        _setup_adapter_and_source(store)
+
+        content = f"event content {attendees}"
+        ch = compute_chunk_hash(content)
+        domain_metadata: dict = {"host": "frank@example.com"}
+        if attendees is not None:
+            domain_metadata["attendees"] = attendees
+        chunk = Chunk(
+            chunk_hash=ch,
+            content=content,
+            context_header="Event header",
+            chunk_index=0,
+            chunk_type=ChunkType.STANDARD,
+            domain_metadata=domain_metadata,
+        )
+        store.create_source_version(
+            source_id="read-src",
+            version=1,
+            markdown="content",
+            chunk_hashes=[ch],
+            adapter_id="read-adapter",
+            normalizer_version="1.0.0",
+            fetch_timestamp="2024-01-01T00:00:00+00:00",
+        )
+        lineage = LineageRecord(
+            chunk_hash=ch,
+            source_id="read-src",
+            source_version_id=1,
+            adapter_id="read-adapter",
+            domain=Domain.EVENTS,
+            normalizer_version="1.0.0",
+            embedding_model_id="test-model",
+        )
+        store.write_chunks([chunk], [lineage])
+        return ch
+
+    def test_object_array_field_match(self, store: DocumentStore) -> None:
+        """Test that an object array field (e.g. attendees[*].email) matches by subfield."""
+        ch = self._setup_event_chunk_with_attendees(
+            store,
+            [
+                {"name": "Alice", "email": "Alice@Example.com"},
+                {"name": "Bob", "email": "bob@example.com"},
+            ],
+        )
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=[],
+            array_fields=[],
+            object_array_fields=[("attendees", "email")],
+        )
+        assert result == [ch]
+
+    def test_object_array_field_no_match(self, store: DocumentStore) -> None:
+        """Test that an object array field query with no matches returns empty."""
+        self._setup_event_chunk_with_attendees(
+            store, [{"name": "Alice", "email": "alice@example.com"}]
+        )
+        result = store.query_chunks_by_identifiers(
+            identifiers=["nonexistent@example.com"],
+            scalar_fields=[],
+            array_fields=[],
+            object_array_fields=[("attendees", "email")],
+        )
+        assert result == []
+
+    def test_object_array_field_missing_key_handled_gracefully(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that a missing `attendees` key doesn't error and yields no match."""
+        self._setup_event_chunk_with_attendees(store, attendees=None)
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=[],
+            array_fields=[],
+            object_array_fields=[("attendees", "email")],
+        )
+        assert result == []
+
+    def test_object_array_field_empty_list_handled_gracefully(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that an empty `attendees` list doesn't error and yields no match."""
+        self._setup_event_chunk_with_attendees(store, attendees=[])
+        result = store.query_chunks_by_identifiers(
+            identifiers=["alice@example.com"],
+            scalar_fields=[],
+            array_fields=[],
+            object_array_fields=[("attendees", "email")],
+        )
+        assert result == []
+
+    def test_object_array_field_invalid_field_name_raises_error(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that an invalid field name in object_array_fields raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[],
+                array_fields=[],
+                object_array_fields=[("attendees'; DROP TABLE", "email")],
+            )
+
+    def test_object_array_field_invalid_subfield_name_raises_error(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that an invalid subfield name in object_array_fields raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid field name"):
+            store.query_chunks_by_identifiers(
+                identifiers=["test@example.com"],
+                scalar_fields=[],
+                array_fields=[],
+                object_array_fields=[("attendees", "email'; DROP TABLE")],
+            )
+
+    def test_only_object_array_fields_provided_no_error(
+        self, store: DocumentStore
+    ) -> None:
+        """Test that providing only object_array_fields (no scalar/array) does not raise."""
+        result = store.query_chunks_by_identifiers(
+            identifiers=["test@example.com"],
+            scalar_fields=[],
+            array_fields=[],
+            object_array_fields=[("attendees", "email")],
+        )
+        assert result == []
 
 
 class TestGetActivityFeed:

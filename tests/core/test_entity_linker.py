@@ -358,6 +358,62 @@ class TestEntityLinkerFindMatchingChunks:
         # Should find the chunk via scalar field match despite missing array fields
         assert msg_chunk.chunk_hash in matching
 
+    def test_find_matching_chunks_by_event_attendee(self, doc_store):
+        """Match a calendar event chunk via attendees[*].email."""
+        event_hash = make_sha256_hash("event_with_attendees")
+        event_chunk = Chunk(
+            chunk_hash=event_hash,
+            content="Weekly sync",
+            chunk_index=0,
+            domain_metadata={
+                "attendees": [
+                    {"name": "Alice", "email": "Alice@Example.com"},
+                    {"name": "Bob", "email": "bob@example.com"},
+                ]
+            },
+        )
+
+        setup_chunk_in_store(doc_store, event_chunk, "cal_adapter", "test", "source_1", Domain.EVENTS)
+
+        linker = EntityLinker(doc_store)
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert event_chunk.chunk_hash in matching
+
+    def test_find_matching_chunks_with_missing_attendees_field(self, doc_store):
+        """Attendees being absent should not error and should not match."""
+        event_hash = make_sha256_hash("event_without_attendees")
+        event_chunk = Chunk(
+            chunk_hash=event_hash,
+            content="Weekly sync",
+            chunk_index=0,
+            domain_metadata={"host": "frank@example.com"},
+        )
+
+        setup_chunk_in_store(doc_store, event_chunk, "cal_adapter", "test", "source_1", Domain.EVENTS)
+
+        linker = EntityLinker(doc_store)
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert event_chunk.chunk_hash not in matching
+
+    def test_find_matching_chunks_with_empty_attendees_list(self, doc_store):
+        """An empty attendees list should not error and should not match."""
+        event_hash = make_sha256_hash("event_with_empty_attendees")
+        event_chunk = Chunk(
+            chunk_hash=event_hash,
+            content="Weekly sync",
+            chunk_index=0,
+            domain_metadata={"host": "frank@example.com", "attendees": []},
+        )
+
+        setup_chunk_in_store(doc_store, event_chunk, "cal_adapter", "test", "source_1", Domain.EVENTS)
+
+        linker = EntityLinker(doc_store)
+        matching = linker._find_matching_chunks(["alice@example.com"])
+
+        assert event_chunk.chunk_hash not in matching
+
     def test_find_matching_chunks_with_null_domain_metadata(self, doc_store):
         """Match chunks with NULL domain_metadata in scalar field comparisons.
 

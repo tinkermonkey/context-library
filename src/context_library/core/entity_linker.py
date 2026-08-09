@@ -252,15 +252,18 @@ class EntityLinker:
         if not identifiers:
             return []
 
-        # Define fields to search: scalar fields (sender, host, author) and
-        # array fields (recipients, invitees, collaborators) in domain_metadata
+        # Define fields to search: scalar fields (sender, host, author),
+        # array fields of scalars (recipients, invitees, collaborators), and
+        # array fields of objects (events domain attendees, keyed by email) in domain_metadata
         scalar_fields = ["sender", "host", "author"]
         array_fields = ["recipients", "invitees", "collaborators"]
+        object_array_fields = [("attendees", "email")]
 
         return self._store.query_chunks_by_identifiers(
             identifiers,
             scalar_fields=scalar_fields,
             array_fields=array_fields,
+            object_array_fields=object_array_fields,
             exclude_domain=Domain.PEOPLE,
         )
 
