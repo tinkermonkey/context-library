@@ -358,19 +358,19 @@ class TestEntityLinkerFindMatchingChunks:
         # Should find the chunk via scalar field match despite missing array fields
         assert msg_chunk.chunk_hash in matching
 
-    def test_find_matching_chunks_by_event_attendee(self, doc_store):
-        """Match a calendar event chunk via attendees[*].email."""
-        event_hash = make_sha256_hash("event_with_attendees")
+    def test_find_matching_chunks_by_event_invitee(self, doc_store):
+        """Match a calendar event chunk via the flat `invitees` array field.
+
+        Event attendees are stored as flat display strings in `invitees`
+        (see EventMetadata / apple_calendar.py, caldav.py), not as an
+        object array — `invitees` is already covered by array_fields.
+        """
+        event_hash = make_sha256_hash("event_with_invitees")
         event_chunk = Chunk(
             chunk_hash=event_hash,
             content="Weekly sync",
             chunk_index=0,
-            domain_metadata={
-                "attendees": [
-                    {"name": "Alice", "email": "Alice@Example.com"},
-                    {"name": "Bob", "email": "bob@example.com"},
-                ]
-            },
+            domain_metadata={"invitees": ["alice@example.com", "bob@example.com"]},
         )
 
         setup_chunk_in_store(doc_store, event_chunk, "cal_adapter", "test", "source_1", Domain.EVENTS)
@@ -380,9 +380,9 @@ class TestEntityLinkerFindMatchingChunks:
 
         assert event_chunk.chunk_hash in matching
 
-    def test_find_matching_chunks_with_missing_attendees_field(self, doc_store):
-        """Attendees being absent should not error and should not match."""
-        event_hash = make_sha256_hash("event_without_attendees")
+    def test_find_matching_chunks_with_missing_invitees_field(self, doc_store):
+        """Invitees being absent should not error and should not match."""
+        event_hash = make_sha256_hash("event_without_invitees")
         event_chunk = Chunk(
             chunk_hash=event_hash,
             content="Weekly sync",
@@ -397,14 +397,14 @@ class TestEntityLinkerFindMatchingChunks:
 
         assert event_chunk.chunk_hash not in matching
 
-    def test_find_matching_chunks_with_empty_attendees_list(self, doc_store):
-        """An empty attendees list should not error and should not match."""
-        event_hash = make_sha256_hash("event_with_empty_attendees")
+    def test_find_matching_chunks_with_empty_invitees_list(self, doc_store):
+        """An empty invitees list should not error and should not match."""
+        event_hash = make_sha256_hash("event_with_empty_invitees")
         event_chunk = Chunk(
             chunk_hash=event_hash,
             content="Weekly sync",
             chunk_index=0,
-            domain_metadata={"host": "frank@example.com", "attendees": []},
+            domain_metadata={"host": "frank@example.com", "invitees": []},
         )
 
         setup_chunk_in_store(doc_store, event_chunk, "cal_adapter", "test", "source_1", Domain.EVENTS)
