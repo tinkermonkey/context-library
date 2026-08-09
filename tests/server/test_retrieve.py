@@ -5,6 +5,34 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 
+class TestQueryAuth:
+    """Verify /query is gated by the shared bearer-token auth when a secret is set."""
+
+    def test_returns_401_without_auth_when_secret_configured(self, client: TestClient) -> None:
+        client.app.state.config.webhook_secret = "test-secret"
+        resp = client.post("/query", json={"query": "hello"})
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "Invalid or missing credentials"
+
+    def test_returns_401_with_invalid_auth(self, client: TestClient) -> None:
+        client.app.state.config.webhook_secret = "test-secret"
+        resp = client.post(
+            "/query",
+            json={"query": "hello"},
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    def test_returns_200_with_valid_auth(self, client: TestClient) -> None:
+        client.app.state.config.webhook_secret = "test-secret"
+        resp = client.post(
+            "/query",
+            json={"query": "hello"},
+            headers={"Authorization": "Bearer test-secret"},
+        )
+        assert resp.status_code == 200
+
+
 class TestSemanticSearch:
     """Tests for semantic search retrieval across multiple entities."""
 

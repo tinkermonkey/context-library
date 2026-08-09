@@ -45,6 +45,8 @@ def client_spa(ds_for_spa: DocumentStore) -> Generator[TestClient, None, None]:
     mock_embedder.dimension = 384
     mock_vector_store = MagicMock()
     mock_vector_store.count.return_value = 0
+    mock_config = MagicMock()
+    mock_config.webhook_secret = None
 
     @asynccontextmanager
     async def noop_lifespan(app: Any) -> AsyncGenerator[None, None]:
@@ -53,6 +55,7 @@ def client_spa(ds_for_spa: DocumentStore) -> Generator[TestClient, None, None]:
         app.state.vector_store = mock_vector_store
         app.state.pipeline = MagicMock()
         app.state.reranker = None
+        app.state.config = mock_config
         yield
 
     app = create_app()
