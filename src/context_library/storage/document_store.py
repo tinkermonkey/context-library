@@ -3059,6 +3059,7 @@ class DocumentStore:
         identifiers: list[str],
         scalar_fields: list[str],
         array_fields: list[str],
+        object_array_fields: list[tuple[str, str]] | None = None,
         exclude_domain: str | None = None,
     ) -> list[str]:
         """Query chunks where domain_metadata contains any of the given identifiers.
@@ -3073,25 +3074,34 @@ class DocumentStore:
         Args:
             identifiers: List of email/phone strings to search for.
             scalar_fields: List of scalar field names to search (e.g., ['sender', 'host', 'author']).
-            array_fields: List of array field names to search (e.g., ['recipients', 'invitees', 'collaborators']).
+            array_fields: List of array field names of scalar values to search
+                (e.g., ['recipients', 'invitees', 'collaborators']).
+            object_array_fields: List of (field, subfield) pairs identifying arrays of objects
+                to search, e.g. [('attendees', 'email')] to search '$.attendees[*].email'.
             exclude_domain: Optional domain to exclude from results (e.g., 'people').
 
         Returns:
             List of chunk_hashes from chunks where a match was found.
 
         Raises:
-            ValueError: If both scalar_fields and array_fields are empty, or if any field name
-                        contains invalid characters (not alphanumeric or underscore).
+            ValueError: If scalar_fields, array_fields, and object_array_fields are all empty,
+                        or if any field name contains invalid characters (not alphanumeric or
+                        underscore).
         """
         if not identifiers:
             return []
 
+        object_array_fields = object_array_fields or []
+
         # Validate that at least one field type is provided
-        if not scalar_fields and not array_fields:
-            raise ValueError("At least one of scalar_fields or array_fields must be provided")
+        if not scalar_fields and not array_fields and not object_array_fields:
+            raise ValueError(
+                "At least one of scalar_fields, array_fields, or object_array_fields must be provided"
+            )
 
         # Validate field names: allow only alphanumeric characters and underscores
-        for field in scalar_fields + array_fields:
+        object_array_field_names = [name for pair in object_array_fields for name in pair]
+        for field in scalar_fields + array_fields + object_array_field_names:
             if not field or not all(c.isalnum() or c == "_" for c in field):
                 raise ValueError(
                     f"Invalid field name '{field}': field names must be alphanumeric or underscore only"
@@ -3143,12 +3153,28 @@ class DocumentStore:
             params.extend(normalized_query_identifiers)
             params.extend(normalized_query_identifiers)
 
+        # Build SQL conditions for arrays of objects (e.g., attendees[*].email)
+        object_array_conditions = []
+        for field, subfield in object_array_fields:
+            object_array_conditions.append(f"""
+                EXISTS (
+                    SELECT 1 FROM json_each(c.domain_metadata, '$.{field}')
+                    WHERE normalize_email_sql(json_extract(json_each.value, '$.{subfield}')) IN ({','.join('?' * len(normalized_query_identifiers))})
+                       OR normalize_phone_sql(json_extract(json_each.value, '$.{subfield}')) IN ({','.join('?' * len(normalized_query_identifiers))})
+                )
+            """)
+            # Add parameters for object array matching: normalized_query_identifiers twice (once for email, once for phone)
+            params.extend(normalized_query_identifiers)
+            params.extend(normalized_query_identifiers)
+
         # Combine all conditions
         where_conditions = []
         if scalar_conditions:
             where_conditions.append(f"({' OR '.join(scalar_conditions)})")
         if array_conditions:
             where_conditions.append(f"({' OR '.join(array_conditions)})")
+        if object_array_conditions:
+            where_conditions.append(f"({' OR '.join(object_array_conditions)})")
 
         where_clause = " OR ".join(where_conditions)
 

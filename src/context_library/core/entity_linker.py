@@ -253,7 +253,12 @@ class EntityLinker:
             return []
 
         # Define fields to search: scalar fields (sender, host, author) and
-        # array fields (recipients, invitees, collaborators) in domain_metadata
+        # array fields (recipients, invitees, collaborators) in domain_metadata.
+        # Event attendees are stored as flat display strings in `invitees`
+        # (see EventMetadata), not as an object array, so no object_array_fields
+        # entry is wired up here — see DocumentStore.query_chunks_by_identifiers
+        # for the generic object-array-field matching capability, which remains
+        # available for a domain that actually stores object arrays.
         scalar_fields = ["sender", "host", "author"]
         array_fields = ["recipients", "invitees", "collaborators"]
 
