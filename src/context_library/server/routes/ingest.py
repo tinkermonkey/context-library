@@ -223,7 +223,7 @@ async def helper_ingest(
             # concurrently with the poller tick or a manual trigger on the same
             # adapter instance (they would race its in-memory cursor and ack).
             if poller is not None and not poller.try_begin_ingest(adapter.adapter_id):
-                logger.warning(
+                logger.info(
                     "helper_ingest: skipping adapter %s — ingest already in progress",
                     adapter.adapter_id,
                 )
