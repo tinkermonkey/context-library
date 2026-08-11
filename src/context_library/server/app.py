@@ -6,7 +6,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,6 +16,7 @@ from context_library.core.embedder import Embedder
 from context_library.core.pipeline import IngestionPipeline
 from context_library.domains.registry import get_domain_chunker
 from context_library.scheduler.poller import Poller
+from context_library.server.auth import require_auth
 from context_library.server.config import ServerConfig
 from context_library.server.helper_health import HelperHealthCache
 from context_library.server.routes import (
@@ -320,16 +321,16 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="context-library", lifespan=lifespan)
-    app.include_router(health.router)
+    app.include_router(health.router, dependencies=[Depends(require_auth)])
     app.include_router(ingest.router)
-    app.include_router(retrieve.router)
-    app.include_router(adapters.router)
-    app.include_router(sources.router)
-    app.include_router(chunks.router)
-    app.include_router(people.router)
-    app.include_router(stats.router)
+    app.include_router(retrieve.router, dependencies=[Depends(require_auth)])
+    app.include_router(adapters.router, dependencies=[Depends(require_auth)])
+    app.include_router(sources.router, dependencies=[Depends(require_auth)])
+    app.include_router(chunks.router, dependencies=[Depends(require_auth)])
+    app.include_router(people.router, dependencies=[Depends(require_auth)])
+    app.include_router(stats.router, dependencies=[Depends(require_auth)])
     app.include_router(admin.router)
-    app.include_router(dead_letters.router)
+    app.include_router(dead_letters.router, dependencies=[Depends(require_auth)])
 
 
     # Mount static SPA if built assets exist

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import secrets
 import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
@@ -92,16 +91,8 @@ async def reset_adapter(adapter_id: str, request: Request):
     retired but re-ingestion may be deferred or require manual trigger if poller is unavailable.
     """
     ds = request.app.state.document_store
-    config = request.app.state.config
     poller = request.app.state.poller
     helper_adapters = request.app.state.helper_adapters
-
-    # Verify webhook secret if configured (constant-time comparison)
-    if config.webhook_secret:
-        auth = request.headers.get("Authorization", "")
-        expected = f"Bearer {config.webhook_secret}"
-        if not secrets.compare_digest(auth, expected):
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
     with tracer.start_as_current_span("adapter.reset") as span:
         span.set_attribute("adapter.id", adapter_id)

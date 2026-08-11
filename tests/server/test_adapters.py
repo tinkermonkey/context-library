@@ -70,7 +70,7 @@ class TestResetAdapter:
         client.app.state.config.webhook_secret = "test-secret"
         resp = client.post("/adapters/test-adapter/reset")
         assert resp.status_code == 401
-        assert resp.json()["detail"] == "Invalid webhook secret"
+        assert resp.json()["detail"] == "Invalid or missing credentials"
 
     def test_returns_401_with_invalid_auth(self, client: TestClient) -> None:
         """Test that invalid auth returns 401."""
